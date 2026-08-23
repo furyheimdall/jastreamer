@@ -1,0 +1,128 @@
+{
+  "required_external_services": [
+    "github"
+  ],
+  "dependencies": [
+    {
+      "name": "jake-streamer",
+      "version": "source",
+      "license": "Apache-2.0",
+      "paid": false,
+      "packaged": false,
+      "source": "https://github.com/furyheimdall/jake-streamer"
+    },
+    {
+      "name": "Flutter runtime",
+      "version": "3.44.0",
+      "license": "BSD-3-Clause",
+      "paid": false,
+      "packaged": true,
+      "source": "https://github.com/flutter/flutter",
+      "license_file": "tooling/policy/licenses/flutter-BSD-3-Clause.txt"
+    }
+  ],
+  "services": [
+    {
+      "name": "GitHub repository, Actions, Releases, and GHCR",
+      "kind": "github",
+      "required": true,
+      "paid": false
+    }
+  ],
+  "tools": [
+    {
+      "name": "Windows SDK SignTool/MakeAppx",
+      "version": "10.0.26100.0",
+      "license": "LicenseRef-Microsoft-Windows-SDK",
+      "buildOnly": true,
+      "packaged": false,
+      "paid": false,
+      "source": "https://developer.microsoft.com/windows/downloads/windows-sdk/"
+    },
+    {
+      "name": "WiX",
+      "version": "5.0.2",
+      "license": "MS-RL",
+      "buildOnly": true,
+      "packaged": false,
+      "paid": false,
+      "source": "https://github.com/wixtoolset/wix"
+    },
+    {
+      "name": "Flutter/Dart",
+      "version": "3.44.0 / 3.12.0 (sha256:46691e311715845de03a3ba4753a475476936805b29431b1f00f1816981033f8)",
+      "license": "BSD-3-Clause",
+      "buildOnly": true,
+      "packaged": false,
+      "paid": false,
+      "source": "https://github.com/flutter/flutter"
+    },
+    {
+      "name": "JDK keytool",
+      "version": "8u492",
+      "license": "GPL-2.0-with-classpath-exception",
+      "buildOnly": true,
+      "packaged": false,
+      "paid": false,
+      "source": "https://github.com/openjdk/jdk8u"
+    },
+    {
+      "name": "Android apksigner",
+      "version": "35.0.0",
+      "license": "LicenseRef-Android-SDK",
+      "buildOnly": true,
+      "packaged": false,
+      "paid": false,
+      "source": "https://developer.android.com/tools/releases/build-tools"
+    },
+    {
+      "name": "nFPM",
+      "version": "2.43.4",
+      "license": "MIT",
+      "buildOnly": true,
+      "packaged": false,
+      "paid": false,
+      "source": "https://github.com/goreleaser/nfpm"
+    },
+    {
+      "name": "Docker Engine",
+      "version": "29.2.1",
+      "license": "Apache-2.0",
+      "buildOnly": true,
+      "packaged": false,
+      "paid": false,
+      "source": "https://github.com/moby/moby"
+    },
+    {
+      "name": "Docker Buildx",
+      "version": "0.31.1",
+      "license": "Apache-2.0",
+      "buildOnly": true,
+      "packaged": false,
+      "paid": false,
+      "source": "https://github.com/docker/buildx"
+    },
+    {
+      "name": "BuildKit",
+      "version": "0.27.1",
+      "license": "Apache-2.0",
+      "buildOnly": true,
+      "packaged": false,
+      "paid": false,
+      "source": "https://github.com/moby/buildkit"
+    },
+    {
+      "name": "Syft",
+      "version": "1.33.0",
+      "license": "Apache-2.0",
+      "buildOnly": true,
+      "packaged": false,
+      "paid": false,
+      "source": "https://github.com/anchore/syft"
+    }
+  ],
+  "sbom": {
+    "format": "spdx-json",
+    "provenance": "local-in-toto"
+  }
+}

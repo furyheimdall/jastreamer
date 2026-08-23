@@ -1,0 +1,1 @@
+{"dependencies":[{"name":"server","license":"Apache-2.0"},{"name":"tool","license":"MIT"}],"services":[{"name":"GitHub","kind":"github"}],"oidc":false,"actions":[{"name":"actions/checkout","sha":"0123456789abcdef0123456789abcdef01234567"}],"packaged":[{"name":"WiX","buildOnly":true}]}

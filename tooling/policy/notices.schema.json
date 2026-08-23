@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "required": ["component", "package", "version", "license", "source", "license_text"],
+  "properties": {
+    "component": {"type": "string"},
+    "package": {"type": "string"},
+    "version": {"type": "string"},
+    "license": {"type": "string"},
+    "source": {"type": "string", "format": "uri"},
+    "license_text": {"type": "string"}
+  },
+  "additionalProperties": false
+}

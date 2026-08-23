@@ -1,0 +1,1 @@
+{"component":"control","packages":[{"package":"Flutter runtime","version":"3.44.0","license":"BSD-3-Clause","source":"https://github.com/flutter/flutter","license_file":"tooling/policy/licenses/flutter-BSD-3-Clause.txt"}],"sbom":{"format":"spdx-json"},"provenance":{"format":"local-in-toto"}}

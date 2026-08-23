@@ -4,6 +4,9 @@ root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 if [ "$#" -eq 2 ] && [ "$1" = "verify-boundaries" ] && [ "$2" = "--all" ]; then
   exec node "$root/tooling/verify-boundaries.mjs"
 fi
+if [ "$#" -ge 2 ] && [ "$1" = "policy" ] && [ "$2" = "verify" ]; then
+  exec bun "$root/tooling/policy/cli.ts" "$@"
+fi
 if [ "$#" -ge 2 ] && [ "$1" = "contracts" ]; then
   shift
   exec bun "$root/contracts/tooling/cli.ts" "$@"

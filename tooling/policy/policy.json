@@ -1,0 +1,55 @@
+{
+  "sourceLicense": "Apache-2.0",
+  "allowedPackagedLicenses": [
+    "Apache-2.0",
+    "MIT",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Zlib",
+    "Boost-1.0",
+    "CC0-1.0"
+  ],
+  "forbiddenPackagedLicenses": [
+    "GPL-2.0-only",
+    "GPL-3.0-only",
+    "AGPL-3.0",
+    "SSPL-1.0",
+    "Commons-Clause",
+    "Proprietary-NonCommercial"
+  ],
+  "buildOnlyLicenses": [
+    "MS-RL",
+    "LicenseRef-Microsoft-Windows-SDK",
+    "LicenseRef-Android-SDK",
+    "GPL-2.0-with-classpath-exception"
+  ],
+  "forbiddenPackages": [
+    "essentia",
+    "tensorflow",
+    "torch",
+    "pytorch"
+  ],
+  "allowedServices": ["github"],
+  "requiredExternalServices": ["github"],
+  "forbiddenServices": [
+    {"kind": "sigstore-keyless", "code": "KEYLESS_SIGSTORE"},
+    {"kind": "acme", "code": "ACME_SERVICE"},
+    {"kind": "timestamp-authority", "code": "EXTERNAL_TIMESTAMP"},
+    {"kind": "microsoft-store", "code": "FORBIDDEN_STORE"},
+    {"kind": "google-play", "code": "FORBIDDEN_STORE"},
+    {"kind": "paid-ca", "code": "FORBIDDEN_PAID_CA"},
+    {"kind": "apt-repository", "code": "FORBIDDEN_PACKAGE_REPOSITORY"},
+    {"kind": "yum-repository", "code": "FORBIDDEN_PACKAGE_REPOSITORY"},
+    {"kind": "mkcert", "code": "FORBIDDEN_MKCERT"}
+  ],
+  "forbiddenWorkflowPermissions": ["id-token"],
+  "forbiddenUrlPatterns": [
+    "https?://[^\\s]*(?:acme|fulcio|rekor|sigstore|timestamp)"
+  ],
+  "actionPin": "^[0-9a-f]{40}$",
+  "sbom": {
+    "format": "spdx-json",
+    "provenance": "local-in-toto"
+  }
+}
