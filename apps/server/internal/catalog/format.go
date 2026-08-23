@@ -125,6 +125,12 @@ func metadataFromTag(parsed tag.Metadata) Metadata {
 			}
 		}
 	}
+	if track <= 0 {
+		track = positiveNumber(values["TRACKNUMBER"])
+	}
+	if disc <= 0 {
+		disc = positiveNumber(values["DISCNUMBER"])
+	}
 	return Metadata{
 		Title:       normalizeDisplay(parsed.Title()),
 		Album:       normalizeDisplay(parsed.Album()),
