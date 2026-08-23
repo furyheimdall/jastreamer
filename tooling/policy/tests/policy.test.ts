@@ -92,14 +92,29 @@ test("generates deterministic exact third-party notices", async () => {
   expect((await outputOf(runPolicy("--all"))).exitCode).toBe(0);
   expect(await Bun.file("tooling/policy/THIRD_PARTY_NOTICES.generated").text()).toBe(first);
   const flutterLicense = await Bun.file("tooling/policy/licenses/flutter-BSD-3-Clause.txt").text();
-  expect(first.trim().split("\n").map((line: string) => JSON.parse(line))).toEqual([{
+  const notices = first.trim().split("\n").map((line: string) => JSON.parse(line)) as readonly Readonly<Record<string, string>>[];
+  expect(notices).toHaveLength(11);
+  expect(notices[0]).toEqual({
     component: "control",
     package: "Flutter runtime",
     version: "3.44.0",
     license: "BSD-3-Clause",
     source: "https://github.com/flutter/flutter",
     license_text: flutterLicense,
-  }]);
+  });
+  expect(notices.filter((notice) => notice.component === "server").map((notice) => notice.package).toSorted()).toEqual([
+    "github.com/dhowden/tag",
+    "github.com/dustin/go-humanize",
+    "github.com/google/uuid",
+    "github.com/remyoudompheng/bigfft",
+    "golang.org/x/sys",
+    "golang.org/x/text",
+    "modernc.org/libc",
+    "modernc.org/mathutil",
+    "modernc.org/memory",
+    "modernc.org/sqlite",
+  ]);
+  expect(notices.every((notice) => notice.license_text.length > 100)).toBe(true);
 });
 
 test("keeps the exact packaged runtime source and version", async () => {

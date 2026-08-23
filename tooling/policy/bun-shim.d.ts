@@ -28,7 +28,7 @@ declare namespace Bun {
   function file(path: string | URL): File;
   function spawn(
     command: readonly string[],
-    options: Readonly<{ stderr: "pipe"; stdout: "pipe" }>,
+    options: Readonly<{ cwd?: string; stderr: "pipe"; stdout: "pipe" }>,
   ): Subprocess;
   function write(path: string, content: string): Promise<number>;
 }
@@ -38,6 +38,7 @@ declare module "bun:test" {
     toBe(expected: unknown): void;
     toContain(expected: unknown): void;
     toEqual(expected: unknown): void;
+    toHaveLength(expected: number): void;
     toMatchObject(expected: unknown): void;
   }
 

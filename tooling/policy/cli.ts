@@ -23,6 +23,27 @@ const licenseText = async (item: Entry): Promise<string> => {
   if (!path.startsWith("tooling/policy/licenses/") || path.includes("..")) return "";
   return Bun.file(file(path)).text();
 };
+const compiledServerModules = async (): Promise<Readonly<{ modules: ReadonlyMap<string, string>; finding?: Finding }>> => {
+  const process = Bun.spawn([
+    "go", "list", "-deps", "-f",
+    "{{with .Module}}{{if and .Path .Version}}{{.Path}} {{.Version}}{{end}}{{end}}",
+    "./...",
+  ], { cwd: file("apps/server"), stdout: "pipe", stderr: "pipe" });
+  const [exitCode, stdout, stderr] = await Promise.all([
+    process.exited,
+    new Response(process.stdout).text(),
+    new Response(process.stderr).text(),
+  ]);
+  if (exitCode !== 0) {
+    return { modules: new Map(), finding: finding("MODULE_CLOSURE_COMMAND", "apps/server", stderr.trim() || `go list exit ${exitCode}`) };
+  }
+  const modules = new Map<string, string>();
+  for (const line of stdout.split("\n")) {
+    const [name, version] = line.trim().split(/\s+/, 2);
+    if (name && version) modules.set(name, version);
+  }
+  return { modules };
+};
 
 const scanWorkflows = async (workspace: string, policy: Entry): Promise<readonly Finding[]> => {
   const findings: Finding[] = [];
@@ -90,6 +111,15 @@ const audit = async (workspace: string, closureDirectory: string): Promise<Audit
     if (noticeKeys.has(key)) findings.push(finding("NOTICE_DUPLICATE", text(item.package), "duplicate component/package notice"));
     noticeKeys.add(key);
     try { new URL(text(item.source)); } catch { findings.push(finding("NOTICE_SCHEMA", text(item.package), "source must be an absolute URL")); }
+  }
+  const compiled = await compiledServerModules();
+  if (compiled.finding) findings.push(compiled.finding);
+  const serverRecords = new Map(sorted.filter((item) => text(item.component) === "server").map((item) => [text(item.package), text(item.version)]));
+  for (const [name, version] of compiled.modules) {
+    if (serverRecords.get(name) !== version) findings.push(finding("MODULE_CLOSURE_MISMATCH", name, `compiled ${version}, closure ${serverRecords.get(name) ?? "missing"}`));
+  }
+  for (const [name, version] of serverRecords) {
+    if (compiled.modules.get(name) !== version) findings.push(finding("MODULE_CLOSURE_MISMATCH", name, `closure ${version}, compiled ${compiled.modules.get(name) ?? "missing"}`));
   }
   const notices = sorted.map((item) => JSON.stringify(Object.fromEntries(required.map((key) => [key, text(item[key])])))).join("\n") + (sorted.length ? "\n" : "");
   findings.push(...await scanWorkflows(workspace, policy));

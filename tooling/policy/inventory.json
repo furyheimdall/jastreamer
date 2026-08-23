@@ -19,6 +19,96 @@
       "packaged": true,
       "source": "https://github.com/flutter/flutter",
       "license_file": "tooling/policy/licenses/flutter-BSD-3-Clause.txt"
+    },
+    {
+      "name": "github.com/dhowden/tag",
+      "version": "v0.0.0-20240417053706-3d75831295e8",
+      "license": "BSD-2-Clause",
+      "paid": false,
+      "packaged": true,
+      "source": "https://github.com/dhowden/tag",
+      "license_file": "tooling/policy/licenses/github.com-dhowden-tag-BSD-2-Clause.txt"
+    },
+    {
+      "name": "github.com/dustin/go-humanize",
+      "version": "v1.0.1",
+      "license": "MIT",
+      "paid": false,
+      "packaged": true,
+      "source": "https://github.com/dustin/go-humanize",
+      "license_file": "tooling/policy/licenses/github.com-dustin-go-humanize-MIT.txt"
+    },
+    {
+      "name": "github.com/google/uuid",
+      "version": "v1.6.0",
+      "license": "BSD-3-Clause",
+      "paid": false,
+      "packaged": true,
+      "source": "https://github.com/google/uuid",
+      "license_file": "tooling/policy/licenses/github.com-google-uuid-BSD-3-Clause.txt"
+    },
+    {
+      "name": "github.com/remyoudompheng/bigfft",
+      "version": "v0.0.0-20230129092748-24d4a6f8daec",
+      "license": "BSD-3-Clause",
+      "paid": false,
+      "packaged": true,
+      "source": "https://github.com/remyoudompheng/bigfft",
+      "license_file": "tooling/policy/licenses/github.com-remyoudompheng-bigfft-BSD-3-Clause.txt"
+    },
+    {
+      "name": "golang.org/x/sys",
+      "version": "v0.47.0",
+      "license": "BSD-3-Clause",
+      "paid": false,
+      "packaged": true,
+      "source": "https://go.googlesource.com/sys",
+      "license_file": "tooling/policy/licenses/golang.org-x-sys-BSD-3-Clause.txt"
+    },
+    {
+      "name": "golang.org/x/text",
+      "version": "v0.40.0",
+      "license": "BSD-3-Clause",
+      "paid": false,
+      "packaged": true,
+      "source": "https://go.googlesource.com/text",
+      "license_file": "tooling/policy/licenses/golang.org-x-text-BSD-3-Clause.txt"
+    },
+    {
+      "name": "modernc.org/libc",
+      "version": "v1.74.4",
+      "license": "BSD-3-Clause",
+      "paid": false,
+      "packaged": true,
+      "source": "https://gitlab.com/cznic/libc",
+      "license_file": "tooling/policy/licenses/modernc.org-libc-BSD-3-Clause.txt"
+    },
+    {
+      "name": "modernc.org/mathutil",
+      "version": "v1.7.1",
+      "license": "BSD-3-Clause",
+      "paid": false,
+      "packaged": true,
+      "source": "https://gitlab.com/cznic/mathutil",
+      "license_file": "tooling/policy/licenses/modernc.org-mathutil-BSD-3-Clause.txt"
+    },
+    {
+      "name": "modernc.org/memory",
+      "version": "v1.11.0",
+      "license": "BSD-3-Clause",
+      "paid": false,
+      "packaged": true,
+      "source": "https://gitlab.com/cznic/memory",
+      "license_file": "tooling/policy/licenses/modernc.org-memory-BSD-3-Clause.txt"
+    },
+    {
+      "name": "modernc.org/sqlite",
+      "version": "v1.57.0",
+      "license": "BSD-3-Clause",
+      "paid": false,
+      "packaged": true,
+      "source": "https://gitlab.com/cznic/sqlite",
+      "license_file": "tooling/policy/licenses/modernc.org-sqlite-BSD-3-Clause-and-SQLite-Public-Domain.txt"
     }
   ],
   "services": [
