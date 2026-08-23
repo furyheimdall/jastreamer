@@ -1,0 +1,8 @@
+#!/bin/sh
+set -eu
+
+if [ "$#" -eq 2 ] && [ "$1" = "verify-boundaries" ] && [ "$2" = "--all" ]; then
+  exec node "$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)/verify-boundaries.mjs"
+fi
+printf '%s\n' 'usage: tooling/componentctl verify-boundaries --all' >&2
+exit 64

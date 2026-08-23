@@ -1,0 +1,9 @@
+name: jstreamer-control
+display_name: Jake Streamer Control
+root: apps/control
+version_file: VERSION
+manifest: pubspec.yaml
+lockfile: pubspec.lock
+changelog: CHANGELOG.md
+verify: flutter pub get
+license: Apache-2.0

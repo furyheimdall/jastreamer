@@ -1,0 +1,10 @@
+[package]
+name = "jstreamer-renderer"
+version = "0.1.0"
+edition = "2024"
+license = "Apache-2.0"
+[lib]
+path = "src/lib.rs"
+[[bin]]
+name = "jstreamer-renderer"
+path = "src/main.rs"

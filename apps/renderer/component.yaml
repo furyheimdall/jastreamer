@@ -1,0 +1,9 @@
+name: jstreamer-renderer
+display_name: Jake Streamer Renderer
+root: apps/renderer
+version_file: VERSION
+manifest: Cargo.toml
+lockfile: Cargo.lock
+changelog: CHANGELOG.md
+verify: cargo metadata --no-deps --format-version 1
+license: Apache-2.0

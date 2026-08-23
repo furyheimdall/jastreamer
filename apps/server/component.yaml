@@ -1,0 +1,9 @@
+name: jstreamer-server
+display_name: Jake Streamer Server
+root: apps/server
+version_file: VERSION
+manifest: go.mod
+lockfile: go.sum
+changelog: CHANGELOG.md
+verify: go env GOMOD
+license: Apache-2.0

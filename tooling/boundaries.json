@@ -1,0 +1,11 @@
+{
+  "schema": 1,
+  "repository": "jake-streamer",
+  "components": {
+    "server": "apps/server",
+    "control": "apps/control",
+    "renderer": "apps/renderer"
+  },
+  "shared_roots": ["contracts", "tooling"],
+  "forbidden_cross_component_references": true
+}
