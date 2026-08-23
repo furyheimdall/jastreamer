@@ -109,37 +109,27 @@ func recognizeFormat(extension string, reader io.ReadSeeker) (Format, error) {
 func metadataFromTag(parsed tag.Metadata) Metadata {
 	track, _ := parsed.Track()
 	disc, _ := parsed.Disc()
-	values := make(map[string]string)
-	for key, value := range parsed.Raw() {
-		normalizedKey := strings.NewReplacer("_", "", "-", "", " ", "", ":", "").Replace(strings.ToUpper(key))
-		switch typed := value.(type) {
-		case string:
-			values[normalizedKey] = typed
-		case []byte:
-			values[normalizedKey] = string(typed)
-		case *tag.Comm:
-			values[strings.NewReplacer("_", "", "-", "", " ", "").Replace(strings.ToUpper(typed.Description))] = typed.Text
-		case *tag.UFID:
-			if strings.Contains(strings.ToLower(typed.Provider), "musicbrainz") {
-				values["MUSICBRAINZTRACKID"] = string(typed.Identifier)
-			}
-		}
-	}
+	raw := extractRawTags(parsed)
 	if track <= 0 {
-		track = positiveNumber(values["TRACKNUMBER"])
+		track = positiveNumber(raw.first("TRACKNUMBER"))
 	}
 	if disc <= 0 {
-		disc = positiveNumber(values["DISCNUMBER"])
+		disc = positiveNumber(raw.first("DISCNUMBER"))
 	}
+	genres := append([]string{parsed.Genre()}, raw.all("GENRE", "GENRES")...)
 	return Metadata{
 		Title:       normalizeDisplay(parsed.Title()),
 		Album:       normalizeDisplay(parsed.Album()),
 		AlbumArtist: normalizeDisplay(parsed.AlbumArtist()),
 		Artist:      normalizeDisplay(parsed.Artist()),
-		RecordingID: normalizeEmbeddedID(firstValue(values, "MUSICBRAINZTRACKID", "MUSICBRAINZRECORDINGID")),
-		ReleaseID:   normalizeEmbeddedID(values["MUSICBRAINZRELEASEID"]),
+		RecordingID: normalizeEmbeddedID(raw.first("MUSICBRAINZTRACKID", "MUSICBRAINZRECORDINGID")),
+		ReleaseID:   normalizeEmbeddedID(raw.first("MUSICBRAINZRELEASEID")),
 		Disc:        disc,
 		Track:       track,
+		Genres:      normalizedTagValues(genres),
+		Styles:      raw.all("STYLE", "STYLES", "SUBGENRE"),
+		Moods:       raw.all("MOOD", "MOODS"),
+		LocalTags:   raw.all("TAG", "TAGS", "LOCALTAG", "LOCALTAGS", "GROUPING"),
 	}
 }
 
@@ -178,13 +168,4 @@ func normalizeDisplay(value string) string {
 
 func normalizeEmbeddedID(value string) string {
 	return strings.ToLower(strings.Trim(value, "\x00 \t\r\n"))
-}
-
-func firstValue(values map[string]string, keys ...string) string {
-	for _, key := range keys {
-		if values[key] != "" {
-			return values[key]
-		}
-	}
-	return ""
 }

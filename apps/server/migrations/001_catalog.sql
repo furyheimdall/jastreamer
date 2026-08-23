@@ -80,6 +80,16 @@ CREATE INDEX catalog_tracks_album_order_idx
     );
 CREATE INDEX catalog_tracks_recording_idx ON catalog_tracks(recording_id);
 
+CREATE TABLE catalog_track_tags (
+    track_id TEXT NOT NULL REFERENCES catalog_tracks(track_id) ON DELETE CASCADE,
+    tag_type TEXT NOT NULL CHECK (tag_type IN ('genre', 'style', 'mood', 'local')),
+    tag_value TEXT NOT NULL CHECK (tag_value <> ''),
+    PRIMARY KEY (track_id, tag_type, tag_value)
+) STRICT;
+
+CREATE INDEX catalog_track_tags_lookup_idx
+    ON catalog_track_tags(tag_type, tag_value, track_id);
+
 CREATE TABLE catalog_analysis (
     track_id TEXT PRIMARY KEY REFERENCES catalog_tracks(track_id),
     content_fingerprint TEXT NOT NULL,

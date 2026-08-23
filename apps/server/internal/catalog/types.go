@@ -41,6 +41,10 @@ type Metadata struct {
 	ReleaseID   string
 	Disc        int
 	Track       int
+	Genres      []string
+	Styles      []string
+	Moods       []string
+	LocalTags   []string
 }
 
 type OrderedNumber struct {

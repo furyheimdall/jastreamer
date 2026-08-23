@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -186,7 +187,7 @@ func TestScannerIsRaceSafe_when_incremental_scans_run_concurrently(t *testing.T)
 			t.Fatalf("concurrent result differs: baseline=%+v result=%+v", *baseline, result)
 		}
 		for id, track := range baseline.Snapshot.Tracks {
-			if result.Snapshot.Tracks[id] != track {
+			if !reflect.DeepEqual(result.Snapshot.Tracks[id], track) {
 				t.Fatalf("concurrent track %q differs: baseline=%+v result=%+v", id, track, result.Snapshot.Tracks[id])
 			}
 		}

@@ -19,6 +19,15 @@ if [ "$#" -ge 3 ] && [ "$1" = "release" ] && [ "$2" = "validate" ]; then
   shift 2
   exec bun "$root/tooling/release/cli.ts" "$@"
 fi
+if [ "$#" -eq 2 ] && [ "$1" = "test" ] && [ "$2" = "candidates" ]; then
+  cd "$root/apps/server"
+  JSTREAMER_ROOT="$root" exec go run ./tooling/candidate-smoke.go \
+    "$root/tooling/fixtures/music" "$root/apps/server/migrations/001_catalog.sql"
+fi
+if [ "$#" -eq 4 ] && [ "$1" = "test" ] && [ "$2" = "candidates" ]; then
+  cd "$root/apps/server"
+  JSTREAMER_ROOT="$root" exec go run ./tooling/candidate-smoke.go "$root/$3" "$root/$4"
+fi
 if [ "$#" -ge 3 ] && [ "$1" = "test" ] && [ "$2" = "analysis-parity" ]; then
   shift 2
   cd "$root/apps/server"

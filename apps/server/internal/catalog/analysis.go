@@ -54,8 +54,7 @@ func (store *Store) ClaimAnalysis(ctx context.Context, limit int, p analysis.Pro
 		var j AnalysisJob
 		j.Status = AnalysisRunning
 		if err = rows.Scan(&j.TrackID, &j.Fingerprint, &j.RelativePath); err != nil {
-			rows.Close()
-			return nil, err
+			return nil, errors.Join(err, rows.Close())
 		}
 		jobs = append(jobs, j)
 	}

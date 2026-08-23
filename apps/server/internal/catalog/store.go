@@ -87,8 +87,28 @@ func (store *Store) initialize(ctx context.Context, schema string) error {
 		if _, err := store.db.ExecContext(ctx, schema); err != nil {
 			return fmt.Errorf("apply catalog schema: %w", err)
 		}
-	} else if err := store.ensureAnalysisSchema(ctx); err != nil {
+	}
+	if err := store.ensureCompatibleSchema(ctx); err != nil {
 		return err
+	}
+	return nil
+}
+
+func (store *Store) ensureCompatibleSchema(ctx context.Context) error {
+	if err := store.ensureAnalysisSchema(ctx); err != nil {
+		return err
+	}
+	_, err := store.db.ExecContext(ctx, `
+		CREATE TABLE IF NOT EXISTS catalog_track_tags (
+			track_id TEXT NOT NULL REFERENCES catalog_tracks(track_id) ON DELETE CASCADE,
+			tag_type TEXT NOT NULL CHECK (tag_type IN ('genre','style','mood','local')),
+			tag_value TEXT NOT NULL CHECK (tag_value<>''),
+			PRIMARY KEY (track_id,tag_type,tag_value)
+		) STRICT;
+		CREATE INDEX IF NOT EXISTS catalog_track_tags_lookup_idx
+			ON catalog_track_tags(tag_type,tag_value,track_id)`)
+	if err != nil {
+		return fmt.Errorf("migrate catalog curation tags: %w", err)
 	}
 	return nil
 }
@@ -142,8 +162,7 @@ func (store *Store) ensureAnalysisSchema(ctx context.Context) error {
 		var name, kind string
 		var defaultValue any
 		if err = rows.Scan(&cid, &name, &kind, &notnull, &defaultValue, &pk); err != nil {
-			rows.Close()
-			return err
+			return errors.Join(err, rows.Close())
 		}
 		columns[name] = true
 	}

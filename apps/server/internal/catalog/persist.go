@@ -127,6 +127,9 @@ func (session persistSession) saveTrackAndAnalysis(ctx context.Context, track Tr
 	); err != nil {
 		return fmt.Errorf("save catalog track %q: %w", track.TrackID, err)
 	}
+	if err := session.saveTrackTags(ctx, track); err != nil {
+		return err
+	}
 	if _, err := session.tx.ExecContext(ctx, `
 		INSERT INTO catalog_analysis(track_id,content_fingerprint,status,updated_at) VALUES(?,?,?,?)
 		ON CONFLICT(track_id) DO UPDATE SET content_fingerprint=excluded.content_fingerprint,
@@ -142,6 +145,29 @@ func (session persistSession) saveTrackAndAnalysis(ctx context.Context, track Tr
 		track.TrackID, track.AudioFingerprint, AnalysisQueued, session.now,
 	); err != nil {
 		return fmt.Errorf("save catalog analysis %q: %w", track.TrackID, err)
+	}
+	return nil
+}
+
+func (session persistSession) saveTrackTags(ctx context.Context, track Track) error {
+	if _, err := session.tx.ExecContext(ctx, `DELETE FROM catalog_track_tags WHERE track_id=?`, track.TrackID); err != nil {
+		return fmt.Errorf("delete catalog tags %q: %w", track.TrackID, err)
+	}
+	groups := []struct {
+		kind   string
+		values []string
+	}{
+		{"genre", track.Metadata.Genres},
+		{"style", track.Metadata.Styles},
+		{"mood", track.Metadata.Moods},
+		{"local", track.Metadata.LocalTags},
+	}
+	for _, group := range groups {
+		for _, value := range normalizedTagValues(group.values) {
+			if _, err := session.tx.ExecContext(ctx, `INSERT INTO catalog_track_tags(track_id,tag_type,tag_value) VALUES(?,?,?)`, track.TrackID, group.kind, value); err != nil {
+				return fmt.Errorf("save catalog tag %q/%s/%q: %w", track.TrackID, group.kind, value, err)
+			}
+		}
 	}
 	return nil
 }
