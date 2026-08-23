@@ -87,12 +87,15 @@ CREATE TABLE catalog_analysis (
     analyzer_id TEXT NOT NULL DEFAULT '',
     analyzer_version TEXT NOT NULL DEFAULT '',
     feature_schema_version INTEGER NOT NULL DEFAULT 0 CHECK (feature_schema_version >= 0),
+    normalizer_id TEXT NOT NULL DEFAULT '',
+    normalizer_version TEXT NOT NULL DEFAULT '',
     failure_reason TEXT NOT NULL DEFAULT '',
+    feature_vector BLOB NOT NULL DEFAULT X'',
     updated_at TEXT NOT NULL
 ) STRICT;
 
 CREATE INDEX catalog_analysis_work_idx
-    ON catalog_analysis(status, feature_schema_version, analyzer_id, analyzer_version);
+    ON catalog_analysis(status, feature_schema_version, analyzer_id, analyzer_version, normalizer_id, normalizer_version);
 
 CREATE TABLE catalog_scan_issues (
     root_id TEXT NOT NULL,

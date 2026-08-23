@@ -130,8 +130,16 @@ func (session persistSession) saveTrackAndAnalysis(ctx context.Context, track Tr
 	if _, err := session.tx.ExecContext(ctx, `
 		INSERT INTO catalog_analysis(track_id,content_fingerprint,status,updated_at) VALUES(?,?,?,?)
 		ON CONFLICT(track_id) DO UPDATE SET content_fingerprint=excluded.content_fingerprint,
-			status=excluded.status,updated_at=excluded.updated_at`,
-		track.TrackID, track.AudioFingerprint, track.AnalysisStatus, session.now,
+			status=CASE WHEN catalog_analysis.content_fingerprint<>excluded.content_fingerprint THEN 'queued' ELSE catalog_analysis.status END,
+			failure_reason=CASE WHEN catalog_analysis.content_fingerprint<>excluded.content_fingerprint THEN '' ELSE catalog_analysis.failure_reason END,
+			feature_vector=CASE WHEN catalog_analysis.content_fingerprint<>excluded.content_fingerprint THEN X'' ELSE catalog_analysis.feature_vector END,
+			feature_schema_version=CASE WHEN catalog_analysis.content_fingerprint<>excluded.content_fingerprint THEN 0 ELSE catalog_analysis.feature_schema_version END,
+			analyzer_id=CASE WHEN catalog_analysis.content_fingerprint<>excluded.content_fingerprint THEN '' ELSE catalog_analysis.analyzer_id END,
+			analyzer_version=CASE WHEN catalog_analysis.content_fingerprint<>excluded.content_fingerprint THEN '' ELSE catalog_analysis.analyzer_version END,
+			normalizer_id=CASE WHEN catalog_analysis.content_fingerprint<>excluded.content_fingerprint THEN '' ELSE catalog_analysis.normalizer_id END,
+			normalizer_version=CASE WHEN catalog_analysis.content_fingerprint<>excluded.content_fingerprint THEN '' ELSE catalog_analysis.normalizer_version END,
+			updated_at=excluded.updated_at`,
+		track.TrackID, track.AudioFingerprint, AnalysisQueued, session.now,
 	); err != nil {
 		return fmt.Errorf("save catalog analysis %q: %w", track.TrackID, err)
 	}

@@ -1,0 +1,10 @@
+{
+  "tolerances": {"tempo_bpm": 0.25, "loudness_db": 0.05, "frequency_hz": 1.0, "contrast_db": 0.25},
+  "vectors": [
+    {"Fixture":"canonical.flac","Quantized":"6609c005ff07aaf98a0cf0d0276c11ffae0e8c817e7c7d7f8181807f7f800101","Tempo":120,"Loudness":-19.704337447502528,"Centroid":427.7777735867134,"Contrast":128.43744371071773,"Rolloff":596.4488205400486,"Key":9},
+    {"Fixture":"canonical.mp3","Quantized":"6609bf05ff06a9f68809edd0286d11ffaf0d8c827d7c7d808181807f7f800101","Tempo":120,"Loudness":-20.175759780733316,"Centroid":395.87473868901907,"Contrast":133.0371042825444,"Rolloff":526.2882091929612,"Key":9},
+    {"Fixture":"canonical.ogg","Quantized":"6609c005ff06abf98909edcf266c10ffae0d8c817e7c7d7f8181807f7f800101","Tempo":120,"Loudness":-19.681380966908502,"Centroid":399.4334703193344,"Contrast":134.20258782390394,"Rolloff":531.3892786711165,"Key":9},
+    {"Fixture":"canonical.opus","Quantized":"8301c004ff06a2ff0c89fe8d5b12e10ec90e8b817e7c7d7f8181807f7f7f0101","Tempo":142.85714285714286,"Loudness":-19.787581432942986,"Centroid":414.2772407082336,"Contrast":131.7204966200704,"Rolloff":558.3639705882352,"Key":1},
+    {"Fixture":"canonical.wav","Quantized":"6609c005ff07aaf98a0cf0d0276c11ffae0e8c817e7c7d7f8181807f7f800101","Tempo":120,"Loudness":-19.704337447502528,"Centroid":427.7777735867134,"Contrast":128.43744371071773,"Rolloff":596.4488205400486,"Key":9}
+  ]
+}

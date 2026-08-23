@@ -19,5 +19,10 @@ if [ "$#" -ge 3 ] && [ "$1" = "release" ] && [ "$2" = "validate" ]; then
   shift 2
   exec bun "$root/tooling/release/cli.ts" "$@"
 fi
-printf '%s\n' 'usage: tooling/componentctl verify-boundaries --all' >&2
+if [ "$#" -ge 3 ] && [ "$1" = "test" ] && [ "$2" = "analysis-parity" ]; then
+  shift 2
+  cd "$root/apps/server"
+  JSTREAMER_ROOT="$root" exec go run ./tooling/analysis-parity.go "$@"
+fi
+printf '%s\n' 'usage: tooling/componentctl <verify-boundaries|isolation|component|policy|synology|contracts|release|test>' >&2
 exit 64

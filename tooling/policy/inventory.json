@@ -109,6 +109,78 @@
       "packaged": true,
       "source": "https://gitlab.com/cznic/sqlite",
       "license_file": "tooling/policy/licenses/modernc.org-sqlite-BSD-3-Clause-and-SQLite-Public-Domain.txt"
+    },
+    {
+      "name": "github.com/eaburns/bit",
+      "version": "v0.0.0-20131029213740-7bd5cd37375d",
+      "license": "MIT",
+      "paid": false,
+      "packaged": true,
+      "source": "https://github.com/eaburns/bit",
+      "license_file": "tooling/policy/licenses/github.com-eaburns-bit-MIT.txt"
+    },
+    {
+      "name": "github.com/eaburns/flac",
+      "version": "v0.0.0-20171003200620-9a6fb92396d1",
+      "license": "MIT",
+      "paid": false,
+      "packaged": true,
+      "source": "https://github.com/eaburns/flac",
+      "license_file": "tooling/policy/licenses/github.com-eaburns-flac-MIT.txt"
+    },
+    {
+      "name": "github.com/hajimehoshi/go-mp3",
+      "version": "v0.3.4",
+      "license": "Apache-2.0",
+      "paid": false,
+      "packaged": true,
+      "source": "https://github.com/hajimehoshi/go-mp3",
+      "license_file": "tooling/policy/licenses/github.com-hajimehoshi-go-mp3-Apache-2.0.txt"
+    },
+    {
+      "name": "github.com/jfreymuth/oggvorbis",
+      "version": "v1.0.5",
+      "license": "MIT",
+      "paid": false,
+      "packaged": true,
+      "source": "https://github.com/jfreymuth/oggvorbis",
+      "license_file": "tooling/policy/licenses/github.com-jfreymuth-oggvorbis-MIT.txt"
+    },
+    {
+      "name": "github.com/jfreymuth/vorbis",
+      "version": "v1.0.2",
+      "license": "MIT",
+      "paid": false,
+      "packaged": true,
+      "source": "https://github.com/jfreymuth/vorbis",
+      "license_file": "tooling/policy/licenses/github.com-jfreymuth-vorbis-MIT.txt"
+    },
+    {
+      "name": "github.com/mattn/go-isatty",
+      "version": "v0.0.24",
+      "license": "MIT",
+      "paid": false,
+      "packaged": true,
+      "source": "https://github.com/mattn/go-isatty",
+      "license_file": "tooling/policy/licenses/github.com-mattn-go-isatty-MIT.txt"
+    },
+    {
+      "name": "github.com/ncruces/go-strftime",
+      "version": "v1.0.0",
+      "license": "MIT",
+      "paid": false,
+      "packaged": true,
+      "source": "https://github.com/ncruces/go-strftime",
+      "license_file": "tooling/policy/licenses/github.com-ncruces-go-strftime-MIT.txt"
+    },
+    {
+      "name": "github.com/pion/opus",
+      "version": "v0.1.0",
+      "license": "MIT",
+      "paid": false,
+      "packaged": true,
+      "source": "https://github.com/pion/opus",
+      "license_file": "tooling/policy/licenses/github.com-pion-opus-MIT.txt"
     }
   ],
   "services": [

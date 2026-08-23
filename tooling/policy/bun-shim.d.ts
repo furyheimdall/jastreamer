@@ -3,6 +3,7 @@ interface ImportMeta {
 }
 
 declare const process: {
+  readonly env: Readonly<Record<string, string | undefined>>;
   exit(code?: number): never;
 };
 
@@ -28,7 +29,7 @@ declare namespace Bun {
   function file(path: string | URL): File;
   function spawn(
     command: readonly string[],
-    options: Readonly<{ cwd?: string; stderr: "pipe"; stdout: "pipe" }>,
+    options: Readonly<{ cwd?: string; env?: Readonly<Record<string, string>>; stderr: "pipe"; stdout: "pipe" }>,
   ): Subprocess;
   function write(path: string, content: string): Promise<number>;
 }

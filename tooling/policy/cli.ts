@@ -24,26 +24,20 @@ const licenseText = async (item: Entry): Promise<string> => {
   return Bun.file(file(path)).text();
 };
 const compiledServerModules = async (): Promise<Readonly<{ modules: ReadonlyMap<string, string>; finding?: Finding }>> => {
-  const process = Bun.spawn([
-    "go", "list", "-deps", "-f",
-    "{{with .Module}}{{if and .Path .Version}}{{.Path}} {{.Version}}{{end}}{{end}}",
-    "./...",
-  ], { cwd: file("apps/server"), stdout: "pipe", stderr: "pipe" });
-  const [exitCode, stdout, stderr] = await Promise.all([
-    process.exited,
-    new Response(process.stdout).text(),
-    new Response(process.stderr).text(),
-  ]);
-  if (exitCode !== 0) {
-    return { modules: new Map(), finding: finding("MODULE_CLOSURE_COMMAND", "apps/server", stderr.trim() || `go list exit ${exitCode}`) };
-  }
   const modules = new Map<string, string>();
-  for (const line of stdout.split("\n")) {
-    const [name, version] = line.trim().split(/\s+/, 2);
-    if (name && version) modules.set(name, version);
+  for (const [goos, goarch] of [["linux", "amd64"], ["linux", "arm64"], ["windows", "amd64"]]) {
+    const process = Bun.spawn([
+      "go", "list", "-deps", "-f",
+      "{{with .Module}}{{if and .Path .Version}}{{.Path}} {{.Version}}{{end}}{{end}}",
+      "./...",
+    ], { cwd: file("apps/server"), env: { ...processEnv(), CGO_ENABLED: "0", GOOS: goos, GOARCH: goarch }, stdout: "pipe", stderr: "pipe" });
+    const [exitCode, stdout, stderr] = await Promise.all([process.exited, new Response(process.stdout).text(), new Response(process.stderr).text()]);
+    if (exitCode !== 0) return { modules, finding: finding("MODULE_CLOSURE_COMMAND", `apps/server ${goos}/${goarch}`, stderr.trim() || `go list exit ${exitCode}`) };
+    for (const line of stdout.split("\n")) { const [name, version] = line.trim().split(/\s+/, 2); if (name && version) modules.set(name, version); }
   }
   return { modules };
 };
+const processEnv = (): Record<string,string> => Object.fromEntries(Object.entries(process.env).filter((entry): entry is [string,string] => entry[1] !== undefined));
 
 const scanWorkflows = async (workspace: string, policy: Entry): Promise<readonly Finding[]> => {
   const findings: Finding[] = [];

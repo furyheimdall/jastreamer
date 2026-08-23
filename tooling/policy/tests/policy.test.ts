@@ -93,7 +93,7 @@ test("generates deterministic exact third-party notices", async () => {
   expect(await Bun.file("tooling/policy/THIRD_PARTY_NOTICES.generated").text()).toBe(first);
   const flutterLicense = await Bun.file("tooling/policy/licenses/flutter-BSD-3-Clause.txt").text();
   const notices = first.trim().split("\n").map((line: string) => JSON.parse(line)) as readonly Readonly<Record<string, string>>[];
-  expect(notices).toHaveLength(11);
+  expect(notices).toHaveLength(19);
   expect(notices[0]).toEqual({
     component: "control",
     package: "Flutter runtime",
@@ -105,7 +105,15 @@ test("generates deterministic exact third-party notices", async () => {
   expect(notices.filter((notice) => notice.component === "server").map((notice) => notice.package).toSorted()).toEqual([
     "github.com/dhowden/tag",
     "github.com/dustin/go-humanize",
+    "github.com/eaburns/bit",
+    "github.com/eaburns/flac",
     "github.com/google/uuid",
+    "github.com/hajimehoshi/go-mp3",
+    "github.com/jfreymuth/oggvorbis",
+    "github.com/jfreymuth/vorbis",
+    "github.com/mattn/go-isatty",
+    "github.com/ncruces/go-strftime",
+    "github.com/pion/opus",
     "github.com/remyoudompheng/bigfft",
     "golang.org/x/sys",
     "golang.org/x/text",

@@ -1,6 +1,10 @@
 package catalog
 
-import "time"
+import (
+	"time"
+
+	"github.com/jakestreamer/jstreamer-server/internal/analysis"
+)
 
 type (
 	FileID      string
@@ -23,6 +27,7 @@ type AnalysisStatus string
 
 const (
 	AnalysisQueued   AnalysisStatus = "queued"
+	AnalysisRunning  AnalysisStatus = "running"
 	AnalysisComplete AnalysisStatus = "complete"
 	AnalysisFailed   AnalysisStatus = "failed"
 )
@@ -51,20 +56,24 @@ type OrderKey struct {
 }
 
 type Track struct {
-	FileID           FileID
-	TrackID          TrackID
-	RecordingID      RecordingID
-	AlbumID          AlbumID
-	RelativePath     string
-	Format           Format
-	Fingerprint      string
-	AudioFingerprint string
-	FileVersion      FileVersion
-	Metadata         Metadata
-	Order            OrderKey
-	Available        bool
-	Generation       uint64
-	AnalysisStatus   AnalysisStatus
+	FileID              FileID
+	TrackID             TrackID
+	RecordingID         RecordingID
+	AlbumID             AlbumID
+	RelativePath        string
+	Format              Format
+	Fingerprint         string
+	AudioFingerprint    string
+	FileVersion         FileVersion
+	Metadata            Metadata
+	Order               OrderKey
+	Available           bool
+	Generation          uint64
+	AnalysisStatus      AnalysisStatus
+	AnalysisFingerprint string
+	AnalysisProvenance  analysis.Provenance
+	AnalysisFailure     string
+	AnalysisVector      string
 }
 
 type Snapshot struct {
@@ -76,8 +85,10 @@ type Snapshot struct {
 func EmptySnapshot() Snapshot { return Snapshot{Tracks: make(map[TrackID]Track)} }
 
 type AnalysisJob struct {
-	TrackID     TrackID
-	Fingerprint string
+	TrackID      TrackID
+	Fingerprint  string
+	RelativePath string
+	Status       AnalysisStatus
 }
 
 type IssueCode string

@@ -24,7 +24,8 @@ func (store *Store) Load(ctx context.Context) (snapshot Snapshot, err error) {
 			f.content_fingerprint,r.fallback_fingerprint,f.byte_size,f.modified_ns,
 			t.title,t.artist,t.album_title,t.album_artist,r.embedded_recording_id,a.embedded_release_id,
 			t.disc_number,t.track_number,t.natural_path_key,t.order_track_id,
-			t.available,t.last_generation,n.status
+			t.available,t.last_generation,n.status,n.content_fingerprint,n.feature_schema_version,
+			n.analyzer_id,n.analyzer_version,n.normalizer_id,n.normalizer_version,n.failure_reason,n.feature_vector
 		FROM catalog_tracks t
 		JOIN catalog_files f ON f.file_id=t.file_id
 		JOIN catalog_recordings r ON r.recording_id=t.recording_id
@@ -65,7 +66,10 @@ func scanTrack(rows *sql.Rows) (Track, error) {
 		&track.FileVersion.Size, &modifiedNanoseconds, &track.Metadata.Title, &track.Metadata.Artist,
 		&track.Metadata.Album, &track.Metadata.AlbumArtist, &embeddedRecording, &releaseID,
 		&disc, &number, &track.Order.NaturalPath, &track.Order.TrackID,
-		&available, &track.Generation, &track.AnalysisStatus,
+		&available, &track.Generation, &track.AnalysisStatus, &track.AnalysisFingerprint,
+		&track.AnalysisProvenance.SchemaVersion, &track.AnalysisProvenance.AnalyzerID,
+		&track.AnalysisProvenance.AnalyzerVersion, &track.AnalysisProvenance.NormalizerID,
+		&track.AnalysisProvenance.NormalizerVersion, &track.AnalysisFailure, &track.AnalysisVector,
 	); err != nil {
 		return Track{}, fmt.Errorf("scan catalog track: %w", err)
 	}
