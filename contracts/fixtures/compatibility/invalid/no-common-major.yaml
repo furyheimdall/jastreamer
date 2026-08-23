@@ -1,0 +1,6 @@
+control:
+  supported_majors: [2]
+renderer:
+  supported_majors: [1]
+server:
+  supported_majors: [3]

@@ -1,0 +1,1 @@
+{"before":{"required":["protocolMajor","capabilities","requestId"]},"after":{"required":["protocolMajor","capabilities","requestId","newRequiredField"]},"majorChanged":false}
