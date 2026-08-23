@@ -1,0 +1,61 @@
+{
+  "session_seed": "recent-session",
+  "decision_sequence": 3,
+  "seed": {
+    "track_id": "seed",
+    "recording_id": "seed-recording",
+    "artist": "recent-artist",
+    "album_id": "seed-album",
+    "signals": {"Genres": ["rock"]}
+  },
+  "current": {
+    "track_id": "current",
+    "recording_id": "current-recording",
+    "artist": "recent-artist",
+    "album_id": "current-album",
+    "signals": {"Genres": ["rock"]}
+  },
+  "candidates": [
+    {
+      "track": {
+        "track_id": "seen-copy",
+        "recording_id": "seen-recording",
+        "artist": "recent-artist",
+        "album_id": "seen-album",
+        "signals": {"Genres": ["rock"]}
+      },
+      "tier": "metadata"
+    },
+    {
+      "track": {
+        "track_id": "unseen-related",
+        "recording_id": "unseen-recording",
+        "artist": "recent-artist",
+        "album_id": "unseen-album",
+        "signals": {"Genres": ["rock"]}
+      },
+      "tier": "metadata"
+    }
+  ],
+  "history": [
+    {
+      "track": {
+        "track_id": "recent",
+        "recording_id": "recent-recording",
+        "artist": "recent-artist",
+        "album_id": "recent-album",
+        "signals": {"Genres": ["rock"]}
+      },
+      "generated": true
+    }
+  ],
+  "seen": ["recording:seen-recording"],
+  "policy": {"ArtistGap": 4, "AlbumGap": 10},
+  "expected": {
+    "track_id": "unseen-related",
+    "recording_key": "recording:unseen-recording",
+    "relaxation_pass": 4,
+    "metadata_score": 10000,
+    "related_score": 10000
+  }
+}

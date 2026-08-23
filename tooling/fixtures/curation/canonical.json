@@ -1,0 +1,51 @@
+{
+  "session_seed": "seed-0001",
+  "decision_sequence": 7,
+  "seed": {
+    "track_id": "seed",
+    "recording_id": "seed-recording",
+    "artist": "seed-artist",
+    "album_id": "seed-album",
+    "signals": {
+      "Genres": ["rock"],
+      "Styles": ["post-rock"],
+      "Moods": ["calm"]
+    }
+  },
+  "current": {
+    "track_id": "current",
+    "recording_id": "current-recording",
+    "artist": "current-artist",
+    "album_id": "current-album",
+    "signals": {
+      "Genres": ["rock", "indie"],
+      "Styles": ["dream-pop"],
+      "Moods": ["calm"]
+    }
+  },
+  "candidates": [
+    {
+      "track": {
+        "track_id": "track-c",
+        "recording_id": "recording-c",
+        "artist": "artist-c",
+        "album_id": "album-c",
+        "signals": {
+          "Genres": ["rock"],
+          "Styles": ["post-rock"],
+          "Moods": ["calm"]
+        }
+      },
+      "tier": "metadata"
+    }
+  ],
+  "policy": {"ArtistGap": 4, "AlbumGap": 10},
+  "expected": {
+    "track_id": "track-c",
+    "recording_key": "recording:recording-c",
+    "relaxation_pass": 1,
+    "metadata_score": 4500,
+    "related_score": 7800,
+    "tie_prefix": "0xc4b7e9be10746e14"
+  }
+}

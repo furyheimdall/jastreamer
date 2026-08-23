@@ -1,0 +1,8 @@
+{
+  "current": {"Genres":["rock","indie"],"Styles":["dream-pop"],"Moods":["calm"]},
+  "seed": {"Genres":["rock"],"Styles":["post-rock"],"Moods":["calm"]},
+  "candidate": {"Genres":["rock"],"Styles":["post-rock"],"Moods":["calm"]},
+  "related": {"SeedScore":10000,"CurrentScore":4500},
+  "tie": {"SessionSeed":"seed-0001","DecisionSequence":7,"TrackID":"track-c"},
+  "expected": {"MetadataScore":4500,"RelatedScore":7800,"TiePrefix":"0xc4b7e9be10746e14"}
+}

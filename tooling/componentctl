@@ -33,5 +33,10 @@ if [ "$#" -ge 3 ] && [ "$1" = "test" ] && [ "$2" = "analysis-parity" ]; then
   cd "$root/apps/server"
   JSTREAMER_ROOT="$root" exec go run ./tooling/analysis-parity.go "$@"
 fi
+if [ "$#" -ge 3 ] && [ "$1" = "test" ] && [ "$2" = "ranking-parity" ]; then
+  shift 2
+  cd "$root/apps/server"
+  JSTREAMER_ROOT="$root" exec go run ./tooling/ranking-parity.go "$@"
+fi
 printf '%s\n' 'usage: tooling/componentctl <verify-boundaries|isolation|component|policy|synology|contracts|release|test>' >&2
 exit 64
