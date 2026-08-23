@@ -1,0 +1,31 @@
+# Local execution evidence and agent state
+.omo/evidence/
+.omo/boulder.json
+.omo/notepads/
+.omo/drafts/
+.omo/senpi-task/
+.omo/start-work/
+
+# Signing credentials and local secrets
+*.pfx
+*.p12
+*.jks
+*.keystore
+*.key
+.env
+.env.*
+!.env.example
+
+# Component build output
+apps/server/bin/
+apps/server/dist/
+apps/control/.dart_tool/
+apps/control/build/
+apps/renderer/target/
+dist/
+
+# Editors and operating systems
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
