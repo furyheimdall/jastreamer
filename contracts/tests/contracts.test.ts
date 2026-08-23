@@ -19,6 +19,22 @@ test("repeat generation detects drift without changing archives", async () => {
   expect(await readFile(join(root, "control-api/archived/v2/schema.json"))).toEqual(before);
 });
 
+test("Todo 13 HTTP surface is additive beside immutable protocol v2", async () => {
+  const archived = await readFile(join(root, "control-api/archived/v2/schema.json"), "utf8");
+  const current = await readFile(join(root, "control-api/schema.json"), "utf8");
+  const http = JSON.parse(await readFile(join(root, "control-api/http-api-v1.json"), "utf8"));
+  expect(current).toBe(archived);
+  expect(http.routes.map((route: { method: string; path: string }) => `${route.method} ${route.path}`)).toContain("GET /api/v1/events");
+  for (const route of http.routes) {
+    expect(["public", "controller", "admin"]).toContain(route.role);
+    expect(route.success.length).toBeGreaterThan(0);
+    expect(Array.isArray(route.errors)).toBe(true);
+    expect(route.response ?? route.mutation ?? route.stream).toBeTruthy();
+  }
+  expect(http.httpErrors.STALE_POLICY_REVISION).toBe(412);
+  expect(http.tlsErrors.CERTIFICATE_MISMATCH).toEqual({ layer: "client-tls-verification", httpStatus: null });
+});
+
 test("generation ignores whitespace but rejects semantic drift", async () => {
   const directory = await mkdtemp(join("/tmp", "contracts-task-3-"));
   try {

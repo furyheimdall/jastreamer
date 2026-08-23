@@ -1,0 +1,12 @@
+{
+  "address": "127.0.0.1:0",
+  "data_directory": "./data/e2e",
+  "catalog_root": "./data/e2e/music",
+  "catalog_migration": "migrations/001_catalog.sql",
+  "playback_migration": "migrations/002_playback.sql",
+  "playback_expansion": "migrations/003_todo12.sql",
+  "certificate_dns": ["localhost"],
+  "certificate_ips": ["127.0.0.1", "::1"],
+  "allowed_origins": ["https://control.fixture.invalid"],
+  "pairing_ttl": "5m"
+}

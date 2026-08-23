@@ -1,0 +1,10 @@
+scenario: security-failures
+browser: chromium
+expects:
+  - pairing-expired-410
+  - pairing-reuse-409
+  - controller-admin-operation-403
+  - pairing-rate-limit-429
+  - certificate-mismatch
+  - stale-policy-412
+  - unauthorized-mutations-zero

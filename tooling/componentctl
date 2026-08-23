@@ -15,6 +15,10 @@ if [ "$#" -ge 2 ] && [ "$1" = "contracts" ]; then
   shift
   exec bun "$root/contracts/tooling/cli.ts" "$@"
 fi
+if [ "$#" -ge 3 ] && [ "$1" = "qa" ] && [ "$2" = "pairing-api" ]; then
+  shift 2
+  exec "$root/tooling/qa/pairing-api.sh" "$@"
+fi
 if [ "$#" -ge 3 ] && [ "$1" = "release" ] && [ "$2" = "validate" ]; then
   shift 2
   exec bun "$root/tooling/release/cli.ts" "$@"
@@ -38,5 +42,5 @@ if [ "$#" -ge 3 ] && [ "$1" = "test" ] && [ "$2" = "ranking-parity" ]; then
   cd "$root/apps/server"
   JSTREAMER_ROOT="$root" exec go run ./tooling/ranking-parity.go "$@"
 fi
-printf '%s\n' 'usage: tooling/componentctl <verify-boundaries|isolation|component|policy|synology|contracts|release|test>' >&2
+printf '%s\n' 'usage: tooling/componentctl <verify-boundaries|isolation|component|policy|synology|contracts|release|test|qa>' >&2
 exit 64

@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Local Jake Streamer device pairing and certificate identity administration.">
+  <meta name="color-scheme" content="light dark">
+  <title>Pair devices | Jake Streamer</title>
+  <link rel="stylesheet" href="style.css">
+  <script src="app.js" defer></script>
+</head>
+<body>
+  <main class="page">
+    <header class="masthead stack">
+      <p class="product">Jake Streamer Server</p>
+      <h1>Pair trusted devices</h1>
+      <p class="lede">Confirm this server's certificate, create the first administrator, and manage local device access.</p>
+    </header>
+
+    <section class="identity stack" aria-labelledby="identity-title">
+      <div class="cluster">
+        <h2 id="identity-title">Certificate identity</h2>
+        <span class="status" id="identity-status">Loading</span>
+      </div>
+      <p>Compare this SHA-256 fingerprint with the value shown by the installer or server console before continuing.</p>
+      <output class="fingerprint" id="fingerprint" aria-live="polite">Fetching local identity...</output>
+    </section>
+
+    <div class="tasks">
+      <section class="panel stack" aria-labelledby="bootstrap-title">
+        <div>
+          <h2 id="bootstrap-title">First administrator</h2>
+          <p>Use the one-time setup secret provided at installation. It becomes invalid after the first administrator is created.</p>
+        </div>
+        <form id="bootstrap-form" class="stack">
+          <label for="bootstrap-name">Device name</label>
+          <input id="bootstrap-name" name="name" autocomplete="name" maxlength="80" required>
+          <label for="setup-secret">One-time setup secret</label>
+          <input id="setup-secret" name="setupSecret" type="password" autocomplete="one-time-code" required>
+          <button type="submit">Create administrator</button>
+        </form>
+        <output class="message" id="bootstrap-message" aria-live="polite"></output>
+      </section>
+
+      <section class="panel stack" aria-labelledby="session-title">
+        <div>
+          <h2 id="session-title">Administrator session</h2>
+          <p>Paste an administrator device token to manage codes and devices from this browser session.</p>
+        </div>
+        <form id="session-form" class="stack">
+          <label for="admin-token">Administrator token</label>
+          <input id="admin-token" name="token" type="password" autocomplete="off" required>
+          <button type="submit">Use token</button>
+        </form>
+        <button class="secondary" id="clear-session" type="button">Clear session</button>
+        <output class="message" id="session-message" aria-live="polite"></output>
+      </section>
+
+      <section class="panel stack" aria-labelledby="code-title">
+        <div>
+          <h2 id="code-title">Pairing code</h2>
+          <p>Create a single-use code. It expires five minutes after generation.</p>
+        </div>
+        <button id="generate-code" type="button">Generate code</button>
+        <output class="pairing-code" id="pairing-code" aria-live="polite">No active code</output>
+        <p class="message" id="code-message" aria-live="polite"></p>
+      </section>
+
+      <section class="panel stack" aria-labelledby="register-title">
+        <div>
+          <h2 id="register-title">Register this browser</h2>
+          <p>Consume a code to register this browser as a controller device. The issued token is shown once.</p>
+        </div>
+        <form id="register-form" class="stack">
+          <label for="device-name">Device name</label>
+          <input id="device-name" name="name" maxlength="80" required>
+          <label for="registration-code">Six-digit code</label>
+          <input id="registration-code" name="code" inputmode="numeric" pattern="[0-9]{6}" autocomplete="one-time-code" required>
+          <button type="submit">Register device</button>
+        </form>
+        <output class="message break" id="register-message" aria-live="polite"></output>
+      </section>
+    </div>
+
+    <section class="panel stack devices" aria-labelledby="devices-title">
+      <div class="cluster split">
+        <div>
+          <h2 id="devices-title">Trusted devices</h2>
+          <p>Revocation takes effect on the device's next request.</p>
+        </div>
+        <button class="secondary" id="refresh-devices" type="button">Refresh</button>
+      </div>
+      <div id="device-list" class="device-list" aria-live="polite"><p class="empty">Use an administrator token to list devices.</p></div>
+    </section>
+  </main>
+</body>
+</html>

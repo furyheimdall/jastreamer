@@ -1,0 +1,11 @@
+scenario: happy
+browser: chromium
+expects:
+  - portal-bootstrap
+  - controller-registration
+  - authenticated-discovery
+  - catalog-scan
+  - continuation-policy
+  - queue-enqueue
+  - wss-state
+  - mutation-p95-under-500ms
