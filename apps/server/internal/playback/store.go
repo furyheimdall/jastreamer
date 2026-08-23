@@ -9,10 +9,11 @@ import (
 )
 
 type Store struct {
-	mu      sync.Mutex
-	db      *sqliteDB
-	closed  bool
-	version int
+	mu         sync.Mutex
+	db         *sqliteDB
+	commitHook func(commitStage) error
+	closed     bool
+	version    int
 }
 
 func Open(ctx context.Context, config Config) (*Store, error) {
@@ -116,7 +117,12 @@ func (store *Store) read(ctx context.Context, operation func(*sqliteDB) error) e
 }
 
 func ensureZone(db *sqliteDB, zoneID ZoneID) error {
-	return execBound(db, "INSERT OR IGNORE INTO playback_zones(zone_id) VALUES (?)", func(stmt *sqliteStmt) error {
+	if err := execBound(db, "INSERT OR IGNORE INTO playback_zones(zone_id) VALUES (?)", func(stmt *sqliteStmt) error {
+		return stmt.bindText(1, string(zoneID))
+	}); err != nil {
+		return err
+	}
+	return execBound(db, "INSERT OR IGNORE INTO playback_continuation_policies(zone_id) VALUES (?)", func(stmt *sqliteStmt) error {
 		return stmt.bindText(1, string(zoneID))
 	})
 }

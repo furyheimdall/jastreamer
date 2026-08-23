@@ -5,36 +5,6 @@ import (
 	"fmt"
 )
 
-func loadDecision(db *sqliteDB, key decisionKey) (bool, Decision, error) {
-	zoneID, sessionID, boundaryID := key.zoneID, key.sessionID, key.boundaryID
-	stmt, err := db.prepare("SELECT d.decision_id,d.kind,d.reason,d.play_id,d.queue_entry_id,d.committed_revision,COALESCE(p.track_id,''),d.previous_play_id FROM playback_decisions d LEFT JOIN playback_plays p ON p.play_id=d.play_id WHERE d.zone_id=? AND d.session_id=? AND d.boundary_id=?")
-	if err != nil {
-		return false, Decision{}, err
-	}
-	defer stmt.close()
-	values := []string{string(zoneID), string(sessionID), string(boundaryID)}
-	for index, value := range values {
-		if err := stmt.bindText(index+1, value); err != nil {
-			return false, Decision{}, err
-		}
-	}
-	row, err := stmt.step()
-	if err != nil || !row {
-		return row, Decision{}, err
-	}
-	if PlayID(stmt.text(7)) != key.previousPlay {
-		return false, Decision{}, ErrBoundaryConflict
-	}
-	decision := Decision{ID: stmt.text(0), Kind: DecisionKind(stmt.text(1)), Reason: stmt.text(2), Revision: Revision(stmt.int64(5)), TrackID: TrackID(stmt.text(6))}
-	if !stmt.isNull(3) {
-		decision.PlayID = PlayID(stmt.text(3))
-	}
-	if !stmt.isNull(4) {
-		decision.QueueEntryID = QueueEntryID(stmt.text(4))
-	}
-	return true, decision, nil
-}
-
 func completePlay(db *sqliteDB, completion playCompletion) error {
 	zoneID, playID, revision := completion.zoneID, completion.playID, completion.revision
 	stmt, err := db.prepare("SELECT queue_entry_id,state FROM playback_plays WHERE play_id=? AND zone_id=?")
@@ -71,7 +41,9 @@ func completePlay(db *sqliteDB, completion playCompletion) error {
 	}); err != nil {
 		return err
 	}
-	return setQueueState(db, queueTransition{entryID: entryID, state: QueueCompleted, playID: playID, revision: revision})
+	return setQueueState(db, queueTransition{
+		entryID: entryID, state: QueueCompleted, playID: playID, revision: revision,
+	})
 }
 
 func endSession(db *sqliteDB, ending sessionEnd) error {
@@ -129,6 +101,12 @@ func (store *Store) ConfirmStart(ctx context.Context, zoneID ZoneID, playID Play
 			}
 			return s.bindText(2, string(playID))
 		}); err != nil {
+			return err
+		}
+		if err := recordStartedPlay(db, playID); err != nil {
+			return err
+		}
+		if err := advanceAlbumState(db, playID); err != nil {
 			return err
 		}
 		if err := execBound(db, "UPDATE renderer_outbox SET state='confirmed' WHERE zone_id=? AND play_id=?", func(s *sqliteStmt) error {

@@ -15,6 +15,7 @@ func testConfig(t *testing.T) Config {
 	return Config{
 		Path:            filepath.Join(directory, "playback.sqlite"),
 		MigrationPath:   "../../migrations/002_playback.sql",
+		ExpansionPath:   "../../migrations/003_todo12.sql",
 		BackupDirectory: filepath.Join(directory, "backups"),
 		SupportedSchema: CurrentSchemaVersion,
 		JournalMode:     JournalRollback,

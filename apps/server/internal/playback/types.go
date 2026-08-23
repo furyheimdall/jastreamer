@@ -1,8 +1,12 @@
 package playback
 
-import "errors"
+import (
+	"errors"
 
-const CurrentSchemaVersion = 2
+	"github.com/jakestreamer/jstreamer-server/internal/curation/ranking"
+)
+
+const CurrentSchemaVersion = 3
 
 var (
 	ErrClosed              = errors.New("playback: store closed")
@@ -19,6 +23,8 @@ var (
 	ErrQueueLimit          = errors.New("playback: enqueue exceeds 10,000 entries")
 	ErrAutomaticPreempted  = errors.New("playback: automatic preview was preempted by explicit queue")
 	ErrAutomaticConflict   = errors.New("playback: automatic boundary reused with different input")
+	ErrInvalidPolicy       = errors.New("playback: continuation policy must be stop, album, or similar")
+	ErrStartFailure        = errors.New("playback: start failure does not match the active decision")
 )
 
 type (
@@ -83,9 +89,8 @@ const (
 
 const (
 	ReasonPlayExplicit  = "PLAY_EXPLICIT"
-	ReasonPlayAutomatic = "PLAY_AUTOMATIC"
 	ReasonBlockExplicit = "BLOCK_EXPLICIT"
-	ReasonQueueEmpty    = "STOP_QUEUE_EMPTY"
+	ReasonQueueEmpty    = "STOP_MODE_OFF"
 )
 
 type JournalMode string
@@ -98,6 +103,7 @@ const (
 type Config struct {
 	Path            string
 	MigrationPath   string
+	ExpansionPath   string
 	BackupDirectory string
 	SupportedSchema int
 	JournalMode     JournalMode
@@ -127,13 +133,6 @@ type AvailabilityRequest struct {
 	ExpectedRevision Revision
 }
 
-type AutomaticPreviewRequest struct {
-	ZoneID           ZoneID
-	Boundary         Boundary
-	TrackID          TrackID
-	ExpectedRevision Revision
-}
-
 type Boundary struct {
 	ID             BoundaryID
 	PreviousPlayID PlayID
@@ -143,10 +142,14 @@ type Decision struct {
 	ID           string
 	Kind         DecisionKind
 	Reason       string
+	Source       string
 	PlayID       PlayID
 	QueueEntryID QueueEntryID
 	TrackID      TrackID
+	RecordingKey string
+	Explanation  ranking.Explanation
 	Revision     Revision
+	Attempt      int
 }
 
 type QueueEntry struct {
@@ -192,12 +195,6 @@ type RestoreRequest struct {
 	SupportedSchema int
 }
 
-type decisionKey struct {
-	zoneID       ZoneID
-	sessionID    SessionID
-	boundaryID   BoundaryID
-	previousPlay PlayID
-}
 type playCompletion struct {
 	zoneID   ZoneID
 	playID   PlayID
@@ -213,21 +210,6 @@ type queueTransition struct {
 	state    QueueState
 	playID   PlayID
 	revision Revision
-}
-type reservation struct {
-	zoneID    ZoneID
-	sessionID SessionID
-	boundary  Boundary
-	decision  Decision
-	revision  Revision
-}
-type decisionRecord struct {
-	zoneID         ZoneID
-	sessionID      SessionID
-	boundaryID     BoundaryID
-	previousPlayID PlayID
-	sequence       int64
-	decision       Decision
 }
 type zoneDecisionUpdate struct {
 	zoneID    ZoneID

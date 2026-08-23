@@ -131,7 +131,7 @@ func TestCompatibleNewerSchemaUsesMinimumReaderVersion(t *testing.T) {
 	if err := store.Close(); err != nil {
 		t.Fatalf("close current store: %v", err)
 	}
-	setSchemaCompatibility(t, config.Path, 3, CurrentSchemaVersion)
+	setSchemaCompatibility(t, config.Path, CurrentSchemaVersion+1, CurrentSchemaVersion)
 
 	// When
 	compatible, err := Open(context.Background(), config)
@@ -151,7 +151,7 @@ func TestIncompatibleNewerSchemaRejectsOldReader(t *testing.T) {
 	if err := store.Close(); err != nil {
 		t.Fatalf("close current store: %v", err)
 	}
-	setSchemaCompatibility(t, config.Path, 3, CurrentSchemaVersion+1)
+	setSchemaCompatibility(t, config.Path, CurrentSchemaVersion+1, CurrentSchemaVersion+1)
 
 	// When
 	_, err := Open(context.Background(), config)

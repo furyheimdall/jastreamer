@@ -10,6 +10,10 @@ import (
 
 var fold = cases.Fold()
 
+func RecordingKeyFor(track catalog.Track) RecordingKey {
+	return recordingKey(track)
+}
+
 func recordingKey(track catalog.Track) RecordingKey {
 	if track.RecordingID != "" {
 		return RecordingKey("recording:" + string(track.RecordingID))

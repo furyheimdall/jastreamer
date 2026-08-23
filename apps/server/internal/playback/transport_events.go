@@ -134,7 +134,7 @@ func (store *Store) Stop(ctx context.Context, zoneID ZoneID) error {
 func (store *Store) PendingOutbox(ctx context.Context, zoneID ZoneID) ([]OutboxCommand, error) {
 	var commands []OutboxCommand
 	err := store.read(ctx, func(db *sqliteDB) error {
-		stmt, err := db.prepare("SELECT command_id,play_id,command_type,state FROM renderer_outbox WHERE zone_id=? AND state='pending' ORDER BY created_revision,command_id")
+		stmt, err := db.prepare("SELECT command_id,play_id,command_type,state FROM renderer_outbox WHERE zone_id=? AND state='pending' AND failed_revision IS NULL ORDER BY created_revision,command_id")
 		if err != nil {
 			return err
 		}
@@ -190,72 +190,4 @@ func (store *Store) AcknowledgeOutbox(ctx context.Context, zoneID ZoneID, comman
 			return update.bindText(2, commandID)
 		})
 	})
-}
-
-func (store *Store) Reconcile(ctx context.Context, zoneID ZoneID, observation RendererObservation) (ReconcileResult, error) {
-	result := ReconcileResult{}
-	err := store.transaction(ctx, func(db *sqliteDB) error {
-		zone, err := loadZone(db, zoneID)
-		if err != nil {
-			return err
-		}
-		result.PlayID = zone.currentPlay
-		if observation.Playing && (!observation.OutcomeKnown || observation.PlayID == "" || observation.PlayID != zone.currentPlay) {
-			return ErrInvalidObservation
-		}
-		if !observation.Playing && observation.PlayID != "" && observation.PlayID != zone.currentPlay {
-			return ErrInvalidObservation
-		}
-		if zone.currentPlay == "" {
-			if observation.Playing {
-				return ErrInvalidObservation
-			}
-			result.Transport = zone.transport
-			return nil
-		}
-		if observation.OutcomeKnown && observation.Playing {
-			result.Transport = TransportPlaying
-			if zone.transport == TransportPlaying {
-				return nil
-			}
-			revision := zone.revision + 1
-			if err := execBound(db, "UPDATE playback_plays SET state='playing',started_revision=COALESCE(started_revision,?) WHERE play_id=? AND state='reserved'", func(s *sqliteStmt) error {
-				if err := s.bindInt64(1, int64(revision)); err != nil {
-					return err
-				}
-				return s.bindText(2, string(zone.currentPlay))
-			}); err != nil {
-				return err
-			}
-			if err := execBound(db, "UPDATE playback_queue SET state='playing' WHERE reserved_play_id=? AND state='reserved'", func(s *sqliteStmt) error { return s.bindText(1, string(zone.currentPlay)) }); err != nil {
-				return err
-			}
-			if err := execBound(db, "UPDATE renderer_outbox SET state='confirmed' WHERE zone_id=? AND play_id=?", func(stmt *sqliteStmt) error {
-				if err := stmt.bindText(1, string(zoneID)); err != nil {
-					return err
-				}
-				return stmt.bindText(2, string(zone.currentPlay))
-			}); err != nil {
-				return err
-			}
-			return execBound(db, "UPDATE playback_zones SET revision=?,transport='playing' WHERE zone_id=?", func(s *sqliteStmt) error {
-				if err := s.bindInt64(1, int64(revision)); err != nil {
-					return err
-				}
-				return s.bindText(2, string(zoneID))
-			})
-		}
-		result.Transport = TransportSuspended
-		if zone.transport == TransportSuspended {
-			return nil
-		}
-		revision := zone.revision + 1
-		return execBound(db, "UPDATE playback_zones SET revision=?,transport='suspended' WHERE zone_id=?", func(s *sqliteStmt) error {
-			if err := s.bindInt64(1, int64(revision)); err != nil {
-				return err
-			}
-			return s.bindText(2, string(zoneID))
-		})
-	})
-	return result, err
 }

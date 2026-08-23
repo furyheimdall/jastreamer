@@ -10,6 +10,10 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/jakestreamer/jstreamer-server/internal/catalog"
+	"github.com/jakestreamer/jstreamer-server/internal/curation/candidates"
+	"github.com/jakestreamer/jstreamer-server/internal/curation/ranking"
+	"github.com/jakestreamer/jstreamer-server/internal/decision"
 	"github.com/jakestreamer/jstreamer-server/internal/playback"
 )
 
@@ -32,8 +36,8 @@ func main() {
 }
 
 func run() (err error) {
-	if len(os.Args) != 2 {
-		return errors.New("usage: go run ./tooling/playback-smoke.go <migration>")
+	if len(os.Args) != 3 {
+		return errors.New("usage: go run ./tooling/playback-smoke.go <base-migration> <todo12-migration>")
 	}
 	directory, err := os.MkdirTemp("", "jstreamer-playback-smoke-")
 	if err != nil {
@@ -41,7 +45,7 @@ func run() (err error) {
 	}
 	defer func() { err = errors.Join(err, os.RemoveAll(directory)) }()
 	config := playback.Config{
-		Path: filepath.Join(directory, "playback.sqlite"), MigrationPath: os.Args[1],
+		Path: filepath.Join(directory, "playback.sqlite"), MigrationPath: os.Args[1], ExpansionPath: os.Args[2],
 		BackupDirectory: filepath.Join(directory, "backups"),
 		SupportedSchema: playback.CurrentSchemaVersion, JournalMode: playback.JournalRollback,
 	}
@@ -91,6 +95,12 @@ func run() (err error) {
 	if err := acknowledgePending(ctx, store, "smoke-zone"); err != nil {
 		return err
 	}
+	if _, err := store.UpdateContinuationPolicy(ctx, playback.PolicyUpdate{
+		ZoneID: "automatic-zone", Mode: decision.PolicySimilar,
+		ArtistGap: ranking.DefaultArtistGap, AlbumGap: ranking.DefaultAlbumGap,
+	}); err != nil {
+		return err
+	}
 	if _, err := store.Enqueue(ctx, playback.EnqueueRequest{
 		ZoneID: "automatic-zone", IdempotencyKey: "seed",
 		Tracks: []playback.QueueTrack{{ID: "seed", Available: true}},
@@ -105,16 +115,19 @@ func run() (err error) {
 	if err != nil {
 		return err
 	}
-	preview, err := store.PreviewAutomatic(ctx, playback.AutomaticPreviewRequest{
-		ZoneID: "automatic-zone", Boundary: playback.Boundary{
-			ID: "automatic-1", PreviousPlayID: automaticPlaying.CurrentPlay,
-		},
-		TrackID: "generated", ExpectedRevision: automaticPlaying.Revision,
-	})
+	next := playback.NextRequest{
+		ZoneID:   "automatic-zone",
+		Boundary: playback.Boundary{ID: "automatic-1", PreviousPlayID: automaticPlaying.CurrentPlay},
+		Snapshot: smokeSimilarSnapshot(),
+	}
+	preview, err := store.PreviewNext(ctx, next)
 	if err != nil {
 		return err
 	}
-	automatic, err := store.CommitAutomatic(ctx, "automatic-zone", "automatic-1", preview)
+	if preview.TrackID != "generated" {
+		return fmt.Errorf("automatic preview selected %q", preview.TrackID)
+	}
+	automatic, err := store.CommitNext(ctx, next)
 	if err != nil {
 		return err
 	}
@@ -156,6 +169,28 @@ func run() (err error) {
 	}
 	fmt.Println(string(output))
 	return nil
+}
+
+func smokeSimilarSnapshot() decision.Snapshot {
+	seed := candidates.Track{
+		Catalog: catalog.Track{
+			TrackID: "seed", RecordingID: "recording-seed", Format: catalog.FormatFLAC,
+			Metadata: catalog.Metadata{Artist: "seed-artist"}, Available: true,
+		},
+		Signals: candidates.Signals{Genres: []string{"ambient"}},
+	}
+	generated := candidates.Track{
+		Catalog: catalog.Track{
+			TrackID: "generated", RecordingID: "recording-generated", Format: catalog.FormatFLAC,
+			Metadata: catalog.Metadata{Artist: "generated-artist"}, Available: true,
+		},
+		Signals: candidates.Signals{Genres: []string{"ambient"}},
+	}
+	return decision.Snapshot{Similar: decision.SimilarSnapshot{
+		Index: candidates.NewIndex(1, []candidates.Track{seed, generated}),
+		Seed:  seed, Current: seed, PageSize: 1,
+		RankingPolicy: ranking.DefaultPolicy(), SessionSeed: "smoke-session",
+	}}
 }
 
 func acknowledgePending(ctx context.Context, store *playback.Store, zone playback.ZoneID) error {

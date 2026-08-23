@@ -30,7 +30,7 @@ func (run migrationRun) apply(ctx context.Context) error {
 	if version == CurrentSchemaVersion {
 		return integrityCheck(db)
 	}
-	if version != 0 {
+	if version != 0 && version != 2 {
 		return fmt.Errorf("unsupported migration from schema %d", version)
 	}
 	if err := context.Cause(ctx); err != nil {
@@ -58,18 +58,20 @@ func (run migrationRun) apply(ctx context.Context) error {
 	if err := errors.Join(backupErr, closeErr); err != nil {
 		return fmt.Errorf("verify migration backup: %w", err)
 	}
-	sql, err := os.ReadFile(config.MigrationPath)
+	statements, err := migrationStatements(config, version)
 	if err != nil {
-		return fmt.Errorf("read playback migration: %w", err)
+		return err
 	}
 	if err := db.exec("BEGIN IMMEDIATE"); err != nil {
 		return err
 	}
-	if err := db.exec(string(sql)); err != nil {
-		if rollbackErr := db.exec("ROLLBACK"); rollbackErr != nil {
-			return errors.Join(err, rollbackErr)
+	for _, statement := range statements {
+		if err := db.exec(statement); err != nil {
+			if rollbackErr := db.exec("ROLLBACK"); rollbackErr != nil {
+				return errors.Join(err, rollbackErr)
+			}
+			return err
 		}
-		return err
 	}
 	if hook != nil {
 		if err := hook(CurrentSchemaVersion); err != nil {
