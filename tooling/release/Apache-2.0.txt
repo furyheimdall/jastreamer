@@ -1,0 +1,1 @@
+Apache License 2.0 metadata marker. The repository root LICENSE is the authoritative complete Apache-2.0 text.

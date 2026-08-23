@@ -1,8 +1,12 @@
 #!/bin/sh
 set -eu
-
+root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 if [ "$#" -eq 2 ] && [ "$1" = "verify-boundaries" ] && [ "$2" = "--all" ]; then
-  exec node "$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)/verify-boundaries.mjs"
+  exec node "$root/tooling/verify-boundaries.mjs"
+fi
+if [ "$#" -ge 3 ] && [ "$1" = "release" ] && [ "$2" = "validate" ]; then
+  shift 2
+  exec bun "$root/tooling/release/cli.ts" "$@"
 fi
 printf '%s\n' 'usage: tooling/componentctl verify-boundaries --all' >&2
 exit 64
