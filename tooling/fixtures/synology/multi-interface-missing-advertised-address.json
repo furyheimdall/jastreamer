@@ -1,0 +1,13 @@
+{
+  "model": "DS918+",
+  "dsmVersion": "7.2.2-72806 Update 9",
+  "architecture": "x86_64",
+  "ociPlatform": "linux/amd64",
+  "containerManager": "Container Manager",
+  "dockerVersion": "24.0.2",
+  "interfaces": [
+    {"name": "REDACTED", "address": "REDACTED", "redacted": true},
+    {"name": "REDACTED", "address": "REDACTED", "redacted": true}
+  ],
+  "runtimeCertification": "candidate-pending-runtime-authorization"
+}
