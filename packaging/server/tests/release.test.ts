@@ -92,6 +92,22 @@ describe("Server release contract", () => {
     expect(installer).toContain("jq-linux-$arch");
     expect(workflow).not.toContain("sort -V | head -1");
   });
+  test("selects the exact .NET SDK installed for Windows packaging", () => {
+    const root = resolve(new URL("../../..", import.meta.url).pathname);
+    const configuration = JSON.parse(readFileSync(join(root, "global.json"), "utf8")) as {
+      sdk?: { version?: string; rollForward?: string };
+    };
+    expect(configuration.sdk).toEqual({
+      version: "8.0.419",
+      rollForward: "disable",
+    });
+  });
+  test("uses a Buildx container driver that supports OCI attestations", () => {
+    const workflow = readFileSync(new URL("../../../.github/workflows/server-release.yml", import.meta.url), "utf8");
+    const oci = workflow.slice(workflow.indexOf("  oci:"), workflow.indexOf("  stage:"));
+    expect(oci).toContain("docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e");
+    expect(oci.indexOf("docker/setup-buildx-action@")).toBeLessThan(oci.indexOf("container build-qa"));
+  });
   test("promotion refuses overwrite, checks digest, and never suppresses cleanup", () => {
     const workflow = readFileSync(new URL("../../../.github/workflows/server-release.yml", import.meta.url), "utf8");
     const promotion = workflow.slice(workflow.indexOf("  promote:"));
