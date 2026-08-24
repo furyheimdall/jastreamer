@@ -97,7 +97,7 @@ export function normalizeTrace(trace: string, context: TraceContext): TraceResul
   return { accessedPaths: [...accessed].sort(), missingPaths: [...missing].sort() };
 }
 
-const ANCESTOR_METADATA_PROBE = /^(?:apps(?:\/(?:server|control|renderer))?\/)?(?:Cargo\.toml|rust-toolchain(?:\.toml)?|clippy\.toml|\.clippy\.toml|\.cargo\/config(?:\.toml)?|go\.work|BUILD\.gn|blaze-out|dart\/config\/ide\/flutter\.json|\.git|\.bzr|\.fslckout|\.hg|\.svn|_FOSSIL_)$/;
+const ANCESTOR_METADATA_PROBE = /^(?:apps(?:\/(?:server|control|renderer))?\/)?(?:Cargo\.toml|rust-toolchain(?:\.toml)?|clippy\.toml|\.clippy\.toml|\.cargo(?:\/config(?:\.toml)?)?|go\.work|BUILD\.gn|blaze-out|dart\/config\/ide\/flutter\.json|\.git|\.bzr|\.fslckout|\.hg|\.svn|_FOSSIL_)$/;
 
 export const outsideAllowlist = (accessed: readonly string[], allowed: readonly string[], missing: readonly string[], component: ComponentName): readonly string[] =>
   accessed.filter((path) => path !== "." && path !== "@namespaces" && path !== `@namespaces/${component}` && !path.startsWith(`@namespaces/${component}/`) && !(missing.includes(path) && ANCESTOR_METADATA_PROBE.test(path)) && !allowed.some((entry) =>

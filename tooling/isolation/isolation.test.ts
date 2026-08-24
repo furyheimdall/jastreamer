@@ -86,9 +86,11 @@ describe("trace policy", () => {
   });
 
   test("suppresses missing ancestor metadata but rejects successful nested git access", () => {
-    const accessed = ["apps/.git", "apps/server/.git", "apps/control/.git"];
-    const violations = outsideAllowlist(accessed, ["apps/server"], ["apps/.git", "apps/server/.git"], "server");
+    const accessed = [".cargo", "apps/.cargo", "apps/.git", "apps/server/.git", "apps/control/.git"];
+    const missing = [".cargo", "apps/.cargo", "apps/.git", "apps/server/.git"];
+    const violations = outsideAllowlist(accessed, ["apps/server"], missing, "server");
     expect(violations).toEqual(["apps/control/.git"]);
+    expect(outsideAllowlist([".cargo"], ["apps/renderer"], [], "renderer")).toEqual([".cargo"]);
   });
 
   test("normalizes in-container workspace and namespace aliases", () => {
