@@ -1,0 +1,78 @@
+name: component-isolation
+
+on:
+  pull_request:
+    paths:
+      - "apps/server/**"
+      - "apps/control/**"
+      - "apps/renderer/**"
+      - "contracts/control-api/**"
+      - "contracts/renderer-protocol/**"
+      - "contracts/locks/**"
+      - "tooling/fixtures/e2e/local.yaml"
+      - "tooling/fixtures/isolation/**"
+      - "tooling/isolation/**"
+      - "tooling/scope-manifest.yaml"
+      - "tooling/componentctl"
+      - ".github/workflows/isolation.yml"
+  push:
+    branches: [main]
+    paths:
+      - "apps/server/**"
+      - "apps/control/**"
+      - "apps/renderer/**"
+      - "contracts/**"
+      - "tooling/fixtures/e2e/local.yaml"
+      - "tooling/fixtures/isolation/**"
+      - "tooling/isolation/**"
+      - "tooling/scope-manifest.yaml"
+      - "tooling/componentctl"
+      - ".github/workflows/isolation.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: isolation-server-control-renderer-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - uses: oven-sh/setup-bun@735343b667d3e6f658f44d0eca948eb6282f2b76
+        with:
+          bun-version: 1.3.14
+      - name: Install syscall tracer
+        run: sudo apt-get update && sudo apt-get install --yes strace
+      - name: Install pinned isolation tooling
+        run: bun install --cwd tooling/isolation --frozen-lockfile
+      - name: Type-check isolation tooling
+        run: bun run --cwd tooling/isolation check
+      - name: Test isolation tooling
+        run: bun test tooling/isolation
+      - name: Verify independent components
+        run: ./tooling/componentctl isolation verify --component server,control,renderer --sparse --trace-files --output happy.json
+      - name: Verify injected failure isolation
+        run: |
+          set +e
+          ./tooling/componentctl isolation verify --fixture tooling/fixtures/isolation/server-imports-control.yaml --sparse --trace-files --output failure.json
+          code=$?
+          set -e
+          test "$code" -eq 65 || exit 65
+          python3 - <<'PY'
+          import json
+          result = json.load(open("failure.json", encoding="utf-8"))
+          assert [item["status"] for item in result["components"]] == ["failed", "passed", "passed"]
+          assert result["components"][0]["violations"] == ["apps/control/lib/main.dart"]
+          PY
+      - uses: actions/upload-artifact@50769540e7f4bd5e21e526ee35c689e35e0d6874
+        with:
+          name: isolation-server-control-renderer
+          path: |
+            happy.json
+            failure.json
+          if-no-files-found: error

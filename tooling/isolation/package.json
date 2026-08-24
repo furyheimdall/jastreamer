@@ -1,0 +1,12 @@
+{
+  "name": "@jstreamer/isolation-tooling",
+  "private": true,
+  "type": "module",
+  "devDependencies": {
+    "@types/bun": "1.3.14",
+    "typescript": "5.9.3"
+  },
+  "scripts": {
+    "check": "tsc --noEmit"
+  }
+}

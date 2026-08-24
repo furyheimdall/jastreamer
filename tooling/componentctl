@@ -4,6 +4,16 @@ root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 if [ "$#" -eq 2 ] && [ "$1" = "verify-boundaries" ] && [ "$2" = "--all" ]; then
   exec node "$root/tooling/verify-boundaries.mjs"
 fi
+if [ "$#" -ge 3 ] && [ "$1" = "isolation" ] && [ "$2" = "verify" ]; then
+  shift 2
+  exec bun "$root/tooling/isolation/cli.ts" "$@"
+fi
+if [ "$#" -ge 3 ] && [ "$1" = "component" ] && [ "$2" = "verify" ]; then
+  shift 2
+  component=$1
+  shift
+  exec bun "$root/tooling/isolation/cli.ts" --component "$component" --sparse --trace-files "$@"
+fi
 if [ "$#" -ge 3 ] && [ "$1" = "compatibility" ] && [ "$2" = "run" ]; then
   shift 2
   exec bun "$root/tooling/compatibility/runner.ts" "$@"

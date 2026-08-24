@@ -1,0 +1,38 @@
+{
+  "schema": 1,
+  "components": {
+    "server": {
+      "paths": [
+        "apps/server",
+        "contracts/control-api",
+        "contracts/renderer-protocol",
+        "contracts/locks/server.json",
+        "tooling/fixtures/e2e/local.yaml",
+        "tooling/fixtures/music",
+        "tooling/isolation",
+        "tooling/fixtures/isolation",
+        "tooling/scope-manifest.yaml"
+      ]
+    },
+    "control": {
+      "paths": [
+        "apps/control",
+        "contracts/control-api",
+        "contracts/locks/control.json",
+        "tooling/isolation",
+        "tooling/fixtures/isolation",
+        "tooling/scope-manifest.yaml"
+      ]
+    },
+    "renderer": {
+      "paths": [
+        "apps/renderer",
+        "contracts/renderer-protocol",
+        "contracts/locks/renderer.json",
+        "tooling/isolation",
+        "tooling/fixtures/isolation",
+        "tooling/scope-manifest.yaml"
+      ]
+    }
+  }
+}
