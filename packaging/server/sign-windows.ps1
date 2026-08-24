@@ -10,6 +10,7 @@ $pfx = Join-Path $env:RUNNER_TEMP "jastreamer-server-signing.pfx"
 $trustedPath = $null
 $machineSecretSet = $false
 $pfxCertificate = $null
+$publishedCertificate = $null
 function CertificateSha256($certificate) {
   [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($certificate.RawData))
 }
@@ -21,7 +22,8 @@ function AssertExpectedSignature([string]$path, [string]$expected) {
 }
 try {
   [IO.File]::WriteAllBytes($pfx, [Convert]::FromBase64String($env:WINDOWS_SIGNING_PFX_B64))
-  $expected = (Get-FileHash $Cer -Algorithm SHA256).Hash
+  $publishedCertificate = [Security.Cryptography.X509Certificates.X509Certificate2]::CreateFromPemFile((Resolve-Path $Cer).Path)
+  $expected = CertificateSha256 $publishedCertificate
   $flags = [Security.Cryptography.X509Certificates.X509KeyStorageFlags]::EphemeralKeySet
   $pfxCertificate = [Security.Cryptography.X509Certificates.X509Certificate2]::new(
     $pfx, $env:WINDOWS_SIGNING_PFX_PASSWORD, $flags
@@ -95,6 +97,7 @@ try {
   @{ inspector='WindowsInstaller COM'; service=$record.StringData(1); account=$record.StringData(2); architecture='amd64'; extractedExeSignatures=2 } | ConvertTo-Json | Set-Content "$Directory/windows-msi-inspection.json"
 } finally {
   $cleanupFailures = [Collections.Generic.List[Exception]]::new()
+  if ($publishedCertificate) { try { $publishedCertificate.Dispose() } catch { $cleanupFailures.Add($_.Exception) } }
   if ($pfxCertificate) { try { $pfxCertificate.Dispose() } catch { $cleanupFailures.Add($_.Exception) } }
   if (Test-Path $pfx) { try { Remove-Item $pfx -Force } catch { $cleanupFailures.Add($_.Exception) } }
   if (Test-Path $pfx) { $cleanupFailures.Add([Exception]::new("PFX still present")) }

@@ -69,6 +69,8 @@ describe("Server release contract", () => {
   test("Windows PFX loading and cleanup are noninteractive, ephemeral, and fail-safe", () => {
     const signing = readFileSync(new URL("../sign-windows.ps1", import.meta.url), "utf8");
     expect(signing).not.toContain("Get-PfxCertificate $pfx");
+    expect(signing).not.toContain("Get-FileHash $Cer");
+    expect(signing).toContain("CertificateSha256 $publishedCertificate");
     expect(signing).toContain("X509Certificate2"); expect(signing).toContain("WINDOWS_SIGNING_PFX_PASSWORD"); expect(signing).toContain("EphemeralKeySet");
     expect(signing.indexOf("Remove-Item $pfx -Force")).toBeLessThan(signing.lastIndexOf("AggregateException"));
     const workflow = readFileSync(new URL("../../../.github/workflows/server-release.yml", import.meta.url), "utf8");
