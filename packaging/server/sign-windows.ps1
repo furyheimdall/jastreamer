@@ -49,16 +49,10 @@ try {
   New-Item -ItemType Directory $extract | Out-Null
   & "$env:RUNNER_TEMP/wix/wix.exe" msi decompile $msi -x $extract -o "$extract/decompiled.wxs"
   if ($LASTEXITCODE -ne 0) { throw "MSI extraction failed" }
-  [xml]$decompiled = Get-Content "$extract/decompiled.wxs" -Raw
-  $namespace = [Xml.XmlNamespaceManager]::new($decompiled.NameTable)
-  $namespace.AddNamespace('wix', $decompiled.DocumentElement.NamespaceURI)
   $extractedExecutables = foreach ($id in @('ServerExe', 'ServerCoreExe')) {
-    $file = $decompiled.SelectSingleNode("//wix:File[@Id='$id']", $namespace)
-    if (!$file) { throw "MSI missing embedded file: $id" }
-    $path = [string]$file.Source
-    if (![IO.Path]::IsPathRooted($path)) { $path = Join-Path $extract $path }
-    if (!(Test-Path $path)) { throw "MSI extracted file missing: $id" }
-    (Resolve-Path $path).Path
+    $files = @(Get-ChildItem $extract -Recurse -File | Where-Object Name -eq $id)
+    if ($files.Count -ne 1) { throw "MSI must extract exactly one file for ID: $id" }
+    $files[0].FullName
   }
   if ($extractedExecutables.Count -ne 2) { throw "MSI must embed exactly signed host and core EXEs" }
   foreach ($exe in $extractedExecutables) { AssertExpectedSignature $exe $expected | Out-Null }

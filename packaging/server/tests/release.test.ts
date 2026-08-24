@@ -85,7 +85,8 @@ describe("Server release contract", () => {
     expect(signing.indexOf("build-windows-msi.ps1")).toBeLessThan(signing.indexOf("$env:JASTREAMER_SIGNTOOL sign /fd SHA256 /f $pfx /p $env:WINDOWS_SIGNING_PFX_PASSWORD $msi"));
     expect(signing).not.toContain("Get-ChildItem $extract -Recurse -Filter '*.exe'");
     expect(signing).toContain("@('ServerExe', 'ServerCoreExe')");
-    expect(signing).toContain("SelectSingleNode");
+    expect(signing).not.toContain("SelectSingleNode");
+    expect(signing).toContain("Where-Object Name -eq $id");
     expect(signing).toContain("$extractedExecutables"); expect(signing).toContain("WaitForStatus"); expect(signing).toContain("/healthz");
     expect(readFileSync(new URL("../build-windows.ps1", import.meta.url), "utf8")).not.toContain(" wix build ");
   });
