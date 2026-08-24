@@ -1,0 +1,8 @@
+{
+  "protocolMajor": 2,
+  "capabilities": ["render", "future-capability"],
+  "commandId": "known-command",
+  "positionMs": 0,
+  "commandKind": "play",
+  "optionalMetadata": "additive"
+}

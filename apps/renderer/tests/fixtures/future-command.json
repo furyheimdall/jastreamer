@@ -1,0 +1,8 @@
+{
+  "protocolMajor": 1,
+  "capabilities": ["render", "future-capability"],
+  "commandId": "future-command",
+  "positionMs": 0,
+  "commandKind": "future-command",
+  "optionalMetadata": "additive"
+}

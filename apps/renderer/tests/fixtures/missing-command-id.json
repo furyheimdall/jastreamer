@@ -1,0 +1,6 @@
+{
+  "protocolMajor": 1,
+  "capabilities": ["render"],
+  "positionMs": 0,
+  "commandKind": "play"
+}
