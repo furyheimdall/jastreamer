@@ -168,6 +168,7 @@ MockClient _todo13Client() => MockClient((request) async {
             'pairing_url': '/pair/',
           },
         '/api/v1/discovery' => {
+            'protocol_major': 2,
             'supported_protocol_majors': [1, 2],
             'capabilities': ['catalog-status', 'queue', 'continuation-policy'],
             'pairing_url': '/pair/',

@@ -16,6 +16,7 @@ void main() {
         expect(request.headers['x-jake-protocol-major'], '2');
         return http.Response(
           jsonEncode({
+            'protocol_major': 2,
             'supported_protocol_majors': [1, 2],
             'capabilities': ['catalog-status', 'queue', 'continuation-policy'],
             'pairing_url': '/pair/',
