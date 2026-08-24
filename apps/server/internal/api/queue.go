@@ -5,7 +5,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/jakestreamer/jstreamer-server/internal/playback"
+	"github.com/jastreamer/jastreamer-server/internal/playback"
 )
 
 type queueTrack struct {

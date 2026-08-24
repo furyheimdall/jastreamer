@@ -10,10 +10,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jakestreamer/jstreamer-server/internal/api"
-	"github.com/jakestreamer/jstreamer-server/internal/catalog"
-	"github.com/jakestreamer/jstreamer-server/internal/playback"
-	"github.com/jakestreamer/jstreamer-server/internal/security"
+	"github.com/jastreamer/jastreamer-server/internal/api"
+	"github.com/jastreamer/jastreamer-server/internal/catalog"
+	"github.com/jastreamer/jastreamer-server/internal/playback"
+	"github.com/jastreamer/jastreamer-server/internal/security"
 )
 
 type apiClock struct{ now time.Time }

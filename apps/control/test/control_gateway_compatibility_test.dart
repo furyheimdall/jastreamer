@@ -3,10 +3,10 @@ import 'dart:convert';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
-import 'package:jstreamer_control/behavior_model.dart';
-import 'package:jstreamer_control/control_gateway.dart';
-import 'package:jstreamer_control/control_models.dart';
-import 'package:jstreamer_control/protocol_compatibility.dart';
+import 'package:jastreamer_control/behavior_model.dart';
+import 'package:jastreamer_control/control_gateway.dart';
+import 'package:jastreamer_control/control_models.dart';
+import 'package:jastreamer_control/protocol_compatibility.dart';
 
 void main() {
   test(

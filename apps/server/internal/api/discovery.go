@@ -5,10 +5,10 @@ import (
 	"errors"
 	"net/http"
 
-	"github.com/jakestreamer/jstreamer-server/internal/analysis"
-	"github.com/jakestreamer/jstreamer-server/internal/catalog"
-	"github.com/jakestreamer/jstreamer-server/internal/compatibility"
-	"github.com/jakestreamer/jstreamer-server/internal/curation/ranking"
+	"github.com/jastreamer/jastreamer-server/internal/analysis"
+	"github.com/jastreamer/jastreamer-server/internal/catalog"
+	"github.com/jastreamer/jastreamer-server/internal/compatibility"
+	"github.com/jastreamer/jastreamer-server/internal/curation/ranking"
 )
 
 func (service *server) discovery(writer http.ResponseWriter, request *http.Request) {

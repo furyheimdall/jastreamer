@@ -15,7 +15,7 @@ const run = (...args) => spawnSync(componentctl, ["synology", ...args], {
 });
 
 test("validates the static DS918+ contract and writes redacted evidence", async () => {
-  const directory = await mkdtemp(join(tmpdir(), "jstreamer-synology-"));
+  const directory = await mkdtemp(join(tmpdir(), "jastreamer-synology-"));
   try {
     const evidence = join(directory, "contract.json");
     const result = run("validate", "--fixture", fixture("ds918plus.json"), "--evidence", evidence);

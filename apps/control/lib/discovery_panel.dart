@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:jstreamer_control/behavior_model.dart';
-import 'package:jstreamer_control/control_theme.dart';
+import 'package:jastreamer_control/behavior_model.dart';
+import 'package:jastreamer_control/control_theme.dart';
 
 final class DiscoveryPanel extends StatelessWidget {
   const DiscoveryPanel({
@@ -32,7 +32,7 @@ final class DiscoveryPanel extends StatelessWidget {
               Semantics(
                 header: true,
                 child: Text(
-                  'Find a Jake Streamer server',
+                  'Find a jastreamer server',
                   style: Theme.of(context).textTheme.titleLarge,
                 ),
               ),

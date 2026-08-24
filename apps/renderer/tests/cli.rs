@@ -10,7 +10,7 @@ fn fixture(name: &str) -> PathBuf {
 }
 
 fn run(arguments: &[&str]) -> Output {
-    Command::new(env!("CARGO_BIN_EXE_jstreamer-renderer"))
+    Command::new(env!("CARGO_BIN_EXE_jastreamer-renderer"))
         .args(arguments)
         .output()
         .expect("renderer CLI starts")

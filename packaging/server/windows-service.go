@@ -1,6 +1,6 @@
 //go:build windows
 
-// Jake Streamer Windows Service host. The MSI registers this executable with SCM;
+// jastreamer Windows Service host. The MSI registers this executable with SCM;
 // it supervises the cross-platform Server core in the same installation directory.
 package main
 
@@ -28,9 +28,9 @@ func (service) Execute(_ []string, requests <-chan svc.ChangeRequest, status cha
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	command := exec.CommandContext(ctx, filepath.Join(directory, "jstreamer-server-core.exe"), "--config", filepath.Join(directory, "server.json"))
+	command := exec.CommandContext(ctx, filepath.Join(directory, "jastreamer-server-core.exe"), "--config", filepath.Join(directory, "server.json"))
 	command.Dir = directory
-	command.Env = append(os.Environ(), "JSTREAMER_DATA_DIR="+filepath.Join(os.Getenv("ProgramData"), "Jake Streamer", "Server"))
+	command.Env = append(os.Environ(), "JASTREAMER_DATA_DIR="+filepath.Join(os.Getenv("ProgramData"), "jastreamer", "Server"))
 	stdout, err := command.StdoutPipe()
 	if err != nil {
 		return false, 1
@@ -73,7 +73,7 @@ func (service) Execute(_ []string, requests <-chan svc.ChangeRequest, status cha
 }
 
 func main() {
-	if err := svc.Run("jstreamer-server", service{}); err != nil {
+	if err := svc.Run("jastreamer-server", service{}); err != nil {
 		os.Exit(1)
 	}
 }

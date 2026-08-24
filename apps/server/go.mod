@@ -1,4 +1,4 @@
-module github.com/jakestreamer/jstreamer-server
+module github.com/jastreamer/jastreamer-server
 
 go 1.25.0
 

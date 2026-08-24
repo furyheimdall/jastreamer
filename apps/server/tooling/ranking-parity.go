@@ -51,7 +51,7 @@ func main() {
 	if *platforms == "" || *fixture == "" || *output == "" {
 		exit(errors.New("--platform, --fixture, and --output are required"))
 	}
-	root := os.Getenv("JSTREAMER_ROOT")
+	root := os.Getenv("JASTREAMER_ROOT")
 	fixtureValue := *fixture
 	if !filepath.IsAbs(fixtureValue) {
 		if root != "" {
@@ -70,7 +70,7 @@ func main() {
 	if err != nil {
 		exit(err)
 	}
-	temp, err := os.MkdirTemp("", "jstreamer-ranking-parity-*")
+	temp, err := os.MkdirTemp("", "jastreamer-ranking-parity-*")
 	if err != nil {
 		exit(err)
 	}

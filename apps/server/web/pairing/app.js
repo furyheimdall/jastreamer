@@ -1,6 +1,6 @@
 const byId = (id) => document.getElementById(id);
 
-const state = { token: sessionStorage.getItem("jstreamer-admin-token") || "" };
+const state = { token: sessionStorage.getItem("jastreamer-admin-token") || "" };
 
 async function api(path, options = {}) {
   const headers = { "Content-Type": "application/json", ...(options.headers || {}) };
@@ -80,7 +80,7 @@ byId("bootstrap-form").addEventListener("submit", async (event) => {
   try {
     const credential = await api("/api/v1/bootstrap", { method: "POST", body: JSON.stringify({ setup_secret: form.get("setupSecret"), name: form.get("name") }) });
     state.token = credential.token;
-    sessionStorage.setItem("jstreamer-admin-token", state.token);
+    sessionStorage.setItem("jastreamer-admin-token", state.token);
     target.reset();
     message(byId("bootstrap-message"), "Administrator created. The token is held only for this browser session.");
     await loadDevices();
@@ -91,14 +91,14 @@ byId("session-form").addEventListener("submit", async (event) => {
   event.preventDefault();
   const target = event.currentTarget;
   state.token = new FormData(target).get("token").trim();
-  sessionStorage.setItem("jstreamer-admin-token", state.token);
+  sessionStorage.setItem("jastreamer-admin-token", state.token);
   message(byId("session-message"), "Session token loaded.");
   await loadDevices();
 });
 
 byId("clear-session").addEventListener("click", () => {
   state.token = "";
-  sessionStorage.removeItem("jstreamer-admin-token");
+  sessionStorage.removeItem("jastreamer-admin-token");
   byId("session-form").reset();
   message(byId("session-message"), "Session cleared.");
 });

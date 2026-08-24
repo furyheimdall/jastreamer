@@ -1,16 +1,16 @@
 import 'package:flutter/material.dart';
-import 'package:jstreamer_control/behavior_model.dart';
-import 'package:jstreamer_control/control_gateway.dart';
-import 'package:jstreamer_control/control_models.dart';
-import 'package:jstreamer_control/control_platform.dart';
-import 'package:jstreamer_control/control_policy_state.dart';
-import 'package:jstreamer_control/control_theme.dart';
-import 'package:jstreamer_control/discovery_panel.dart';
-import 'package:jstreamer_control/pairing_widgets.dart';
-import 'package:jstreamer_control/policy_panel.dart';
-import 'package:jstreamer_control/protocol_compatibility.dart';
-import 'package:jstreamer_control/status_panels.dart';
-import 'package:jstreamer_control/tls_fingerprint.dart';
+import 'package:jastreamer_control/behavior_model.dart';
+import 'package:jastreamer_control/control_gateway.dart';
+import 'package:jastreamer_control/control_models.dart';
+import 'package:jastreamer_control/control_platform.dart';
+import 'package:jastreamer_control/control_policy_state.dart';
+import 'package:jastreamer_control/control_theme.dart';
+import 'package:jastreamer_control/discovery_panel.dart';
+import 'package:jastreamer_control/pairing_widgets.dart';
+import 'package:jastreamer_control/policy_panel.dart';
+import 'package:jastreamer_control/protocol_compatibility.dart';
+import 'package:jastreamer_control/status_panels.dart';
+import 'package:jastreamer_control/tls_fingerprint.dart';
 
 part 'control_home_view.dart';
 
@@ -73,7 +73,7 @@ final class _ControlHomeState extends State<ControlHome> {
       final advertisedFingerprint = fingerprint.text.trim();
       final candidate = DiscoveredServer(
         id: const ServerId('discovered-server'),
-        name: 'Jake Streamer Server',
+        name: 'jastreamer Server',
         origin: serverOrigin,
         pairingUrl: serverOrigin.resolve('/pair/'),
         certificateSha256: advertisedFingerprint,

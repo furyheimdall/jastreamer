@@ -11,7 +11,7 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/jakestreamer/jstreamer-server/internal/compatibility"
+	"github.com/jastreamer/jastreamer-server/internal/compatibility"
 )
 
 func TestNegotiate_selects_highest_common_major_without_product_version(t *testing.T) {

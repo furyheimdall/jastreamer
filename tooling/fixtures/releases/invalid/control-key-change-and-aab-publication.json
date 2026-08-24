@@ -1,0 +1,13 @@
+{
+  "component": "control",
+  "applicationId": "io.jastreamer.control",
+  "publicAssets": [
+    "jastreamer-control_1.2.3_web.zip",
+    "jastreamer-control_1.2.3_windows.msix",
+    "jastreamer-control_1.2.3_android_universal.apk",
+    "jastreamer-control_1.2.3_android.aab"
+  ],
+  "baselineSigningLineage": "project-release-v1",
+  "candidateSigningLineage": "different-key",
+  "expectedErrors": ["FORBIDDEN_AAB_ASSET", "SIGNING_LINEAGE_CHANGED"]
+}

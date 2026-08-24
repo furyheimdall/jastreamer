@@ -1,1 +1,1 @@
-{"component":"control","version":"0.1.0","tag":"control-v0.2.0","artifacts":["jstreamer-server_0.1.0_windows_amd64.msi"],"license":"Apache-2.0","third_party_notices":"THIRD_PARTY_NOTICES","signing":{"platform":"android","ca":true,"application_id":"wrong","private_key":false}}
+{"component":"control","version":"0.1.0","tag":"control-v0.2.0","artifacts":["jastreamer-server_0.1.0_windows_amd64.msi"],"license":"Apache-2.0","third_party_notices":"THIRD_PARTY_NOTICES","signing":{"platform":"android","ca":true,"application_id":"wrong","private_key":false}}

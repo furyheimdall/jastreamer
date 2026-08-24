@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:jstreamer_control/behavior_model.dart';
+import 'package:jastreamer_control/behavior_model.dart';
 
 void main() {
   group('Given Todo13 control state', () {

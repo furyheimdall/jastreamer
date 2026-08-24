@@ -1,5 +1,5 @@
-import 'package:jstreamer_control/behavior_model.dart';
-import 'package:jstreamer_control/control_models.dart';
+import 'package:jastreamer_control/behavior_model.dart';
+import 'package:jastreamer_control/control_models.dart';
 
 ControlState applyPolicyView(ControlState state, PolicyView policyView) {
   final policy = policyView.mode.known;

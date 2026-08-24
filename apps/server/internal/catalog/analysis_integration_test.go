@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jakestreamer/jstreamer-server/internal/analysis"
+	"github.com/jastreamer/jastreamer-server/internal/analysis"
 )
 
 func TestScanWorkerPersistCurationAndRestartExactlyOnce(t *testing.T) {

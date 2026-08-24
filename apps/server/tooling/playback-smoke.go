@@ -10,11 +10,11 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/jakestreamer/jstreamer-server/internal/catalog"
-	"github.com/jakestreamer/jstreamer-server/internal/curation/candidates"
-	"github.com/jakestreamer/jstreamer-server/internal/curation/ranking"
-	"github.com/jakestreamer/jstreamer-server/internal/decision"
-	"github.com/jakestreamer/jstreamer-server/internal/playback"
+	"github.com/jastreamer/jastreamer-server/internal/catalog"
+	"github.com/jastreamer/jastreamer-server/internal/curation/candidates"
+	"github.com/jastreamer/jastreamer-server/internal/curation/ranking"
+	"github.com/jastreamer/jastreamer-server/internal/decision"
+	"github.com/jastreamer/jastreamer-server/internal/playback"
 )
 
 type smokeResult struct {
@@ -39,7 +39,7 @@ func run() (err error) {
 	if len(os.Args) != 3 {
 		return errors.New("usage: go run ./tooling/playback-smoke.go <base-migration> <todo12-migration>")
 	}
-	directory, err := os.MkdirTemp("", "jstreamer-playback-smoke-")
+	directory, err := os.MkdirTemp("", "jastreamer-playback-smoke-")
 	if err != nil {
 		return fmt.Errorf("create smoke directory: %w", err)
 	}

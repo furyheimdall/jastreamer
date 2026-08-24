@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
-import 'package:jstreamer_control/app.dart';
-import 'package:jstreamer_control/control_platform.dart';
-import 'package:jstreamer_control/control_theme.dart';
+import 'package:jastreamer_control/app.dart';
+import 'package:jastreamer_control/control_platform.dart';
+import 'package:jastreamer_control/control_theme.dart';
 
 final class ControlApp extends StatelessWidget {
   const ControlApp({
@@ -19,7 +19,7 @@ final class ControlApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) => MaterialApp(
         debugShowCheckedModeBanner: false,
-        title: 'Jake Streamer Control',
+        title: 'jastreamer Control',
         theme: controlTheme(),
         home: ControlHome(
           startDiscovered: startDiscovered,

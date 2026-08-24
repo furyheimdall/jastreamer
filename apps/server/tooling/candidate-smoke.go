@@ -14,8 +14,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/jakestreamer/jstreamer-server/internal/catalog"
-	"github.com/jakestreamer/jstreamer-server/internal/curation/candidates"
+	"github.com/jastreamer/jastreamer-server/internal/catalog"
+	"github.com/jastreamer/jastreamer-server/internal/curation/candidates"
 )
 
 type output struct {
@@ -39,7 +39,7 @@ func run() (err error) {
 	if len(os.Args) != 3 {
 		return errors.New("usage: go run ./tooling/candidate-smoke.go <fixture-dir> <migration>")
 	}
-	temp, err := os.MkdirTemp("", "jstreamer-candidate-smoke-")
+	temp, err := os.MkdirTemp("", "jastreamer-candidate-smoke-")
 	if err != nil {
 		return fmt.Errorf("create smoke directory: %w", err)
 	}

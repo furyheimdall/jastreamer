@@ -103,7 +103,7 @@ func TestWorkerBoundedConcurrencyCancellationResumeAndRecompute(t *testing.T) {
 
 func TestCorruptAndUnsupportedIsolation(t *testing.T) {
 	corrupt, unsupported := []byte("RIFFbad"), unsupportedWAV()
-	if root := os.Getenv("JSTREAMER_FIXTURES"); root != "" {
+	if root := os.Getenv("JASTREAMER_FIXTURES"); root != "" {
 		if !filepath.IsAbs(root) {
 			root = filepath.Join("..", "..", root)
 		}

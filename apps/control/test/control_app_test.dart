@@ -3,9 +3,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
-import 'package:jstreamer_control/control_application.dart';
-import 'package:jstreamer_control/control_platform.dart';
-import 'package:jstreamer_control/control_theme.dart';
+import 'package:jastreamer_control/control_application.dart';
+import 'package:jastreamer_control/control_platform.dart';
+import 'package:jastreamer_control/control_theme.dart';
 
 void main() {
   testWidgets('Given startup When rendered Then discovery is the first task', (
@@ -18,7 +18,7 @@ void main() {
     addTearDown(tester.view.resetDevicePixelRatio);
     await tester.pumpWidget(const ControlApp());
 
-    expect(find.text('Find a Jake Streamer server'), findsOneWidget);
+    expect(find.text('Find a jastreamer server'), findsOneWidget);
     final fingerprint = tester.widget<TextField>(find.byType(TextField).at(1));
     expect(fingerprint.decoration?.helperMaxLines, 2);
     expect(tester.takeException(), isNull);
@@ -33,7 +33,7 @@ void main() {
     expect(focusedSide?.width, 2);
     expect(defaultSide?.color, Colors.transparent);
     expect(defaultSide?.width, 2);
-    for (final heading in ['Control room', 'Find a Jake Streamer server']) {
+    for (final heading in ['Control room', 'Find a jastreamer server']) {
       expect(
         tester
             .getSemantics(find.text(heading))
@@ -57,7 +57,7 @@ void main() {
         if (request.url.path == '/api/v1/identity') {
           return http.Response(
             jsonEncode({
-              'common_name': 'Jake Streamer Server',
+              'common_name': 'jastreamer Server',
               'sha256_fingerprint': 'AABB',
               'pairing_url': '/pair/',
             }),
@@ -113,7 +113,7 @@ void main() {
 
       await tester.tap(find.text('Discover Server'));
       await tester.pumpAndSettle();
-      expect(find.text('Jake Streamer Server'), findsOneWidget);
+      expect(find.text('jastreamer Server'), findsOneWidget);
       expect(find.text('Open pairing page'), findsOneWidget);
       expect(find.textContaining('SHA-256'), findsWidgets);
 
@@ -163,7 +163,7 @@ MockClient _todo13Client() => MockClient((request) async {
       final path = request.url.path;
       final Object body = switch (path) {
         '/api/v1/identity' => {
-            'common_name': 'Jake Streamer Server',
+            'common_name': 'jastreamer Server',
             'sha256_fingerprint': 'AABB',
             'pairing_url': '/pair/',
           },

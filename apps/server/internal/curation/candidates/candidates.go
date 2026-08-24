@@ -1,6 +1,6 @@
 package candidates
 
-import "github.com/jakestreamer/jstreamer-server/internal/catalog"
+import "github.com/jastreamer/jastreamer-server/internal/catalog"
 
 type RecordingKey string
 type Tier string

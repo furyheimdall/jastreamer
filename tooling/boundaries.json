@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "repository": "jake-streamer",
+  "repository": "jastreamer",
   "components": {
     "server": "apps/server",
     "control": "apps/control",

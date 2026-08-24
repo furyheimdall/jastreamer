@@ -30,7 +30,7 @@ func TestStateStream_upgrades_authenticated_TLS_connection_and_emits_state_event
 		t.Fatalf("dial TLS server: %v", err)
 	}
 	t.Cleanup(func() { _ = connection.Close() })
-	protocol := "jstreamer.bearer." + controller.Token
+	protocol := "jastreamer.bearer." + controller.Token
 	_, err = fmt.Fprintf(connection, "GET /api/v1/events HTTP/1.1\r\nHost: %s\r\nConnection: Upgrade\r\nUpgrade: websocket\r\nSec-WebSocket-Version: 13\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nSec-WebSocket-Protocol: %s\r\n\r\n", parsed.Host, protocol)
 	if err != nil {
 		t.Fatalf("write upgrade request: %v", err)

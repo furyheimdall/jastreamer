@@ -26,7 +26,7 @@ class CommandSetupError extends Error {
 const quote = (value: string): string => `'${value.replaceAll("'", `'"'"'`)}'`;
 
 const buildControlImage = (): { readonly image: string; readonly receipt: CommandReceipt } => {
-  const image = `jstreamer-isolation-flutter:${process.pid}-${crypto.randomUUID()}`;
+  const image = `jastreamer-isolation-flutter:${process.pid}-${crypto.randomUUID()}`;
   const dockerfile = `FROM ${FLUTTER_IMAGE}\nUSER root\nRUN apt-get update && apt-get install -y --no-install-recommends strace && rm -rf /var/lib/apt/lists/*\n`;
   const context = mkdtempSync(join(tmpdir(), "isolation-docker-context-"));
   try {
@@ -59,14 +59,14 @@ const commandsFor = (context: CommandContext, controlImage?: string): readonly C
         { argv: ["go", "test", "./..."], display: "CGO_ENABLED=0 go test ./..." },
         { argv: ["env", "CGO_ENABLED=1", "go", "test", "-race", "./..."], display: "CGO_ENABLED=1 go test -race ./..." },
         { argv: ["go", "vet", "./..."], display: "CGO_ENABLED=0 go vet ./..." },
-        { argv: ["go", "build", "-o", join(context.artifactRoot, "jstreamer-server"), "./cmd/jstreamer-server"], display: "CGO_ENABLED=0 go build -o <artifact>/jstreamer-server ./cmd/jstreamer-server" },
+        { argv: ["go", "build", "-o", join(context.artifactRoot, "jastreamer-server"), "./cmd/jastreamer-server"], display: "CGO_ENABLED=0 go build -o <artifact>/jastreamer-server ./cmd/jastreamer-server" },
       ];
     case "renderer": {
-      const artifact = quote(join(context.artifactRoot, "jstreamer-renderer"));
+      const artifact = quote(join(context.artifactRoot, "jastreamer-renderer"));
       return [
         { argv: ["cargo", "test", "--locked"], display: "cargo test --locked" },
         { argv: ["cargo", "clippy", "--locked", "--all-targets", "--all-features", "--", "-D", "warnings"], display: "cargo clippy --locked --all-targets --all-features -- -D warnings" },
-        { argv: ["sh", "-lc", `cargo build --release --locked && install -m 0755 "$CARGO_TARGET_DIR/release/jstreamer-renderer" ${artifact}`], display: "cargo build --release --locked && install <release>/jstreamer-renderer <artifact>" },
+        { argv: ["sh", "-lc", `cargo build --release --locked && install -m 0755 "$CARGO_TARGET_DIR/release/jastreamer-renderer" ${artifact}`], display: "cargo build --release --locked && install <release>/jastreamer-renderer <artifact>" },
       ];
     }
     case "control": {

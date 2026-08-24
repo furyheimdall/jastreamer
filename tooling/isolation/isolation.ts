@@ -102,7 +102,7 @@ function runComponent(component: ComponentName, context: RunContext): ComponentR
 
 export function verifyIsolation(input: IsolationInput, repository = process.cwd()): IsolationResult {
   const manifest = parseScopeManifest(join(repository, "tooling/scope-manifest.yaml"));
-  const runRoot = mkdtempSync(join(tmpdir(), "jstreamer-isolation-"));
+  const runRoot = mkdtempSync(join(tmpdir(), "jastreamer-isolation-"));
   let components: readonly ComponentResult[] = [];
   let runDirectoryCleanup: IsolationResult["runDirectoryCleanup"] = "failed";
   try {

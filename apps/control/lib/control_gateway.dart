@@ -1,8 +1,8 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
-import 'package:jstreamer_control/control_models.dart';
-import 'package:jstreamer_control/control_wire.dart';
-import 'package:jstreamer_control/protocol_compatibility.dart';
+import 'package:jastreamer_control/control_models.dart';
+import 'package:jastreamer_control/control_wire.dart';
+import 'package:jastreamer_control/protocol_compatibility.dart';
 
 final class ControlApiFailure implements Exception {
   const ControlApiFailure({required this.status, required this.code});

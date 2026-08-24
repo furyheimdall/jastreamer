@@ -1,4 +1,4 @@
-package io.jakestreamer.control
+package io.jastreamer.control
 
 import io.flutter.embedding.android.FlutterActivity
 

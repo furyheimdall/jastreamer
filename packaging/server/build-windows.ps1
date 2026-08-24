@@ -7,8 +7,8 @@ if ((go version) -notmatch 'go1\.25\.6 windows/amd64') { throw "Go 1.25.6 window
 Push-Location "$root/apps/server"
 try {
   $env:GOOS="windows"; $env:GOARCH="amd64"; $env:CGO_ENABLED="0"
-  go build -trimpath -ldflags "-s -w -X main.productVersion=$Version -X main.sourceRevision=$env:GITHUB_SHA" -o "$root/$source/jstreamer-server-core.exe" ./cmd/jstreamer-server
-  go build -trimpath -ldflags "-s -w" -o "$root/$source/jstreamer-server.exe" ../../packaging/server/windows-service.go
+  go build -trimpath -ldflags "-s -w -X main.productVersion=$Version -X main.sourceRevision=$env:GITHUB_SHA" -o "$root/$source/jastreamer-server-core.exe" ./cmd/jastreamer-server
+  go build -trimpath -ldflags "-s -w" -o "$root/$source/jastreamer-server.exe" ../../packaging/server/windows-service.go
 } finally { Pop-Location }
 Copy-Item "$root/LICENSE" "$source/LICENSE"
 Copy-Item "$root/packaging/server/windows-server.json" "$source/server.json"
@@ -19,7 +19,7 @@ if (Test-Path $wixPath) { Remove-Item $wixPath -Recurse -Force }
 dotnet tool install --tool-path $wixPath wix --version 6.0.2
 $wixVersion = (& "$wixPath/wix.exe" --version).Trim()
 if ($wixVersion -notmatch '^6\.0\.2(?:\+|$)') { throw "unexpected official WiX version: $wixVersion" }
-$signToolPath = $env:JSTREAMER_SIGNTOOL
+$signToolPath = $env:JASTREAMER_SIGNTOOL
 if (!$signToolPath -or !(Test-Path $signToolPath) -or $signToolPath -notmatch 'Microsoft\.Windows\.SDK\.BuildTools\.10\.0\.26100\.3916') {
   throw "pinned Microsoft.Windows.SDK.BuildTools 10.0.26100.3916 SignTool is required"
 }

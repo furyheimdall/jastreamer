@@ -9,37 +9,37 @@ WORKDIR /src
 COPY apps/server/go.mod apps/server/go.sum* ./apps/server/
 COPY apps/server ./apps/server
 WORKDIR /src/apps/server
-RUN test -n "$VERSION" && test -n "$REVISION" && test -n "$CREATED" && CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath -ldflags="-s -w -X main.productVersion=$VERSION -X main.sourceRevision=$REVISION" -o /out/jstreamer-server ./cmd/jstreamer-server
+RUN test -n "$VERSION" && test -n "$REVISION" && test -n "$CREATED" && CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath -ldflags="-s -w -X main.productVersion=$VERSION -X main.sourceRevision=$REVISION" -o /out/jastreamer-server ./cmd/jastreamer-server
 
 FROM alpine:3.22@sha256:14358309a308569c32bdc37e2e0e9694be33a9d99e68afb0f5ff33cc1f695dce
 ARG VERSION
 ARG REVISION
 ARG CREATED
 RUN test -n "$VERSION" && test -n "$REVISION" && test -n "$CREATED"
-LABEL org.opencontainers.image.title="Jake Streamer Server" \
-      org.opencontainers.image.description="Local-first Jake Streamer server" \
+LABEL org.opencontainers.image.title="jastreamer Server" \
+      org.opencontainers.image.description="Local-first jastreamer server" \
       org.opencontainers.image.vendor="furyheimdall" \
       org.opencontainers.image.base.name="alpine:3.22@sha256:14358309a308569c32bdc37e2e0e9694be33a9d99e68afb0f5ff33cc1f695dce" \
       org.opencontainers.image.version="$VERSION" \
       org.opencontainers.image.revision="$REVISION" \
       org.opencontainers.image.created="$CREATED" \
-      org.opencontainers.image.source="https://github.com/furyheimdall/jake-streamer" \
-      org.opencontainers.image.url="https://github.com/furyheimdall/jake-streamer" \
+      org.opencontainers.image.source="https://github.com/furyheimdall/jastreamer" \
+      org.opencontainers.image.url="https://github.com/furyheimdall/jastreamer" \
       org.opencontainers.image.licenses="Apache-2.0"
-RUN addgroup -S -g 10001 jstreamer && adduser -S -D -H -u 10001 -G jstreamer jstreamer && apk add --no-cache ca-certificates && mkdir -p /var/lib/jstreamer /etc/jstreamer /app/migrations && chown -R 10001:10001 /var/lib/jstreamer /etc/jstreamer
-COPY --from=build /out/jstreamer-server /usr/local/lib/jstreamer-server
+RUN addgroup -S -g 10001 jastreamer && adduser -S -D -H -u 10001 -G jastreamer jastreamer && apk add --no-cache ca-certificates && mkdir -p /var/lib/jastreamer /etc/jastreamer /app/migrations && chown -R 10001:10001 /var/lib/jastreamer /etc/jastreamer
+COPY --from=build /out/jastreamer-server /usr/local/lib/jastreamer-server
 COPY apps/server/migrations /app/migrations
-COPY packaging/container/health-entrypoint.sh /usr/local/bin/jstreamer-server
-COPY LICENSE /usr/share/licenses/jstreamer/LICENSE
-COPY packaging/container/THIRD_PARTY_NOTICES /usr/share/licenses/jstreamer/THIRD_PARTY_NOTICES
-RUN chmod 0755 /usr/local/bin/jstreamer-server /usr/local/lib/jstreamer-server
-ENV JSTREAMER_DATA_DIR=/var/lib/jstreamer \
-    JSTREAMER_CATALOG_MIGRATION=/app/migrations/001_catalog.sql \
-    JSTREAMER_PLAYBACK_MIGRATION=/app/migrations/002_playback.sql \
-    JSTREAMER_PLAYBACK_EXPANSION=/app/migrations/003_todo12.sql
-VOLUME ["/etc/jstreamer", "/var/lib/jstreamer"]
+COPY packaging/container/health-entrypoint.sh /usr/local/bin/jastreamer-server
+COPY LICENSE /usr/share/licenses/jastreamer/LICENSE
+COPY packaging/container/THIRD_PARTY_NOTICES /usr/share/licenses/jastreamer/THIRD_PARTY_NOTICES
+RUN chmod 0755 /usr/local/bin/jastreamer-server /usr/local/lib/jastreamer-server
+ENV JASTREAMER_DATA_DIR=/var/lib/jastreamer \
+    JASTREAMER_CATALOG_MIGRATION=/app/migrations/001_catalog.sql \
+    JASTREAMER_PLAYBACK_MIGRATION=/app/migrations/002_playback.sql \
+    JASTREAMER_PLAYBACK_EXPANSION=/app/migrations/003_todo12.sql
+VOLUME ["/etc/jastreamer", "/var/lib/jastreamer"]
 USER 10001:10001
 WORKDIR /app
 EXPOSE 8443
-HEALTHCHECK --interval=30s --timeout=5s --retries=3 CMD ["/usr/local/bin/jstreamer-server", "health"]
-ENTRYPOINT ["/usr/local/bin/jstreamer-server"]
+HEALTHCHECK --interval=30s --timeout=5s --retries=3 CMD ["/usr/local/bin/jastreamer-server", "health"]
+ENTRYPOINT ["/usr/local/bin/jastreamer-server"]

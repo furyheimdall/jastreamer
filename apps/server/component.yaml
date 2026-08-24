@@ -1,5 +1,5 @@
-name: jstreamer-server
-display_name: Jake Streamer Server
+name: jastreamer-server
+display_name: jastreamer Server
 root: apps/server
 version_file: VERSION
 manifest: go.mod

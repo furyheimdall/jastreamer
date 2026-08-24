@@ -3,7 +3,7 @@ package catalog
 import (
 	"time"
 
-	"github.com/jakestreamer/jstreamer-server/internal/analysis"
+	"github.com/jastreamer/jastreamer-server/internal/analysis"
 )
 
 type (

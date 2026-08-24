@@ -4,8 +4,8 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/jakestreamer/jstreamer-server/internal/curation/ranking"
-	"github.com/jakestreamer/jstreamer-server/internal/playback"
+	"github.com/jastreamer/jastreamer-server/internal/curation/ranking"
+	"github.com/jastreamer/jastreamer-server/internal/playback"
 )
 
 type decisionView struct {

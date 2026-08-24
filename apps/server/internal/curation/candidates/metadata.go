@@ -1,8 +1,8 @@
 package candidates
 
 import (
-	"github.com/jakestreamer/jstreamer-server/internal/analysis"
-	"github.com/jakestreamer/jstreamer-server/internal/catalog"
+	"github.com/jastreamer/jastreamer-server/internal/analysis"
+	"github.com/jastreamer/jastreamer-server/internal/catalog"
 )
 
 func currentProvenance() analysis.Provenance { return analysis.CurrentProvenance() }

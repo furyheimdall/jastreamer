@@ -3,7 +3,7 @@ package album
 import (
 	"sort"
 
-	"github.com/jakestreamer/jstreamer-server/internal/catalog"
+	"github.com/jastreamer/jastreamer-server/internal/catalog"
 )
 
 type StopReason string

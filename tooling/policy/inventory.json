@@ -4,12 +4,12 @@
   ],
   "dependencies": [
     {
-      "name": "jake-streamer",
+      "name": "jastreamer",
       "version": "source",
       "license": "Apache-2.0",
       "paid": false,
       "packaged": false,
-      "source": "https://github.com/furyheimdall/jake-streamer"
+      "source": "https://github.com/furyheimdall/jastreamer"
     },
     {
       "name": "Flutter runtime",

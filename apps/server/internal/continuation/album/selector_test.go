@@ -3,7 +3,7 @@ package album
 import (
 	"testing"
 
-	"github.com/jakestreamer/jstreamer-server/internal/catalog"
+	"github.com/jastreamer/jastreamer-server/internal/catalog"
 )
 
 func TestSelectMultiDiscForwardOrder(t *testing.T) {

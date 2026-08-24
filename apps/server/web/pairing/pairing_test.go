@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/jakestreamer/jstreamer-server/web/pairing"
+	"github.com/jastreamer/jastreamer-server/web/pairing"
 )
 
 func TestAssets_expose_only_pairing_administration_API_routes(t *testing.T) {

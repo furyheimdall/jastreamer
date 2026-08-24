@@ -4,8 +4,8 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/jakestreamer/jstreamer-server/internal/analysis"
-	"github.com/jakestreamer/jstreamer-server/internal/catalog"
+	"github.com/jastreamer/jastreamer-server/internal/analysis"
+	"github.com/jastreamer/jastreamer-server/internal/catalog"
 )
 
 func TestCandidateRetrievalCountsFiniteExhaustion(t *testing.T) {

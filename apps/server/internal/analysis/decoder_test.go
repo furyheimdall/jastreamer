@@ -14,7 +14,7 @@ import (
 )
 
 func TestLocalDecoderSupportsMandatoryFormats(t *testing.T) {
-	root := os.Getenv("JSTREAMER_FIXTURES")
+	root := os.Getenv("JASTREAMER_FIXTURES")
 	if root == "" {
 		root = filepath.Join("..", "..", "..", "..", "tooling", "fixtures", "music", "analysis")
 	}

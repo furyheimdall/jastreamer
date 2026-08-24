@@ -5,8 +5,8 @@ import (
 	"errors"
 	"net/http"
 
-	"github.com/jakestreamer/jstreamer-server/internal/playback"
-	"github.com/jakestreamer/jstreamer-server/internal/security"
+	"github.com/jastreamer/jastreamer-server/internal/playback"
+	"github.com/jastreamer/jastreamer-server/internal/security"
 )
 
 type apiError struct {

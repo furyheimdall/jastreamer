@@ -1,4 +1,4 @@
-# Jake Streamer Control Design System
+# jastreamer Control Design System
 
 ## 0. Research Log (greenfield only)
 - Embedded refs: shortlisted operational patterns from the curated design library; picked `taste-skill` + tonal-shift control-room direction because playback, pairing, and policy need high legibility.
@@ -6,7 +6,7 @@
 - Skipped lanes: lazyweb and Imagen — no network/image-generation dependency is needed for a utility playback controller.
 
 ## 1. Atmosphere & Identity
-A quiet listening room for a device that should feel dependable. Jake Streamer uses layered charcoal surfaces and one warm amber signal for playback intent; the signature is the amber “needle” that separates what is queued from what will happen next.
+A quiet listening room for a device that should feel dependable. jastreamer uses layered charcoal surfaces and one warm amber signal for playback intent; the signature is the amber “needle” that separates what is queued from what will happen next.
 
 ## 2. Color
 | Role | Token | Value | Usage |

@@ -22,13 +22,13 @@ screenshots=$(realpath "$screenshots")
 image=ghcr.io/cirruslabs/flutter:3.35.0@sha256:114f14a7cf973b08e4607d3e2fb4a3b2dc977c08877e651743f8cbed0e971046
 owner_uid=$(id -u)
 owner_gid=$(id -g)
-android_cache=${CONTROL_ANDROID_CACHE:-/tmp/jstreamer-control-android-cache}
+android_cache=${CONTROL_ANDROID_CACHE:-/tmp/jastreamer-control-android-cache}
 mkdir -p "$android_cache/gradle" "$android_cache/ndk" "$android_cache/platforms" "$android_cache/cmake"
 cleanup() {
   docker run --rm -v "$root/apps/control:/workspace" alpine:3.22 sh -lc \
     "rm -rf /workspace/.dart_tool /workspace/build && chown -R $owner_uid:$owner_gid /workspace" >/dev/null
   test -z "$(docker ps -q --filter ancestor="$image")"
-  test -z "$(pgrep -f 'jstreamer-control-qa-.*/jstreamer-server|control.spec.mjs' || true)"
+  test -z "$(pgrep -f 'jastreamer-control-qa-.*/jastreamer-server|control.spec.mjs' || true)"
 }
 trap cleanup EXIT INT TERM
 node --test "$root/tooling/qa/check-control-contract.test.mjs"
@@ -58,7 +58,7 @@ aab="$root/apps/control/build/app/outputs/bundle/release/app-release.aab"
 test "$(unzip -l "$apk" | grep -Ec 'lib/(armeabi-v7a|arm64-v8a|x86_64)/libapp.so')" -eq 3
 test "$(unzip -l "$aab" | grep -Ec 'base/lib/(armeabi-v7a|arm64-v8a|x86_64)/libapp.so')" -eq 3
 test -f "$root/apps/control/windows/CMakeLists.txt"
-grep -q 'identity_name: io.jakestreamer.control' "$root/apps/control/pubspec.yaml"
+grep -q 'identity_name: io.jastreamer.control' "$root/apps/control/pubspec.yaml"
 cd "$root/tooling/qa"
 CONTROL_FIXTURE=$fixture CONTROL_OUTPUT=$screenshots \
   bunx --no-install playwright test control.spec.mjs --browser chromium --workers 1 --reporter line

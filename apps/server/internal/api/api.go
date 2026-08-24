@@ -7,9 +7,9 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/jakestreamer/jstreamer-server/internal/catalog"
-	"github.com/jakestreamer/jstreamer-server/internal/playback"
-	"github.com/jakestreamer/jstreamer-server/internal/security"
+	"github.com/jastreamer/jastreamer-server/internal/catalog"
+	"github.com/jastreamer/jastreamer-server/internal/playback"
+	"github.com/jastreamer/jastreamer-server/internal/security"
 )
 
 const contractRevision = "control-api-v2"

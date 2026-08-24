@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/jakestreamer/jstreamer-server/internal/curation/candidates"
+	"github.com/jastreamer/jastreamer-server/internal/curation/candidates"
 )
 
 func BenchmarkSelect100000(b *testing.B) {

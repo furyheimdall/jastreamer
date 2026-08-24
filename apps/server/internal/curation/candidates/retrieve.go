@@ -4,7 +4,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/jakestreamer/jstreamer-server/internal/catalog"
+	"github.com/jastreamer/jastreamer-server/internal/catalog"
 )
 
 func Retrieve(request Request) Result {

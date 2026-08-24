@@ -1,4 +1,4 @@
-# Jake Streamer Pairing Portal Design System
+# jastreamer Pairing Portal Design System
 
 ## 0. Research Log
 

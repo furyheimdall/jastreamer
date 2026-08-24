@@ -49,24 +49,33 @@ if [ "$#" -ge 3 ] && [ "$1" = "release" ] && [ "$2" = "dry-run" ] && printf '%s\
   shift 2
   exec bun "$root/packaging/server/tooling/cli.ts" "$@"
 fi
+if [ "$#" -ge 3 ] && [ "$1" = "release" ] && [ "$2" = "dry-run" ] && printf '%s\n' "$*" | grep -Eq '(^| )--component control( |$)'; then
+  shift 2
+  exec bun "$root/packaging/control/tooling/cli.ts" "$@"
+fi
+if [ "$#" -ge 3 ] && [ "$1" = "release" ] && [ "$2" = "dry-run" ] && printf '%s
+' "$*" | grep -Eq '(^| )--component renderer( |$)'; then
+  shift 2
+  exec bun "$root/packaging/renderer/tooling/cli.ts" "$@"
+fi
 if [ "$#" -eq 2 ] && [ "$1" = "test" ] && [ "$2" = "candidates" ]; then
   cd "$root/apps/server"
-  JSTREAMER_ROOT="$root" exec go run ./tooling/candidate-smoke.go \
+  JASTREAMER_ROOT="$root" exec go run ./tooling/candidate-smoke.go \
     "$root/tooling/fixtures/music" "$root/apps/server/migrations/001_catalog.sql"
 fi
 if [ "$#" -eq 4 ] && [ "$1" = "test" ] && [ "$2" = "candidates" ]; then
   cd "$root/apps/server"
-  JSTREAMER_ROOT="$root" exec go run ./tooling/candidate-smoke.go "$root/$3" "$root/$4"
+  JASTREAMER_ROOT="$root" exec go run ./tooling/candidate-smoke.go "$root/$3" "$root/$4"
 fi
 if [ "$#" -ge 3 ] && [ "$1" = "test" ] && [ "$2" = "analysis-parity" ]; then
   shift 2
   cd "$root/apps/server"
-  JSTREAMER_ROOT="$root" exec go run ./tooling/analysis-parity.go "$@"
+  JASTREAMER_ROOT="$root" exec go run ./tooling/analysis-parity.go "$@"
 fi
 if [ "$#" -ge 3 ] && [ "$1" = "test" ] && [ "$2" = "ranking-parity" ]; then
   shift 2
   cd "$root/apps/server"
-  JSTREAMER_ROOT="$root" exec go run ./tooling/ranking-parity.go "$@"
+  JASTREAMER_ROOT="$root" exec go run ./tooling/ranking-parity.go "$@"
 fi
 printf '%s\n' 'usage: tooling/componentctl <container|verify-boundaries|isolation|component|compatibility|policy|synology|contracts|release|test|qa>' >&2
 exit 64

@@ -230,7 +230,7 @@ func writeRealFixture(t *testing.T, name, destination string) {
 
 func decodeFixture(t *testing.T, name string) []byte {
 	t.Helper()
-	root := os.Getenv("JSTREAMER_FIXTURES")
+	root := os.Getenv("JASTREAMER_FIXTURES")
 	if root == "" {
 		root = filepath.Join("..", "..", "..", "..", "tooling", "fixtures", "music")
 	} else if !filepath.IsAbs(root) {

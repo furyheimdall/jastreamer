@@ -24,9 +24,9 @@ export const startWeb = async (webRoot) => {
 };
 
 export const startTodo13 = async (serverRoot, controlOrigin) => {
-  const directory = await mkdtemp(join(tmpdir(), 'jstreamer-control-qa-'));
-  const binary = join(directory, 'jstreamer-server');
-  const built = spawnSync('go', ['build', '-o', binary, './cmd/jstreamer-server'], { cwd: serverRoot, encoding: 'utf8' });
+  const directory = await mkdtemp(join(tmpdir(), 'jastreamer-control-qa-'));
+  const binary = join(directory, 'jastreamer-server');
+  const built = spawnSync('go', ['build', '-o', binary, './cmd/jastreamer-server'], { cwd: serverRoot, encoding: 'utf8' });
   if (built.status !== 0) throw new Error(`Server build failed: ${built.stderr}`);
   const config = join(directory, 'server.json');
   await writeFile(config, JSON.stringify({
@@ -39,7 +39,7 @@ export const startTodo13 = async (serverRoot, controlOrigin) => {
   }));
   const child = spawn(binary, ['--config', config], {
     cwd: serverRoot,
-    env: { ...process.env, JSTREAMER_SETUP_SECRET: 'fixture-setup-secret' },
+    env: { ...process.env, JASTREAMER_SETUP_SECRET: 'fixture-setup-secret' },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   let stderr = '';
@@ -80,7 +80,7 @@ export const startEdgeApi = async (todo13, controlOrigin) => {
     if (path === '/pair/') { response.writeHead(302, { location: `${todo13.origin}/pair/` }).end(); return; }
     let status = 200;
     let body;
-    if (path === '/api/v1/identity') body = { common_name: 'Jake Streamer Edge Fixture', sha256_fingerprint: todo13.fingerprint, pairing_url: '/pair/' };
+    if (path === '/api/v1/identity') body = { common_name: 'jastreamer Edge Fixture', sha256_fingerprint: todo13.fingerprint, pairing_url: '/pair/' };
     else if (path === '/api/v1/discovery') body = {
       protocol_major: Number(request.headers['x-jake-protocol-major']),
       supported_protocol_majors: [2, 1],

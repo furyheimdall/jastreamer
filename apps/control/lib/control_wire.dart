@@ -1,5 +1,5 @@
-import 'package:jstreamer_control/behavior_model.dart';
-import 'package:jstreamer_control/control_models.dart';
+import 'package:jastreamer_control/behavior_model.dart';
+import 'package:jastreamer_control/control_models.dart';
 
 PolicyView parsePolicy(Map<String, Object?> body) => PolicyView(
       mode: WirePolicy.parse(requiredString(body, 'mode')),

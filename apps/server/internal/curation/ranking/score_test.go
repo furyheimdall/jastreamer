@@ -5,7 +5,7 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/jakestreamer/jstreamer-server/internal/curation/candidates"
+	"github.com/jastreamer/jastreamer-server/internal/curation/candidates"
 )
 
 func TestAnchorSimilarityRenormalizesAvailableSignals(t *testing.T) {

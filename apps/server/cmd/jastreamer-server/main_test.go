@@ -9,7 +9,7 @@ import (
 
 func TestLoadConfig_requires_installer_setup_secret(t *testing.T) {
 	// Given
-	t.Setenv("JSTREAMER_SETUP_SECRET", "")
+	t.Setenv("JASTREAMER_SETUP_SECRET", "")
 
 	// When
 	_, err := loadConfig(nil)
@@ -22,8 +22,8 @@ func TestLoadConfig_requires_installer_setup_secret(t *testing.T) {
 
 func TestLoadConfig_uses_local_state_and_TLS_defaults(t *testing.T) {
 	// Given
-	t.Setenv("JSTREAMER_SETUP_SECRET", "fixture-secret")
-	t.Setenv("JSTREAMER_DATA_DIR", "/tmp/jstreamer-fixture")
+	t.Setenv("JASTREAMER_SETUP_SECRET", "fixture-secret")
+	t.Setenv("JASTREAMER_DATA_DIR", "/tmp/jastreamer-fixture")
 
 	// When
 	config, err := loadConfig(nil)
@@ -32,15 +32,15 @@ func TestLoadConfig_uses_local_state_and_TLS_defaults(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load config: %v", err)
 	}
-	if config.address != ":8443" || config.dataDirectory != "/tmp/jstreamer-fixture" || config.setupSecret != "fixture-secret" {
+	if config.address != ":8443" || config.dataDirectory != "/tmp/jastreamer-fixture" || config.setupSecret != "fixture-secret" {
 		t.Fatalf("config = %#v", config)
 	}
 }
 
 func TestLoadConfig_reads_strict_checked_in_machine_config(t *testing.T) {
 	// Given
-	t.Setenv("JSTREAMER_SETUP_SECRET", "fixture-secret")
-	t.Setenv("JSTREAMER_DATA_DIR", t.TempDir())
+	t.Setenv("JASTREAMER_SETUP_SECRET", "fixture-secret")
+	t.Setenv("JASTREAMER_DATA_DIR", t.TempDir())
 
 	// When
 	config, err := loadConfig([]string{"--config", "../../../../tooling/fixtures/e2e/local.yaml"})
@@ -56,7 +56,7 @@ func TestLoadConfig_reads_strict_checked_in_machine_config(t *testing.T) {
 
 func TestLoadConfig_rejects_unknown_machine_config_key(t *testing.T) {
 	// Given
-	t.Setenv("JSTREAMER_SETUP_SECRET", "fixture-secret")
+	t.Setenv("JASTREAMER_SETUP_SECRET", "fixture-secret")
 	path := filepath.Join(t.TempDir(), "invalid.yaml")
 	if err := os.WriteFile(path, []byte(`{"address":"127.0.0.1:0","unknown":true}`), 0o600); err != nil {
 		t.Fatalf("write config: %v", err)
@@ -73,8 +73,8 @@ func TestLoadConfig_rejects_unknown_machine_config_key(t *testing.T) {
 
 func TestLoadConfig_applies_pairing_TTL_override(t *testing.T) {
 	// Given
-	t.Setenv("JSTREAMER_SETUP_SECRET", "fixture-secret")
-	t.Setenv("JSTREAMER_PAIRING_TTL", "1ns")
+	t.Setenv("JASTREAMER_SETUP_SECRET", "fixture-secret")
+	t.Setenv("JASTREAMER_PAIRING_TTL", "1ns")
 
 	// When
 	config, err := loadConfig(nil)

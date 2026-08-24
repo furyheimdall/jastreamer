@@ -29,7 +29,7 @@ async function main(): Promise<void> {
   try {
     mkdirSync(staging, { recursive: true });
     const revision = sourceIdentity(root);
-    await run(["bash", "packaging/server/release.sh", options.version, staging], root, { JSTREAMER_RELEASE_TAG: options.tag, JSTREAMER_SOURCE_REVISION: revision, SOURCE_DATE_EPOCH: "0" });
+    await run(["bash", "packaging/server/release.sh", options.version, staging], root, { JASTREAMER_RELEASE_TAG: options.tag, JASTREAMER_SOURCE_REVISION: revision, SOURCE_DATE_EPOCH: "0" });
     finalize(staging, options.version, options.tag, revision);
     if (existsSync(output)) renameSync(output, backup);
     renameSync(staging, output);

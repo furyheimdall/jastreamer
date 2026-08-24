@@ -1,4 +1,4 @@
-# Trust the Jake Streamer signing certificate
+# Trust the jastreamer signing certificate
 
 The Server EXE and MSI use a project-owned, self-signed Code Signing certificate. It is **not Public Trust**: Windows and SmartScreen can warn before explicit trust. Verify `server.cer` against `fingerprint.txt` before importing it.
 

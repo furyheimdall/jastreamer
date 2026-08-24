@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/jakestreamer/jstreamer-server/internal/analysis"
+	"github.com/jastreamer/jastreamer-server/internal/analysis"
 )
 
 func (store *Store) ScheduleAnalysis(ctx context.Context, p analysis.Provenance) (jobs []AnalysisJob, err error) {

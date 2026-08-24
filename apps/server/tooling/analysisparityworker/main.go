@@ -14,8 +14,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/jakestreamer/jstreamer-server/internal/analysis"
-	"github.com/jakestreamer/jstreamer-server/internal/catalog"
+	"github.com/jastreamer/jastreamer-server/internal/analysis"
+	"github.com/jastreamer/jastreamer-server/internal/catalog"
 )
 
 type metric struct {

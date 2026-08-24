@@ -51,9 +51,9 @@ export const validateFixture = (fixture) => {
 export const validateCompose = (source) => {
   const findings = [];
   if (!/network_mode:\s*host/.test(source)) findings.push("HOST_NETWORK_REQUIRED");
-  if (!/JSTREAMER_LAN_INTERFACE:/.test(source)) findings.push("LAN_INTERFACE_REQUIRED");
-  if (!/JSTREAMER_ADVERTISED_ADDRESS:/.test(source)) findings.push("ADVERTISED_ADDRESS_REQUIRED");
-  if (!/target:\s*\/var\/lib\/jstreamer/.test(source)) findings.push("DATA_MOUNT_REQUIRED");
+  if (!/JASTREAMER_LAN_INTERFACE:/.test(source)) findings.push("LAN_INTERFACE_REQUIRED");
+  if (!/JASTREAMER_ADVERTISED_ADDRESS:/.test(source)) findings.push("ADVERTISED_ADDRESS_REQUIRED");
+  if (!/target:\s*\/var\/lib\/jastreamer/.test(source)) findings.push("DATA_MOUNT_REQUIRED");
   if (!/user:\s*["']?(?!0(?::0)?["']?$)\d+:\d+/m.test(source)) findings.push("NON_ROOT_USER_REQUIRED");
   if (!/healthcheck:/.test(source)) findings.push("HEALTHCHECK_REQUIRED");
   if (/privileged:\s*true/i.test(source)) findings.push("PRIVILEGED_CONTAINER");

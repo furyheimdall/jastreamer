@@ -94,7 +94,7 @@ func websocketKey(request *http.Request) (string, bool) {
 func websocketBearerProtocol(request *http.Request) string {
 	for protocol := range strings.SplitSeq(request.Header.Get("Sec-WebSocket-Protocol"), ",") {
 		value := strings.TrimSpace(protocol)
-		if strings.HasPrefix(value, "jstreamer.bearer.") {
+		if strings.HasPrefix(value, "jastreamer.bearer.") {
 			return value
 		}
 	}

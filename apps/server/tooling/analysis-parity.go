@@ -52,7 +52,7 @@ func run() error {
 	if *platforms == "" || *fixture == "" || *output == "" {
 		return errors.New("platform, fixture, and output are required")
 	}
-	root := os.Getenv("JSTREAMER_ROOT")
+	root := os.Getenv("JASTREAMER_ROOT")
 	resolve := func(path string) string {
 		if filepath.IsAbs(path) || root == "" {
 			return path
@@ -60,7 +60,7 @@ func run() error {
 		return filepath.Join(root, path)
 	}
 	tolerances := map[string]float64{"tempo_bpm": .25, "loudness_db": .05, "frequency_hz": 1, "contrast_db": .25, "normalized_band": .005}
-	result := report{SchemaVersion: 1, Analyzer: "jstreamer-classical@1.0.0", Normalizer: "acoustic-linear@1.0.0", Tolerances: tolerances}
+	result := report{SchemaVersion: 1, Analyzer: "jastreamer-classical@1.0.0", Normalizer: "acoustic-linear@1.0.0", Tolerances: tolerances}
 	for _, target := range strings.Split(*platforms, ",") {
 		platform, err := runTarget(target, resolve(*fixture), *restart)
 		if err != nil {

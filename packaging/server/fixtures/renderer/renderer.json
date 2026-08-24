@@ -3,8 +3,8 @@
   "version": "0.1.0",
   "tag": "renderer-v0.1.0",
   "artifacts": [
-    "jstreamer-renderer_0.1.0_windows_amd64.msi",
-    "jstreamer-renderer_0.1.0_diagnostic.zip"
+    "jastreamer-renderer_0.1.0_windows_amd64.msi",
+    "jastreamer-renderer_0.1.0_diagnostic.zip"
   ],
   "license": "Apache-2.0",
   "third_party_notices": "THIRD_PARTY_NOTICES",
@@ -14,7 +14,7 @@
     "private_key": false
   },
   "windows_signing": {
-    "publisher": "CN=Jake Streamer",
+    "publisher": "CN=jastreamer",
     "fingerprint": "sha256:fixture",
     "ca": false,
     "code_signing_eku": true,

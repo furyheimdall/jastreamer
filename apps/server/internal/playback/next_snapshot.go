@@ -1,9 +1,9 @@
 package playback
 
 import (
-	"github.com/jakestreamer/jstreamer-server/internal/catalog"
-	"github.com/jakestreamer/jstreamer-server/internal/curation/candidates"
-	"github.com/jakestreamer/jstreamer-server/internal/decision"
+	"github.com/jastreamer/jastreamer-server/internal/catalog"
+	"github.com/jastreamer/jastreamer-server/internal/curation/candidates"
+	"github.com/jastreamer/jastreamer-server/internal/decision"
 )
 
 func authoritativeSnapshot(

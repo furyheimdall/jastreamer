@@ -71,9 +71,9 @@ function validateConfig(config: Record<string, unknown>, platform: Platform): vo
   if (config.os !== "linux" || config.architecture !== expectedArch) throw new Error(`IMAGE_CONFIG_PLATFORM_INVALID ${platform}`);
   const runtime = config.config as Record<string, unknown>;
   const labels = runtime.Labels as Record<string, string>;
-  if (runtime.User !== "10001:10001" || !Array.isArray(runtime.Entrypoint) || !String(runtime.Entrypoint[0]).includes("jstreamer-server")) throw new Error(`IMAGE_RUNTIME_CONFIG_INVALID ${platform}`);
+  if (runtime.User !== "10001:10001" || !Array.isArray(runtime.Entrypoint) || !String(runtime.Entrypoint[0]).includes("jastreamer-server")) throw new Error(`IMAGE_RUNTIME_CONFIG_INVALID ${platform}`);
   const required = ["org.opencontainers.image.version", "org.opencontainers.image.revision", "org.opencontainers.image.created", "org.opencontainers.image.base.name"];
-  if (required.some((name) => !labels?.[name]) || labels?.["org.opencontainers.image.base.name"] !== "alpine:3.22@sha256:14358309a308569c32bdc37e2e0e9694be33a9d99e68afb0f5ff33cc1f695dce" || labels?.["org.opencontainers.image.source"] !== "https://github.com/furyheimdall/jake-streamer" || labels?.["org.opencontainers.image.licenses"] !== "Apache-2.0") throw new Error(`IMAGE_LABELS_INVALID ${platform}`);
+  if (required.some((name) => !labels?.[name]) || labels?.["org.opencontainers.image.base.name"] !== "alpine:3.22@sha256:14358309a308569c32bdc37e2e0e9694be33a9d99e68afb0f5ff33cc1f695dce" || labels?.["org.opencontainers.image.source"] !== "https://github.com/furyheimdall/jastreamer" || labels?.["org.opencontainers.image.licenses"] !== "Apache-2.0") throw new Error(`IMAGE_LABELS_INVALID ${platform}`);
 }
 
 export function flattenImage(
@@ -98,7 +98,7 @@ function inspectFilesystem(
   platform: Platform,
   expected: Readonly<{ licenseSha256: string; noticesSha256: string }>,
 ): FilesystemFact {
-  const requiredPaths = ["usr/share/licenses/jstreamer/LICENSE", "usr/share/licenses/jstreamer/THIRD_PARTY_NOTICES", "app/migrations/001_catalog.sql", "app/migrations/002_playback.sql", "app/migrations/003_todo12.sql", "usr/local/lib/jstreamer-server"];
+  const requiredPaths = ["usr/share/licenses/jastreamer/LICENSE", "usr/share/licenses/jastreamer/THIRD_PARTY_NOTICES", "app/migrations/001_catalog.sql", "app/migrations/002_playback.sql", "app/migrations/003_todo12.sql", "usr/local/lib/jastreamer-server"];
   for (const required of requiredPaths) if (!existsSync(join(root, required))) throw new Error(`IMAGE_FILE_MISSING /${required}`);
   const forbidden = /(^|\/)(apps\/control|flutter_assets|AssetManifest\.json)|\.(apk|aab|msix)$/i;
   let scannedEntries = 0;

@@ -12,11 +12,11 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  IMAGE: ghcr.io/furyheimdall/jstreamer-server
+  IMAGE: ghcr.io/furyheimdall/jastreamer-server
 
 jobs:
   validate:
-    if: github.repository == 'furyheimdall/jake-streamer'
+    if: github.repository == 'furyheimdall/jastreamer'
     runs-on: ubuntu-24.04
     permissions: { contents: read }
     outputs:
@@ -82,19 +82,19 @@ jobs:
           test "$(go version)" = "go version go1.25.6 linux/$ARCH"
           docker_version=$(docker version --format '{{.Server.Version}}'); test "$docker_version" = '28.3.3'
           jq_version=$(jq --version); test "$jq_version" = 'jq-1.7.1'
-          dpkg-deb --info "dist/jstreamer-server_${VERSION}_linux_${ARCH}.deb" > dist/deb-inspection.txt
-          dpkg-deb --contents "dist/jstreamer-server_${VERSION}_linux_${ARCH}.deb" >> dist/deb-inspection.txt
+          dpkg-deb --info "dist/jastreamer-server_${VERSION}_linux_${ARCH}.deb" > dist/deb-inspection.txt
+          dpkg-deb --contents "dist/jastreamer-server_${VERSION}_linux_${ARCH}.deb" >> dist/deb-inspection.txt
           docker run --rm --platform "linux/$ARCH" -v "$PWD/dist:/dist:ro" "$DEBIAN_IMAGE" sh -ec '
-            dpkg -i "/dist/jstreamer-server_'"$VERSION"'_linux_'"$ARCH"'.deb" >/dev/null
-            export JSTREAMER_SETUP_SECRET=native-ci-smoke JSTREAMER_ADDR=127.0.0.1:8443
-            mkfifo /tmp/ready; cd /usr/lib/jstreamer-server
-            ./jstreamer-server --config /etc/jstreamer/server.json >/tmp/ready 2>/tmp/error & pid=$!
+            dpkg -i "/dist/jastreamer-server_'"$VERSION"'_linux_'"$ARCH"'.deb" >/dev/null
+            export JASTREAMER_SETUP_SECRET=native-ci-smoke JASTREAMER_ADDR=127.0.0.1:8443
+            mkfifo /tmp/ready; cd /usr/lib/jastreamer-server
+            ./jastreamer-server --config /etc/jastreamer/server.json >/tmp/ready 2>/tmp/error & pid=$!
             IFS= read -r ready </tmp/ready; case "$ready" in ready\ https://*) ;; *) cat /tmp/error >&2; exit 1;; esac
-            kill -TERM "$pid"; wait "$pid"; dpkg -r jstreamer-server >/dev/null; printf "%s\n" "$ready"'
+            kill -TERM "$pid"; wait "$pid"; dpkg -r jastreamer-server >/dev/null; printf "%s\n" "$ready"'
           docker run --rm --platform "linux/$ARCH" -v "$PWD/dist:/dist:ro" "$ROCKY_IMAGE" sh -ec '
-            rpm -qip "/dist/jstreamer-server-'"$VERSION"'-1.'"$([[ $ARCH == amd64 ]] && echo x86_64 || echo aarch64)"'.rpm" >/dev/null 2>&1 || rpm -qip "/dist/jstreamer-server_'"$VERSION"'_linux_'"$ARCH"'.rpm"
-            rpm -ivh --nodeps "/dist/jstreamer-server_'"$VERSION"'_linux_'"$ARCH"'.rpm" >/dev/null
-            test -f /usr/lib/systemd/system/jstreamer-server.service; rpm -e jstreamer-server >/dev/null'
+            rpm -qip "/dist/jastreamer-server-'"$VERSION"'-1.'"$([[ $ARCH == amd64 ]] && echo x86_64 || echo aarch64)"'.rpm" >/dev/null 2>&1 || rpm -qip "/dist/jastreamer-server_'"$VERSION"'_linux_'"$ARCH"'.rpm"
+            rpm -ivh --nodeps "/dist/jastreamer-server_'"$VERSION"'_linux_'"$ARCH"'.rpm" >/dev/null
+            test -f /usr/lib/systemd/system/jastreamer-server.service; rpm -e jastreamer-server >/dev/null'
           jq -n --arg platform "linux/$ARCH" --arg classification "$CLASSIFICATION" '{platform:$platform,classification:$classification,packageFormats:["deb","rpm"],inspectors:["dpkg-deb","rpm"],runtimeSmoke:"ready",repositoryFreeInstall:true,uninstall:true,systemd:true}' > "dist/linux-${ARCH}-inspection.json"
           jq -n --arg go "$(go version)" --arg docker "$docker_version" --arg jq "$jq_version" '{go:$go,docker:$docker,jq:$jq}' > "dist/tools-linux-${ARCH}.json"
       - uses: actions/upload-artifact@50769540e7f4bd5e21e526ee35c689e35e0d6874
@@ -124,7 +124,7 @@ jobs:
             Where-Object FullName -Match '\\x64\\signtool\.exe$' |
             Select-Object -First 1
           if (!$signTool) { throw 'pinned SignTool not found' }
-          "JSTREAMER_SIGNTOOL=$($signTool.FullName)" >> $env:GITHUB_ENV
+          "JASTREAMER_SIGNTOOL=$($signTool.FullName)" >> $env:GITHUB_ENV
       - name: Build unsigned amd64 SCM host and runnable Server core inputs
         shell: pwsh
         run: ./packaging/server/build-windows.ps1 -Version '${{ needs.validate.outputs.version }}' -Output dist
@@ -138,15 +138,15 @@ jobs:
         if: always()
         shell: pwsh
         run: |
-          if (Test-Path "$env:RUNNER_TEMP/jstreamer-server-signing.pfx") { throw 'PFX cleanup failed' }
+          if (Test-Path "$env:RUNNER_TEMP/jastreamer-server-signing.pfx") { throw 'PFX cleanup failed' }
           if (Get-ChildItem dist -Recurse -Include *.pfx,*.p12,*.key) { throw 'private signing material in artifact' }
           $thumbprint = (Get-PfxCertificate packaging/server/cert/server.cer).Thumbprint
           if (Test-Path "Cert:\LocalMachine\TrustedPeople\$thumbprint") { throw 'TrustedPeople certificate cleanup failed' }
-          if (Test-Path 'HKLM:\SYSTEM\CurrentControlSet\Services\jstreamer-server') {
-            $environment = Get-ItemProperty 'HKLM:\SYSTEM\CurrentControlSet\Services\jstreamer-server' -Name Environment -ErrorAction SilentlyContinue
-            if ($environment.Environment -match '^JSTREAMER_SETUP_SECRET=') { throw 'service secret environment cleanup failed' }
+          if (Test-Path 'HKLM:\SYSTEM\CurrentControlSet\Services\jastreamer-server') {
+            $environment = Get-ItemProperty 'HKLM:\SYSTEM\CurrentControlSet\Services\jastreamer-server' -Name Environment -ErrorAction SilentlyContinue
+            if ($environment.Environment -match '^JASTREAMER_SETUP_SECRET=') { throw 'service secret environment cleanup failed' }
           }
-          if (Get-Service jstreamer-server -ErrorAction SilentlyContinue) { throw 'service cleanup failed' }
+          if (Get-Service jastreamer-server -ErrorAction SilentlyContinue) { throw 'service cleanup failed' }
           if ($env:WINDOWS_SIGNING_PFX_B64 -or $env:WINDOWS_SIGNING_PFX_PASSWORD) { throw 'signing environment cleanup failed' }
       - uses: actions/upload-artifact@50769540e7f4bd5e21e526ee35c689e35e0d6874
         with: { name: server-windows-amd64, path: dist, if-no-files-found: error }
@@ -171,7 +171,7 @@ jobs:
       - name: Verify Todo17 two-platform OCI with native arm64 evidence
         env:
           SOURCE_DATE_EPOCH: "0"
-          JSTREAMER_REVISION: ${{ github.sha }}
+          JASTREAMER_REVISION: ${{ github.sha }}
         run: |
           test "$(go version)" = 'go version go1.25.6 linux/arm64'
           test "$(bun --version)" = '1.3.14'
@@ -203,12 +203,12 @@ jobs:
           set -euo pipefail
           mkdir -p stage
           find incoming/server-linux-* -type f \( -name '*.deb' -o -name '*.rpm' -o -name 'linux-*-inspection.json' -o -name 'tools-linux-*.json' \) -exec cp {} stage/ \;
-          cp incoming/server-windows-amd64/jstreamer-server_${VERSION}_windows_amd64.{exe,msi} stage/
+          cp incoming/server-windows-amd64/jastreamer-server_${VERSION}_windows_amd64.{exe,msi} stage/
           cp incoming/server-windows-amd64/windows-{msi,signature}-inspection.json stage/
           cp incoming/server-windows-amd64/windows-tool-receipt.json stage/
           cp incoming/server-oci/tools-oci.json stage/
           cp incoming/server-compatibility/validation-tools.json stage/
-          cp incoming/server-oci/server.oci stage/jstreamer-server_${VERSION}_linux_amd64-arm64.oci
+          cp incoming/server-oci/server.oci stage/jastreamer-server_${VERSION}_linux_amd64-arm64.oci
           cp incoming/server-oci/oci-inspection.json stage/
           cp LICENSE stage/Apache-2.0.txt; cp packaging/container/THIRD_PARTY_NOTICES stage/
           cp packaging/server/cert/{server.cer,fingerprint.txt} stage/; cp packaging/server/{trust,remove-trust}.md stage/
@@ -221,13 +221,13 @@ jobs:
           for name in "${distributables[@]}"; do
             if [[ $name == *.oci ]]; then
               sha=$(sha256sum "stage/$name" | cut -d' ' -f1)
-              jq -n --arg name "$name" --arg sha "$sha" --arg created "$(git show -s --format=%cI "$GITHUB_SHA" | sed 's/+00:00/Z/')" '{spdxVersion:"SPDX-2.3",dataLicense:"CC0-1.0",SPDXID:"SPDXRef-DOCUMENT",name:($name+" artifact SBOM"),documentNamespace:("https://github.com/furyheimdall/jake-streamer/sbom/"+$sha),creationInfo:{created:$created,creators:["Tool: Jake-Streamer-artifact-SPDX/1","Tool: BuildKit-Syft-scanner/stable-1"]},packages:[{name:$name,SPDXID:"SPDXRef-Package-OCI-Index",downloadLocation:"NOASSERTION",filesAnalyzed:false,licenseConcluded:"Apache-2.0",licenseDeclared:"Apache-2.0",copyrightText:"NOASSERTION",checksums:[{algorithm:"SHA256",checksumValue:$sha}]}],relationships:[{spdxElementId:"SPDXRef-DOCUMENT",relationshipType:"DESCRIBES",relatedSpdxElement:"SPDXRef-Package-OCI-Index"}]}' > "stage/$name.spdx.json"
+              jq -n --arg name "$name" --arg sha "$sha" --arg created "$(git show -s --format=%cI "$GITHUB_SHA" | sed 's/+00:00/Z/')" '{spdxVersion:"SPDX-2.3",dataLicense:"CC0-1.0",SPDXID:"SPDXRef-DOCUMENT",name:($name+" artifact SBOM"),documentNamespace:("https://github.com/furyheimdall/jastreamer/sbom/"+$sha),creationInfo:{created:$created,creators:["Tool: jastreamer-artifact-SPDX/1","Tool: BuildKit-Syft-scanner/stable-1"]},packages:[{name:$name,SPDXID:"SPDXRef-Package-OCI-Index",downloadLocation:"NOASSERTION",filesAnalyzed:false,licenseConcluded:"Apache-2.0",licenseDeclared:"Apache-2.0",copyrightText:"NOASSERTION",checksums:[{algorithm:"SHA256",checksumValue:$sha}]}],relationships:[{spdxElementId:"SPDXRef-DOCUMENT",relationshipType:"DESCRIBES",relatedSpdxElement:"SPDXRef-Package-OCI-Index"}]}' > "stage/$name.spdx.json"
             else
               ./syft scan "file:stage/$name" -o "spdx-json=stage/$name.spdx.json"
             fi
           done
           subjects=$(for name in "${distributables[@]}"; do sha=$(sha256sum "stage/$name" | cut -d' ' -f1); jq -n --arg name "$name" --arg sha "$sha" '{name:$name,digest:{sha256:$sha}}'; done | jq -s .)
-          jq -n --argjson subjects "$subjects" --arg tag "$GITHUB_REF_NAME" --arg revision "$GITHUB_SHA" '{_type:"https://in-toto.io/Statement/v1",subject:$subjects,predicateType:"https://slsa.dev/provenance/v1",predicate:{buildDefinition:{buildType:"https://github.com/furyheimdall/jake-streamer/server-release@v1",externalParameters:{tag:$tag}},runDetails:{builder:{id:"github-actions:server-release"},metadata:{sourceRevision:$revision}}}}' > stage/PROVENANCE.intoto.json
+          jq -n --argjson subjects "$subjects" --arg tag "$GITHUB_REF_NAME" --arg revision "$GITHUB_SHA" '{_type:"https://in-toto.io/Statement/v1",subject:$subjects,predicateType:"https://slsa.dev/provenance/v1",predicate:{buildDefinition:{buildType:"https://github.com/furyheimdall/jastreamer/server-release@v1",externalParameters:{tag:$tag}},runDetails:{builder:{id:"github-actions:server-release"},metadata:{sourceRevision:$revision}}}}' > stage/PROVENANCE.intoto.json
           jq -n '{draftRelease:"planned",ghcrImmutableTag:"planned",publishRelease:"planned",onFailure:["delete draft release","delete immutable GHCR tag","remove registry auth"],floatingTags:[]}' > stage/promotion-ledger.json
           records=$(find stage -maxdepth 1 -type f -printf '%f\n' | sort | while read -r name; do sha=$(sha256sum "stage/$name" | cut -d' ' -f1); jq -n --arg name "$name" --arg sha "$sha" '{name:$name,sha256:$sha}'; done | jq -s .)
           jq -n --arg tag "$GITHUB_REF_NAME" --arg image "$IMAGE:${VERSION}" --argjson artifacts "$records" '{schema:1,component:"server",tag:$tag,image:$image,floatingTags:false,promotionReady:true,artifacts:$artifacts}' > stage/manifest.json
@@ -251,7 +251,7 @@ jobs:
 
   promote:
     needs: [validate, stage]
-    if: github.repository == 'furyheimdall/jake-streamer' && needs.stage.result == 'success'
+    if: github.repository == 'furyheimdall/jastreamer' && needs.stage.result == 'success'
     runs-on: ubuntu-24.04
     environment: server-release
     permissions:
@@ -326,12 +326,12 @@ jobs:
           printf '%s' "$GH_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
           logged_in=true
           if ! absent_registry_tag "$RUNNER_TEMP/preflight-image.txt"; then echo IMMUTABLE_IMAGE_TAG_ALREADY_EXISTS_OR_PREFLIGHT_FAILED >&2; cat "$RUNNER_TEMP/preflight-image.txt" >&2; exit 65; fi
-          gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --title "Jake Streamer Server $VERSION" --draft --verify-tag
+          gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --title "jastreamer Server $VERSION" --draft --verify-tag
           release_created=true
           gh release upload "$GITHUB_REF_NAME" stage/* --repo "$GITHUB_REPOSITORY"
           expected_digest=$(jq -r .indexDigest stage/oci-inspection.json); test "$expected_digest" != null
           image_promotion_started=true
-          skopeo copy --all "oci-archive:/stage/jstreamer-server_${VERSION}_linux_amd64-arm64.oci" "docker://$IMAGE:$VERSION"
+          skopeo copy --all "oci-archive:/stage/jastreamer-server_${VERSION}_linux_amd64-arm64.oci" "docker://$IMAGE:$VERSION"
           pushed_digest=$(skopeo inspect --format '{{.Digest}}' "docker://$IMAGE:$VERSION")
           test "$pushed_digest" = "$expected_digest"
           docker logout ghcr.io

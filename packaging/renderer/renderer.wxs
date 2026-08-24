@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <Package
+    Name="jastreamer Renderer"
+    Manufacturer="jastreamer"
+    Platform="x64"
+    Version="$(var.ProductVersion)"
+    UpgradeCode="7A1C1C18-2E7D-4D2A-9B1D-0AB5F1D2E901">
+    <MediaTemplate />
+    <StandardDirectory Id="ProgramFiles64Folder">
+      <Directory Id="INSTALLFOLDER" Name="jastreamer-renderer">
+        <Component Id="RendererExecutable" Guid="D3FC82E6-A56F-4B20-BCF4-FB6278DE4EB3">
+          <File Id="RendererExe" Source="$(var.SourceExe)" KeyPath="yes" />
+        </Component>
+      </Directory>
+    </StandardDirectory>
+    <Feature Id="Main" Title="Renderer" Level="1">
+      <ComponentRef Id="RendererExecutable" />
+    </Feature>
+  </Package>
+</Wix>

@@ -1,0 +1,13 @@
+{
+  "component": "jastreamer-control",
+  "tagPrefix": "control-v",
+  "applicationId": "io.jastreamer.control",
+  "publicAssetAllowlist": ["WEB_ZIP", "MSIX", "UNIVERSAL_APK"],
+  "publicExtensions": ["_web.zip", "_windows.msix", "_android_universal.apk"],
+  "ciOnlyExtensions": [".aab"],
+  "signing": {"publisher": "CN=jastreamer", "lineage": "io.jastreamer.control", "pfxSecret": "CONTROL_WINDOWS_PFX_B64", "jksSecret": "CONTROL_ANDROID_JKS_B64"},
+  "records": ["SHA256SUMS", "SBOM.spdx.json", "PROVENANCE.intoto.json", "control-windows.cer", "Windows-CERT-SHA256.txt", "Android-CERT-SHA256.txt", "trust.md", "remove-trust.md"],
+  "license": "Apache-2.0",
+  "stores": false,
+  "oidc": false
+}

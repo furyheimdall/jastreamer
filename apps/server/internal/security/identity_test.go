@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/jakestreamer/jstreamer-server/internal/security"
+	"github.com/jastreamer/jastreamer-server/internal/security"
 )
 
 func TestIdentity_is_stable_nonCA_and_has_SHA256_fingerprint(t *testing.T) {
@@ -36,7 +36,7 @@ func TestIdentity_is_stable_nonCA_and_has_SHA256_fingerprint(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parse certificate: %v", err)
 	}
-	if certificate.IsCA || certificate.Subject.CommonName != "Jake Streamer Server" {
+	if certificate.IsCA || certificate.Subject.CommonName != "jastreamer Server" {
 		t.Fatalf("certificate identity = CA:%v CN:%q", certificate.IsCA, certificate.Subject.CommonName)
 	}
 	keyInfo, err := os.Stat(filepath.Join(directory, "tls-key.pem"))

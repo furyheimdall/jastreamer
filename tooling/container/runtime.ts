@@ -16,13 +16,13 @@ const archName = (platform: Platform): string => platform.endsWith("arm64") ? "a
 const canonicalArch = (value: string): "amd64" | "arm64" | "unknown" => value === "x86_64" || value === "amd64" ? "amd64" : value === "aarch64" || value === "arm64" ? "arm64" : "unknown";
 export function importImage(rootfs: string, platform: Platform, tag: string): void {
   run("docker", ["import", "--platform", platform,
-    "--change", "USER 10001:10001", "--change", "ENTRYPOINT [\"/usr/local/bin/jstreamer-server\"]",
-    "--change", "WORKDIR /app", "--change", "ENV JSTREAMER_DATA_DIR=/var/lib/jstreamer",
-    "--change", "HEALTHCHECK --interval=1s --timeout=5s --retries=30 CMD [\"/usr/local/bin/jstreamer-server\",\"health\"]",
+    "--change", "USER 10001:10001", "--change", "ENTRYPOINT [\"/usr/local/bin/jastreamer-server\"]",
+    "--change", "WORKDIR /app", "--change", "ENV JASTREAMER_DATA_DIR=/var/lib/jastreamer",
+    "--change", "HEALTHCHECK --interval=1s --timeout=5s --retries=30 CMD [\"/usr/local/bin/jastreamer-server\",\"health\"]",
     rootfs, tag], { quiet: true });
 }
 function config(directory: string): string {
-  const value = { address: "127.0.0.1:8443", data_directory: "/var/lib/jstreamer", catalog_root: "/var/lib/jstreamer/catalog",
+  const value = { address: "127.0.0.1:8443", data_directory: "/var/lib/jastreamer", catalog_root: "/var/lib/jastreamer/catalog",
     catalog_migration: "/app/migrations/001_catalog.sql", playback_migration: "/app/migrations/002_playback.sql",
     playback_expansion: "/app/migrations/003_todo12.sql", certificate_dns: ["localhost"], certificate_ips: ["127.0.0.1"], pairing_ttl: "5m" };
   mkdirSync(directory, { recursive: true }); writeFileSync(join(directory, "server.json"), JSON.stringify(value, null, 2) + "\n"); return join(directory, "server.json");
@@ -44,12 +44,12 @@ async function bootstrapAndPair(secret: string): Promise<{ admin: string; contro
   return { admin, controller: String(paired.body.token) };
 }
 export async function runPlatform(platform: Platform, tag: string, workspace: string, names: Set<string>): Promise<RuntimeFact> {
-  const suffix = `${process.pid}-${platform.split("/")[1]}`; const name = `jstreamer-task17-${suffix}`; names.add(name);
+  const suffix = `${process.pid}-${platform.split("/")[1]}`; const name = `jastreamer-task17-${suffix}`; names.add(name);
   const directory = join(workspace, suffix); const configDir = join(directory, "config"); const dataDir = join(directory, "data");
   config(configDir); mkdirSync(dataDir, { recursive: true }); chmodSync(dataDir, 0o777); const secret = randomBytes(24).toString("hex");
   const args = ["run", "-d", "--name", name, "--platform", platform, "--network", "host", "--read-only", "--tmpfs", "/tmp:rw,noexec,nosuid,size=64m",
-    "--cap-drop", "ALL", "--security-opt", "no-new-privileges:true", "-e", `JSTREAMER_SETUP_SECRET=${secret}`,
-    "-v", `${configDir}:/etc/jstreamer:ro`, "-v", `${dataDir}:/var/lib/jstreamer`, tag, "--config", "/etc/jstreamer/server.json"];
+    "--cap-drop", "ALL", "--security-opt", "no-new-privileges:true", "-e", `JASTREAMER_SETUP_SECRET=${secret}`,
+    "-v", `${configDir}:/etc/jastreamer:ro`, "-v", `${dataDir}:/var/lib/jastreamer`, tag, "--config", "/etc/jastreamer/server.json"];
   await waitForDockerEvent([`container=${name}`, "event=health_status: healthy"], () => { run("docker", args, { quiet: true }); });
   const hostArch = run("uname", ["-m"], { quiet: true }); const containerArch = run("docker", ["exec", name, "uname", "-m"], { quiet: true });
   const uid = run("docker", ["exec", name, "id", "-u"], { quiet: true }); const gid = run("docker", ["exec", name, "id", "-g"], { quiet: true });
@@ -64,32 +64,32 @@ export async function runPlatform(platform: Platform, tag: string, workspace: st
 }
 
 export async function runComposeReplacement(compose: string, image: string, workspace: string, projects: Set<string>): Promise<Record<string, unknown>> {
-  const project = `jstreamert17${process.pid}`; projects.add(project); const base = join(workspace, "compose"); const configDir = join(base, "config"); const dataDir = join(base, "data");
+  const project = `jastreamert17${process.pid}`; projects.add(project); const base = join(workspace, "compose"); const configDir = join(base, "config"); const dataDir = join(base, "data");
   const configPath = config(configDir); const catalogDir = join(dataDir, "catalog");
   mkdirSync(catalogDir, { recursive: true });
   const fixture = resolve(dirname(fileURLToPath(import.meta.url)), "../fixtures/music/real.wav.b64");
   writeFileSync(join(catalogDir, "container-qa.wav"), Buffer.from(readFileSync(fixture, "utf8").trim(), "base64"));
   chmodSync(dataDir, 0o777); const secret = randomBytes(24).toString("hex");
-  const env = { ...process.env, JSTREAMER_SERVER_IMAGE: image, JSTREAMER_CONFIG_PATH: configDir, JSTREAMER_DATA_PATH: dataDir, JSTREAMER_SETUP_SECRET: secret };
+  const env = { ...process.env, JASTREAMER_SERVER_IMAGE: image, JASTREAMER_CONFIG_PATH: configDir, JASTREAMER_DATA_PATH: dataDir, JASTREAMER_SETUP_SECRET: secret };
   const composeArgs = ["compose", "-p", project, "-f", compose];
   await waitForDockerEvent([`label=com.docker.compose.project=${project}`, "event=health_status: healthy"], () => { run("docker", [...composeArgs, "up", "-d"], { env, quiet: true }); });
-  const firstID = run("docker", [...composeArgs, "ps", "-q", "jstreamer-server"], { env, quiet: true });
+  const firstID = run("docker", [...composeArgs, "ps", "-q", "jastreamer-server"], { env, quiet: true });
   const tokens = await bootstrapAndPair(secret);
   const scan = await httpsJSON("https://127.0.0.1:8443/api/v1/catalog/scans", tokens.admin, "POST", {});
   if (scan.status !== 202) throw new Error(`CATALOG_SCAN_FAILED ${scan.status}`);
   const before = await apiFacts(tokens.controller);
   const beforeCatalog = await httpsJSON("https://127.0.0.1:8443/api/v1/catalog/status", tokens.controller);
-  const stateDigest = containerSha256(firstID, "/var/lib/jstreamer/security/state.json");
+  const stateDigest = containerSha256(firstID, "/var/lib/jastreamer/security/state.json");
   const configDigest = sha256(configPath);
   await waitForDockerEvent([`label=com.docker.compose.project=${project}`, "event=health_status: healthy"], () => { run("docker", [...composeArgs, "up", "-d", "--force-recreate"], { env, quiet: true }); });
-  const secondID = run("docker", [...composeArgs, "ps", "-q", "jstreamer-server"], { env, quiet: true }); const after = await apiFacts(tokens.controller);
+  const secondID = run("docker", [...composeArgs, "ps", "-q", "jastreamer-server"], { env, quiet: true }); const after = await apiFacts(tokens.controller);
   const afterCatalog = await httpsJSON("https://127.0.0.1:8443/api/v1/catalog/status", tokens.controller);
   const hostArch = run("uname", ["-m"], { quiet: true }); const containerArch = run("docker", ["exec", secondID, "uname", "-m"], { quiet: true });
   const classification = canonicalArch(hostArch) === canonicalArch(containerArch) ? "native" : "qemu-emulated";
   const invariant = {
     replaced: firstID !== secondID,
     classification,
-    stateDigestStable: stateDigest === containerSha256(secondID, "/var/lib/jstreamer/security/state.json"),
+    stateDigestStable: stateDigest === containerSha256(secondID, "/var/lib/jastreamer/security/state.json"),
     configDigestStable: configDigest === sha256(configPath),
     catalogRevisionBefore: before.catalogRevision,
     catalogRevisionAfter: after.catalogRevision,
@@ -130,7 +130,7 @@ export function cleanup(names: Set<string>, projects: Set<string>, compose: stri
     const ids = run("docker", ["ps", "-aq", "--filter", `name=^/${name}$`], { quiet: true }).split("\n").filter(Boolean);
     if (ids.length) try { run("docker", ["rm", "-f", ...ids], { quiet: true }); } catch (error) { failures.push(error as Error); }
   }
-  const env = { ...process.env, JSTREAMER_SETUP_SECRET: "cleanup-only", JSTREAMER_CONFIG_PATH: "/tmp/jstreamer-cleanup-config", JSTREAMER_DATA_PATH: "/tmp/jstreamer-cleanup-data" };
+  const env = { ...process.env, JASTREAMER_SETUP_SECRET: "cleanup-only", JASTREAMER_CONFIG_PATH: "/tmp/jastreamer-cleanup-config", JASTREAMER_DATA_PATH: "/tmp/jastreamer-cleanup-data" };
   for (const project of projects) {
     const ids = run("docker", ["ps", "-aq", "--filter", `label=com.docker.compose.project=${project}`], { quiet: true }).split("\n").filter(Boolean);
     if (ids.length) try { run("docker", ["rm", "-f", ...ids], { quiet: true }); } catch (error) { failures.push(error as Error); }

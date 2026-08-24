@@ -1,4 +1,4 @@
-use jstreamer_renderer::{FakeBackend, ProtocolError, Renderer, SUPPORTED_MAJORS};
+use jastreamer_renderer::{FakeBackend, ProtocolError, Renderer, SUPPORTED_MAJORS};
 use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::fs;
@@ -73,12 +73,12 @@ fn main() {
     let result = match arguments.get(1).map(String::as_str) {
         Some("--help") => {
             println!(
-                "jstreamer-renderer [--version|--revision|--protocol|--compatibility-fixture FILE --remote-majors LIST --remote-capabilities LIST]"
+                "jastreamer-renderer [--version|--revision|--protocol|--compatibility-fixture FILE --remote-majors LIST --remote-capabilities LIST]"
             );
             Ok(())
         }
         Some("--version") => {
-            println!("jstreamer-renderer 0.1.0");
+            println!("jastreamer-renderer 0.1.0");
             Ok(())
         }
         Some("--revision") => {

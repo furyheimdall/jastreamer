@@ -89,13 +89,13 @@ BEGIN
     BEGIN
         BLOCK "040904e4"
         BEGIN
-            VALUE "CompanyName", "Jake Streamer" "\0"
-            VALUE "FileDescription", "Jake Streamer Control" "\0"
+            VALUE "CompanyName", "jastreamer" "\0"
+            VALUE "FileDescription", "jastreamer Control" "\0"
             VALUE "FileVersion", VERSION_AS_STRING "\0"
-            VALUE "InternalName", "jstreamer-control" "\0"
-            VALUE "LegalCopyright", "Copyright (C) 2026 Jake Streamer. Apache-2.0." "\0"
-            VALUE "OriginalFilename", "jstreamer_control.exe" "\0"
-            VALUE "ProductName", "Jake Streamer Control" "\0"
+            VALUE "InternalName", "jastreamer-control" "\0"
+            VALUE "LegalCopyright", "Copyright (C) 2026 jastreamer. Apache-2.0." "\0"
+            VALUE "OriginalFilename", "jastreamer_control.exe" "\0"
+            VALUE "ProductName", "jastreamer Control" "\0"
             VALUE "ProductVersion", VERSION_AS_STRING "\0"
         END
     END

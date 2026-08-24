@@ -7,7 +7,7 @@ extension _ControlHomeView on _ControlHomeState {
             children: [
               Icon(Icons.graphic_eq, color: ControlColors.accentPrimary),
               SizedBox(width: 8),
-              Text('Jake Streamer'),
+              Text('jastreamer'),
             ],
           ),
           backgroundColor: ControlColors.surfaceSecondary,

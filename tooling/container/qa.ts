@@ -63,7 +63,7 @@ export async function execute(root: string, options: Options): Promise<Record<st
       noticesSha256: `sha256:${hash(join(root, "packaging/container/THIRD_PARTY_NOTICES"))}`,
     };
     for (const image of [...inspection.images].sort((a, b) => b.platform.localeCompare(a.platform))) {
-      const rootfs = join(work, `${image.platform.split("/")[1]}.tar`); const tag = `jstreamer-task17:${token}-${image.platform.split("/")[1]}`; tags.push(tag);
+      const rootfs = join(work, `${image.platform.split("/")[1]}.tar`); const tag = `jastreamer-task17:${token}-${image.platform.split("/")[1]}`; tags.push(tag);
       filesystemFacts.push(flattenImage(unpacked, image, rootfs, expectedFiles));
       importImage(rootfs, image.platform, tag); runtimeFacts.push(await runPlatform(image.platform, tag, work, names));
     }

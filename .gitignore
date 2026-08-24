@@ -1,5 +1,6 @@
 # Local execution evidence and agent state
 .omo/evidence/
+.omo/plans/
 .omo/boulder.json
 .omo/notepads/
 .omo/drafts/

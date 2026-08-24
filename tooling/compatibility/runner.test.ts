@@ -18,7 +18,7 @@ import type { Matrix } from "./parser";
 const sourceRoot = "tooling/fixtures/compatibility";
 
 const withWorkspace = (testBody: (root: string) => void): void => {
-  const root = mkdtempSync(join(tmpdir(), "jstreamer-task15-"));
+  const root = mkdtempSync(join(tmpdir(), "jastreamer-task15-"));
   try {
     testBody(root);
   } finally {

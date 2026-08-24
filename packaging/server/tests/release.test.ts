@@ -26,10 +26,10 @@ describe("Server release contract", () => {
   });
   test("allowlists real native package formats and one OCI archive", () => {
     expect(distributables("1.2.3")).toEqual([
-      "jstreamer-server_1.2.3_windows_amd64.exe", "jstreamer-server_1.2.3_windows_amd64.msi",
-      "jstreamer-server_1.2.3_linux_amd64.deb", "jstreamer-server_1.2.3_linux_amd64.rpm",
-      "jstreamer-server_1.2.3_linux_arm64.deb", "jstreamer-server_1.2.3_linux_arm64.rpm",
-      "jstreamer-server_1.2.3_linux_amd64-arm64.oci",
+      "jastreamer-server_1.2.3_windows_amd64.exe", "jastreamer-server_1.2.3_windows_amd64.msi",
+      "jastreamer-server_1.2.3_linux_amd64.deb", "jastreamer-server_1.2.3_linux_amd64.rpm",
+      "jastreamer-server_1.2.3_linux_arm64.deb", "jastreamer-server_1.2.3_linux_arm64.rpm",
+      "jastreamer-server_1.2.3_linux_amd64-arm64.oci",
     ]);
   });
   test("consumed music fixture mutation changes local source identity", () => {
@@ -64,12 +64,12 @@ describe("Server release contract", () => {
     expect(signing.indexOf("Remove-Item $pfx -Force")).toBeLessThan(signing.lastIndexOf("AggregateException"));
     const workflow = readFileSync(new URL("../../../.github/workflows/server-release.yml", import.meta.url), "utf8");
     const cleanupStep = workflow.slice(workflow.indexOf("Prove no signing material remains"), workflow.indexOf("actions/upload-artifact", workflow.indexOf("Prove no signing material remains")));
-    expect(cleanupStep).toContain("if: always()"); expect(cleanupStep).toContain("TrustedPeople"); expect(cleanupStep).toContain("JSTREAMER_SETUP_SECRET");
+    expect(cleanupStep).toContain("if: always()"); expect(cleanupStep).toContain("TrustedPeople"); expect(cleanupStep).toContain("JASTREAMER_SETUP_SECRET");
   });
   test("Windows signs embedded inputs before WiX and verifies extracted EXEs", () => {
     const signing = readFileSync(new URL("../sign-windows.ps1", import.meta.url), "utf8");
     expect(signing.indexOf("foreach ($exe in $sourceExecutables)")).toBeLessThan(signing.indexOf("build-windows-msi.ps1"));
-    expect(signing.indexOf("build-windows-msi.ps1")).toBeLessThan(signing.indexOf("$env:JSTREAMER_SIGNTOOL sign /fd SHA256 /f $pfx /p $env:WINDOWS_SIGNING_PFX_PASSWORD $msi"));
+    expect(signing.indexOf("build-windows-msi.ps1")).toBeLessThan(signing.indexOf("$env:JASTREAMER_SIGNTOOL sign /fd SHA256 /f $pfx /p $env:WINDOWS_SIGNING_PFX_PASSWORD $msi"));
     expect(signing).toContain("$extractedExecutables"); expect(signing).toContain("WaitForStatus"); expect(signing).toContain("/healthz");
     expect(readFileSync(new URL("../build-windows.ps1", import.meta.url), "utf8")).not.toContain(" wix build ");
   });
@@ -112,7 +112,7 @@ describe("Server release contract", () => {
   });
   test("workflow is canonical, protected, pinned, and has no OIDC", () => {
     const workflow = readFileSync(new URL("../../../.github/workflows/server-release.yml", import.meta.url), "utf8");
-    expect(workflow).toContain("furyheimdall/jake-streamer");
+    expect(workflow).toContain("furyheimdall/jastreamer");
     expect(workflow).not.toContain("id-token:");
     expect(workflow).not.toContain("sort -V");
     expect(workflow).toContain("actions/setup-dotnet@"); expect(workflow).toContain("dotnet-version: '8.0.419'");

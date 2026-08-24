@@ -5,8 +5,17 @@ plugins {
     id("dev.flutter.flutter-gradle-plugin")
 }
 
+val controlKeystore = providers.environmentVariable("CONTROL_ANDROID_KEYSTORE").orNull
+val controlStorePassword = providers.environmentVariable("CONTROL_ANDROID_STORE_PASSWORD").orNull
+val controlKeyAlias = providers.environmentVariable("CONTROL_ANDROID_KEY_ALIAS").orNull
+val controlKeyPassword = providers.environmentVariable("CONTROL_ANDROID_KEY_PASSWORD").orNull
+val releaseRequested = gradle.startParameter.taskNames.any { it.contains("Release", ignoreCase = true) }
+if (releaseRequested && listOf(controlKeystore, controlStorePassword, controlKeyAlias, controlKeyPassword).any { it.isNullOrBlank() }) {
+    throw GradleException("protected Control Android signing inputs are required")
+}
+
 android {
-    namespace = "io.jakestreamer.control"
+    namespace = "io.jastreamer.control"
     compileSdk = flutter.compileSdkVersion
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_11
@@ -18,17 +27,25 @@ android {
     }
 
     defaultConfig {
-        applicationId = "io.jakestreamer.control"
+        applicationId = "io.jastreamer.control"
         minSdk = flutter.minSdkVersion
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
     }
 
+    signingConfigs {
+        create("controlRelease") {
+            storeFile = controlKeystore?.let(::file)
+            storePassword = controlStorePassword
+            keyAlias = controlKeyAlias
+            keyPassword = controlKeyPassword
+        }
+    }
+
     buildTypes {
         release {
-            // Compile validation uses the generated debug key; release signing is CI-owned.
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = signingConfigs.getByName("controlRelease")
         }
     }
 }

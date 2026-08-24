@@ -1,19 +1,19 @@
 {
   "schema": 1,
   "component": "server",
-  "package": "jstreamer-server",
-  "image": "ghcr.io/furyheimdall/jstreamer-server",
+  "package": "jastreamer-server",
+  "image": "ghcr.io/furyheimdall/jastreamer-server",
   "license": "Apache-2.0",
   "tag_pattern": "server-v<major>.<minor>.<patch>",
   "floating_tags": false,
   "native_artifacts": [
-    "jstreamer-server_<version>_windows_amd64.exe",
-    "jstreamer-server_<version>_windows_amd64.msi",
-    "jstreamer-server_<version>_linux_amd64.deb",
-    "jstreamer-server_<version>_linux_amd64.rpm",
-    "jstreamer-server_<version>_linux_arm64.deb",
-    "jstreamer-server_<version>_linux_arm64.rpm",
-    "jstreamer-server_<version>_linux_amd64-arm64.oci"
+    "jastreamer-server_<version>_windows_amd64.exe",
+    "jastreamer-server_<version>_windows_amd64.msi",
+    "jastreamer-server_<version>_linux_amd64.deb",
+    "jastreamer-server_<version>_linux_amd64.rpm",
+    "jastreamer-server_<version>_linux_arm64.deb",
+    "jastreamer-server_<version>_linux_arm64.rpm",
+    "jastreamer-server_<version>_linux_amd64-arm64.oci"
   ],
   "required_records": [
     "SHA256SUMS",
@@ -32,7 +32,7 @@
     "promotion-ledger.json"
   ],
   "windows": {
-    "publisher": "CN=Jake Streamer",
+    "publisher": "CN=jastreamer",
     "certificate_ca": false,
     "eku": "Code Signing",
     "local_surface": "cross-compiled EXE and wixl-built MSI under QEMU; no trust claim",
@@ -41,6 +41,6 @@
   "linux": {
     "packager": "nFPM 2.43.4",
     "service_manager": "systemd",
-    "service_user": "jstreamer"
+    "service_user": "jastreamer"
   }
 }

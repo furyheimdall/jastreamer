@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/jakestreamer/jstreamer-server/internal/security"
+	"github.com/jastreamer/jastreamer-server/internal/security"
 )
 
 func bearer(request *http.Request) string {
@@ -14,7 +14,7 @@ func bearer(request *http.Request) string {
 		return strings.TrimSpace(token)
 	}
 	for protocol := range strings.SplitSeq(request.Header.Get("Sec-WebSocket-Protocol"), ",") {
-		if token, found := strings.CutPrefix(strings.TrimSpace(protocol), "jstreamer.bearer."); found {
+		if token, found := strings.CutPrefix(strings.TrimSpace(protocol), "jastreamer.bearer."); found {
 			return token
 		}
 	}

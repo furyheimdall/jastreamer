@@ -3,7 +3,7 @@ package playback
 import (
 	"errors"
 
-	"github.com/jakestreamer/jstreamer-server/internal/curation/ranking"
+	"github.com/jastreamer/jastreamer-server/internal/curation/ranking"
 )
 
 const CurrentSchemaVersion = 3

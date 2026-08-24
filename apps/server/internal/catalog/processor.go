@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/jakestreamer/jstreamer-server/internal/analysis"
+	"github.com/jastreamer/jastreamer-server/internal/analysis"
 )
 
 type Processor struct {

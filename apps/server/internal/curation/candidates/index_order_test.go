@@ -4,7 +4,7 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/jakestreamer/jstreamer-server/internal/catalog"
+	"github.com/jastreamer/jastreamer-server/internal/catalog"
 )
 
 func TestIndexSnapshotIsSortedAndDetachedFromCatalog(t *testing.T) {

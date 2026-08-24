@@ -1,5 +1,5 @@
-name: jstreamer-control
-display_name: Jake Streamer Control
+name: jastreamer-control
+display_name: jastreamer Control
 root: apps/control
 version_file: VERSION
 manifest: pubspec.yaml

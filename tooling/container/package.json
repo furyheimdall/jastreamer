@@ -1,5 +1,5 @@
 {
-  "name": "jstreamer-container-qa",
+  "name": "jastreamer-container-qa",
   "private": true,
   "type": "module",
   "scripts": {

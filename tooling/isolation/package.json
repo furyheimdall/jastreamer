@@ -1,5 +1,5 @@
 {
-  "name": "@jstreamer/isolation-tooling",
+  "name": "@jastreamer/isolation-tooling",
   "private": true,
   "type": "module",
   "devDependencies": {

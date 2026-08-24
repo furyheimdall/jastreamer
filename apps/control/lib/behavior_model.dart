@@ -1,4 +1,4 @@
-export 'package:jstreamer_control/decision_reason.dart';
+export 'package:jastreamer_control/decision_reason.dart';
 
 enum Policy { stop, album, similar }
 

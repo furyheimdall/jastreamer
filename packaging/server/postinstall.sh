@@ -1,8 +1,8 @@
 #!/bin/sh
 set -eu
-if ! getent group jstreamer >/dev/null 2>&1; then groupadd --system jstreamer; fi
-if ! getent passwd jstreamer >/dev/null 2>&1; then
-  useradd --system --gid jstreamer --home-dir /var/lib/jstreamer --shell /usr/sbin/nologin jstreamer
+if ! getent group jastreamer >/dev/null 2>&1; then groupadd --system jastreamer; fi
+if ! getent passwd jastreamer >/dev/null 2>&1; then
+  useradd --system --gid jastreamer --home-dir /var/lib/jastreamer --shell /usr/sbin/nologin jastreamer
 fi
-install -d -o jstreamer -g jstreamer -m 0750 /var/lib/jstreamer /var/lib/jstreamer/catalog
+install -d -o jastreamer -g jastreamer -m 0750 /var/lib/jastreamer /var/lib/jastreamer/catalog
 if command -v systemctl >/dev/null 2>&1; then systemctl daemon-reload || true; fi

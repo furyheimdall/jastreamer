@@ -1,6 +1,6 @@
 services:
-  jstreamer-server:
-    image: ghcr.io/furyheimdall/jstreamer-server:0.1.0
+  jastreamer-server:
+    image: ghcr.io/furyheimdall/jastreamer-server:0.1.0
     platform: linux/amd64
     privileged: true
     environment:

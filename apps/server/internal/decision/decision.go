@@ -1,10 +1,10 @@
 package decision
 
 import (
-	"github.com/jakestreamer/jstreamer-server/internal/catalog"
-	"github.com/jakestreamer/jstreamer-server/internal/continuation/album"
-	"github.com/jakestreamer/jstreamer-server/internal/curation/candidates"
-	"github.com/jakestreamer/jstreamer-server/internal/curation/ranking"
+	"github.com/jastreamer/jastreamer-server/internal/catalog"
+	"github.com/jastreamer/jastreamer-server/internal/continuation/album"
+	"github.com/jastreamer/jastreamer-server/internal/curation/candidates"
+	"github.com/jastreamer/jastreamer-server/internal/curation/ranking"
 )
 
 func DecideNext(snapshot Snapshot, boundary Boundary) Outcome {

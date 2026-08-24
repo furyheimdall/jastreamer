@@ -3,11 +3,11 @@
   "version": "0.1.0",
   "tag": "server-v0.1.0",
   "artifacts": [
-    "jstreamer-server_0.1.0_windows_amd64.msi",
-    "jstreamer-server_0.1.0_linux_amd64.deb",
-    "jstreamer-server_0.1.0_linux_arm64.rpm",
-    "jstreamer-server_0.1.0_linux_amd64.rpm",
-    "jstreamer-server_0.1.0_linux_arm64.deb"
+    "jastreamer-server_0.1.0_windows_amd64.msi",
+    "jastreamer-server_0.1.0_linux_amd64.deb",
+    "jastreamer-server_0.1.0_linux_arm64.rpm",
+    "jastreamer-server_0.1.0_linux_amd64.rpm",
+    "jastreamer-server_0.1.0_linux_arm64.deb"
   ],
   "license": "Apache-2.0",
   "third_party_notices": "THIRD_PARTY_NOTICES",
@@ -17,7 +17,7 @@
   "changelog_start": "server-v0.0.9",
   "signing": {
     "platform": "windows",
-    "publisher": "CN=Jake Streamer",
+    "publisher": "CN=jastreamer",
     "fingerprint": "sha256:fixture",
     "ca": false,
     "code_signing_eku": true,

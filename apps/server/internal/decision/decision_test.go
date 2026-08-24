@@ -5,8 +5,8 @@ import (
 	"strconv"
 	"testing"
 
-	"github.com/jakestreamer/jstreamer-server/internal/catalog"
-	"github.com/jakestreamer/jstreamer-server/internal/curation/candidates"
+	"github.com/jastreamer/jastreamer-server/internal/catalog"
+	"github.com/jastreamer/jastreamer-server/internal/curation/candidates"
 )
 
 func TestDecideNext_playable_explicit_head_wins_over_similar(t *testing.T) {

@@ -1,22 +1,22 @@
 <Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
-  <Package Name="Jake Streamer Server" Manufacturer="Jake Streamer" Version="$(Version)" UpgradeCode="67C753EA-8D02-4F04-B37B-B96682B40F53" Scope="perMachine">
-    <MajorUpgrade DowngradeErrorMessage="A newer Jake Streamer Server is installed." />
+  <Package Name="jastreamer Server" Manufacturer="jastreamer" Version="$(Version)" UpgradeCode="67C753EA-8D02-4F04-B37B-B96682B40F53" Scope="perMachine">
+    <MajorUpgrade DowngradeErrorMessage="A newer jastreamer Server is installed." />
     <MediaTemplate EmbedCab="yes" />
     <Property Id="TRUSTEDCERT">
       <RegistrySearch Id="TrustedPeopleCertificate" Root="HKLM" Key="SOFTWARE\Microsoft\SystemCertificates\TrustedPeople\Certificates\$(CertThumbprint)" Name="Blob" Type="raw" Bitness="always64" />
     </Property>
-    <Launch Condition="Installed OR TRUSTEDCERT" Message="Trust the published Jake Streamer certificate in LocalMachine TrustedPeople before installing." />
+    <Launch Condition="Installed OR TRUSTEDCERT" Message="Trust the published jastreamer certificate in LocalMachine TrustedPeople before installing." />
     <StandardDirectory Id="ProgramFiles64Folder">
-      <Directory Id="INSTALLFOLDER" Name="Jake Streamer Server">
+      <Directory Id="INSTALLFOLDER" Name="jastreamer Server">
         <Component Id="ServerExecutable" Guid="3E7E438B-9E7E-4DD4-B090-D1055028F5AA" Bitness="always64">
-          <File Id="ServerExe" Source="$(SourceDir)\jstreamer-server.exe" KeyPath="yes" />
-          <File Id="ServerCoreExe" Source="$(SourceDir)\jstreamer-server-core.exe" />
+          <File Id="ServerExe" Source="$(SourceDir)\jastreamer-server.exe" KeyPath="yes" />
+          <File Id="ServerCoreExe" Source="$(SourceDir)\jastreamer-server-core.exe" />
           <File Id="ServerConfig" Source="$(SourceDir)\server.json" />
           <File Id="CatalogMigration" Source="$(SourceDir)\001_catalog.sql" />
           <File Id="PlaybackMigration" Source="$(SourceDir)\002_playback.sql" />
           <File Id="PlaybackExpansion" Source="$(SourceDir)\003_todo12.sql" />
-          <ServiceInstall Id="ServerService" Name="jstreamer-server" DisplayName="Jake Streamer Server" Description="Local-first Jake Streamer server" Start="auto" Type="ownProcess" ErrorControl="normal" Account="LocalSystem" />
-          <ServiceControl Id="ServerServiceControl" Name="jstreamer-server" Stop="both" Remove="uninstall" Wait="yes" />
+          <ServiceInstall Id="ServerService" Name="jastreamer-server" DisplayName="jastreamer Server" Description="Local-first jastreamer server" Start="auto" Type="ownProcess" ErrorControl="normal" Account="LocalSystem" />
+          <ServiceControl Id="ServerServiceControl" Name="jastreamer-server" Stop="both" Remove="uninstall" Wait="yes" />
         </Component>
         <Component Id="LicenseFiles" Guid="25ED4037-4D97-4C1C-8C61-B1549F61CE70" Bitness="always64">
           <File Id="License" Source="$(SourceDir)\LICENSE" KeyPath="yes" />
@@ -24,6 +24,6 @@
         </Component>
       </Directory>
     </StandardDirectory>
-    <Feature Id="MainFeature" Title="Jake Streamer Server"><ComponentRef Id="ServerExecutable" /><ComponentRef Id="LicenseFiles" /></Feature>
+    <Feature Id="MainFeature" Title="jastreamer Server"><ComponentRef Id="ServerExecutable" /><ComponentRef Id="LicenseFiles" /></Feature>
   </Package>
 </Wix>

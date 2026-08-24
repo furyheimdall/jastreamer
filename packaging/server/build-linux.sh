@@ -12,31 +12,31 @@ esac
 curl -fsSL "https://github.com/goreleaser/nfpm/releases/download/v2.43.4/$archive" -o "$work/nfpm.tgz"
 echo "$expected  $work/nfpm.tgz" | sha256sum -c --status
 tar -xzf "$work/nfpm.tgz" -C "$work" nfpm
-(cd "$root/apps/server" && CGO_ENABLED=0 GOOS=linux GOARCH="$arch" go build -trimpath -ldflags="-s -w -X main.productVersion=$version -X main.sourceRevision=${GITHUB_SHA:-local}" -o "$work/jstreamer-server" ./cmd/jstreamer-server)
+(cd "$root/apps/server" && CGO_ENABLED=0 GOOS=linux GOARCH="$arch" go build -trimpath -ldflags="-s -w -X main.productVersion=$version -X main.sourceRevision=${GITHUB_SHA:-local}" -o "$work/jastreamer-server" ./cmd/jastreamer-server)
 for format in deb rpm; do
   cat >"$work/nfpm.yaml" <<EOF
-name: jstreamer-server
+name: jastreamer-server
 arch: $arch
 platform: linux
 version: $version
-maintainer: Jake Streamer
-vendor: Jake Streamer
-homepage: https://github.com/furyheimdall/jake-streamer
+maintainer: jastreamer
+vendor: jastreamer
+homepage: https://github.com/furyheimdall/jastreamer
 license: Apache-2.0
-description: Local-first Jake Streamer server
+description: Local-first jastreamer server
 contents:
-  - { src: $work/jstreamer-server, dst: /usr/lib/jstreamer-server/jstreamer-server, file_info: { mode: 0755 } }
-  - { src: $root/apps/server/migrations, dst: /usr/lib/jstreamer-server/migrations }
-  - { src: $root/packaging/server/jstreamer-server.service, dst: /usr/lib/systemd/system/jstreamer-server.service }
-  - { src: $root/packaging/server/server.json, dst: /etc/jstreamer/server.json, type: config|noreplace }
-  - { src: $root/packaging/server/server.env, dst: /etc/jstreamer/server.env, type: config|noreplace, file_info: { mode: 0600 } }
-  - { src: $root/LICENSE, dst: /usr/share/licenses/jstreamer-server/LICENSE }
-  - { src: $root/packaging/container/THIRD_PARTY_NOTICES, dst: /usr/share/doc/jstreamer-server/THIRD_PARTY_NOTICES }
+  - { src: $work/jastreamer-server, dst: /usr/lib/jastreamer-server/jastreamer-server, file_info: { mode: 0755 } }
+  - { src: $root/apps/server/migrations, dst: /usr/lib/jastreamer-server/migrations }
+  - { src: $root/packaging/server/jastreamer-server.service, dst: /usr/lib/systemd/system/jastreamer-server.service }
+  - { src: $root/packaging/server/server.json, dst: /etc/jastreamer/server.json, type: config|noreplace }
+  - { src: $root/packaging/server/server.env, dst: /etc/jastreamer/server.env, type: config|noreplace, file_info: { mode: 0600 } }
+  - { src: $root/LICENSE, dst: /usr/share/licenses/jastreamer-server/LICENSE }
+  - { src: $root/packaging/container/THIRD_PARTY_NOTICES, dst: /usr/share/doc/jastreamer-server/THIRD_PARTY_NOTICES }
 scripts:
   postinstall: $root/packaging/server/postinstall.sh
   preremove: $root/packaging/server/preremove.sh
   postremove: $root/packaging/server/postremove.sh
 EOF
-  "$work/nfpm" package -f "$work/nfpm.yaml" -p "$format" -t "$out/jstreamer-server_${version}_linux_${arch}.$format"
+  "$work/nfpm" package -f "$work/nfpm.yaml" -p "$format" -t "$out/jastreamer-server_${version}_linux_${arch}.$format"
 done
-file "$work/jstreamer-server" >"$out/linux-${arch}-build.txt"
+file "$work/jastreamer-server" >"$out/linux-${arch}-build.txt"

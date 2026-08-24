@@ -1,0 +1,251 @@
+name: renderer-release
+
+on:
+  push:
+    tags: ["renderer-v[0-9]*.[0-9]*.[0-9]*"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: renderer-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    if: github.repository == 'furyheimdall/jastreamer'
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with: { persist-credentials: false }
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
+        with: { bun-version: '1.3.14' }
+      - id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+          version=${GITHUB_REF_NAME#renderer-v}
+          test "$GITHUB_REF_NAME" = "renderer-v$version"
+          test "$version" = "$(cat apps/renderer/VERSION)"
+          printf 'version=%s\n' "$version" >> "$GITHUB_OUTPUT"
+      - name: Test Renderer and release tooling
+        run: |
+          cargo fmt --manifest-path apps/renderer/Cargo.toml --check
+          cargo clippy --manifest-path apps/renderer/Cargo.toml --locked --all-targets --all-features -- -D warnings
+          cargo test --manifest-path apps/renderer/Cargo.toml --locked
+          bun install --cwd packaging/renderer --frozen-lockfile
+          bun run --cwd packaging/renderer test
+          bun run --cwd packaging/renderer typecheck
+
+  windows:
+    needs: validate
+    if: github.repository == 'furyheimdall/jastreamer'
+    runs-on: windows-2025
+    environment: renderer-signing
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with: { persist-credentials: false }
+      - uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9
+        with: { dotnet-version: '8.0.419', cache: false }
+      - name: Install pinned Rust toolchain
+        shell: pwsh
+        run: |
+          rustup toolchain install 1.89.0 --profile minimal --target x86_64-pc-windows-msvc
+          rustup default 1.89.0
+          if ((rustc --version) -notmatch '^rustc 1\.89\.0 ') {
+            throw 'pinned Rust toolchain was not selected'
+          }
+      - name: Install pinned WiX
+        shell: pwsh
+        run: dotnet tool install --global wix --version 4.0.5
+      - name: Install exact Windows SDK SignTool
+        shell: pwsh
+        run: |
+          $directory = Join-Path $env:RUNNER_TEMP 'Microsoft.Windows.SDK.BuildTools.10.0.26100.3916'
+          nuget install Microsoft.Windows.SDK.BuildTools `
+            -Version 10.0.26100.3916 `
+            -OutputDirectory $env:RUNNER_TEMP `
+            -DirectDownload `
+            -NonInteractive
+          $signTool = Get-ChildItem $directory -Recurse -Filter SignTool.exe |
+            Where-Object FullName -Match '\\x64\\SignTool\.exe$' |
+            Select-Object -First 1
+          if (!$signTool) { throw 'pinned SignTool was not found' }
+          "JASTREAMER_SIGNTOOL=$($signTool.FullName)" >> $env:GITHUB_ENV
+      - name: Build signed MSI and diagnostic ZIP
+        shell: pwsh
+        env:
+          RENDERER_WINDOWS_PFX_B64: ${{ secrets.RENDERER_WINDOWS_SIGNING_PFX_B64 }}
+          RENDERER_WINDOWS_PFX_PASSWORD: ${{ secrets.RENDERER_WINDOWS_SIGNING_PFX_PASSWORD }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $pfx = Join-Path $env:RUNNER_TEMP 'renderer-signing.pfx'
+          try {
+            if (!$env:RENDERER_WINDOWS_PFX_B64 -or !$env:RENDERER_WINDOWS_PFX_PASSWORD) {
+              throw 'protected renderer signing inputs are required'
+            }
+            Write-Output "::add-mask::$env:RENDERER_WINDOWS_PFX_PASSWORD"
+            [IO.File]::WriteAllBytes(
+              $pfx,
+              [Convert]::FromBase64String($env:RENDERER_WINDOWS_PFX_B64)
+            )
+            $env:JASTREAMER_RENDERER_PFX_PATH = $pfx
+            $env:JASTREAMER_RENDERER_PFX_PASSWORD = $env:RENDERER_WINDOWS_PFX_PASSWORD
+            ./packaging/renderer/release.ps1 `
+              -Version '${{ needs.validate.outputs.version }}' `
+              -Out dist
+          } finally {
+            Remove-Item $pfx -Force -ErrorAction SilentlyContinue
+            Remove-Item Env:JASTREAMER_RENDERER_PFX_PATH,Env:JASTREAMER_RENDERER_PFX_PASSWORD `
+              -ErrorAction SilentlyContinue
+          }
+      - name: Trust, install, execute, and uninstall MSI
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $msi = Resolve-Path "dist/jastreamer-renderer_${{ needs.validate.outputs.version }}_windows_amd64.msi"
+          $certificate = Import-Certificate `
+            -FilePath dist/certificate.cer `
+            -CertStoreLocation Cert:\LocalMachine\TrustedPeople
+          $trustedPath = "Cert:\LocalMachine\TrustedPeople\$($certificate.Thumbprint)"
+          try {
+            & $env:JASTREAMER_SIGNTOOL verify /pa /all $msi
+            $install = Start-Process msiexec.exe `
+              -ArgumentList @('/i', $msi, '/qn', '/norestart') `
+              -Wait `
+              -PassThru
+            if ($install.ExitCode -ne 0) { throw "MSI install failed: $($install.ExitCode)" }
+            $executable = "$env:ProgramFiles\jastreamer-renderer\jastreamer-renderer.exe"
+            if (!(Test-Path $executable)) { throw 'installed Renderer executable is missing' }
+            & $executable --help | Out-File dist/windows-help.txt
+            if ($LASTEXITCODE -ne 0) { throw "Renderer --help failed: $LASTEXITCODE" }
+            $uninstall = Start-Process msiexec.exe `
+              -ArgumentList @('/x', $msi, '/qn', '/norestart') `
+              -Wait `
+              -PassThru
+            if ($uninstall.ExitCode -ne 0) { throw "MSI uninstall failed: $($uninstall.ExitCode)" }
+            if (Test-Path $executable) { throw 'Renderer executable remained after uninstall' }
+            @{
+              classification = 'native-windows-amd64'
+              trustedInstallSucceeded = $true
+              executableStarted = $true
+              uninstallSucceeded = $true
+            } | ConvertTo-Json | Set-Content dist/windows-msi-inspection.json
+          } finally {
+            Remove-Item $trustedPath -Force -ErrorAction SilentlyContinue
+          }
+      - name: Prove signing material cleanup
+        if: always()
+        shell: pwsh
+        run: |
+          if (Test-Path "$env:RUNNER_TEMP/renderer-signing.pfx") {
+            throw 'PFX cleanup failed'
+          }
+          if (Get-ChildItem dist -Recurse -Include *.pfx,*.p12,*.key) {
+            throw 'private signing material in artifact'
+          }
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: renderer-windows-public
+          path: dist
+          if-no-files-found: error
+
+  stage:
+    needs: [validate, windows]
+    if: github.repository == 'furyheimdall/jastreamer'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with: { persist-credentials: false }
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with: { name: renderer-windows-public, path: stage }
+      - name: Enforce artifact allowlist and generate release records
+        env: { VERSION: '${{ needs.validate.outputs.version }}' }
+        run: |
+          set -euo pipefail
+          cp LICENSE stage/Apache-2.0.txt
+          cp tooling/policy/THIRD_PARTY_NOTICES.generated stage/THIRD_PARTY_NOTICES
+          mapfile -t packages < <(find stage -maxdepth 1 -type f \( -name '*.msi' -o -name '*.zip' \) -printf '%f\n' | sort)
+          expected=("jastreamer-renderer_${VERSION}_windows_amd64.msi" "jastreamer-renderer_${VERSION}_windows_amd64_diagnostic.zip")
+          test "${packages[*]}" = "${expected[*]}"
+          ! find stage -type f \( -name '*.pfx' -o -name '*.p12' -o -name '*.key' \) | grep -q .
+          for name in "${packages[@]}"; do sha256sum "stage/$name"; done > stage/SHA256SUMS
+          subjects=$(for name in "${packages[@]}"; do
+            jq -n --arg name "$name" --arg sha "$(sha256sum "stage/$name" | cut -d' ' -f1)" \
+              '{name:$name,digest:{sha256:$sha}}'
+          done | jq -s .)
+          jq -n --argjson subjects "$subjects" \
+            '{spdxVersion:"SPDX-2.3",dataLicense:"CC0-1.0",SPDXID:"SPDXRef-DOCUMENT",name:"jastreamer Renderer release",packages:[$subjects[]|{name:.name,SPDXID:("SPDXRef-"+.digest.sha256),downloadLocation:"NOASSERTION",filesAnalyzed:false,licenseConcluded:"Apache-2.0",licenseDeclared:"Apache-2.0",checksums:[{algorithm:"SHA256",checksumValue:.digest.sha256}]}]}' \
+            > stage/SBOM.spdx.json
+          jq -n --argjson subject "$subjects" --arg revision "$GITHUB_SHA" --arg tag "$GITHUB_REF_NAME" \
+            '{_type:"https://in-toto.io/Statement/v1",subject:$subject,predicateType:"https://slsa.dev/provenance/v1",predicate:{buildDefinition:{buildType:"https://github.com/furyheimdall/jastreamer/renderer-release@v1",externalParameters:{tag:$tag}},runDetails:{builder:{id:"github-actions:renderer-release"},metadata:{sourceRevision:$revision}}}}' \
+            > stage/PROVENANCE.intoto.json
+          mapfile -t actual < <(find stage -maxdepth 1 -type f -printf '%f\n' | sort)
+          mapfile -t allowed < <(printf '%s\n' \
+            "Apache-2.0.txt" \
+            "PROVENANCE.intoto.json" \
+            "SBOM.spdx.json" \
+            "SHA256SUMS" \
+            "THIRD_PARTY_NOTICES" \
+            "certificate-fingerprint.txt" \
+            "certificate.cer" \
+            "jastreamer-renderer_${VERSION}_windows_amd64.msi" \
+            "jastreamer-renderer_${VERSION}_windows_amd64_diagnostic.zip" \
+            "protocol-range.json" \
+            "remove-trust.md" \
+            "trust.md" \
+            "windows-help.txt" \
+            "windows-msi-inspection.json" | sort)
+          test "${actual[*]}" = "${allowed[*]}"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: renderer-release-stage
+          path: stage
+          if-no-files-found: error
+
+  promote:
+    needs: [validate, stage]
+    if: github.repository == 'furyheimdall/jastreamer' && needs.stage.result == 'success'
+    runs-on: ubuntu-24.04
+    environment: renderer-release
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with: { persist-credentials: false }
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with: { name: renderer-release-stage, path: stage }
+      - name: Publish immutable Renderer release with compensation
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: '${{ needs.validate.outputs.version }}'
+        run: |
+          set -euo pipefail
+          complete=false
+          release_created=false
+          cleanup() {
+            original=$?
+            trap - EXIT
+            if [[ $complete != true && $release_created == true ]]; then
+              gh release delete "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --yes
+            fi
+            exit "$original"
+          }
+          trap cleanup EXIT
+          if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >"$RUNNER_TEMP/release-preflight.txt" 2>&1; then
+            echo RELEASE_ALREADY_EXISTS >&2
+            exit 65
+          fi
+          grep -Eqi 'release not found|HTTP 404|not found' "$RUNNER_TEMP/release-preflight.txt"
+          gh release create "$GITHUB_REF_NAME" \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "jastreamer Renderer $VERSION" \
+            --draft \
+            --verify-tag
+          release_created=true
+          gh release upload "$GITHUB_REF_NAME" stage/* --repo "$GITHUB_REPOSITORY"
+          gh release edit "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --draft=false
+          test "$(gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --json isDraft --jq .isDraft)" = false
+          complete=true

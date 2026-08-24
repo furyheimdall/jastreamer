@@ -21,7 +21,7 @@ export function parseArgs(args: readonly string[], root: string): Options {
   const compose = resolve(root, values.get("--compose")!);
   if (!existsSync(compose)) throw new UsageError(`compose file does not exist: ${compose}`);
   const version = readFileSync(resolve(root, "apps/server/VERSION"), "utf8").trim();
-  const revision = process.env.JSTREAMER_REVISION?.trim() || sourceIdentity(root);
+  const revision = process.env.JASTREAMER_REVISION?.trim() || sourceIdentity(root);
   const epoch = process.env.SOURCE_DATE_EPOCH;
   const created = epoch ? new Date(Number(epoch) * 1000).toISOString() : new Date().toISOString();
   if (!version || !revision || !created) throw new GateError("BUILD_METADATA_MISSING");
@@ -31,7 +31,7 @@ export function parseArgs(args: readonly string[], root: string): Options {
 
 function sourceIdentity(root: string): string {
   const hash = createHash("sha256"); const files: string[] = [];
-  const walk = (directory: string): void => { for (const entry of readdirSync(directory)) { const path = join(directory, entry); const relativePath = relative(root, path); if (statSync(path).isDirectory()) walk(path); else if (!relativePath.endsWith("jstreamer-server") && !relativePath.endsWith("_test.go")) files.push(relativePath); } };
+  const walk = (directory: string): void => { for (const entry of readdirSync(directory)) { const path = join(directory, entry); const relativePath = relative(root, path); if (statSync(path).isDirectory()) walk(path); else if (!relativePath.endsWith("jastreamer-server") && !relativePath.endsWith("_test.go")) files.push(relativePath); } };
   for (const directory of ["apps/server", "packaging/container"]) walk(join(root, directory));
   files.push("LICENSE");
   for (const path of files.sort()) hash.update(path).update("\0").update(readFileSync(join(root, path))).update("\0");

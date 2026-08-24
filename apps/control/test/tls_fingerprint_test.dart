@@ -1,7 +1,7 @@
 import 'dart:convert';
 import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:jstreamer_control/tls_fingerprint.dart';
+import 'package:jastreamer_control/tls_fingerprint.dart';
 
 void main() {
   test(

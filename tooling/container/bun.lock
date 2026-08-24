@@ -3,7 +3,7 @@
   "configVersion": 1,
   "workspaces": {
     "": {
-      "name": "jstreamer-container-qa",
+      "name": "jastreamer-container-qa",
       "devDependencies": {
         "@types/bun": "1.4.0",
         "typescript": "7.0.2",

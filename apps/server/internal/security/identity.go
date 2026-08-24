@@ -68,7 +68,7 @@ func createIdentity(config IdentityConfig, certificatePath, keyPath string) (Ide
 	}
 	now := time.Now().UTC()
 	template := x509.Certificate{
-		SerialNumber: serial, Subject: pkix.Name{CommonName: "Jake Streamer Server", Organization: []string{"Jake Streamer"}},
+		SerialNumber: serial, Subject: pkix.Name{CommonName: "jastreamer Server", Organization: []string{"jastreamer"}},
 		NotBefore: now.Add(-time.Hour), NotAfter: now.AddDate(10, 0, 0), DNSNames: config.DNSNames,
 		IPAddresses: config.IPAddresses, KeyUsage: x509.KeyUsageDigitalSignature,
 		ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}, BasicConstraintsValid: true, IsCA: false,
@@ -149,7 +149,7 @@ func parseIdentity(certificatePEM, keyPEM []byte) (Identity, error) {
 	if err != nil {
 		return Identity{}, fmt.Errorf("parse leaf certificate: %w", err)
 	}
-	if parsed.IsCA || parsed.Subject.CommonName != "Jake Streamer Server" {
+	if parsed.IsCA || parsed.Subject.CommonName != "jastreamer Server" {
 		return Identity{}, fmt.Errorf("invalid local certificate profile")
 	}
 	digest := sha256.Sum256(parsed.Raw)

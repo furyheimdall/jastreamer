@@ -16,7 +16,7 @@ func main() {
 		err = run(ctx, config)
 	}
 	if err != nil {
-		_, _ = fmt.Fprintf(os.Stderr, "jstreamer-server: %v\n", err)
+		_, _ = fmt.Fprintf(os.Stderr, "jastreamer-server: %v\n", err)
 		os.Exit(1)
 	}
 }

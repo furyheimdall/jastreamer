@@ -20,18 +20,18 @@ const fixtureExpects = [...fixtureText.matchAll(/^\s+-\s+(.+)$/gm)].map((match) 
 if (JSON.stringify(fixtureExpects) !== JSON.stringify(expectedByScenario[scenario])) throw new TypeError("pairing fixture expects list drifted");
 
 const startServer = async (pairingTTL = "5m") => {
-  const directory = await mkdtemp(join(tmpdir(), "jstreamer-pairing-api-"));
-  const binary = join(directory, "jstreamer-server");
-  const built = spawnSync("go", ["build", "-o", binary, "./cmd/jstreamer-server"], { cwd: serverRoot, encoding: "utf8" });
+  const directory = await mkdtemp(join(tmpdir(), "jastreamer-pairing-api-"));
+  const binary = join(directory, "jastreamer-server");
+  const built = spawnSync("go", ["build", "-o", binary, "./cmd/jastreamer-server"], { cwd: serverRoot, encoding: "utf8" });
   if (built.status !== 0) {
     await rm(directory, { recursive: true, force: true });
     throw new Error(`server build failed: ${built.stderr}`);
   }
   const child = spawn(binary, ["--config", "../../tooling/fixtures/e2e/local.yaml"], {
     cwd: serverRoot,
-    env: { ...process.env, JSTREAMER_DATA_DIR: directory,
-      JSTREAMER_CATALOG_ROOT: join(directory, "music"), JSTREAMER_SETUP_SECRET: "fixture-setup-secret",
-      JSTREAMER_PAIRING_TTL: pairingTTL },
+    env: { ...process.env, JASTREAMER_DATA_DIR: directory,
+      JASTREAMER_CATALOG_ROOT: join(directory, "music"), JASTREAMER_SETUP_SECRET: "fixture-setup-secret",
+      JASTREAMER_PAIRING_TTL: pairingTTL },
     stdio: ["ignore", "pipe", "pipe"],
   });
   let stderr = "";
@@ -106,7 +106,7 @@ test("pairing API fixture", async ({ browser, playwright }) => {
       await page.getByLabel("Six-digit code").fill(code ?? "");
       await page.getByRole("button", { name: "Register device" }).click();
       await expect(page.getByText("Device registered.", { exact: false })).toBeVisible();
-      const adminToken = await page.evaluate(() => sessionStorage.getItem("jstreamer-admin-token"));
+      const adminToken = await page.evaluate(() => sessionStorage.getItem("jastreamer-admin-token"));
       const controllerText = await page.locator("#register-message").textContent();
       const controllerToken = controllerText?.split(": ").at(-1) ?? "";
       expect(adminToken).toBeTruthy();
@@ -130,7 +130,7 @@ test("pairing API fixture", async ({ browser, playwright }) => {
       const p95 = timings[Math.ceil(timings.length * 0.95) - 1] ?? Number.POSITIVE_INFINITY;
       expect(p95).toBeLessThan(500);
       const event = await page.evaluate((token) => new Promise((resolve, reject) => {
-        const socket = new WebSocket(`${location.origin.replace("https", "wss")}/api/v1/events`, `jstreamer.bearer.${token}`);
+        const socket = new WebSocket(`${location.origin.replace("https", "wss")}/api/v1/events`, `jastreamer.bearer.${token}`);
         let messages = 0;
         socket.onmessage = async (message) => {
           messages++;

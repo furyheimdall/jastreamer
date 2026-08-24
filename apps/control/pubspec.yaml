@@ -1,5 +1,5 @@
-name: jstreamer_control
-description: Jake Streamer Control client.
+name: jastreamer_control
+description: jastreamer Control client.
 publish_to: none
 version: 0.1.0
 environment:
@@ -18,9 +18,9 @@ dev_dependencies:
     sdk: flutter
   msix: 3.18.0
 msix_config:
-  display_name: Jake Streamer Control
-  publisher_display_name: Jake Streamer
-  identity_name: io.jakestreamer.control
+  display_name: jastreamer Control
+  publisher_display_name: jastreamer
+  identity_name: io.jastreamer.control
   msix_version: 0.1.0.0
   capabilities: internetClient
 flutter:

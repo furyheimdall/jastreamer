@@ -3,7 +3,7 @@ package playback
 import (
 	"context"
 
-	"github.com/jakestreamer/jstreamer-server/internal/decision"
+	"github.com/jastreamer/jastreamer-server/internal/decision"
 )
 
 func (store *Store) PreviewNext(ctx context.Context, request NextRequest) (Decision, error) {

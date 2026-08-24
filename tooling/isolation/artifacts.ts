@@ -5,11 +5,11 @@ import type { ComponentName, PackageReceipt } from "./types.ts";
 export function collectPackageReceipt(component: ComponentName, artifactRoot: string): PackageReceipt {
   switch (component) {
     case "server": {
-      const artifact = join(artifactRoot, "jstreamer-server");
+      const artifact = join(artifactRoot, "jastreamer-server");
       return { artifacts: existsSync(artifact) ? [artifact] : [], platformDeferrals: ["windows-linux-packaging:todo18"] };
     }
     case "renderer": {
-      const artifact = join(artifactRoot, "jstreamer-renderer");
+      const artifact = join(artifactRoot, "jastreamer-renderer");
       return { artifacts: existsSync(artifact) ? [artifact] : [], platformDeferrals: ["windows-msi:todo20"] };
     }
     case "control": {

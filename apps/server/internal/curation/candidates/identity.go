@@ -3,7 +3,7 @@ package candidates
 import (
 	"strings"
 
-	"github.com/jakestreamer/jstreamer-server/internal/catalog"
+	"github.com/jastreamer/jastreamer-server/internal/catalog"
 	"golang.org/x/text/cases"
 	"golang.org/x/text/unicode/norm"
 )

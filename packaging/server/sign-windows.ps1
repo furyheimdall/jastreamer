@@ -5,8 +5,8 @@ param(
 )
 $ErrorActionPreference = "Stop"
 if (!$env:WINDOWS_SIGNING_PFX_B64 -or !$env:WINDOWS_SIGNING_PFX_PASSWORD) { throw "protected signing secrets are required" }
-if (!$env:JSTREAMER_SIGNTOOL -or !(Test-Path $env:JSTREAMER_SIGNTOOL)) { throw "pinned SignTool is required" }
-$pfx = Join-Path $env:RUNNER_TEMP "jstreamer-server-signing.pfx"
+if (!$env:JASTREAMER_SIGNTOOL -or !(Test-Path $env:JASTREAMER_SIGNTOOL)) { throw "pinned SignTool is required" }
+$pfx = Join-Path $env:RUNNER_TEMP "jastreamer-server-signing.pfx"
 $trustedPath = $null
 $machineSecretSet = $false
 $pfxCertificate = $null
@@ -30,19 +30,19 @@ try {
   $sourceExecutables = (Get-ChildItem "$Directory/source/*.exe").FullName
   if ($sourceExecutables.Count -ne 2) { throw "expected unsigned SCM host and core inputs" }
   foreach ($exe in $sourceExecutables) {
-    & $env:JSTREAMER_SIGNTOOL sign /fd SHA256 /f $pfx /p $env:WINDOWS_SIGNING_PFX_PASSWORD $exe
+    & $env:JASTREAMER_SIGNTOOL sign /fd SHA256 /f $pfx /p $env:WINDOWS_SIGNING_PFX_PASSWORD $exe
     AssertExpectedSignature $exe $expected | Out-Null
   }
-  $published = "$Directory/jstreamer-server_${Version}_windows_amd64.exe"
-  Copy-Item "$Directory/source/jstreamer-server-core.exe" $published
+  $published = "$Directory/jastreamer-server_${Version}_windows_amd64.exe"
+  Copy-Item "$Directory/source/jastreamer-server-core.exe" $published
   AssertExpectedSignature $published $expected | Out-Null
 
   & "$PSScriptRoot/build-windows-msi.ps1" -Version $Version -Directory $Directory -Cer $Cer
-  $msi = "$Directory/jstreamer-server_${Version}_windows_amd64.msi"
-  & $env:JSTREAMER_SIGNTOOL sign /fd SHA256 /f $pfx /p $env:WINDOWS_SIGNING_PFX_PASSWORD $msi
+  $msi = "$Directory/jastreamer-server_${Version}_windows_amd64.msi"
+  & $env:JASTREAMER_SIGNTOOL sign /fd SHA256 /f $pfx /p $env:WINDOWS_SIGNING_PFX_PASSWORD $msi
   AssertExpectedSignature $msi $expected | Out-Null
 
-  $extract = Join-Path $env:RUNNER_TEMP "jstreamer-msi-extract"
+  $extract = Join-Path $env:RUNNER_TEMP "jastreamer-msi-extract"
   Remove-Item $extract -Recurse -Force -ErrorAction SilentlyContinue
   New-Item -ItemType Directory $extract | Out-Null
   & "$env:RUNNER_TEMP/wix/wix.exe" msi decompile $msi -x $extract -o "$extract/decompiled.wxs"
@@ -54,34 +54,34 @@ try {
   $allSigned = @($published) + $sourceExecutables + @($msi) + $extractedExecutables
   $beforeTrust = Get-AuthenticodeSignature $allSigned
   if (($beforeTrust | Where-Object Status -eq Valid).Count -ne 0) { throw "self-signed artifacts unexpectedly had Public Trust" }
-  if (Get-Service jstreamer-server -ErrorAction SilentlyContinue) { throw "service existed before clean install" }
+  if (Get-Service jastreamer-server -ErrorAction SilentlyContinue) { throw "service existed before clean install" }
   $blocked = Start-Process msiexec.exe -ArgumentList @('/i', $msi, '/qn', '/norestart') -Wait -PassThru
-  if ($blocked.ExitCode -eq 0 -or (Get-Service jstreamer-server -ErrorAction SilentlyContinue)) { throw "untrusted MSI install was not blocked cleanly" }
+  if ($blocked.ExitCode -eq 0 -or (Get-Service jastreamer-server -ErrorAction SilentlyContinue)) { throw "untrusted MSI install was not blocked cleanly" }
 
   $imported = Import-Certificate -FilePath $Cer -CertStoreLocation Cert:\LocalMachine\TrustedPeople
   $trustedPath = "Cert:\LocalMachine\TrustedPeople\$($imported.Thumbprint)"
-  foreach ($path in $allSigned) { & $env:JSTREAMER_SIGNTOOL verify /pa /all /v $path }
+  foreach ($path in $allSigned) { & $env:JASTREAMER_SIGNTOOL verify /pa /all /v $path }
   $afterTrust = Get-AuthenticodeSignature $allSigned
   if (($afterTrust | Where-Object Status -ne Valid).Count -ne 0) { throw "signature invalid after explicit trust" }
 
   $install = Start-Process msiexec.exe -ArgumentList @('/i', $msi, '/qn', '/norestart') -Wait -PassThru
   if ($install.ExitCode -ne 0) { throw "trusted MSI install failed: $($install.ExitCode)" }
-  $serviceKey = 'HKLM:\SYSTEM\CurrentControlSet\Services\jstreamer-server'
-  New-ItemProperty -Path $serviceKey -Name Environment -PropertyType MultiString -Value @('JSTREAMER_SETUP_SECRET=windows-native-release-smoke') -Force | Out-Null
+  $serviceKey = 'HKLM:\SYSTEM\CurrentControlSet\Services\jastreamer-server'
+  New-ItemProperty -Path $serviceKey -Name Environment -PropertyType MultiString -Value @('JASTREAMER_SETUP_SECRET=windows-native-release-smoke') -Force | Out-Null
   $machineSecretSet = $true
-  $service = [ServiceProcess.ServiceController]::new('jstreamer-server')
+  $service = [ServiceProcess.ServiceController]::new('jastreamer-server')
   $service.Start()
   $service.WaitForStatus([ServiceProcess.ServiceControllerStatus]::Running, [TimeSpan]::FromSeconds(30))
   if ($service.Status -ne [ServiceProcess.ServiceControllerStatus]::Running) { throw "service did not reach Running" }
   $health = Invoke-WebRequest https://127.0.0.1:8443/healthz -SkipCertificateCheck -UseBasicParsing
   if ($health.StatusCode -ne 200 -or $health.Content.Trim() -ne '{"status":"ready"}') { throw "native HTTPS health check failed" }
-  $process = Get-CimInstance Win32_Service -Filter "Name='jstreamer-server'"
+  $process = Get-CimInstance Win32_Service -Filter "Name='jastreamer-server'"
   if (!$process -or $process.StartName -ne 'LocalSystem' -or $process.ProcessId -eq 0) { throw "running SCM service evidence invalid" }
   $service.Stop(); $service.WaitForStatus([ServiceProcess.ServiceControllerStatus]::Stopped, [TimeSpan]::FromSeconds(30))
   Remove-ItemProperty -Path $serviceKey -Name Environment -Force
   $machineSecretSet = $false
   $uninstall = Start-Process msiexec.exe -ArgumentList @('/x', $msi, '/qn', '/norestart') -Wait -PassThru
-  if ($uninstall.ExitCode -ne 0 -or (Get-Service jstreamer-server -ErrorAction SilentlyContinue)) { throw "MSI uninstall/service removal failed" }
+  if ($uninstall.ExitCode -ne 0 -or (Get-Service jastreamer-server -ErrorAction SilentlyContinue)) { throw "MSI uninstall/service removal failed" }
 
   @{ classification='native-windows-amd64'; signingOrder=@('source-host','source-core','wix-build','outer-msi'); expectedCertificateSha256=$expected
     signedPaths=$allSigned; blockedUntrustedInstallExit=$blocked.ExitCode; trustedInstallExit=$install.ExitCode; serviceStatus='Running'
@@ -98,17 +98,17 @@ try {
   if ($pfxCertificate) { try { $pfxCertificate.Dispose() } catch { $cleanupFailures.Add($_.Exception) } }
   if (Test-Path $pfx) { try { Remove-Item $pfx -Force } catch { $cleanupFailures.Add($_.Exception) } }
   if (Test-Path $pfx) { $cleanupFailures.Add([Exception]::new("PFX still present")) }
-  if (Get-Service jstreamer-server -ErrorAction SilentlyContinue) {
+  if (Get-Service jastreamer-server -ErrorAction SilentlyContinue) {
     try {
-      if (Test-Path "$Directory/jstreamer-server_${Version}_windows_amd64.msi") {
-        $cleanupUninstall = Start-Process msiexec.exe -ArgumentList @('/x', "$Directory/jstreamer-server_${Version}_windows_amd64.msi", '/qn', '/norestart') -Wait -PassThru
+      if (Test-Path "$Directory/jastreamer-server_${Version}_windows_amd64.msi") {
+        $cleanupUninstall = Start-Process msiexec.exe -ArgumentList @('/x', "$Directory/jastreamer-server_${Version}_windows_amd64.msi", '/qn', '/norestart') -Wait -PassThru
         if ($cleanupUninstall.ExitCode -ne 0) { throw "cleanup uninstall failed: $($cleanupUninstall.ExitCode)" }
       }
     } catch { $cleanupFailures.Add($_.Exception) }
   }
-  if (Get-Service jstreamer-server -ErrorAction SilentlyContinue) { $cleanupFailures.Add([Exception]::new("service still installed")) }
-  if ($machineSecretSet -and (Test-Path 'HKLM:\SYSTEM\CurrentControlSet\Services\jstreamer-server')) {
-    try { Remove-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Services\jstreamer-server' -Name Environment -Force } catch { $cleanupFailures.Add($_.Exception) }
+  if (Get-Service jastreamer-server -ErrorAction SilentlyContinue) { $cleanupFailures.Add([Exception]::new("service still installed")) }
+  if ($machineSecretSet -and (Test-Path 'HKLM:\SYSTEM\CurrentControlSet\Services\jastreamer-server')) {
+    try { Remove-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Services\jastreamer-server' -Name Environment -Force } catch { $cleanupFailures.Add($_.Exception) }
   }
   if ($trustedPath -and (Test-Path $trustedPath)) { try { Remove-Item $trustedPath -Force } catch { $cleanupFailures.Add($_.Exception) } }
   if ($trustedPath -and (Test-Path $trustedPath)) { $cleanupFailures.Add([Exception]::new("certificate trust still present")) }

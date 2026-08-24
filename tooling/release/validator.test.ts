@@ -44,9 +44,9 @@ function rejects(component: string, changes: (manifest: MutableManifest) => void
 
 test("exact assets reject missing platform packages and public AAB", () => {
   expect(rejects("server", (m) => { m.artifacts = m.artifacts.filter((a: string) => !a.includes("arm64.rpm")); })).toContain("REQUIRED_ARTIFACT_MISSING");
-  const errors = rejects("control", (m) => { m.artifacts = ["jstreamer-control_0.1.0_android_universal.aab"]; });
+  const errors = rejects("control", (m) => { m.artifacts = ["jastreamer-control_0.1.0_android_universal.aab"]; });
   expect(errors).toEqual(expect.arrayContaining(["REQUIRED_ARTIFACT_MISSING", "AAB_PUBLIC_ASSET"]));
-  expect(rejects("renderer", (m) => { m.artifacts = ["jstreamer-renderer_0.1.0_diagnostic.zip"]; })).toContain("REQUIRED_ARTIFACT_MISSING");
+  expect(rejects("renderer", (m) => { m.artifacts = ["jastreamer-renderer_0.1.0_diagnostic.zip"]; })).toContain("REQUIRED_ARTIFACT_MISSING");
 });
 
 test("each Windows signing field is enforced for Control and Renderer", () => {

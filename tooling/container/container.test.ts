@@ -45,7 +45,7 @@ test("publication rolls back when final cleanup fails", () => {
   expect(readFileSync(final, "utf8")).toBe("old");
 });
 test("cleanup is scoped to names and Compose projects created by this run", () => {
-  const commands = cleanupTargets(new Set(["jstreamer-task17-owned"]), new Set(["jstreamert17123"]), "/compose.yaml");
-  expect(commands).toEqual([["rm", "-f", "jstreamer-task17-owned"], ["ps", "-aq", "--filter", "label=com.docker.compose.project=jstreamert17123"], ["compose", "-p", "jstreamert17123", "-f", "/compose.yaml", "down", "--remove-orphans"]]);
+  const commands = cleanupTargets(new Set(["jastreamer-task17-owned"]), new Set(["jastreamert17123"]), "/compose.yaml");
+  expect(commands).toEqual([["rm", "-f", "jastreamer-task17-owned"], ["ps", "-aq", "--filter", "label=com.docker.compose.project=jastreamert17123"], ["compose", "-p", "jastreamert17123", "-f", "/compose.yaml", "down", "--remove-orphans"]]);
   expect(JSON.stringify(commands)).not.toContain("unrelated");
 });

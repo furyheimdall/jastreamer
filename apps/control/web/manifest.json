@@ -1,9 +1,19 @@
 {
-  "name": "Jake Streamer Control",
-  "short_name": "Jake Streamer",
-  "start_url": ".",
+  "name": "jastreamer Control",
+  "short_name": "jastreamer",
+  "id": "/",
+  "start_url": "/",
+  "scope": "/",
   "display": "standalone",
   "background_color": "#121315",
   "theme_color": "#121315",
-  "description": "Control playback across Jake Streamer servers."
+  "description": "Control playback across jastreamer servers.",
+  "icons": [
+    {
+      "src": "icons/control.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
 }

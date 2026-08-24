@@ -1,8 +1,8 @@
 import 'package:http/http.dart' as http;
-import 'package:jstreamer_control/behavior_model.dart';
-import 'package:jstreamer_control/control_gateway.dart';
-import 'package:jstreamer_control/control_models.dart';
-import 'package:jstreamer_control/tls_client.dart';
+import 'package:jastreamer_control/behavior_model.dart';
+import 'package:jastreamer_control/control_gateway.dart';
+import 'package:jastreamer_control/control_models.dart';
+import 'package:jastreamer_control/tls_client.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 typedef ControlClientFactory = http.Client Function(String? certificateSha256);

@@ -1,4 +1,4 @@
-use jstreamer_renderer::{FakeBackend, ProtocolError, Renderer, SUPPORTED_MAJORS};
+use jastreamer_renderer::{FakeBackend, ProtocolError, Renderer, SUPPORTED_MAJORS};
 #[test]
 fn protocol_n_and_n_minus_one_negotiate() {
     assert_eq!(SUPPORTED_MAJORS, [2, 1]);

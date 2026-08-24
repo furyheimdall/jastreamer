@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:jstreamer_control/behavior_model.dart';
-import 'package:jstreamer_control/control_theme.dart';
+import 'package:jastreamer_control/behavior_model.dart';
+import 'package:jastreamer_control/control_theme.dart';
 
 final class PolicyPanel extends StatelessWidget {
   const PolicyPanel({required this.state, required this.dispatch, super.key});

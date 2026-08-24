@@ -7,7 +7,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/jakestreamer/jstreamer-server/internal/security"
+	"github.com/jastreamer/jastreamer-server/internal/security"
 )
 
 func (service *server) health(writer http.ResponseWriter, _ *http.Request) {
@@ -16,7 +16,7 @@ func (service *server) health(writer http.ResponseWriter, _ *http.Request) {
 
 func (service *server) identity(writer http.ResponseWriter, _ *http.Request) {
 	writeJSON(writer, http.StatusOK, map[string]string{
-		"common_name": "Jake Streamer Server", "sha256_fingerprint": service.config.CertificateFingerprint,
+		"common_name": "jastreamer Server", "sha256_fingerprint": service.config.CertificateFingerprint,
 		"pairing_url": "/pair/",
 	})
 }

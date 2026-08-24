@@ -1,5 +1,5 @@
-name: jstreamer-renderer
-display_name: Jake Streamer Renderer
+name: jastreamer-renderer
+display_name: jastreamer Renderer
 root: apps/renderer
 version_file: VERSION
 manifest: Cargo.toml

@@ -11,7 +11,7 @@ import (
 
 const (
 	CurrentSchemaVersion = 1
-	AnalyzerID           = "jstreamer-classical"
+	AnalyzerID           = "jastreamer-classical"
 	AnalyzerVersion      = "1.0.0"
 	NormalizerID         = "acoustic-linear"
 	NormalizerVersion    = "1.0.0"

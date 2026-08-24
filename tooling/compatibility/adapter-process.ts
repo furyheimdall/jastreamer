@@ -100,19 +100,19 @@ export class CandidateBuilds {
     workspaceRoot: string,
     fixtureRoot: string,
   ): CandidateBuilds {
-    const temporaryRoot = mkdtempSync(join(tmpdir(), "jstreamer-compat-"));
+    const temporaryRoot = mkdtempSync(join(tmpdir(), "jastreamer-compat-"));
     const controlRoot = join(temporaryRoot, "control");
     const controlBinary = join(
       controlRoot,
       ".compat",
       "control-adapter",
     );
-    const serverBinary = join(temporaryRoot, "jstreamer-compat-server");
+    const serverBinary = join(temporaryRoot, "jastreamer-compat-server");
     const rendererTarget = join(temporaryRoot, "renderer-target");
     const rendererBinary = join(
       rendererTarget,
       "release",
-      "jstreamer-renderer",
+      "jastreamer-renderer",
     );
     try {
       cpSync(resolve(workspaceRoot, "apps/control"), controlRoot, {
@@ -126,7 +126,7 @@ export class CandidateBuilds {
           "build",
           "-o",
           serverBinary,
-          "./cmd/jstreamer-compat",
+          "./cmd/jastreamer-compat",
         ],
         { cwd: resolve(workspaceRoot, "apps/server") },
       );

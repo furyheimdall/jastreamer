@@ -5,9 +5,9 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/jakestreamer/jstreamer-server/internal/curation/ranking"
-	"github.com/jakestreamer/jstreamer-server/internal/decision"
-	"github.com/jakestreamer/jstreamer-server/internal/playback"
+	"github.com/jastreamer/jastreamer-server/internal/curation/ranking"
+	"github.com/jastreamer/jastreamer-server/internal/decision"
+	"github.com/jastreamer/jastreamer-server/internal/playback"
 )
 
 func TestContinuationPolicySurvivesRestart(t *testing.T) {

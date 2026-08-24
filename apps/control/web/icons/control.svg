@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="jastreamer Control">
+  <rect width="512" height="512" rx="112" fill="#121315"/>
+  <circle cx="256" cy="256" r="146" fill="none" stroke="#c8ff4d" stroke-width="36"/>
+  <path d="M224 174 352 256 224 338Z" fill="#c8ff4d"/>
+</svg>

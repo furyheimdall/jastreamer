@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jakestreamer/jstreamer-server/internal/security"
+	"github.com/jastreamer/jastreamer-server/internal/security"
 )
 
 type testClock struct{ now time.Time }

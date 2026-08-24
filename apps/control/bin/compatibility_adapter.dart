@@ -1,7 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:jstreamer_control/protocol_compatibility.dart';
+import 'package:jastreamer_control/protocol_compatibility.dart';
 
 void main(List<String> arguments) {
   try {

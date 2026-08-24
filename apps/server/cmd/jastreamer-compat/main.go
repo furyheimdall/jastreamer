@@ -8,13 +8,13 @@ import (
 	"io"
 	"os"
 
-	"github.com/jakestreamer/jstreamer-server/internal/compatibility"
+	"github.com/jastreamer/jastreamer-server/internal/compatibility"
 )
 
 type usageError struct{}
 
 func (usageError) Error() string {
-	return "usage: jstreamer-compat --peer <control|renderer> --peer-fixture <path> --wire-fixture <path> --start-order <old-first|new-first> --server-majors <list>"
+	return "usage: jastreamer-compat --peer <control|renderer> --peer-fixture <path> --wire-fixture <path> --start-order <old-first|new-first> --server-majors <list>"
 }
 
 func main() {
@@ -39,14 +39,14 @@ func runCLI(args []string, output, errorOutput io.Writer) (int, error) {
 		}
 		return 78, nil
 	}
-	if _, writeErr := fmt.Fprintf(errorOutput, "jstreamer-compat: %v\n", err); writeErr != nil {
+	if _, writeErr := fmt.Fprintf(errorOutput, "jastreamer-compat: %v\n", err); writeErr != nil {
 		return 74, fmt.Errorf("write command error: %w", writeErr)
 	}
 	return 65, nil
 }
 
 func execute(args []string, output io.Writer) error {
-	flags := flag.NewFlagSet("jstreamer-compat", flag.ContinueOnError)
+	flags := flag.NewFlagSet("jastreamer-compat", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
 	kind := flags.String("peer", "", "released peer component: control or renderer")
 	peerPath := flags.String("peer-fixture", "", "released peer metadata fixture")

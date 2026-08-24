@@ -126,9 +126,9 @@ describe("injection and namespace receipts", () => {
 
   test("records a real artifact and platform deferral", () => {
     const root = temporaryDirectory();
-    writeFileSync(join(root, "jstreamer-renderer"), "binary");
+    writeFileSync(join(root, "jastreamer-renderer"), "binary");
     const receipt = collectPackageReceipt("renderer", root);
-    expect(receipt.artifacts).toEqual([join(root, "jstreamer-renderer")]);
+    expect(receipt.artifacts).toEqual([join(root, "jastreamer-renderer")]);
     expect(receipt.platformDeferrals).toEqual(["windows-msi:todo20"]);
   });
 

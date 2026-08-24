@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
-import 'package:jstreamer_control/control_application.dart';
+import 'package:jastreamer_control/control_application.dart';
 
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();

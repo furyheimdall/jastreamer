@@ -1,4 +1,4 @@
-import 'package:jstreamer_control/behavior_model.dart';
+import 'package:jastreamer_control/behavior_model.dart';
 
 extension type const SessionToken(String value) {}
 

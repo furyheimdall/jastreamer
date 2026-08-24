@@ -3,9 +3,9 @@ import 'dart:convert';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
-import 'package:jstreamer_control/control_gateway.dart';
-import 'package:jstreamer_control/control_models.dart';
-import 'package:jstreamer_control/control_platform.dart';
+import 'package:jastreamer_control/control_gateway.dart';
+import 'package:jastreamer_control/control_models.dart';
+import 'package:jastreamer_control/control_platform.dart';
 
 void main() {
   test(
@@ -51,7 +51,7 @@ void main() {
     final endpoint = ControlEndpoint(
       client: MockClient((_) async => http.Response(
           jsonEncode({
-            'common_name': 'Jake Streamer Server',
+            'common_name': 'jastreamer Server',
             'sha256_fingerprint': 'AABB',
             'pairing_url': '/pair/',
           }),
