@@ -107,15 +107,24 @@ describe("trace policy", () => {
 });
 
 describe("injection and namespace receipts", () => {
-  test("creates an executable Server injection that really fails on absent Control", () => {
+  test("creates an executable Server injection that really fails on absent Control", async () => {
     const root = temporaryDirectory();
     mkdirSync(join(root, "apps/server"), { recursive: true });
     writeFileSync(join(root, "apps/server/go.mod"), "module example.invalid/injection\n\ngo 1.25\n");
     installInjection(root, "server-imports-control");
-    const result = Bun.spawnSync(["go", "test", "./internal/isolation"], { cwd: join(root, "apps/server"), stdout: "pipe", stderr: "pipe" });
-    expect(result.exitCode).toBe(1);
-    expect(`${result.stdout.toString()}${result.stderr.toString()}`).toContain("injected sibling access failed");
-  });
+    const process = Bun.spawn(["go", "test", "./internal/isolation"], {
+      cwd: join(root, "apps/server"),
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    const [exitCode, stdout, stderr] = await Promise.all([
+      process.exited,
+      new Response(process.stdout).text(),
+      new Response(process.stderr).text(),
+    ]);
+    expect(exitCode).toBe(1);
+    expect(`${stdout}${stderr}`).toContain("injected sibling access failed");
+  }, 60_000);
 
   test("detects post-command canary corruption", () => {
     const namespaces = createNamespaces(temporaryDirectory());
