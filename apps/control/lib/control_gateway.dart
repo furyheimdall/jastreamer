@@ -1,7 +1,8 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
-import 'package:jstreamer_control/behavior_model.dart';
 import 'package:jstreamer_control/control_models.dart';
+import 'package:jstreamer_control/control_wire.dart';
+import 'package:jstreamer_control/protocol_compatibility.dart';
 
 final class ControlApiFailure implements Exception {
   const ControlApiFailure({required this.status, required this.code});
@@ -39,9 +40,9 @@ final class ControlEndpoint {
     final response = await client.get(origin.resolve('/api/v1/identity'));
     final body = _object(response);
     return ServerIdentity(
-      commonName: _string(body, 'common_name'),
-      certificateSha256: _string(body, 'sha256_fingerprint'),
-      pairingUrl: origin.resolve(_string(body, 'pairing_url')),
+      commonName: requiredString(body, 'common_name'),
+      certificateSha256: requiredString(body, 'sha256_fingerprint'),
+      pairingUrl: origin.resolve(requiredString(body, 'pairing_url')),
     );
   }
 
@@ -49,8 +50,21 @@ final class ControlEndpoint {
       HttpControlGateway(client: client, origin: origin, token: token);
 }
 
+void _requireSelectedProtocol(
+  Map<String, Object?> body,
+  int requestedMajor,
+) {
+  final selectedMajor = requiredInteger(body, 'protocol_major');
+  if (selectedMajor != requestedMajor) {
+    throw FormatException(
+      'Server selected protocol $selectedMajor '
+      'for requested major $requestedMajor.',
+    );
+  }
+}
+
 final class HttpControlGateway {
-  const HttpControlGateway({
+  HttpControlGateway({
     required this.client,
     required this.origin,
     required this.token,
@@ -58,28 +72,69 @@ final class HttpControlGateway {
   final http.Client client;
   final Uri origin;
   final SessionToken token;
+  int? _protocolMajor;
+
+  int? get negotiatedProtocolMajor => _protocolMajor;
 
   Map<String, String> get _headers => <String, String>{
         'authorization': 'Bearer ${token.value}',
         'accept': 'application/json',
+        'x-jake-supported-protocol-majors':
+            controlSupportedProtocolMajors.join(','),
+        if (_protocolMajor case final major?) 'x-jake-protocol-major': '$major',
       };
 
   Future<DiscoveryView> discovery() async {
-    final response = await client.get(
-      origin.resolve('/api/v1/discovery'),
-      headers: <String, String>{..._headers, 'x-jake-protocol-major': '2'},
-    );
-    final body = _object(response);
-    return DiscoveryView(
-      pairingUrl: origin.resolve(_string(body, 'pairing_url')),
-      certificateSha256: _string(body, 'certificate_sha256'),
-      capabilities: _strings(body, 'capabilities'),
-      contractRevision: _string(body, 'contract_revision'),
-      catalogRevision: _integer(body, 'catalog_revision'),
+    for (final requestedMajor in controlSupportedProtocolMajors) {
+      final response = await _requestDiscovery(requestedMajor);
+      if (response.statusCode == 426) continue;
+      var body = _object(response);
+      var serverMajors = requiredIntegers(
+        body,
+        'supported_protocol_majors',
+      );
+      final selectedMajor = selectProtocolMajor(serverMajors);
+      _requireSelectedProtocol(body, selectedMajor);
+      if (selectedMajor != requestedMajor) {
+        body = _object(await _requestDiscovery(selectedMajor));
+        serverMajors = requiredIntegers(
+          body,
+          'supported_protocol_majors',
+        );
+        if (selectProtocolMajor(serverMajors) != selectedMajor) {
+          throw UnsupportedProtocolMajor(
+            controlMajors: controlSupportedProtocolMajors,
+            serverMajors: serverMajors,
+          );
+        }
+        _requireSelectedProtocol(body, selectedMajor);
+      }
+      _protocolMajor = selectedMajor;
+      return DiscoveryView(
+        protocolMajor: selectedMajor,
+        supportedProtocolMajors: serverMajors,
+        pairingUrl: origin.resolve(requiredString(body, 'pairing_url')),
+        certificateSha256: requiredString(body, 'certificate_sha256'),
+        capabilities: requiredStrings(body, 'capabilities'),
+        contractRevision: requiredString(body, 'contract_revision'),
+        catalogRevision: requiredInteger(body, 'catalog_revision'),
+      );
+    }
+    throw const UnsupportedProtocolMajor(
+      controlMajors: controlSupportedProtocolMajors,
+      serverMajors: <int>[],
     );
   }
 
-  Future<PolicyView> policy() async => _policy(
+  Future<http.Response> _requestDiscovery(int major) => client.get(
+        origin.resolve('/api/v1/discovery'),
+        headers: <String, String>{
+          ..._headers,
+          'x-jake-protocol-major': '$major',
+        },
+      );
+
+  Future<PolicyView> policy() async => parsePolicy(
         _object(
           await client.get(
             origin.resolve('/api/v1/zones/main/continuation-policy'),
@@ -112,7 +167,7 @@ final class HttpControlGateway {
         serverRevision: int.tryParse(etag ?? '') ?? expectedRevision,
       );
     }
-    return _policy(_object(response));
+    return parsePolicy(_object(response));
   }
 
   Future<CatalogView> catalog() async {
@@ -123,12 +178,12 @@ final class HttpControlGateway {
       ),
     );
     return CatalogView(
-      revision: _integer(body, 'catalog_revision'),
-      trackCount: _integer(body, 'track_count'),
-      complete: _integer(body, 'analysis_complete'),
-      queued: _integer(body, 'analysis_queued'),
-      failed: _integer(body, 'analysis_failed'),
-      coverage: _integer(body, 'analysis_coverage'),
+      revision: requiredInteger(body, 'catalog_revision'),
+      trackCount: requiredInteger(body, 'track_count'),
+      complete: requiredInteger(body, 'analysis_complete'),
+      queued: requiredInteger(body, 'analysis_queued'),
+      failed: requiredInteger(body, 'analysis_failed'),
+      coverage: requiredInteger(body, 'analysis_coverage'),
     );
   }
 
@@ -144,14 +199,14 @@ final class HttpControlGateway {
       throw const FormatException('queue must be an array');
     }
     return QueueView(
-      revision: _integer(body, 'revision'),
+      revision: requiredInteger(body, 'revision'),
       entries: rawEntries.map((raw) {
         if (raw is! Map<String, Object?>) {
           throw const FormatException('queue entry must be an object');
         }
         return QueueEntryView(
-          trackId: _string(raw, 'track_id'),
-          state: _string(raw, 'state'),
+          trackId: requiredString(raw, 'track_id'),
+          state: requiredString(raw, 'state'),
         );
       }).toList(growable: false),
     );
@@ -169,14 +224,14 @@ final class HttpControlGateway {
       throw const FormatException('decision must be an object');
     }
     return PreviewView(
-      active: _boolean(body, 'active'),
-      replaceable: _boolean(body, 'replaceable'),
-      committed: _boolean(body, 'committed'),
-      decision: _decision(raw),
+      active: requiredBoolean(body, 'active'),
+      replaceable: requiredBoolean(body, 'replaceable'),
+      committed: requiredBoolean(body, 'committed'),
+      decision: parseDecision(raw),
     );
   }
 
-  Future<DecisionView> explanation() async => _decision(
+  Future<DecisionView> explanation() async => parseDecision(
         _object(
           await client.get(
             origin.resolve('/api/v1/zones/main/decision-explanation'),
@@ -186,27 +241,6 @@ final class HttpControlGateway {
       );
 }
 
-PolicyView _policy(Map<String, Object?> body) => PolicyView(
-      mode: policyFromWire(_string(body, 'mode')),
-      artistGap: _integer(body, 'artist_gap'),
-      albumGap: _integer(body, 'album_gap'),
-      sessionOverride: optionalPolicyFromWire(
-        body['session_override'] is String
-            ? _string(body, 'session_override')
-            : '',
-      ),
-      revision: _integer(body, 'revision'),
-    );
-
-DecisionView _decision(Map<String, Object?> body) => DecisionView(
-      reason: DecisionReason.parse(_string(body, 'reason')),
-      source: body['source'] is String ? _string(body, 'source') : '',
-      trackId: body['track_id'] is String ? _string(body, 'track_id') : '',
-      signalCoverage: _integer(body, 'signal_coverage'),
-      catalogRevision: _integer(body, 'catalog_revision'),
-      policyRevision: _integer(body, 'policy_revision'),
-    );
-
 Map<String, Object?> _object(http.Response response) {
   final decoded = jsonDecode(response.body);
   if (decoded is! Map<String, Object?>) {
@@ -215,34 +249,8 @@ Map<String, Object?> _object(http.Response response) {
   if (response.statusCode < 200 || response.statusCode >= 300) {
     throw ControlApiFailure(
       status: response.statusCode,
-      code: _string(decoded, 'code'),
+      code: requiredString(decoded, 'code'),
     );
   }
   return decoded;
-}
-
-String _string(Map<String, Object?> value, String key) {
-  final field = value[key];
-  if (field is! String) throw FormatException('$key must be a string');
-  return field;
-}
-
-int _integer(Map<String, Object?> value, String key) {
-  final field = value[key];
-  if (field is! int) throw FormatException('$key must be an integer');
-  return field;
-}
-
-bool _boolean(Map<String, Object?> value, String key) {
-  final field = value[key];
-  if (field is! bool) throw FormatException('$key must be a boolean');
-  return field;
-}
-
-List<String> _strings(Map<String, Object?> value, String key) {
-  final field = value[key];
-  if (field is! List<Object?> || field.any((item) => item is! String)) {
-    throw FormatException('$key must be a string array');
-  }
-  return field.whereType<String>().toList(growable: false);
 }

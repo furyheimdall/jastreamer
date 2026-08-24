@@ -1,4 +1,4 @@
-import 'package:jstreamer_control/generated/control_contract.dart';
+export 'package:jstreamer_control/decision_reason.dart';
 
 enum Policy { stop, album, similar }
 
@@ -6,59 +6,11 @@ enum PairingStatus { available, pairing, paired, failed }
 
 enum PreviewCommitment { revocable, committed }
 
-enum DecisionReason {
-  playExplicit,
-  playAlbum,
-  playSimilar,
-  blockExplicit,
-  stopModeOff,
-  stopNoAlbum,
-  stopAlbumComplete,
-  stopSimilarNoSignal,
-  stopSimilarExhausted,
-  stopAutoFailureLimit;
-
-  static DecisionReason parse(String value) => switch (value) {
-        'PLAY_EXPLICIT' => playExplicit,
-        'PLAY_ALBUM' => playAlbum,
-        'PLAY_SIMILAR' => playSimilar,
-        'BLOCK_EXPLICIT' => blockExplicit,
-        'STOP_MODE_OFF' => stopModeOff,
-        'STOP_NO_ALBUM' => stopNoAlbum,
-        'STOP_ALBUM_COMPLETE' => stopAlbumComplete,
-        'STOP_SIMILAR_NO_SIGNAL' => stopSimilarNoSignal,
-        'STOP_SIMILAR_EXHAUSTED' => stopSimilarExhausted,
-        'STOP_AUTO_FAILURE_LIMIT' => stopAutoFailureLimit,
-        _ => throw FormatException('Unknown Todo13 decision reason: $value'),
-      };
-}
-
 extension PolicyLabel on Policy {
   String get korean => switch (this) {
         Policy.stop => '재생 종료',
         Policy.album => '앨범 이어듣기',
         Policy.similar => '비슷한 음악',
-      };
-}
-
-extension DecisionReasonCopy on DecisionReason {
-  String get code => decisionReasonValues[index];
-  String get explanation => switch (this) {
-        DecisionReason.playExplicit =>
-          'The Server committed the explicit queue head.',
-        DecisionReason.playAlbum => 'The Server selected the next album track.',
-        DecisionReason.playSimilar => 'The Server selected a similar track.',
-        DecisionReason.blockExplicit =>
-          'The explicit head is unavailable and needs your action.',
-        DecisionReason.stopModeOff => 'Automatic continuation is disabled.',
-        DecisionReason.stopNoAlbum => 'No album context is available.',
-        DecisionReason.stopAlbumComplete => 'The album has no remaining track.',
-        DecisionReason.stopSimilarNoSignal =>
-          'No similarity signal is available.',
-        DecisionReason.stopSimilarExhausted =>
-          'Eligible similar tracks are exhausted.',
-        DecisionReason.stopAutoFailureLimit =>
-          'Automatic start failures reached the Server limit.',
       };
 }
 

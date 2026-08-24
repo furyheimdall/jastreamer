@@ -4,12 +4,16 @@ extension type const SessionToken(String value) {}
 
 final class DiscoveryView {
   const DiscoveryView({
+    required this.protocolMajor,
+    required this.supportedProtocolMajors,
     required this.pairingUrl,
     required this.certificateSha256,
     required this.capabilities,
     required this.contractRevision,
     required this.catalogRevision,
   });
+  final int protocolMajor;
+  final List<int> supportedProtocolMajors;
   final Uri pairingUrl;
   final String certificateSha256;
   final List<String> capabilities;
@@ -25,10 +29,10 @@ final class PolicyView {
     required this.sessionOverride,
     required this.revision,
   });
-  final Policy mode;
+  final WirePolicy mode;
   final int artistGap;
   final int albumGap;
-  final Policy? sessionOverride;
+  final WirePolicy? sessionOverride;
   final int revision;
 }
 
@@ -105,12 +109,32 @@ final class PreviewView {
   final DecisionView decision;
 }
 
-Policy policyFromWire(String value) => switch (value) {
-      'stop' => Policy.stop,
-      'album' => Policy.album,
-      'similar' => Policy.similar,
-      _ => throw FormatException('Unknown Todo13 policy: $value'),
-    };
+sealed class WirePolicy {
+  const WirePolicy(this.wireValue);
 
-Policy? optionalPolicyFromWire(String value) =>
-    value.isEmpty ? null : policyFromWire(value);
+  factory WirePolicy.parse(String value) => switch (value) {
+        'stop' => const KnownWirePolicy(Policy.stop, 'stop'),
+        'album' => const KnownWirePolicy(Policy.album, 'album'),
+        'similar' => const KnownWirePolicy(Policy.similar, 'similar'),
+        _ => UnknownWirePolicy(value),
+      };
+
+  final String wireValue;
+  Policy? get known;
+}
+
+final class KnownWirePolicy extends WirePolicy {
+  const KnownWirePolicy(this.value, super.wireValue);
+
+  final Policy value;
+
+  @override
+  Policy get known => value;
+}
+
+final class UnknownWirePolicy extends WirePolicy {
+  const UnknownWirePolicy(super.wireValue);
+
+  @override
+  Policy? get known => null;
+}

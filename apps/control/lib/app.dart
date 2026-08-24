@@ -3,10 +3,12 @@ import 'package:jstreamer_control/behavior_model.dart';
 import 'package:jstreamer_control/control_gateway.dart';
 import 'package:jstreamer_control/control_models.dart';
 import 'package:jstreamer_control/control_platform.dart';
+import 'package:jstreamer_control/control_policy_state.dart';
 import 'package:jstreamer_control/control_theme.dart';
 import 'package:jstreamer_control/discovery_panel.dart';
 import 'package:jstreamer_control/pairing_widgets.dart';
 import 'package:jstreamer_control/policy_panel.dart';
+import 'package:jstreamer_control/protocol_compatibility.dart';
 import 'package:jstreamer_control/status_panels.dart';
 import 'package:jstreamer_control/tls_fingerprint.dart';
 
@@ -147,15 +149,10 @@ final class _ControlHomeState extends State<ControlHome> {
             queue = loadedQueue;
             preview = loadedPreview;
             decision = loadedDecision;
-            state = state
-                .reduce(PairingReturned(server.id))
-                .markPolicySaved(
-                  policy: loadedPolicy.mode,
-                  serverRevision: loadedPolicy.revision,
-                )
-                .reduce(SetArtistCooldown(loadedPolicy.artistGap))
-                .reduce(SetAlbumCooldown(loadedPolicy.albumGap))
-                .reduce(SelectSessionOverride(loadedPolicy.sessionOverride));
+            state = applyPolicyView(
+              state.reduce(PairingReturned(server.id)),
+              loadedPolicy,
+            );
           });
         } on Object {
           await platform.vault.clear();
@@ -200,25 +197,23 @@ final class _ControlHomeState extends State<ControlHome> {
             state.policyRevision,
           );
           if (!mounted) return;
-          setState(
-            () => state = state.markPolicySaved(
-              policy: saved.mode,
-              serverRevision: saved.revision,
-            ),
-          );
+          setState(() => state = applyPolicyView(state, saved));
         },
         onStale: () async {
           final current = await gateway?.policy();
           if (current == null || !mounted) return;
           setState(() {
-            state = state
-                .reduce(PolicySaveRejected(serverRevision: current.revision))
-                .reduce(
-                  ServerPolicyRefreshed(
-                    policy: current.mode,
-                    revision: current.revision,
-                  ),
-                );
+            state = state.reduce(
+              PolicySaveRejected(serverRevision: current.revision),
+            );
+            if (current.mode.known case final policy?) {
+              state = state.reduce(
+                ServerPolicyRefreshed(
+                  policy: policy,
+                  revision: current.revision,
+                ),
+              );
+            }
           });
         },
       );
@@ -240,6 +235,8 @@ final class _ControlHomeState extends State<ControlHome> {
       if (mounted) {
         setState(() => error = 'Server request failed: ${failure.code}');
       }
+    } on UnsupportedProtocolMajor catch (failure) {
+      if (mounted) setState(() => error = failure.code);
     } on FormatException catch (failure) {
       if (mounted) setState(() => error = failure.message.toString());
     } finally {

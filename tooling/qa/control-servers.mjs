@@ -70,7 +70,7 @@ export const startEdgeApi = async (todo13, controlOrigin) => {
   const server = createSecureServer({ cert: certificate, key }, async (request, response) => {
     const headers = { 'content-type': 'application/json', 'access-control-allow-origin': controlOrigin, vary: 'Origin' };
     if (request.method === 'OPTIONS') {
-      response.writeHead(204, { ...headers, 'access-control-allow-methods': 'GET,PATCH,OPTIONS', 'access-control-allow-headers': 'authorization,content-type,if-match,x-jake-protocol-major' }).end();
+      response.writeHead(204, { ...headers, 'access-control-allow-methods': 'GET,PATCH,OPTIONS', 'access-control-allow-headers': 'authorization,content-type,if-match,x-jake-protocol-major,x-jake-supported-protocol-majors' }).end();
       return;
     }
     const path = new URL(request.url ?? '/', 'https://edge.local').pathname;
@@ -81,7 +81,17 @@ export const startEdgeApi = async (todo13, controlOrigin) => {
     let status = 200;
     let body;
     if (path === '/api/v1/identity') body = { common_name: 'Jake Streamer Edge Fixture', sha256_fingerprint: todo13.fingerprint, pairing_url: '/pair/' };
-    else if (path === '/api/v1/discovery') body = { supported_protocol_majors: [1, 2], capabilities: ['catalog-status', 'queue', 'continuation-policy', 'automatic-preview', 'decision-explanation'], pairing_url: '/pair/', certificate_sha256: todo13.fingerprint, contract_revision: 'http-api-v1', algorithm_revision: 'policy-v1', analysis_revision: 1, catalog_revision: 7 };
+    else if (path === '/api/v1/discovery') body = {
+      protocol_major: Number(request.headers['x-jake-protocol-major']),
+      supported_protocol_majors: [2, 1],
+      capabilities: ['catalog-status', 'queue', 'continuation-policy', 'automatic-preview', 'decision-explanation'],
+      pairing_url: '/pair/',
+      certificate_sha256: todo13.fingerprint,
+      contract_revision: 'http-api-v1',
+      algorithm_revision: 'policy-v1',
+      analysis_revision: 1,
+      catalog_revision: 7,
+    };
     else if (path.endsWith('/continuation-policy') && request.method === 'GET') body = { mode, artist_gap: 4, album_gap: 10, session_override: '', revision };
     else if (path.endsWith('/continuation-policy') && request.method === 'PATCH') {
       if (Number(request.headers['if-match']) !== revision) { status = 412; body = { code: 'STALE_POLICY_REVISION' }; }
