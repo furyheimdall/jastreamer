@@ -59,7 +59,7 @@ try {
   console.error(
     error instanceof CompatibilityError
       ? `INVALID_FIXTURE: ${error.message}`
-      : "INVALID_FIXTURE: unable to read fixture",
+      : `RUNTIME_FAILURE: ${error instanceof Error ? error.message : "unknown error"}`,
   );
   process.exit(65);
 }

@@ -70,6 +70,26 @@ const run = (path: string, root: string): number =>
 const sha = (value: string): string =>
   createHash("sha256").update(value).digest("hex");
 
+test("reports unexpected fixture read failures without masking the cause", () =>
+  withWorkspace((root) => {
+    const missing = join(root, "missing-matrix.json");
+    const result = Bun.spawnSync([
+      "./tooling/componentctl",
+      "compatibility",
+      "run",
+      "--matrix",
+      missing,
+      "--output",
+      join(root, "result.json"),
+    ], {
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    expect(result.exitCode).toBe(65);
+    expect(result.stderr.toString()).toContain("ENOENT");
+    expect(result.stderr.toString()).toContain(missing);
+  }));
+
 test("rejects mutated peer digest before candidate builds", () =>
   withWorkspace((root) => {
     const fixture = copyFixture(root);
