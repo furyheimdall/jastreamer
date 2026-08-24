@@ -2,11 +2,12 @@ package api
 
 import (
 	"context"
+	"errors"
 	"net/http"
-	"strconv"
 
 	"github.com/jakestreamer/jstreamer-server/internal/analysis"
 	"github.com/jakestreamer/jstreamer-server/internal/catalog"
+	"github.com/jakestreamer/jstreamer-server/internal/compatibility"
 	"github.com/jakestreamer/jstreamer-server/internal/curation/ranking"
 )
 
@@ -14,24 +15,36 @@ func (service *server) discovery(writer http.ResponseWriter, request *http.Reque
 	if _, ok := service.authenticate(writer, request); !ok {
 		return
 	}
-	major := 2
-	if raw := request.Header.Get("X-Jake-Protocol-Major"); raw != "" {
-		parsed, err := strconv.Atoi(raw)
-		if err != nil {
-			invalid(writer, "INVALID_REQUEST", "protocol major must be an integer", http.StatusBadRequest)
+	majors, err := compatibility.ParseMajorHeader(request.Header.Get("X-Jake-Protocol-Major"))
+	if err != nil {
+		var requestError *compatibility.RequestError
+		if errors.As(err, &requestError) {
+			writeJSON(writer, requestError.HTTPStatus, requestError)
 			return
 		}
-		major = parsed
+		writeError(writer, err)
+		return
 	}
-	if major < 1 || major > 2 {
-		invalid(writer, "UNSUPPORTED_PROTOCOL_MAJOR", "supported protocol majors are 1 and 2", http.StatusUpgradeRequired)
+	session, err := compatibility.Negotiate(majors)
+	if err != nil {
+		var protocolError *compatibility.ProtocolError
+		if errors.As(err, &protocolError) {
+			writeJSON(writer, protocolError.HTTPStatus, protocolError)
+			return
+		}
+		writeError(writer, err)
 		return
 	}
 	snapshot := service.catalogSnapshot(request.Context())
+	writer.Header().Set("X-Jake-Protocol-Major", session.Major().String())
 	writeJSON(writer, http.StatusOK, map[string]any{
-		"protocol_major": major, "supported_protocol_majors": []int{1, 2},
-		"capabilities": []string{"catalog-status", "queue", "continuation-policy", "automatic-preview", "decision-explanation", "wss-state"},
-		"pairing_url":  "/pair/", "certificate_sha256": service.config.CertificateFingerprint,
+		"product_version": service.config.ProductVersion, "source_revision": service.config.SourceRevision,
+		"protocol_major": session.Major(), "supported_protocol_majors": compatibility.SupportedMajors(),
+		"capabilities": []string{
+			"catalog-status", "queue", "continuation-policy", "automatic-preview",
+			"decision-explanation", "wss-state", "renderer-play", "renderer-stop",
+		},
+		"pairing_url": "/pair/", "certificate_sha256": service.config.CertificateFingerprint,
 		"contract_revision": contractRevision, "algorithm_revision": ranking.AlgorithmVersion,
 		"analysis_revision": analysis.CurrentSchemaVersion, "catalog_revision": snapshot.Revision,
 	})

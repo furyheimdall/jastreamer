@@ -55,6 +55,7 @@ func newFixture(t *testing.T) fixture {
 	snapshot.Tracks["track-a"] = catalog.Track{TrackID: "track-a", Available: true, AnalysisStatus: catalog.AnalysisComplete}
 	handler := api.New(api.Config{
 		Security: manager, Queue: store, Catalog: snapshot, CertificateFingerprint: strings.Repeat("a", 64),
+		ProductVersion: "2.7.4", SourceRevision: "fixture-revision",
 		AllowedOrigins: []string{"https://control.fixture.invalid"},
 		LoadCatalog:    func(context.Context) (catalog.Snapshot, error) { return snapshot, nil },
 		Scan: func(_ context.Context, previous catalog.Snapshot) (catalog.Snapshot, error) {

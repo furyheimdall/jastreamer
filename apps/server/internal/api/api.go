@@ -19,6 +19,8 @@ type Config struct {
 	Queue                  *playback.Store
 	Catalog                catalog.Snapshot
 	CertificateFingerprint string
+	ProductVersion         string
+	SourceRevision         string
 	Portal                 fs.FS
 	Scan                   func(context.Context, catalog.Snapshot) (catalog.Snapshot, error)
 	LoadCatalog            func(context.Context) (catalog.Snapshot, error)
@@ -98,7 +100,7 @@ func secureHeaders(next http.Handler, allowedOrigins []string) http.Handler {
 		if allowed {
 			writer.Header().Set("Access-Control-Allow-Origin", origin)
 			writer.Header().Set("Access-Control-Allow-Methods", "GET, POST, PATCH, DELETE, OPTIONS")
-			writer.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type, If-Match, Idempotency-Key, X-Jake-Protocol-Major")
+			writer.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type, If-Match, Idempotency-Key, X-Jake-Protocol-Major, X-Jake-Supported-Protocol-Majors")
 		}
 		if request.Method == http.MethodOptions {
 			if !allowed {

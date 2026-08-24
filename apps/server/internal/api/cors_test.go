@@ -15,14 +15,15 @@ func TestCORS_allows_configured_Control_origin_preflight(t *testing.T) {
 	request := httptest.NewRequest(http.MethodOptions, "/api/v1/zones/main/queue", nil)
 	request.Header.Set("Origin", "https://control.fixture.invalid")
 	request.Header.Set("Access-Control-Request-Method", "POST")
-	request.Header.Set("Access-Control-Request-Headers", "authorization,if-match,idempotency-key")
+	request.Header.Set("Access-Control-Request-Headers", "authorization,if-match,idempotency-key,x-jake-supported-protocol-majors")
 
 	// When
 	value.handler.ServeHTTP(recorder, request)
 
 	// Then
 	if recorder.Code != http.StatusNoContent || recorder.Header().Get("Access-Control-Allow-Origin") != "https://control.fixture.invalid" ||
-		recorder.Header().Get("Vary") != "Origin" {
+		recorder.Header().Get("Vary") != "Origin" ||
+		recorder.Header().Get("Access-Control-Allow-Headers") != "Authorization, Content-Type, If-Match, Idempotency-Key, X-Jake-Protocol-Major, X-Jake-Supported-Protocol-Majors" {
 		t.Fatalf("preflight = %d %#v", recorder.Code, recorder.Header())
 	}
 }

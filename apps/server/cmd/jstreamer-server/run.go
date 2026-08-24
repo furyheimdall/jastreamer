@@ -77,7 +77,8 @@ func run(ctx context.Context, config serverConfig) (err error) {
 	defer func() { err = errors.Join(err, queue.Close()) }()
 	handler := api.New(api.Config{
 		Security: manager, Queue: queue, Catalog: scan.Snapshot,
-		CertificateFingerprint: identity.Fingerprint, Portal: pairing.Assets,
+		CertificateFingerprint: identity.Fingerprint, ProductVersion: productVersion,
+		SourceRevision: resolvedSourceRevision(), Portal: pairing.Assets,
 		LoadCatalog: catalogStore.Load, AllowedOrigins: config.allowedOrigins,
 		Scan: func(scanContext context.Context, previous catalog.Snapshot) (catalog.Snapshot, error) {
 			result, scanErr := scanner.Scan(scanContext, previous)
