@@ -22,7 +22,7 @@ function AssertExpectedSignature([string]$path, [string]$expected) {
 }
 try {
   [IO.File]::WriteAllBytes($pfx, [Convert]::FromBase64String($env:WINDOWS_SIGNING_PFX_B64))
-  $publishedCertificate = [Security.Cryptography.X509Certificates.X509Certificate2]::CreateFromPemFile((Resolve-Path $Cer).Path)
+  $publishedCertificate = [Security.Cryptography.X509Certificates.X509Certificate2]::new((Resolve-Path $Cer).Path)
   $expected = CertificateSha256 $publishedCertificate
   $flags = [Security.Cryptography.X509Certificates.X509KeyStorageFlags]::EphemeralKeySet
   $pfxCertificate = [Security.Cryptography.X509Certificates.X509Certificate2]::new(

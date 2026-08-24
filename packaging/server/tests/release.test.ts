@@ -70,6 +70,8 @@ describe("Server release contract", () => {
     const signing = readFileSync(new URL("../sign-windows.ps1", import.meta.url), "utf8");
     expect(signing).not.toContain("Get-PfxCertificate $pfx");
     expect(signing).not.toContain("Get-FileHash $Cer");
+    expect(signing).not.toContain("CreateFromPemFile");
+    expect(signing).toContain("[Security.Cryptography.X509Certificates.X509Certificate2]::new((Resolve-Path $Cer).Path)");
     expect(signing).toContain("CertificateSha256 $publishedCertificate");
     expect(signing).toContain("X509Certificate2"); expect(signing).toContain("WINDOWS_SIGNING_PFX_PASSWORD"); expect(signing).toContain("EphemeralKeySet");
     expect(signing.indexOf("Remove-Item $pfx -Force")).toBeLessThan(signing.lastIndexOf("AggregateException"));
@@ -116,7 +118,9 @@ describe("Server release contract", () => {
   test("uses a Buildx container driver that supports OCI attestations", () => {
     const workflow = readFileSync(new URL("../../../.github/workflows/server-release.yml", import.meta.url), "utf8");
     const oci = workflow.slice(workflow.indexOf("  oci:"), workflow.indexOf("  stage:"));
+    expect(oci).toContain("docker/setup-qemu-action@96fe6ef7f33517b61c61be40b68a1882f3264fb8");
     expect(oci).toContain("docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e");
+    expect(oci.indexOf("docker/setup-qemu-action@")).toBeLessThan(oci.indexOf("docker/setup-buildx-action@"));
     expect(oci.indexOf("docker/setup-buildx-action@")).toBeLessThan(oci.indexOf("container build-qa"));
   });
   test("promotion refuses overwrite, checks digest, and never suppresses cleanup", () => {
