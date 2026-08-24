@@ -1,0 +1,16 @@
+{
+  "id": "server-new",
+  "component": "server",
+  "version": "0.1.0",
+  "supportedMajors": [
+    2,
+    1
+  ],
+  "capabilities": [
+    "control-api",
+    "render",
+    "future-capability"
+  ],
+  "adapter": "candidate:server",
+  "sentinel": "server-new-adapter"
+}

@@ -1,0 +1,15 @@
+{
+  "id": "renderer-candidate",
+  "component": "renderer",
+  "version": "0.1.0",
+  "supportedMajors": [
+    2,
+    1
+  ],
+  "capabilities": [
+    "render",
+    "future-capability"
+  ],
+  "adapter": "candidate:renderer",
+  "sentinel": "renderer-candidate-adapter"
+}

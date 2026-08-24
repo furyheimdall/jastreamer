@@ -1,0 +1,11 @@
+{
+  "protocolMajor": 1,
+  "capabilities": [
+    "control-api",
+    "future-capability"
+  ],
+  "requestId": "golden-control-v1",
+  "continuationPolicy": "future-policy",
+  "commandKind": "future-command",
+  "optionalMetadata": "additive"
+}

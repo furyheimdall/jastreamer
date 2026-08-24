@@ -1,0 +1,15 @@
+{
+  "id": "control-current",
+  "component": "control",
+  "version": "0.1.0",
+  "supportedMajors": [
+    2,
+    1
+  ],
+  "capabilities": [
+    "control-api",
+    "future-capability"
+  ],
+  "adapter": "candidate:control",
+  "sentinel": "control-current-adapter"
+}

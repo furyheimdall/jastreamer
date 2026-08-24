@@ -1,0 +1,14 @@
+{
+  "id": "server-old",
+  "component": "server",
+  "version": "0.0.0",
+  "supportedMajors": [
+    1
+  ],
+  "capabilities": [
+    "control-api",
+    "render"
+  ],
+  "adapter": "fixture:server-v1",
+  "sentinel": "server-old-adapter"
+}

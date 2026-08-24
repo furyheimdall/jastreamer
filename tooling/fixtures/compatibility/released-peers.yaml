@@ -1,0 +1,200 @@
+{
+  "peers": [
+    {
+      "id": "server-old",
+      "artifact": "server-old.json",
+      "sha256": "f8abb40de905f6a8d2f41bba17b3cf36261f0e56bc345b4d7206bc144032d8d9"
+    },
+    {
+      "id": "server-new",
+      "artifact": "server-new.json",
+      "sha256": "6530a09a295d99430c671b5b50dc3084f70791f606da756bfd419c0a1cf7e810"
+    },
+    {
+      "id": "renderer-old",
+      "artifact": "renderer-old.json",
+      "sha256": "bace93bf4df0ee49eb25bd1131361ddee199d33a6b6d4a84a8c042e41e049be1"
+    },
+    {
+      "id": "renderer-candidate",
+      "artifact": "renderer-candidate.json",
+      "sha256": "5d25e4a775eeac72a8614ec82025796da052fd31071890809499e2d5c625495a"
+    },
+    {
+      "id": "control-old",
+      "artifact": "control-old.json",
+      "sha256": "68a853f44e3c0ccc6b0d77925835b94a55b37edb10eec70c03a4e504d0ed7fee"
+    },
+    {
+      "id": "control-current",
+      "artifact": "control-current.json",
+      "sha256": "9a1469f392c1926239e9e2a45236ea7f35e93e69e35465139ba4528f5d95f15f"
+    }
+  ],
+  "cells": [
+    {
+      "id": "control-candidate-server-old-old-first",
+      "subject": "control-current",
+      "peer": "server-old",
+      "order": "old-first",
+      "wirePayload": "control-v1",
+      "requiredCapability": "control-api"
+    },
+    {
+      "id": "control-candidate-server-new-old-first",
+      "subject": "control-current",
+      "peer": "server-new",
+      "order": "old-first",
+      "wirePayload": "control-v2",
+      "requiredCapability": "control-api"
+    },
+    {
+      "id": "renderer-candidate-server-old-old-first",
+      "subject": "renderer-candidate",
+      "peer": "server-old",
+      "order": "old-first",
+      "wirePayload": "renderer-v1",
+      "requiredCapability": "render"
+    },
+    {
+      "id": "renderer-candidate-server-new-old-first",
+      "subject": "renderer-candidate",
+      "peer": "server-new",
+      "order": "old-first",
+      "wirePayload": "renderer-v2",
+      "requiredCapability": "render"
+    },
+    {
+      "id": "server-candidate-control-old-old-first",
+      "subject": "server-new",
+      "peer": "control-old",
+      "order": "old-first",
+      "wirePayload": "control-v1",
+      "requiredCapability": "control-api"
+    },
+    {
+      "id": "server-candidate-control-current-old-first",
+      "subject": "server-new",
+      "peer": "control-current",
+      "order": "old-first",
+      "wirePayload": "control-v2",
+      "requiredCapability": "control-api"
+    },
+    {
+      "id": "server-candidate-renderer-old-old-first",
+      "subject": "server-new",
+      "peer": "renderer-old",
+      "order": "old-first",
+      "wirePayload": "renderer-v1",
+      "requiredCapability": "render"
+    },
+    {
+      "id": "server-candidate-renderer-current-old-first",
+      "subject": "server-new",
+      "peer": "renderer-candidate",
+      "order": "old-first",
+      "wirePayload": "renderer-v2",
+      "requiredCapability": "render"
+    },
+    {
+      "id": "control-candidate-server-old-new-first",
+      "subject": "control-current",
+      "peer": "server-old",
+      "order": "new-first",
+      "wirePayload": "control-v1",
+      "requiredCapability": "control-api"
+    },
+    {
+      "id": "control-candidate-server-new-new-first",
+      "subject": "control-current",
+      "peer": "server-new",
+      "order": "new-first",
+      "wirePayload": "control-v2",
+      "requiredCapability": "control-api"
+    },
+    {
+      "id": "renderer-candidate-server-old-new-first",
+      "subject": "renderer-candidate",
+      "peer": "server-old",
+      "order": "new-first",
+      "wirePayload": "renderer-v1",
+      "requiredCapability": "render"
+    },
+    {
+      "id": "renderer-candidate-server-new-new-first",
+      "subject": "renderer-candidate",
+      "peer": "server-new",
+      "order": "new-first",
+      "wirePayload": "renderer-v2",
+      "requiredCapability": "render"
+    },
+    {
+      "id": "server-candidate-control-old-new-first",
+      "subject": "server-new",
+      "peer": "control-old",
+      "order": "new-first",
+      "wirePayload": "control-v1",
+      "requiredCapability": "control-api"
+    },
+    {
+      "id": "server-candidate-control-current-new-first",
+      "subject": "server-new",
+      "peer": "control-current",
+      "order": "new-first",
+      "wirePayload": "control-v2",
+      "requiredCapability": "control-api"
+    },
+    {
+      "id": "server-candidate-renderer-old-new-first",
+      "subject": "server-new",
+      "peer": "renderer-old",
+      "order": "new-first",
+      "wirePayload": "renderer-v1",
+      "requiredCapability": "render"
+    },
+    {
+      "id": "server-candidate-renderer-current-new-first",
+      "subject": "server-new",
+      "peer": "renderer-candidate",
+      "order": "new-first",
+      "wirePayload": "renderer-v2",
+      "requiredCapability": "render"
+    }
+  ],
+  "wirePolicy": {
+    "unknownCapabilities": "tolerated",
+    "unknownEnumValues": "tolerated",
+    "archivedSchemaBytes": "unchanged",
+    "additiveFields": "tolerated"
+  },
+  "wirePayloads": [
+    {
+      "id": "control-v1",
+      "major": 1,
+      "file": "control-v1.json",
+      "sha256": "09d389a33aef802f48a7747def8a3bf0fe4ae9fa180760603707fa56c1a1cd65",
+      "consumer": "control"
+    },
+    {
+      "id": "control-v2",
+      "major": 2,
+      "file": "control-v2.json",
+      "sha256": "9009e50f8cad2ff96b4c6d46076f5b39c6ad594d2a7feaa923a8b1832a0cd0bc",
+      "consumer": "control"
+    },
+    {
+      "id": "renderer-v1",
+      "major": 1,
+      "file": "renderer-v1.json",
+      "sha256": "e8cbb68cc854c44d210f92c04f09514b24ea91b00431fe85d2356805f2b51626",
+      "consumer": "renderer"
+    },
+    {
+      "id": "renderer-v2",
+      "major": 2,
+      "file": "renderer-v2.json",
+      "sha256": "bc9c859e34e321c9c51c984be600d95699e49d14702e74aa57457d694c942275",
+      "consumer": "renderer"
+    }
+  ]
+}

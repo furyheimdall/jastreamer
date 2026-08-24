@@ -1,0 +1,13 @@
+{
+  "id": "renderer-old",
+  "component": "renderer",
+  "version": "0.0.0",
+  "supportedMajors": [
+    1
+  ],
+  "capabilities": [
+    "render"
+  ],
+  "adapter": "fixture:renderer-v1",
+  "sentinel": "renderer-old-adapter"
+}

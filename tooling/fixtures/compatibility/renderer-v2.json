@@ -1,0 +1,11 @@
+{
+  "protocolMajor": 2,
+  "capabilities": [
+    "render",
+    "future-capability"
+  ],
+  "commandId": "golden-renderer-v2",
+  "positionMs": 0,
+  "commandKind": "future-command",
+  "optionalMetadata": "additive"
+}
