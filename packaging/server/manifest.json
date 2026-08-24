@@ -1,0 +1,46 @@
+{
+  "schema": 1,
+  "component": "server",
+  "package": "jstreamer-server",
+  "image": "ghcr.io/furyheimdall/jstreamer-server",
+  "license": "Apache-2.0",
+  "tag_pattern": "server-v<major>.<minor>.<patch>",
+  "floating_tags": false,
+  "native_artifacts": [
+    "jstreamer-server_<version>_windows_amd64.exe",
+    "jstreamer-server_<version>_windows_amd64.msi",
+    "jstreamer-server_<version>_linux_amd64.deb",
+    "jstreamer-server_<version>_linux_amd64.rpm",
+    "jstreamer-server_<version>_linux_arm64.deb",
+    "jstreamer-server_<version>_linux_arm64.rpm",
+    "jstreamer-server_<version>_linux_amd64-arm64.oci"
+  ],
+  "required_records": [
+    "SHA256SUMS",
+    "PROVENANCE.intoto.json",
+    "<artifact>.spdx.json",
+    "Apache-2.0.txt",
+    "THIRD_PARTY_NOTICES",
+    "server.cer",
+    "fingerprint.txt",
+    "trust.md",
+    "remove-trust.md",
+    "windows-msi-inspection.json",
+    "linux-amd64-inspection.json",
+    "linux-arm64-inspection.json",
+    "oci-inspection.json",
+    "promotion-ledger.json"
+  ],
+  "windows": {
+    "publisher": "CN=Jake Streamer",
+    "certificate_ca": false,
+    "eku": "Code Signing",
+    "local_surface": "cross-compiled EXE and wixl-built MSI under QEMU; no trust claim",
+    "release_surface": "official WiX 6.0.2 and Windows SDK SignTool on windows-latest"
+  },
+  "linux": {
+    "packager": "nFPM 2.43.4",
+    "service_manager": "systemd",
+    "service_user": "jstreamer"
+  }
+}

@@ -1,0 +1,9 @@
+FROM debian@sha256:abd67ffcfa541b485a3dff59865ab629aa048a6c613e639d36e7456b0b229241
+RUN printf '%s\n' \
+  'deb [check-valid-until=no] http://snapshot.debian.org/archive/debian/20250601T000000Z bookworm main' \
+  > /etc/apt/sources.list && \
+  rm -f /etc/apt/sources.list.d/debian.sources && \
+  apt-get -o Acquire::Check-Valid-Until=false update -qq && \
+  apt-get install -y -qq --no-install-recommends wixl=0.101+repack-1 msitools=0.101+repack-1 && \
+  rm -rf /var/lib/apt/lists/*
+ENTRYPOINT ["/usr/bin/wixl"]

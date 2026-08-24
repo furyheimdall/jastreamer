@@ -1,0 +1,12 @@
+{
+  "address": ":8443",
+  "data_directory": "data",
+  "catalog_root": "data\\catalog",
+  "catalog_migration": "001_catalog.sql",
+  "playback_migration": "002_playback.sql",
+  "playback_expansion": "003_todo12.sql",
+  "certificate_dns": ["localhost"],
+  "certificate_ips": ["127.0.0.1", "::1"],
+  "allowed_origins": [],
+  "pairing_ttl": "5m"
+}

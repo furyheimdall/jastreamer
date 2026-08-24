@@ -45,6 +45,10 @@ if [ "$#" -ge 3 ] && [ "$1" = "release" ] && [ "$2" = "validate" ]; then
   shift 2
   exec bun "$root/tooling/release/cli.ts" "$@"
 fi
+if [ "$#" -ge 3 ] && [ "$1" = "release" ] && [ "$2" = "dry-run" ] && printf '%s\n' "$*" | grep -Eq '(^| )--component server( |$)'; then
+  shift 2
+  exec bun "$root/packaging/server/tooling/cli.ts" "$@"
+fi
 if [ "$#" -eq 2 ] && [ "$1" = "test" ] && [ "$2" = "candidates" ]; then
   cd "$root/apps/server"
   JSTREAMER_ROOT="$root" exec go run ./tooling/candidate-smoke.go \

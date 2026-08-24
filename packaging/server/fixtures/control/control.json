@@ -1,0 +1,29 @@
+{
+  "component": "control",
+  "version": "0.1.0",
+  "tag": "control-v0.1.0",
+  "artifacts": [
+    "jstreamer-control_0.1.0_web.zip",
+    "jstreamer-control_0.1.0_windows.msix",
+    "jstreamer-control_0.1.0_android_universal.apk"
+  ],
+  "license": "Apache-2.0",
+  "third_party_notices": "THIRD_PARTY_NOTICES",
+  "source_revision": "fixture-revision",
+  "signing": {
+    "ca": false,
+    "application_id": "io.jakestreamer.control",
+    "keystore_lineage": "project-release-v1",
+    "private_key": false
+  },
+  "windows_signing": {
+    "publisher": "CN=Jake Streamer",
+    "fingerprint": "sha256:fixture",
+    "ca": false,
+    "code_signing_eku": true,
+    "private_key": false
+  },
+  "previous_component_tag": "control-v0.0.9",
+  "previous_repository_tag": "server-v0.0.8",
+  "changelog_start": "control-v0.0.9"
+}

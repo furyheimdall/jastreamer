@@ -1,0 +1,12 @@
+{
+  "address": ":8443",
+  "data_directory": "/var/lib/jstreamer",
+  "catalog_root": "/var/lib/jstreamer/catalog",
+  "catalog_migration": "/usr/lib/jstreamer-server/migrations/001_catalog.sql",
+  "playback_migration": "/usr/lib/jstreamer-server/migrations/002_playback.sql",
+  "playback_expansion": "/usr/lib/jstreamer-server/migrations/003_todo12.sql",
+  "certificate_dns": ["localhost"],
+  "certificate_ips": ["127.0.0.1", "::1"],
+  "allowed_origins": [],
+  "pairing_ttl": "5m"
+}

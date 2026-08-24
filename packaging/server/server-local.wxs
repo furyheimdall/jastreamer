@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
+  <Product Id="*" Name="Jake Streamer Server" Language="1033" Version="$(var.Version)" Manufacturer="Jake Streamer" UpgradeCode="67C753EA-8D02-4F04-B37B-B96682B40F53">
+    <Package InstallerVersion="500" Compressed="yes" InstallScope="perMachine"/>
+    <MajorUpgrade DowngradeErrorMessage="A newer Jake Streamer Server is installed."/>
+    <MediaTemplate EmbedCab="yes"/>
+    <Property Id="TRUSTEDCERT">
+      <RegistrySearch Id="TrustedPeopleCertificate" Root="HKLM" Key="SOFTWARE\Microsoft\SystemCertificates\TrustedPeople\Certificates\$(var.CertThumbprint)" Name="Blob" Type="raw" Win64="yes"/>
+    </Property>
+    <Condition Message="Trust the published Jake Streamer certificate in LocalMachine TrustedPeople before installing.">Installed OR TRUSTEDCERT</Condition>
+    <Directory Id="TARGETDIR" Name="SourceDir">
+      <Directory Id="ProgramFiles64Folder">
+        <Directory Id="INSTALLFOLDER" Name="Jake Streamer Server">
+          <Component Id="ServerExecutable" Guid="3E7E438B-9E7E-4DD4-B090-D1055028F5AA" Win64="yes">
+            <File Id="ServerExe" Source="$(var.SourceDir)/jstreamer-server.exe" KeyPath="yes"/>
+            <File Id="ServerCoreExe" Source="$(var.SourceDir)/jstreamer-server-core.exe"/>
+            <File Id="ServerConfig" Source="$(var.SourceDir)/server.json"/>
+            <File Id="CatalogMigration" Source="$(var.SourceDir)/001_catalog.sql"/>
+            <File Id="PlaybackMigration" Source="$(var.SourceDir)/002_playback.sql"/>
+            <File Id="PlaybackExpansion" Source="$(var.SourceDir)/003_todo12.sql"/>
+            <ServiceInstall Id="ServerService" Name="jstreamer-server" DisplayName="Jake Streamer Server" Description="Local-first Jake Streamer server" Start="auto" Type="ownProcess" ErrorControl="normal" Account="LocalSystem"/>
+            <ServiceControl Id="ServerServiceControl" Name="jstreamer-server" Stop="both" Remove="uninstall" Wait="yes"/>
+          </Component>
+          <Component Id="LicenseFiles" Guid="25ED4037-4D97-4C1C-8C61-B1549F61CE70" Win64="yes">
+            <File Id="License" Source="$(var.SourceDir)/LICENSE" KeyPath="yes"/>
+            <File Id="Notices" Source="$(var.SourceDir)/THIRD_PARTY_NOTICES"/>
+          </Component>
+        </Directory>
+      </Directory>
+    </Directory>
+    <Feature Id="MainFeature" Title="Jake Streamer Server" Level="1">
+      <ComponentRef Id="ServerExecutable"/><ComponentRef Id="LicenseFiles"/>
+    </Feature>
+  </Product>
+</Wix>
