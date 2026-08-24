@@ -26,11 +26,25 @@ func (service) Execute(_ []string, requests <-chan svc.ChangeRequest, status cha
 	if err != nil {
 		return false, 1
 	}
+	dataDirectory := filepath.Join(os.Getenv("ProgramData"), "jastreamer", "Server")
+	if err = os.MkdirAll(dataDirectory, 0o750); err != nil {
+		return false, 1
+	}
+	serviceLog, err := os.OpenFile(filepath.Join(dataDirectory, "service.log"), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
+	if err != nil {
+		return false, 1
+	}
+	defer serviceLog.Close()
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	command := exec.CommandContext(ctx, filepath.Join(directory, "jastreamer-server-core.exe"), "--config", filepath.Join(directory, "server.json"))
 	command.Dir = directory
-	command.Env = append(os.Environ(), "JASTREAMER_DATA_DIR="+filepath.Join(os.Getenv("ProgramData"), "jastreamer", "Server"))
+	command.Env = append(
+		os.Environ(),
+		"JASTREAMER_DATA_DIR="+dataDirectory,
+		"JASTREAMER_CATALOG_ROOT="+filepath.Join(dataDirectory, "catalog"),
+	)
+	command.Stderr = serviceLog
 	stdout, err := command.StdoutPipe()
 	if err != nil {
 		return false, 1

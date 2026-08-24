@@ -83,7 +83,9 @@ try {
   } catch {
     $service.Refresh()
     $coreProcesses = @(Get-Process jastreamer-server-core -ErrorAction SilentlyContinue).Count
-    throw "service readiness failed: status=$($service.Status), coreProcesses=$coreProcesses; $($_.Exception.Message)"
+    $coreLogPath = Join-Path $env:ProgramData 'jastreamer\Server\service.log'
+    $coreLogTail = if (Test-Path $coreLogPath) { ((Get-Content $coreLogPath -Tail 20) -join ' | ').Trim() } else { '<missing>' }
+    throw "service readiness failed: status=$($service.Status), coreProcesses=$coreProcesses, coreLog=$coreLogTail; $($_.Exception.Message)"
   }
   if ($service.Status -ne [ServiceProcess.ServiceControllerStatus]::Running) { throw "service did not reach Running" }
   $health = Invoke-WebRequest https://127.0.0.1:8443/healthz -SkipCertificateCheck -UseBasicParsing

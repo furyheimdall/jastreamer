@@ -81,6 +81,7 @@ describe("Server release contract", () => {
   });
   test("Windows signs embedded inputs before WiX and verifies extracted EXEs", () => {
     const signing = readFileSync(new URL("../sign-windows.ps1", import.meta.url), "utf8");
+    const serviceHost = readFileSync(new URL("../windows-service.go", import.meta.url), "utf8");
     expect(signing.indexOf("foreach ($exe in $sourceExecutables)")).toBeLessThan(signing.indexOf("build-windows-msi.ps1"));
     expect(signing.indexOf("build-windows-msi.ps1")).toBeLessThan(signing.indexOf("$env:JASTREAMER_SIGNTOOL sign /fd SHA256 /f $pfx /p $env:WINDOWS_SIGNING_PFX_PASSWORD $msi"));
     expect(signing).not.toContain("Get-ChildItem $extract -Recurse -Filter '*.exe'");
@@ -90,6 +91,9 @@ describe("Server release contract", () => {
     expect(signing).toContain('$msi = (Resolve-Path "$Directory/jastreamer-server_${Version}_windows_amd64.msi").Path');
     expect(signing).toContain("[ServiceProcess.ServiceControllerStatus]::Running, [TimeSpan]::FromSeconds(90)");
     expect(signing).toContain("service readiness failed:");
+    expect(signing).toContain("service.log");
+    expect(serviceHost).toContain('"JASTREAMER_CATALOG_ROOT="+filepath.Join(dataDirectory, "catalog")');
+    expect(serviceHost).toContain("command.Stderr = serviceLog");
     expect(signing).toContain("$extractedExecutables"); expect(signing).toContain("WaitForStatus"); expect(signing).toContain("/healthz");
     expect(readFileSync(new URL("../build-windows.ps1", import.meta.url), "utf8")).not.toContain(" wix build ");
   });
