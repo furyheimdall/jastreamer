@@ -1,6 +1,10 @@
 #!/bin/sh
 set -eu
 root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+if [ "$#" -ge 3 ] && [ "$1" = "container" ] && [ "$2" = "build-qa" ]; then
+  shift 2
+  exec bun "$root/tooling/container/cli.ts" "$@"
+fi
 if [ "$#" -eq 2 ] && [ "$1" = "verify-boundaries" ] && [ "$2" = "--all" ]; then
   exec node "$root/tooling/verify-boundaries.mjs"
 fi
@@ -60,5 +64,5 @@ if [ "$#" -ge 3 ] && [ "$1" = "test" ] && [ "$2" = "ranking-parity" ]; then
   cd "$root/apps/server"
   JSTREAMER_ROOT="$root" exec go run ./tooling/ranking-parity.go "$@"
 fi
-printf '%s\n' 'usage: tooling/componentctl <verify-boundaries|isolation|component|compatibility|policy|synology|contracts|release|test|qa>' >&2
+printf '%s\n' 'usage: tooling/componentctl <container|verify-boundaries|isolation|component|compatibility|policy|synology|contracts|release|test|qa>' >&2
 exit 64

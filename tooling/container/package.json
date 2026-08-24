@@ -1,0 +1,13 @@
+{
+  "name": "jstreamer-container-qa",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "bun test ./container.test.ts",
+    "typecheck": "bunx tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/bun": "1.4.0",
+    "typescript": "7.0.2"
+  }
+}

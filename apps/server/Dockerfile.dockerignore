@@ -1,0 +1,9 @@
+.git
+.github
+.omo
+apps/control
+apps/renderer
+apps/server/**/*_test.go
+apps/server/testdata
+apps/server/jstreamer-server
+**/*.md

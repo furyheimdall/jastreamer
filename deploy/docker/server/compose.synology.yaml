@@ -1,27 +1,28 @@
 services:
   jstreamer-server:
     image: "${JSTREAMER_SERVER_IMAGE:-ghcr.io/furyheimdall/jstreamer-server:0.1.0}"
+    command: ["--config", "/etc/jstreamer/server.json"]
     network_mode: host
     user: "10001:10001"
     init: true
     read_only: true
     restart: unless-stopped
     environment:
-      JSTREAMER_LAN_INTERFACE: "${JSTREAMER_LAN_INTERFACE:-REQUIRED_AT_DEPLOYMENT}"
-      JSTREAMER_ADVERTISED_ADDRESS: "${JSTREAMER_ADVERTISED_ADDRESS:-REQUIRED_AT_DEPLOYMENT}"
+      JSTREAMER_SETUP_SECRET: "${JSTREAMER_SETUP_SECRET:?JSTREAMER_SETUP_SECRET must be injected at runtime}"
       JSTREAMER_DATA_DIR: /var/lib/jstreamer
     volumes:
       - type: bind
         source: "${JSTREAMER_DATA_PATH:-/volume1/docker/jake-streamer/data}"
         target: /var/lib/jstreamer
-    tmpfs:
-      - /tmp:size=64m,mode=1777
-    cap_drop:
-      - ALL
+      - type: bind
+        source: "${JSTREAMER_CONFIG_PATH:-/volume1/docker/jake-streamer/config}"
+        target: /etc/jstreamer
+        read_only: true
+    tmpfs: ["/tmp:size=64m,mode=1777"]
+    cap_drop: [ALL]
     healthcheck:
       test: ["CMD", "/usr/local/bin/jstreamer-server", "health"]
       interval: 30s
       timeout: 5s
       retries: 3
-    security_opt:
-      - no-new-privileges:true
+    security_opt: [no-new-privileges:true]

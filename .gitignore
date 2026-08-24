@@ -23,6 +23,7 @@ apps/control/.dart_tool/
 apps/control/build/
 apps/renderer/target/
 dist/
+**/node_modules/
 
 # Editors and operating systems
 .idea/
