@@ -38,6 +38,16 @@ See individual `component.yaml` files for entry points.
 
 See `packaging/*/manifest.json` and `packaging/*/config.json` for exact names and records.
 
+## Installation and Usage
+
+- [Synology DSM Server](docs/synology.md)
+- [Server bootstrap and pairing](docs/server-pairing.md)
+- [Windows Control](docs/control-windows.md)
+- [Web Control](docs/control-web.md)
+- [Android Control](docs/control-android.md)
+- [Windows Renderer](docs/renderer-windows.md)
+- [Release targets and operations](docs/releasing.md)
+
 ## Compatibility
 
 See `tooling/fixtures/compatibility/released-peers.yaml` for the supported matrix.
@@ -53,7 +63,7 @@ See `tooling/fixtures/compatibility/released-peers.yaml` for the supported matri
 ## Server Operations
 
 - DB backup/restore: Use SQLite online backup before migrations.
-- First-admin bootstrap: `JSTREAMER_SETUP_SECRET` environment variable.
+- First-admin bootstrap: `JASTREAMER_SETUP_SECRET` environment variable.
 - Discovery and pairing: HTTPS portal at advertised address.
 - Device revocation: Admin token required; token is single-use and expires.
 
@@ -87,7 +97,3 @@ Incremental scan resumes from the last successful generation. Tombs are durable.
 
 - Windows-only native build.
 - Protocol compatibility is explicit (major + capabilities). No generic UPnP gapless/synchronized behavior is claimed.
-
-## No-Publish Rehearsals
-
-See `.omo/evidence/implementation/task-18/`, `task-19/`, `task-20/` for exact dry-run outputs.
