@@ -5,6 +5,7 @@ import { GateError, UsageError, parseArgs, scanContext } from "./args";
 import { classifyDescriptors } from "./oci";
 import { publishAtomically } from "./qa";
 import { cleanupTargets } from "./runtime";
+import { dockerEventArguments } from "./process";
 import type { Descriptor } from "./types";
 
 function rootFixture(): string {
@@ -48,4 +49,17 @@ test("cleanup is scoped to names and Compose projects created by this run", () =
   const commands = cleanupTargets(new Set(["jastreamer-task17-owned"]), new Set(["jastreamert17123"]), "/compose.yaml");
   expect(commands).toEqual([["rm", "-f", "jastreamer-task17-owned"], ["ps", "-aq", "--filter", "label=com.docker.compose.project=jastreamert17123"], ["compose", "-p", "jastreamert17123", "-f", "/compose.yaml", "down", "--remove-orphans"]]);
   expect(JSON.stringify(commands)).not.toContain("unrelated");
+});
+test("Docker event subscription includes trigger-time history", () => {
+  expect(dockerEventArguments(["container=unique", "event=health_status: healthy"], 1234)).toEqual([
+    "events",
+    "--since",
+    "1234",
+    "--format",
+    "{{json .}}",
+    "--filter",
+    "container=unique",
+    "--filter",
+    "event=health_status: healthy",
+  ]);
 });

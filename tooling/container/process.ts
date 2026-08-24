@@ -6,8 +6,20 @@ export function run(command: string, args: readonly string[], options: { cwd?: s
   return result.stdout.trim();
 }
 
+export const dockerEventArguments = (
+  filters: readonly string[],
+  since: number,
+): readonly string[] => [
+  "events",
+  "--since",
+  String(since),
+  "--format",
+  "{{json .}}",
+  ...filters.flatMap((value) => ["--filter", value]),
+];
+
 export async function waitForDockerEvent(filters: readonly string[], trigger: () => void, timeoutMs = 90_000): Promise<void> {
-  const child = spawn("docker", ["events", "--format", "{{json .}}", ...filters.flatMap((value) => ["--filter", value])], { stdio: ["ignore", "pipe", "pipe"] });
+  const child = spawn("docker", dockerEventArguments(filters, Math.floor(Date.now() / 1000)), { stdio: ["ignore", "pipe", "pipe"] });
   let settled = false;
   const completion = new Promise<void>((resolve, reject) => {
     const timer = setTimeout(() => { child.kill("SIGKILL"); reject(new Error(`timed out awaiting Docker event: ${filters.join(",")}`)); }, timeoutMs);
