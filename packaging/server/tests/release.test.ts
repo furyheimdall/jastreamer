@@ -112,6 +112,8 @@ describe("Server release contract", () => {
     expect(workflow).toContain("actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9");
     expect(workflow).toContain("docker/setup-docker-action@b60f85385d03ac8acfca6d9996982511d8620a19");
     expect(workflow).toContain("Microsoft.Windows.SDK.BuildTools -Version 10.0.26100.3916");
+    expect(workflow).toContain("Run native Windows security tests");
+    expect(workflow).toContain("go test ./internal/security");
     expect(installer).toContain("gh_2.76.2_linux_$arch.tar.gz");
     expect(installer).toContain("jq-linux-$arch");
     expect(workflow).not.toContain("sort -V | head -1");

@@ -15,6 +15,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"runtime"
 	"time"
 )
 
@@ -126,16 +127,18 @@ func createIdentity(config IdentityConfig, certificatePath, keyPath string) (Ide
 	if err := os.Rename(certificateTemporary, certificatePath); err != nil {
 		return Identity{}, fmt.Errorf("install certificate: %w", err)
 	}
-	directory, err := os.Open(config.Directory)
-	if err != nil {
-		return Identity{}, fmt.Errorf("open identity directory: %w", err)
-	}
-	if err := directory.Sync(); err != nil {
-		_ = directory.Close()
-		return Identity{}, fmt.Errorf("sync identity directory: %w", err)
-	}
-	if err := directory.Close(); err != nil {
-		return Identity{}, fmt.Errorf("close identity directory: %w", err)
+	if runtime.GOOS != "windows" {
+		directory, err := os.Open(config.Directory)
+		if err != nil {
+			return Identity{}, fmt.Errorf("open identity directory: %w", err)
+		}
+		if err := directory.Sync(); err != nil {
+			_ = directory.Close()
+			return Identity{}, fmt.Errorf("sync identity directory: %w", err)
+		}
+		if err := directory.Close(); err != nil {
+			return Identity{}, fmt.Errorf("close identity directory: %w", err)
+		}
 	}
 	return parseIdentity(certificatePEM, keyPEM)
 }
