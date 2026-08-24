@@ -45,6 +45,26 @@ export const run = (
   };
 };
 
+export const removeTemporaryWorkspace = (
+  temporaryRoot: string,
+  controlRoot: string,
+): void => {
+  if (controlRoot.startsWith(`${temporaryRoot}/`)) {
+    run([
+      "docker",
+      "run",
+      "--rm",
+      "-v",
+      `${controlRoot}:/workspace`,
+      "alpine:3.22@sha256:14358309a308569c32bdc37e2e0e9694be33a9d99e68afb0f5ff33cc1f695dce",
+      "sh",
+      "-c",
+      "rm -rf /workspace/* /workspace/.[!.]* /workspace/..?*",
+    ]);
+  }
+  rmSync(temporaryRoot, { recursive: true, force: true });
+};
+
 export const checked = (
   command: readonly string[],
   options: { readonly cwd?: string } = {},
@@ -164,31 +184,9 @@ export class CandidateBuilds {
         rendererBinary,
       });
     } catch (error) {
-      CandidateBuilds.removeTemporary(temporaryRoot, controlRoot);
+      removeTemporaryWorkspace(temporaryRoot, controlRoot);
       throw error;
     }
-  }
-
-  private static removeTemporary(
-    temporaryRoot: string,
-    controlRoot: string,
-  ): void {
-    if (controlRoot.startsWith(`${temporaryRoot}/`)) {
-      run([
-        "docker",
-        "run",
-        "--rm",
-        "-v",
-        `${controlRoot}:/workspace`,
-        "alpine:3.22",
-        "rm",
-        "-rf",
-        "/workspace/.dart_tool",
-        "/workspace/build",
-        "/workspace/.compat",
-      ]);
-    }
-    rmSync(temporaryRoot, { recursive: true, force: true });
   }
 
   readonly fixtureRoot: string;
@@ -221,7 +219,7 @@ export class CandidateBuilds {
   }
 
   dispose(): void {
-    CandidateBuilds.removeTemporary(
+    removeTemporaryWorkspace(
       this.temporaryRoot,
       this.controlRoot,
     );
