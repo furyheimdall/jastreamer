@@ -39,6 +39,21 @@ const main = (): void => {
     const result = verifyIsolation(invocation.input);
     if (invocation.output === undefined) console.log(JSON.stringify(result, null, 2));
     else atomicWriteJson(invocation.output, result);
+    if (!result.ok) {
+      console.error(JSON.stringify({
+        infrastructureFailure: result.infrastructureFailure,
+        runDirectoryCleanup: result.runDirectoryCleanup,
+        components: result.components.map((component) => ({
+          name: component.name,
+          status: component.status,
+          violations: component.violations,
+          error: component.error,
+          commandExitCodes: component.commands.map((command) => command.exitCode),
+          artifacts: component.package.artifacts,
+          cleanup: component.cleanup,
+        })),
+      }));
+    }
     process.exit(result.infrastructureFailure ? 70 : result.ok ? 0 : 65);
   } catch (error) {
     if (error instanceof InputError) {
