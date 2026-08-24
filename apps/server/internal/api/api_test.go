@@ -122,6 +122,7 @@ func TestHealth_and_identity_are_public_but_discovery_requires_supported_authent
 		t.Fatalf("health = %d %s", health.Code, health.Body.String())
 	}
 	if identity.Code != http.StatusOK || !strings.Contains(identity.Body.String(), strings.Repeat("a", 64)) ||
+		!strings.Contains(identity.Body.String(), `"pairing_url":"/pair/"`) ||
 		identity.Header().Get("Cache-Control") != "no-store" || identity.Header().Get("X-Frame-Options") != "DENY" {
 		t.Fatalf("identity = %d %s headers=%v", identity.Code, identity.Body.String(), identity.Header())
 	}

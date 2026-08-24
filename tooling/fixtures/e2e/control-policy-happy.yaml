@@ -1,0 +1,9 @@
+scenario: control-policy-happy
+expects:
+  - real-todo13-authenticated-discovery
+  - server-advertised-https-pairing
+  - explicit-token-return
+  - stop-album-similar-save
+  - analysis-coverage-incomplete-metadata-fallback
+  - explicit-versus-automatic-preview
+  - desktop-mobile-screenshots

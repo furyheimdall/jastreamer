@@ -1,0 +1,11 @@
+scenario: control-policy-failure
+expects:
+  - certificate-mismatch-rejected
+  - rejected-token-cleared
+  - stale-revision-intent-preserved
+  - analysis-coverage-incomplete-metadata-fallback
+  - unavailable-explicit-head-no-automatic-fallback
+  - revocable-preview
+  - committed-preview
+  - stop-similar-no-signal
+  - no-secret-evidence

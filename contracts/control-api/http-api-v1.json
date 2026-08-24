@@ -5,7 +5,7 @@
   "routes": [
     {"method":"GET","path":"/healthz","role":"public","success":[200],"errors":[],"response":["status"]},
     {"method":"GET","path":"/pair/","role":"public","success":[200],"errors":[],"response":["text/html"]},
-    {"method":"GET","path":"/api/v1/identity","role":"public","success":[200],"errors":[],"response":["common_name","sha256_fingerprint"]},
+    {"method":"GET","path":"/api/v1/identity","role":"public","success":[200],"errors":[],"response":["common_name","sha256_fingerprint","pairing_url"]},
     {"method":"POST","path":"/api/v1/bootstrap","role":"public","success":[201],"errors":["BOOTSTRAP_COMPLETE","BOOTSTRAP_SECRET_INVALID","INVALID_REQUEST"],"request":{"fields":["setup_secret","name"]},"response":["token","device"]},
     {"method":"POST","path":"/api/v1/pairing-codes","role":"admin","success":[201],"errors":["UNAUTHORIZED","TOKEN_REVOKED","ADMIN_REQUIRED"],"request":{"fields":[]},"response":["code","expires_at"],"mutation":"single-use code expires after five minutes"},
     {"method":"POST","path":"/api/v1/pairings","role":"public","success":[201],"errors":["PAIRING_CODE_INVALID","PAIRING_CODE_EXPIRED","PAIRING_CODE_USED","PAIRING_RATE_LIMITED","INVALID_REQUEST"],"request":{"fields":["code","name"]},"response":["token","device"],"mutation":"consume code once and create controller"},

@@ -1,0 +1,9 @@
+{
+  "name": "Jake Streamer Control",
+  "short_name": "Jake Streamer",
+  "start_url": ".",
+  "display": "standalone",
+  "background_color": "#121315",
+  "theme_color": "#121315",
+  "description": "Control playback across Jake Streamer servers."
+}

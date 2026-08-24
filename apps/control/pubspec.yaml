@@ -7,8 +7,21 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
+  crypto: 3.0.6
+  http: 1.5.0
+  url_launcher: 6.3.2
 dev_dependencies:
+  flutter_lints: 6.0.0
   flutter_test:
     sdk: flutter
+  integration_test:
+    sdk: flutter
+  msix: 3.18.0
+msix_config:
+  display_name: Jake Streamer Control
+  publisher_display_name: Jake Streamer
+  identity_name: io.jakestreamer.control
+  msix_version: 0.1.0.0
+  capabilities: internetClient
 flutter:
   uses-material-design: true
