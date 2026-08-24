@@ -78,7 +78,13 @@ try {
   $machineSecretSet = $true
   $service = [ServiceProcess.ServiceController]::new('jastreamer-server')
   $service.Start()
-  $service.WaitForStatus([ServiceProcess.ServiceControllerStatus]::Running, [TimeSpan]::FromSeconds(30))
+  try {
+    $service.WaitForStatus([ServiceProcess.ServiceControllerStatus]::Running, [TimeSpan]::FromSeconds(90))
+  } catch {
+    $service.Refresh()
+    $coreProcesses = @(Get-Process jastreamer-server-core -ErrorAction SilentlyContinue).Count
+    throw "service readiness failed: status=$($service.Status), coreProcesses=$coreProcesses; $($_.Exception.Message)"
+  }
   if ($service.Status -ne [ServiceProcess.ServiceControllerStatus]::Running) { throw "service did not reach Running" }
   $health = Invoke-WebRequest https://127.0.0.1:8443/healthz -SkipCertificateCheck -UseBasicParsing
   if ($health.StatusCode -ne 200 -or $health.Content.Trim() -ne '{"status":"ready"}') { throw "native HTTPS health check failed" }
