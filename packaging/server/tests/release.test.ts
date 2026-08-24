@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { X509Certificate } from "node:crypto";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -56,6 +57,14 @@ describe("Server release contract", () => {
       const wix = readFileSync(new URL(`../${source}`, import.meta.url), "utf8");
       expect(wix).toContain("Installed OR TRUSTEDCERT"); expect(wix).toContain("TrustedPeople"); expect(wix).toContain("ServiceInstall");
     }
+  });
+  test("published Server certificate is a matching code-signing leaf", () => {
+    const certificate = new X509Certificate(readFileSync(new URL("../cert/server.cer", import.meta.url)));
+    const fingerprint = readFileSync(new URL("../cert/fingerprint.txt", import.meta.url), "utf8").trim();
+    expect(certificate.subject).toBe("CN=jastreamer");
+    expect(certificate.ca).toBe(false);
+    expect(certificate.keyUsage).toContain("1.3.6.1.5.5.7.3.3");
+    expect(fingerprint).toBe(`SHA256: ${certificate.fingerprint256}`);
   });
   test("Windows PFX loading and cleanup are noninteractive, ephemeral, and fail-safe", () => {
     const signing = readFileSync(new URL("../sign-windows.ps1", import.meta.url), "utf8");
