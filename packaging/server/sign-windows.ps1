@@ -11,6 +11,7 @@ $trustedPath = $null
 $machineSecretSet = $false
 $pfxCertificate = $null
 $publishedCertificate = $null
+$msi = $null
 function CertificateSha256($certificate) {
   [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($certificate.RawData))
 }
@@ -40,7 +41,7 @@ try {
   AssertExpectedSignature $published $expected | Out-Null
 
   & "$PSScriptRoot/build-windows-msi.ps1" -Version $Version -Directory $Directory -Cer $Cer
-  $msi = "$Directory/jastreamer-server_${Version}_windows_amd64.msi"
+  $msi = (Resolve-Path "$Directory/jastreamer-server_${Version}_windows_amd64.msi").Path
   & $env:JASTREAMER_SIGNTOOL sign /fd SHA256 /f $pfx /p $env:WINDOWS_SIGNING_PFX_PASSWORD $msi
   AssertExpectedSignature $msi $expected | Out-Null
 
@@ -107,8 +108,8 @@ try {
   if (Test-Path $pfx) { $cleanupFailures.Add([Exception]::new("PFX still present")) }
   if (Get-Service jastreamer-server -ErrorAction SilentlyContinue) {
     try {
-      if (Test-Path "$Directory/jastreamer-server_${Version}_windows_amd64.msi") {
-        $cleanupUninstall = Start-Process msiexec.exe -ArgumentList @('/x', "$Directory/jastreamer-server_${Version}_windows_amd64.msi", '/qn', '/norestart') -Wait -PassThru
+      if ($msi -and (Test-Path $msi)) {
+        $cleanupUninstall = Start-Process msiexec.exe -ArgumentList @('/x', $msi, '/qn', '/norestart') -Wait -PassThru
         if ($cleanupUninstall.ExitCode -ne 0) { throw "cleanup uninstall failed: $($cleanupUninstall.ExitCode)" }
       }
     } catch { $cleanupFailures.Add($_.Exception) }

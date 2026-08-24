@@ -87,6 +87,7 @@ describe("Server release contract", () => {
     expect(signing).toContain("@('ServerExe', 'ServerCoreExe')");
     expect(signing).not.toContain("SelectSingleNode");
     expect(signing).toContain("Where-Object Name -eq $id");
+    expect(signing).toContain('$msi = (Resolve-Path "$Directory/jastreamer-server_${Version}_windows_amd64.msi").Path');
     expect(signing).toContain("$extractedExecutables"); expect(signing).toContain("WaitForStatus"); expect(signing).toContain("/healthz");
     expect(readFileSync(new URL("../build-windows.ps1", import.meta.url), "utf8")).not.toContain(" wix build ");
   });
