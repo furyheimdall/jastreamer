@@ -2,7 +2,7 @@ import { createHash, randomBytes } from "node:crypto";
 import { chmodSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { httpsJSON, run, waitForDockerEvent } from "./process";
+import { containerJSON, run, waitForDockerEvent } from "./process";
 import type { CleanupFact, Platform, RuntimeFact } from "./types";
 
 const sha256 = (path: string): string => createHash("sha256").update(readFileSync(path)).digest("hex");
@@ -27,19 +27,19 @@ function config(directory: string): string {
     playback_expansion: "/app/migrations/003_todo12.sql", certificate_dns: ["localhost"], certificate_ips: ["127.0.0.1"], pairing_ttl: "5m" };
   mkdirSync(directory, { recursive: true }); writeFileSync(join(directory, "server.json"), JSON.stringify(value, null, 2) + "\n"); return join(directory, "server.json");
 }
-async function apiFacts(token: string): Promise<Pick<RuntimeFact, "portal" | "health" | "productVersion" | "sourceRevision" | "contractRevision" | "catalogRevision">> {
-  const health = await httpsJSON("https://127.0.0.1:8443/healthz");
-  const portalResponse = await fetch("https://127.0.0.1:8443/pair/", { tls: { rejectUnauthorized: false } } as RequestInit & { tls: { rejectUnauthorized: boolean } });
-  const discovery = await httpsJSON("https://127.0.0.1:8443/api/v1/discovery", token);
-  if (health.status !== 200 || health.body.status !== "ready" || portalResponse.status !== 200 || !portalResponse.headers.get("content-type")?.includes("text/html") || discovery.status !== 200) throw new Error("RUNTIME_HTTP_CONTRACT_FAILED");
+async function apiFacts(container: string, token: string): Promise<Pick<RuntimeFact, "portal" | "health" | "productVersion" | "sourceRevision" | "contractRevision" | "catalogRevision">> {
+  const health = containerJSON(container, "/healthz");
+  const portalResponse = containerJSON(container, "/pair/");
+  const discovery = containerJSON(container, "/api/v1/discovery", token);
+  if (health.status !== 200 || health.body.status !== "ready" || portalResponse.status !== 200 || !/content-type:\s*text\/html/i.test(portalResponse.headers) || discovery.status !== 200) throw new Error("RUNTIME_HTTP_CONTRACT_FAILED");
   return { health: String(health.body.status), portal: true, productVersion: String(discovery.body.product_version),
     sourceRevision: String(discovery.body.source_revision), contractRevision: String(discovery.body.contract_revision), catalogRevision: Number(discovery.body.catalog_revision) };
 }
-async function bootstrapAndPair(secret: string): Promise<{ admin: string; controller: string }> {
-  const bootstrap = await httpsJSON("https://127.0.0.1:8443/api/v1/bootstrap", "", "POST", { setup_secret: secret, name: "Container QA Admin" });
+async function bootstrapAndPair(container: string, secret: string): Promise<{ admin: string; controller: string }> {
+  const bootstrap = containerJSON(container, "/api/v1/bootstrap", "", "POST", { setup_secret: secret, name: "Container QA Admin" });
   if (bootstrap.status !== 201) throw new Error(`BOOTSTRAP_FAILED ${bootstrap.status}`);
-  const admin = String(bootstrap.body.token); const generated = await httpsJSON("https://127.0.0.1:8443/api/v1/pairing-codes", admin, "POST", {});
-  const paired = await httpsJSON("https://127.0.0.1:8443/api/v1/pairings", "", "POST", { code: generated.body.code, name: "Container QA Controller" });
+  const admin = String(bootstrap.body.token); const generated = containerJSON(container, "/api/v1/pairing-codes", admin, "POST", {});
+  const paired = containerJSON(container, "/api/v1/pairings", "", "POST", { code: generated.body.code, name: "Container QA Controller" });
   if (generated.status !== 201 || paired.status !== 201) throw new Error("PAIRING_FAILED");
   return { admin, controller: String(paired.body.token) };
 }
@@ -50,7 +50,12 @@ export async function runPlatform(platform: Platform, tag: string, workspace: st
   const args = ["run", "-d", "--name", name, "--platform", platform, "--network", "host", "--read-only", "--tmpfs", "/tmp:rw,noexec,nosuid,size=64m",
     "--cap-drop", "ALL", "--security-opt", "no-new-privileges:true", "-e", `JASTREAMER_SETUP_SECRET=${secret}`,
     "-v", `${configDir}:/etc/jastreamer:ro`, "-v", `${dataDir}:/var/lib/jastreamer`, tag, "--config", "/etc/jastreamer/server.json"];
-  await waitForDockerEvent([`container=${name}`, "event=health_status: healthy"], () => { run("docker", args, { quiet: true }); });
+  try {
+    await waitForDockerEvent([`container=${name}`, "event=health_status: healthy"], () => { run("docker", args, { quiet: true }); });
+  } catch (error) {
+    const state = run("docker", ["inspect", "--format", "{{json .State}}", name], { quiet: true });
+    throw new Error(`RUNTIME_HEALTH_FAILED ${platform}: ${error instanceof Error ? error.message : "unknown error"}; state=${state}`);
+  }
   const hostArch = run("uname", ["-m"], { quiet: true }); const containerArch = run("docker", ["exec", name, "uname", "-m"], { quiet: true });
   const uid = run("docker", ["exec", name, "id", "-u"], { quiet: true }); const gid = run("docker", ["exec", name, "id", "-g"], { quiet: true });
   if (containerArch !== archName(platform) || uid !== "10001" || gid !== "10001") throw new Error(`RUNTIME_IDENTITY_FAILED ${platform}`);
@@ -58,7 +63,7 @@ export async function runPlatform(platform: Platform, tag: string, workspace: st
   if (hostCanonical !== "arm64" || containerCanonical === "unknown") throw new Error(`HOST_ARCHITECTURE_UNSUPPORTED ${hostArch}`);
   const classification = hostCanonical === containerCanonical ? "native" : "qemu-emulated";
   if ((platform === "linux/arm64" && classification !== "native") || (platform === "linux/amd64" && classification !== "qemu-emulated")) throw new Error(`EXECUTION_CLASSIFICATION_INVALID ${platform}`);
-  const tokens = await bootstrapAndPair(secret); const facts = await apiFacts(tokens.controller);
+  const tokens = await bootstrapAndPair(name, secret); const facts = await apiFacts(name, tokens.controller);
   run("docker", ["rm", "-f", name], { quiet: true });
   return { platform, classification, hostArch, containerArch, uid, gid, ...facts };
 }
@@ -74,16 +79,16 @@ export async function runComposeReplacement(compose: string, image: string, work
   const composeArgs = ["compose", "-p", project, "-f", compose];
   await waitForDockerEvent([`label=com.docker.compose.project=${project}`, "event=health_status: healthy"], () => { run("docker", [...composeArgs, "up", "-d"], { env, quiet: true }); });
   const firstID = run("docker", [...composeArgs, "ps", "-q", "jastreamer-server"], { env, quiet: true });
-  const tokens = await bootstrapAndPair(secret);
-  const scan = await httpsJSON("https://127.0.0.1:8443/api/v1/catalog/scans", tokens.admin, "POST", {});
+  const tokens = await bootstrapAndPair(firstID, secret);
+  const scan = containerJSON(firstID, "/api/v1/catalog/scans", tokens.admin, "POST", {});
   if (scan.status !== 202) throw new Error(`CATALOG_SCAN_FAILED ${scan.status}`);
-  const before = await apiFacts(tokens.controller);
-  const beforeCatalog = await httpsJSON("https://127.0.0.1:8443/api/v1/catalog/status", tokens.controller);
+  const before = await apiFacts(firstID, tokens.controller);
+  const beforeCatalog = containerJSON(firstID, "/api/v1/catalog/status", tokens.controller);
   const stateDigest = containerSha256(firstID, "/var/lib/jastreamer/security/state.json");
   const configDigest = sha256(configPath);
   await waitForDockerEvent([`label=com.docker.compose.project=${project}`, "event=health_status: healthy"], () => { run("docker", [...composeArgs, "up", "-d", "--force-recreate"], { env, quiet: true }); });
-  const secondID = run("docker", [...composeArgs, "ps", "-q", "jastreamer-server"], { env, quiet: true }); const after = await apiFacts(tokens.controller);
-  const afterCatalog = await httpsJSON("https://127.0.0.1:8443/api/v1/catalog/status", tokens.controller);
+  const secondID = run("docker", [...composeArgs, "ps", "-q", "jastreamer-server"], { env, quiet: true }); const after = await apiFacts(secondID, tokens.controller);
+  const afterCatalog = containerJSON(secondID, "/api/v1/catalog/status", tokens.controller);
   const hostArch = run("uname", ["-m"], { quiet: true }); const containerArch = run("docker", ["exec", secondID, "uname", "-m"], { quiet: true });
   const classification = canonicalArch(hostArch) === canonicalArch(containerArch) ? "native" : "qemu-emulated";
   const invariant = {

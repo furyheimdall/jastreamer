@@ -18,6 +18,70 @@ export const dockerEventArguments = (
   ...filters.flatMap((value) => ["--filter", value]),
 ];
 
+type ContainerResponse = {
+  readonly status: number;
+  readonly body: Record<string, unknown>;
+  readonly text: string;
+  readonly headers: string;
+};
+
+export const containerRequestArguments = (
+  container: string,
+  path: string,
+  token = "",
+  method = "GET",
+  body?: unknown,
+): readonly string[] => {
+  const args = [
+    "exec",
+    container,
+    "wget",
+    "--no-check-certificate",
+    "-S",
+    "-O",
+    "-",
+    "-T",
+    "10",
+    "--header",
+    "X-Jake-Protocol-Major: 2",
+  ];
+  if (token) args.push("--header", `Authorization: Bearer ${token}`);
+  if (body !== undefined) {
+    if (method !== "POST") throw new Error(`CONTAINER_HTTP_METHOD_UNSUPPORTED ${method}`);
+    args.push("--header", "Content-Type: application/json", "--post-data", JSON.stringify(body));
+  }
+  args.push(`https://127.0.0.1:8443${path}`);
+  return args;
+};
+
+export const parseWgetResponse = (stdout: string, stderr: string): ContainerResponse => {
+  const statuses = [...stderr.matchAll(/HTTP\/\d(?:\.\d)?\s+(\d{3})/g)];
+  const statusValue = statuses.at(-1)?.[1];
+  if (statusValue === undefined) throw new Error(`CONTAINER_HTTP_STATUS_MISSING ${stderr.trim()}`);
+  const text = stdout.trim();
+  let body: Record<string, unknown> = {};
+  try {
+    body = JSON.parse(text) as Record<string, unknown>;
+  } catch {
+    // Non-JSON surfaces such as the pairing portal are validated by the caller.
+  }
+  return { status: Number(statusValue), body, text, headers: stderr };
+};
+
+export const containerJSON = (
+  container: string,
+  path: string,
+  token = "",
+  method = "GET",
+  body?: unknown,
+): ContainerResponse => {
+  const result = spawnSync("docker", containerRequestArguments(container, path, token, method, body), {
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  return parseWgetResponse(result.stdout, result.stderr);
+};
+
 export async function waitForDockerEvent(filters: readonly string[], trigger: () => void, timeoutMs = 90_000): Promise<void> {
   const child = spawn("docker", dockerEventArguments(filters, Math.floor(Date.now() / 1000)), { stdio: ["ignore", "pipe", "pipe"] });
   let settled = false;

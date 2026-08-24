@@ -5,7 +5,7 @@ import { GateError, UsageError, parseArgs, scanContext } from "./args";
 import { classifyDescriptors } from "./oci";
 import { publishAtomically } from "./qa";
 import { cleanupTargets } from "./runtime";
-import { dockerEventArguments } from "./process";
+import { containerRequestArguments, dockerEventArguments, parseWgetResponse } from "./process";
 import type { Descriptor } from "./types";
 
 function rootFixture(): string {
@@ -62,4 +62,35 @@ test("Docker event subscription includes trigger-time history", () => {
     "--filter",
     "event=health_status: healthy",
   ]);
+});
+test("container-local HTTP transport preserves JSON requests and response status", () => {
+  expect(containerRequestArguments("server-id", "/api/v1/bootstrap", "token", "POST", { name: "QA" })).toEqual([
+    "exec",
+    "server-id",
+    "wget",
+    "--no-check-certificate",
+    "-S",
+    "-O",
+    "-",
+    "-T",
+    "10",
+    "--header",
+    "X-Jake-Protocol-Major: 2",
+    "--header",
+    "Authorization: Bearer token",
+    "--header",
+    "Content-Type: application/json",
+    "--post-data",
+    "{\"name\":\"QA\"}",
+    "https://127.0.0.1:8443/api/v1/bootstrap",
+  ]);
+  expect(parseWgetResponse(
+    "{\"status\":\"ready\"}",
+    "  HTTP/1.1 200 OK\n  Content-Type: application/json\n",
+  )).toEqual({
+    status: 200,
+    body: { status: "ready" },
+    text: "{\"status\":\"ready\"}",
+    headers: "  HTTP/1.1 200 OK\n  Content-Type: application/json\n",
+  });
 });
