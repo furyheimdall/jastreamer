@@ -41,5 +41,9 @@ describe("Control release policy", () => {
       workflow.indexOf("actions/upload-artifact", workflow.indexOf("Prove no Windows signing material remains")),
     );
     expect(cleanup).toContain("if (Test-Path dist)");
+    expect(workflow).not.toContain('@"');
+    expect(workflow).not.toContain('"@ | Set-Content');
+    expect(workflow).toContain('$manifest = @(');
+    expect(workflow).toContain(') -join "`n"');
   });
 });
