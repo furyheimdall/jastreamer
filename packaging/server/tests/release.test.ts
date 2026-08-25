@@ -148,6 +148,8 @@ describe("Server release contract", () => {
   test("promotion owns only resources it creates and mounts the staged OCI archive", () => {
     const workflow = readFileSync(new URL("../../../.github/workflows/server-release.yml", import.meta.url), "utf8");
     const promotion = workflow.slice(workflow.indexOf("  promote:"));
+    expect(promotion).toContain("docker context inspect");
+    expect(promotion.indexOf("export DOCKER_HOST=")).toBeLessThan(promotion.indexOf('export DOCKER_CONFIG='));
     expect(promotion).toContain("actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683");
     expect(promotion).toContain('-v "$GITHUB_WORKSPACE/stage:/stage:ro"');
     expect(promotion).toContain("release_created=false");

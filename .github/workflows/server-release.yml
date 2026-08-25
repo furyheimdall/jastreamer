@@ -285,6 +285,9 @@ jobs:
         run: |
           set -euo pipefail
           complete=false; logged_in=false; release_created=false; image_promotion_started=false
+          docker_host=$(docker context inspect "$(docker context show)" --format '{{.Endpoints.docker.Host}}')
+          test -n "$docker_host"
+          export DOCKER_HOST="$docker_host"
           export DOCKER_CONFIG="$RUNNER_TEMP/server-release-docker-auth"
           mkdir -m 0700 "$DOCKER_CONFIG"
           skopeo() {
