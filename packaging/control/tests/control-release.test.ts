@@ -28,4 +28,18 @@ describe("Control release policy", () => {
       "sha256:e33916141978e14e3af996f08feece1a380173a60f6f16a0ecf41b5c42b6363d",
     );
   });
+
+  test("pins a Flutter stable version available on every release platform", () => {
+    const workflow = readFileSync(
+      new URL("../../../.github/workflows/control-release.yml", import.meta.url),
+      "utf8",
+    );
+    expect(workflow.match(/flutter-version: '3\.35\.1'/g)?.length).toBe(4);
+    expect(workflow).not.toContain("flutter-version: '3.35.0'");
+    const cleanup = workflow.slice(
+      workflow.indexOf("Prove no Windows signing material remains"),
+      workflow.indexOf("actions/upload-artifact", workflow.indexOf("Prove no Windows signing material remains")),
+    );
+    expect(cleanup).toContain("if (Test-Path dist)");
+  });
 });
