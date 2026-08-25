@@ -3,7 +3,6 @@
   <Package
     Name="jastreamer Renderer"
     Manufacturer="jastreamer"
-    Platform="x64"
     Version="$(var.ProductVersion)"
     UpgradeCode="7A1C1C18-2E7D-4D2A-9B1D-0AB5F1D2E901">
     <MediaTemplate />

@@ -12,7 +12,9 @@ test("renderer release contract has the required isolated assets", () => {
   expect(config.wix.redistribution).toBe(false);
   expect(config.signing.oidc).toBe(false);
   const wix = readFileSync(`${root}renderer.wxs`, "utf8");
-  expect(wix).toContain('Platform="x64"');
+  const buildMsi = readFileSync(`${root}build-msi.ps1`, "utf8");
+  expect(wix).not.toContain("Platform=");
+  expect(buildMsi).toContain("-arch x64");
 });
 
 test("workflow is protected, pinned, and does not request OIDC", () => {
