@@ -221,18 +221,23 @@ jobs:
             ) -join "`n"
             $manifest | Set-Content "$stage/AppxManifest.xml"
             New-Item dist -ItemType Directory -Force | Out-Null
-            $msix = "dist/jastreamer-control_${version}_windows.msix"
+            $msix = [IO.Path]::GetFullPath("dist/jastreamer-control_${version}_windows.msix")
             & $env:JASTREAMER_MAKEAPPX pack /o /d $stage /p $msix
             & $env:JASTREAMER_SIGNTOOL sign /fd SHA256 /f $pfx /p $env:CONTROL_WINDOWS_PFX_PASSWORD $msix
-            try { Add-AppxPackage $msix -ErrorAction Stop; throw 'MSIX installed before explicit trust' } catch {
-              if ($_.Exception.Message -eq 'MSIX installed before explicit trust') { throw }
-              $_ | Out-File dist/windows-untrusted-install.txt
-            }
+            $quotedMsix = $msix.Replace("'", "''")
+            $installCommand = "Add-AppxPackage -LiteralPath '$quotedMsix' -ErrorAction Stop"
+            $nativeErrorPreference = $PSNativeCommandUseErrorActionPreference
+            $PSNativeCommandUseErrorActionPreference = $false
+            & powershell.exe -NoProfile -NonInteractive -Command $installCommand *> dist/windows-untrusted-install.txt
+            $untrustedExit = $LASTEXITCODE
+            $PSNativeCommandUseErrorActionPreference = $nativeErrorPreference
+            if ($untrustedExit -eq 0) { throw 'MSIX installed before explicit trust' }
             $imported = Import-Certificate -FilePath packaging/control/signing/control-windows.cer -CertStoreLocation Cert:\LocalMachine\TrustedPeople
             $trustedPath = "Cert:\LocalMachine\TrustedPeople\$($imported.Thumbprint)"
             & $env:JASTREAMER_SIGNTOOL verify /pa /v $msix
-            Add-AppxPackage $msix
-            Get-AppxPackage -Name io.jastreamer.control -ErrorAction Stop | Remove-AppxPackage
+            & powershell.exe -NoProfile -NonInteractive -Command $installCommand
+            $removeCommand = "Get-AppxPackage -Name 'io.jastreamer.control' -ErrorAction Stop | Remove-AppxPackage -ErrorAction Stop"
+            & powershell.exe -NoProfile -NonInteractive -Command $removeCommand
             Copy-Item packaging/control/signing/control-windows.cer dist/
             Copy-Item packaging/control/signing/Windows-CERT-SHA256.txt dist/
             Copy-Item packaging/control/trust.md,packaging/control/remove-trust.md dist/

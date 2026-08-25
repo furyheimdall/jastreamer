@@ -53,6 +53,9 @@ describe("Control release policy", () => {
     expect(windows).not.toContain("runs-on: windows-2025");
     expect(windows).toContain("$PSNativeCommandUseErrorActionPreference = $true");
     expect(windows).toContain('Description="jastreamer Control"');
+    expect(windows).toContain("powershell.exe -NoProfile -NonInteractive -Command");
+    expect(windows).toContain("$untrustedExit");
+    expect(windows).not.toContain("try { Add-AppxPackage $msix");
     const android = workflow.slice(
       workflow.indexOf("  android:"),
       workflow.indexOf("  windows:"),
