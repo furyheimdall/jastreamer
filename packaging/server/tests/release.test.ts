@@ -78,6 +78,7 @@ describe("Server release contract", () => {
     const workflow = readFileSync(new URL("../../../.github/workflows/server-release.yml", import.meta.url), "utf8");
     const cleanupStep = workflow.slice(workflow.indexOf("Prove no signing material remains"), workflow.indexOf("actions/upload-artifact", workflow.indexOf("Prove no signing material remains")));
     expect(cleanupStep).toContain("if: always()"); expect(cleanupStep).toContain("TrustedPeople"); expect(cleanupStep).toContain("JASTREAMER_SETUP_SECRET");
+    expect(cleanupStep).toContain("if (Test-Path dist)");
   });
   test("Windows signs embedded inputs before WiX and verifies extracted EXEs", () => {
     const signing = readFileSync(new URL("../sign-windows.ps1", import.meta.url), "utf8");

@@ -142,7 +142,9 @@ jobs:
         shell: pwsh
         run: |
           if (Test-Path "$env:RUNNER_TEMP/jastreamer-server-signing.pfx") { throw 'PFX cleanup failed' }
-          if (Get-ChildItem dist -Recurse -Include *.pfx,*.p12,*.key) { throw 'private signing material in artifact' }
+          if (Test-Path dist) {
+            if (Get-ChildItem dist -Recurse -Include *.pfx,*.p12,*.key) { throw 'private signing material in artifact' }
+          }
           $thumbprint = (Get-PfxCertificate packaging/server/cert/server.cer).Thumbprint
           if (Test-Path "Cert:\LocalMachine\TrustedPeople\$thumbprint") { throw 'TrustedPeople certificate cleanup failed' }
           if (Test-Path 'HKLM:\SYSTEM\CurrentControlSet\Services\jastreamer-server') {

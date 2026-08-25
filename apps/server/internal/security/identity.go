@@ -35,6 +35,12 @@ func LoadOrCreateIdentity(config IdentityConfig) (Identity, error) {
 	if config.Directory == "" {
 		return Identity{}, fmt.Errorf("identity directory is required")
 	}
+	if err := os.MkdirAll(config.Directory, 0o700); err != nil {
+		return Identity{}, fmt.Errorf("create identity directory: %w", err)
+	}
+	if err := secureDirectory(config.Directory); err != nil {
+		return Identity{}, fmt.Errorf("secure identity directory: %w", err)
+	}
 	certificatePath := filepath.Join(config.Directory, "tls-cert.pem")
 	keyPath := filepath.Join(config.Directory, "tls-key.pem")
 	certificatePEM, certErr := os.ReadFile(certificatePath)
@@ -84,9 +90,6 @@ func createIdentity(config IdentityConfig, certificatePath, keyPath string) (Ide
 	}
 	certificatePEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})
 	keyPEM := pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: encodedKey})
-	if err := os.MkdirAll(config.Directory, 0o700); err != nil {
-		return Identity{}, fmt.Errorf("create identity directory: %w", err)
-	}
 	certificateTemporary := certificatePath + ".tmp"
 	keyTemporary := keyPath + ".tmp"
 	defer os.Remove(certificateTemporary)

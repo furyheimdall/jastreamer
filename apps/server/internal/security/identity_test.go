@@ -5,6 +5,7 @@ import (
 	"encoding/pem"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/jastreamer/jastreamer-server/internal/security"
@@ -39,9 +40,11 @@ func TestIdentity_is_stable_nonCA_and_has_SHA256_fingerprint(t *testing.T) {
 	if certificate.IsCA || certificate.Subject.CommonName != "jastreamer Server" {
 		t.Fatalf("certificate identity = CA:%v CN:%q", certificate.IsCA, certificate.Subject.CommonName)
 	}
-	keyInfo, err := os.Stat(filepath.Join(directory, "tls-key.pem"))
-	if err != nil || keyInfo.Mode().Perm() != 0o600 {
-		t.Fatalf("key mode = %v, error = %v", keyInfo.Mode().Perm(), err)
+	if runtime.GOOS != "windows" {
+		keyInfo, statErr := os.Stat(filepath.Join(directory, "tls-key.pem"))
+		if statErr != nil || keyInfo.Mode().Perm() != 0o600 {
+			t.Fatalf("key mode = %v, error = %v", keyInfo.Mode().Perm(), statErr)
+		}
 	}
 }
 

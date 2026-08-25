@@ -35,7 +35,7 @@ func (manager *Manager) persist(state persistedState) error {
 	if err := os.MkdirAll(directoryPath, 0o700); err != nil {
 		return fmt.Errorf("create security directory: %w", err)
 	}
-	if err := os.Chmod(directoryPath, 0o700); err != nil {
+	if err := secureDirectory(directoryPath); err != nil {
 		return fmt.Errorf("secure security directory: %w", err)
 	}
 	temporary := manager.config.StatePath + ".tmp"
