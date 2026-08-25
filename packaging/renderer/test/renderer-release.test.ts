@@ -17,6 +17,7 @@ test("renderer release contract has the required isolated assets", () => {
 
 test("workflow is protected, pinned, and does not request OIDC", () => {
   const workflow = readFileSync(new URL("../../../.github/workflows/renderer-release.yml", import.meta.url), "utf8");
+  const release = readFileSync(`${root}release.ps1`, "utf8");
   expect(workflow).toContain("renderer-v");
   expect(workflow).toContain("RENDERER_WINDOWS_SIGNING_PFX_B64");
   expect(workflow).toContain("permissions:");
@@ -27,4 +28,5 @@ test("workflow is protected, pinned, and does not request OIDC", () => {
   expect(workflow).toContain("windows-msi-inspection.json");
   expect(workflow).toContain("certificate.cer");
   expect(workflow).not.toContain("id-token:");
+  expect(release).toContain("--target-dir target");
 });

@@ -13,7 +13,7 @@ if (!(Test-Path $env:JASTREAMER_RENDERER_PFX_PATH)) {
 }
 
 New-Item -ItemType Directory -Force $Out | Out-Null
-cargo build --manifest-path apps/renderer/Cargo.toml --release --target x86_64-pc-windows-msvc
+cargo build --manifest-path apps/renderer/Cargo.toml --release --target x86_64-pc-windows-msvc --target-dir target
 $executable = "target/x86_64-pc-windows-msvc/release/jastreamer-renderer.exe"
 if (!(Test-Path $executable)) {
   throw "renderer executable was not produced"
