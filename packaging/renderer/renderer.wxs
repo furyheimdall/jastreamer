@@ -5,7 +5,7 @@
     Manufacturer="jastreamer"
     Version="$(var.ProductVersion)"
     UpgradeCode="7A1C1C18-2E7D-4D2A-9B1D-0AB5F1D2E901">
-    <MediaTemplate />
+    <MediaTemplate EmbedCab="yes" />
     <StandardDirectory Id="ProgramFiles64Folder">
       <Directory Id="INSTALLFOLDER" Name="jastreamer-renderer">
         <Component Id="RendererExecutable" Guid="D3FC82E6-A56F-4B20-BCF4-FB6278DE4EB3">

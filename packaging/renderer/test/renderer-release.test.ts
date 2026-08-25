@@ -14,7 +14,9 @@ test("renderer release contract has the required isolated assets", () => {
   const wix = readFileSync(`${root}renderer.wxs`, "utf8");
   const buildMsi = readFileSync(`${root}build-msi.ps1`, "utf8");
   expect(wix).not.toContain("Platform=");
+  expect(wix).toContain('EmbedCab="yes"');
   expect(buildMsi).toContain("-arch x64");
+  expect(buildMsi).toContain("-pdbtype none");
 });
 
 test("workflow is protected, pinned, and does not request OIDC", () => {
