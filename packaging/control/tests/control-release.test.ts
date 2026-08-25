@@ -68,5 +68,7 @@ describe("Control release policy", () => {
     expect(android).toContain("keytool -printcert -jarfile");
     expect(android).toContain("test \"$aab_fingerprint\" = \"$fingerprint\"");
     expect(android).toContain("| grep -q .");
+    expect(android).toContain("api-level: 34");
+    expect(android).not.toContain("api-level: 35");
   });
 });
