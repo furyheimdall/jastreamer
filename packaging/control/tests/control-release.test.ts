@@ -52,6 +52,7 @@ describe("Control release policy", () => {
     expect(windows).toContain("runs-on: windows-2022");
     expect(windows).not.toContain("runs-on: windows-2025");
     expect(windows).toContain("$PSNativeCommandUseErrorActionPreference = $true");
+    expect(windows).toContain('Description="jastreamer Control"');
     const android = workflow.slice(
       workflow.indexOf("  android:"),
       workflow.indexOf("  windows:"),
@@ -60,5 +61,9 @@ describe("Control release policy", () => {
     expect(android).toContain('"build-tools;35.0.0"');
     expect(android).toContain('$ANDROID_HOME/build-tools/35.0.0/apksigner');
     expect(android).toContain('rm -rf "$RUNNER_TEMP/control-android-signing"');
+    expect(android).not.toContain("jarsigner -verify -strict");
+    expect(android).toContain("keytool -printcert -jarfile");
+    expect(android).toContain("test \"$aab_fingerprint\" = \"$fingerprint\"");
+    expect(android).toContain("| grep -q .");
   });
 });

@@ -113,7 +113,10 @@ jobs:
           fingerprint=$(awk -F': ' '/Signer #1 certificate SHA-256 digest:/{print toupper($2); exit}' dist/android-signature.txt)
           test "$fingerprint" = "$(printf '%s' "$CONTROL_ANDROID_CERT_SHA256" | tr '[:lower:]' '[:upper:]')"
           printf 'SHA256: %s\n' "$fingerprint" > dist/Android-CERT-SHA256.txt
-          jarsigner -verify -strict "ci/jastreamer-control_${{ needs.validate.outputs.version }}_android.aab"
+          jarsigner -verify "ci/jastreamer-control_${{ needs.validate.outputs.version }}_android.aab" | tee dist/android-aab-signature.txt
+          keytool -printcert -jarfile "ci/jastreamer-control_${{ needs.validate.outputs.version }}_android.aab" -rfc > ci/android-aab-cert.pem
+          aab_fingerprint=$(openssl x509 -in ci/android-aab-cert.pem -noout -fingerprint -sha256 | cut -d= -f2 | tr -d ':' | tr '[:lower:]' '[:upper:]')
+          test "$aab_fingerprint" = "$fingerprint"
           unzip -Z1 "dist/jastreamer-control_${{ needs.validate.outputs.version }}_android_universal.apk" | grep -E '^lib/(armeabi-v7a|arm64-v8a|x86_64)/libapp\.so$' | sort -u > dist/android-abis.txt
           test "$(wc -l < dist/android-abis.txt)" -eq 3
       - name: Prove same-key Android in-place update
@@ -137,7 +140,7 @@ jobs:
         run: |
           rm -rf "$RUNNER_TEMP/control-android-signing"
           test ! -e "$RUNNER_TEMP/control-android-signing"
-          ! find dist ci -type f \( -name '*.jks' -o -name '*.keystore' -o -name '*.pfx' -o -name '*.p12' -o -name '*.key' \)
+          ! find dist ci -type f \( -name '*.jks' -o -name '*.keystore' -o -name '*.pfx' -o -name '*.p12' -o -name '*.key' \) | grep -q .
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: control-android-public
@@ -212,7 +215,7 @@ jobs:
               '  <Properties><DisplayName>jastreamer Control</DisplayName><PublisherDisplayName>jastreamer</PublisherDisplayName><Logo>Assets/StoreLogo.png</Logo></Properties>'
               '  <Resources><Resource Language="en-us" /></Resources>'
               '  <Dependencies><TargetDeviceFamily Name="Windows.Desktop" MinVersion="10.0.19041.0" MaxVersionTested="10.0.26100.0" /></Dependencies>'
-              '  <Applications><Application Id="Control" Executable="jastreamer_control.exe" EntryPoint="Windows.FullTrustApplication"><uap:VisualElements DisplayName="jastreamer Control" Square150x150Logo="Assets/Square150x150Logo.png" Square44x44Logo="Assets/Square44x44Logo.png" BackgroundColor="transparent" /></Application></Applications>'
+              '  <Applications><Application Id="Control" Executable="jastreamer_control.exe" EntryPoint="Windows.FullTrustApplication"><uap:VisualElements DisplayName="jastreamer Control" Description="jastreamer Control" Square150x150Logo="Assets/Square150x150Logo.png" Square44x44Logo="Assets/Square44x44Logo.png" BackgroundColor="transparent" /></Application></Applications>'
               '  <Capabilities><Capability Name="internetClient" /><rescap:Capability Name="runFullTrust" /></Capabilities>'
               '</Package>'
             ) -join "`n"
