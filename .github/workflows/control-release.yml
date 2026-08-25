@@ -225,7 +225,7 @@ jobs:
             & $env:JASTREAMER_MAKEAPPX pack /o /d $stage /p $msix
             & $env:JASTREAMER_SIGNTOOL sign /fd SHA256 /f $pfx /p $env:CONTROL_WINDOWS_PFX_PASSWORD $msix
             $quotedMsix = $msix.Replace("'", "''")
-            $installCommand = "Add-AppxPackage -LiteralPath '$quotedMsix' -ErrorAction Stop"
+            $installCommand = "Add-AppxPackage -Path '$quotedMsix' -ErrorAction Stop"
             $nativeErrorPreference = $PSNativeCommandUseErrorActionPreference
             $PSNativeCommandUseErrorActionPreference = $false
             & powershell.exe -NoProfile -NonInteractive -Command $installCommand *> dist/windows-untrusted-install.txt
