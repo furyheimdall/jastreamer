@@ -52,5 +52,12 @@ describe("Control release policy", () => {
     expect(windows).toContain("runs-on: windows-2022");
     expect(windows).not.toContain("runs-on: windows-2025");
     expect(windows).toContain("$PSNativeCommandUseErrorActionPreference = $true");
+    const android = workflow.slice(
+      workflow.indexOf("  android:"),
+      workflow.indexOf("  windows:"),
+    );
+    expect(android).toContain('sdkmanager "build-tools;35.0.0"');
+    expect(android).toContain('$ANDROID_HOME/build-tools/35.0.0/apksigner');
+    expect(android).toContain('rm -rf "$RUNNER_TEMP/control-android-signing"');
   });
 });

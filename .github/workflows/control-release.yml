@@ -76,6 +76,10 @@ jobs:
         with: { distribution: temurin, java-version: '21', cache: gradle }
       - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2
         with: { flutter-version: '3.35.1', channel: stable, cache: false }
+      - name: Install exact Android APK verifier
+        run: |
+          sdkmanager "build-tools;35.0.0"
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" version
       - name: Build and verify project-signed universal APK and CI-only AAB
         env:
           CONTROL_ANDROID_JKS_B64: ${{ secrets.CONTROL_ANDROID_JKS_B64 }}
@@ -105,7 +109,7 @@ jobs:
           flutter build appbundle --release --build-name '${{ needs.validate.outputs.version }}' --build-number 1002003
           cp build/app/outputs/bundle/release/app-release.aab "../../ci/jastreamer-control_${{ needs.validate.outputs.version }}_android.aab"
           cd ../..
-          apksigner verify --verbose --print-certs "dist/jastreamer-control_${{ needs.validate.outputs.version }}_android_universal.apk" | tee dist/android-signature.txt
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose --print-certs "dist/jastreamer-control_${{ needs.validate.outputs.version }}_android_universal.apk" | tee dist/android-signature.txt
           fingerprint=$(awk -F': ' '/Signer #1 certificate SHA-256 digest:/{print toupper($2); exit}' dist/android-signature.txt)
           test "$fingerprint" = "$(printf '%s' "$CONTROL_ANDROID_CERT_SHA256" | tr '[:lower:]' '[:upper:]')"
           printf 'SHA256: %s\n' "$fingerprint" > dist/Android-CERT-SHA256.txt
@@ -131,6 +135,7 @@ jobs:
       - name: Prove no Android signing material remains
         if: always()
         run: |
+          rm -rf "$RUNNER_TEMP/control-android-signing"
           test ! -e "$RUNNER_TEMP/control-android-signing"
           ! find dist ci -type f \( -name '*.jks' -o -name '*.keystore' -o -name '*.pfx' -o -name '*.p12' -o -name '*.key' \)
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
