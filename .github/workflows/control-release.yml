@@ -122,9 +122,11 @@ jobs:
       - name: Prove same-key Android in-place update
         uses: reactivecircus/android-emulator-runner@1dcd0090116d15e7c562f8db72807de5e036a4ed
         with:
-          api-level: 34
+          api-level: 29
           arch: x86_64
-          profile: pixel_6
+          profile: pixel_2
+          disable-animations: false
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim
           script: |
             set -euo pipefail
             adb install ci/control-upgrade-v1.apk
