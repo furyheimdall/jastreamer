@@ -76,7 +76,15 @@ describe("Control release policy", () => {
     expect(android).toContain("-no-snapshot");
     expect(android).not.toContain("api-level: 35");
     expect(android).not.toContain("profile: pixel_6");
-    expect(android).toContain("script: |\n            set -eu\n            adb install");
-    expect(android).not.toContain("script: |\n            set -euo pipefail");
+    expect(android).toContain("script: sh packaging/control/test-android-upgrade.sh");
+    expect(android).not.toContain("uid_before=$(adb");
+    const upgradeScript = readFileSync(
+      new URL("../test-android-upgrade.sh", import.meta.url),
+      "utf8",
+    );
+    expect(upgradeScript).toContain("set -eu");
+    expect(upgradeScript).toContain('test -n "$uid_before"');
+    expect(upgradeScript).toContain('test "$uid_before" = "$uid_after"');
+    expect(upgradeScript).toContain('test "$version_after" = 1002003');
   });
 });

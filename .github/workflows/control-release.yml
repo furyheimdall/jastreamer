@@ -127,16 +127,7 @@ jobs:
           profile: pixel_2
           disable-animations: false
           emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim
-          script: |
-            set -eu
-            adb install ci/control-upgrade-v1.apk
-            uid_before=$(adb shell dumpsys package io.jastreamer.control | awk -F= '/userId=/{print $2; exit}' | tr -d '\r')
-            adb install -r "dist/jastreamer-control_${{ needs.validate.outputs.version }}_android_universal.apk"
-            uid_after=$(adb shell dumpsys package io.jastreamer.control | awk -F= '/userId=/{print $2; exit}' | tr -d '\r')
-            version_after=$(adb shell dumpsys package io.jastreamer.control | awk '/versionCode=/{print $1; exit}' | cut -d= -f2 | tr -d '\r')
-            test "$uid_before" = "$uid_after"
-            test "$version_after" = 1002003
-            printf '{"applicationId":"io.jastreamer.control","sameSigningKey":true,"updateAccepted":true,"installedVersionCode":1002003}\n' > dist/android-upgrade-inspection.json
+          script: sh packaging/control/test-android-upgrade.sh ci/control-upgrade-v1.apk "dist/jastreamer-control_${{ needs.validate.outputs.version }}_android_universal.apk" dist/android-upgrade-inspection.json
       - name: Prove no Android signing material remains
         if: always()
         run: |
