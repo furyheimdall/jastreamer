@@ -45,5 +45,12 @@ describe("Control release policy", () => {
     expect(workflow).not.toContain('"@ | Set-Content');
     expect(workflow).toContain('$manifest = @(');
     expect(workflow).toContain(') -join "`n"');
+    const windows = workflow.slice(
+      workflow.indexOf("  windows:"),
+      workflow.indexOf("  stage:"),
+    );
+    expect(windows).toContain("runs-on: windows-2022");
+    expect(windows).not.toContain("runs-on: windows-2025");
+    expect(windows).toContain("$PSNativeCommandUseErrorActionPreference = $true");
   });
 });

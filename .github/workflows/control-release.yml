@@ -151,7 +151,7 @@ jobs:
   windows:
     needs: validate
     if: github.repository == 'furyheimdall/jastreamer'
-    runs-on: windows-2025
+    runs-on: windows-2022
     environment: control-windows-signing
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
@@ -177,6 +177,7 @@ jobs:
           CONTROL_WINDOWS_PFX_PASSWORD: ${{ secrets.CONTROL_WINDOWS_PFX_PASSWORD }}
         run: |
           $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $true
           $version = '${{ needs.validate.outputs.version }}'
           $pfx = Join-Path $env:RUNNER_TEMP 'control-signing.pfx'
           $trustedPath = $null
