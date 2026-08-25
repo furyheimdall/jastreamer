@@ -78,7 +78,7 @@ jobs:
         with: { flutter-version: '3.35.1', channel: stable, cache: false }
       - name: Install exact Android APK verifier
         run: |
-          sdkmanager "build-tools;35.0.0"
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "build-tools;35.0.0"
           "$ANDROID_HOME/build-tools/35.0.0/apksigner" version
       - name: Build and verify project-signed universal APK and CI-only AAB
         env:

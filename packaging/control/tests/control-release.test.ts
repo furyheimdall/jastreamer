@@ -56,7 +56,8 @@ describe("Control release policy", () => {
       workflow.indexOf("  android:"),
       workflow.indexOf("  windows:"),
     );
-    expect(android).toContain('sdkmanager "build-tools;35.0.0"');
+    expect(android).toContain('$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager');
+    expect(android).toContain('"build-tools;35.0.0"');
     expect(android).toContain('$ANDROID_HOME/build-tools/35.0.0/apksigner');
     expect(android).toContain('rm -rf "$RUNNER_TEMP/control-android-signing"');
   });
