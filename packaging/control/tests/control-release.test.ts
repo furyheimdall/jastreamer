@@ -76,5 +76,7 @@ describe("Control release policy", () => {
     expect(android).toContain("-no-snapshot");
     expect(android).not.toContain("api-level: 35");
     expect(android).not.toContain("profile: pixel_6");
+    expect(android).toContain("script: |\n            set -eu\n            adb install");
+    expect(android).not.toContain("script: |\n            set -euo pipefail");
   });
 });
