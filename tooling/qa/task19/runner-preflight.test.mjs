@@ -38,8 +38,11 @@ describe("Task19 self-hosted runner preflight", () => {
   test("requires one authorized Android device without retaining its serial", () => {
     const value = script();
 
-    expect(value).toMatch(/& \$adb\.Source devices -l/);
+    expect(value).toMatch(/& \$AdbPath devices -l/);
     expect(value).toContain("TASK19_ADB_DEVICE_COUNT_INVALID");
+    expect(value).toContain("wait-for-device");
+    expect(value).toContain("WaitForExit(120000)");
+    expect(value).toContain("TASK19_ADB_AUTHORIZATION_TIMEOUT");
     expect(value).toContain("androidDeviceSerialSha256");
     expect(value).toContain("publicationWrites = 0");
     expect(value).toContain("[Security.Cryptography.SHA256]::Create()");

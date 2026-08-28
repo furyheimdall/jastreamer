@@ -20,6 +20,27 @@ function Get-Sha256Hex {
     }
 }
 
+function Get-AdbEntries {
+    param([string]$AdbPath)
+
+    $deviceLines = & $AdbPath devices -l
+    if ($LASTEXITCODE -ne 0) {
+        throw 'TASK19_ADB_ENUMERATION_FAILED'
+    }
+    return @(
+        $deviceLines |
+            Select-Object -Skip 1 |
+            Where-Object { $_ -match '\S' } |
+            ForEach-Object {
+                $fields = $_ -split '\s+'
+                [PSCustomObject]@{
+                    Id = $fields[0]
+                    State = $fields[1]
+                }
+            }
+    )
+}
+
 if ($env:RUNNER_OS -ne 'Windows' -or $env:RUNNER_ARCH -ne 'X64') {
     throw 'TASK19_RUNNER_PLATFORM_INVALID'
 }
@@ -34,28 +55,35 @@ if ($LASTEXITCODE -ne 0) {
     throw 'TASK19_ADB_VERSION_FAILED'
 }
 
-$deviceLines = & $adb.Source devices -l
-if ($LASTEXITCODE -ne 0) {
-    throw 'TASK19_ADB_ENUMERATION_FAILED'
-}
-
-$entries = @(
-    $deviceLines |
-        Select-Object -Skip 1 |
-        Where-Object { $_ -match '\S' } |
-        ForEach-Object {
-            $fields = $_ -split '\s+'
-            [PSCustomObject]@{
-                Id = $fields[0]
-                State = $fields[1]
-            }
-        }
-)
+$entries = @(Get-AdbEntries $adb.Source)
 if ($entries.Count -ne 1) {
     throw 'TASK19_ADB_DEVICE_COUNT_INVALID'
 }
 if ($entries[0].State -ne 'device') {
-    throw "TASK19_ADB_DEVICE_STATE_INVALID:$($entries[0].State)"
+    Write-Output "TASK19_ADB_AUTHORIZATION_REQUIRED:$($entries[0].State)"
+    $waiter = Start-Process -FilePath $adb.Source -ArgumentList 'wait-for-device' -PassThru
+    try {
+        if (!$waiter.WaitForExit(120000)) {
+            throw 'TASK19_ADB_AUTHORIZATION_TIMEOUT'
+        }
+        if ($waiter.ExitCode -ne 0) {
+            throw 'TASK19_ADB_AUTHORIZATION_FAILED'
+        }
+    }
+    finally {
+        if (!$waiter.HasExited) {
+            $waiter.Kill()
+            $waiter.WaitForExit()
+        }
+        $waiter.Dispose()
+    }
+    $entries = @(Get-AdbEntries $adb.Source)
+    if ($entries.Count -ne 1) {
+        throw 'TASK19_ADB_DEVICE_COUNT_INVALID'
+    }
+    if ($entries[0].State -ne 'device') {
+        throw "TASK19_ADB_DEVICE_STATE_INVALID:$($entries[0].State)"
+    }
 }
 
 $deviceId = $entries[0].Id
