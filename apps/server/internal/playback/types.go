@@ -6,25 +6,26 @@ import (
 	"github.com/jastreamer/jastreamer-server/internal/curation/ranking"
 )
 
-const CurrentSchemaVersion = 3
+const CurrentSchemaVersion = 7
 
 var (
-	ErrClosed              = errors.New("playback: store closed")
-	ErrIdempotencyConflict = errors.New("playback: idempotency key reused with different request")
-	ErrRevisionConflict    = errors.New("playback: stale revision")
-	ErrSchemaTooNew        = errors.New("playback: database schema is newer than this binary")
-	ErrCorruptDatabase     = errors.New("playback: database integrity check failed")
-	ErrUnsafeWAL           = errors.New("playback: SQLite WAL build lacks required fix")
-	ErrInvalidObservation  = errors.New("playback: renderer observation is inconsistent")
-	ErrInvalidTransition   = errors.New("playback: invalid transport transition")
-	ErrBoundaryConflict    = errors.New("playback: boundary identity reused with different previous play")
-	ErrNonLocalDatabase    = errors.New("playback: database path must be a local filesystem path")
-	ErrInvalidRequest      = errors.New("playback: invalid request")
-	ErrQueueLimit          = errors.New("playback: enqueue exceeds 10,000 entries")
-	ErrAutomaticPreempted  = errors.New("playback: automatic preview was preempted by explicit queue")
-	ErrAutomaticConflict   = errors.New("playback: automatic boundary reused with different input")
-	ErrInvalidPolicy       = errors.New("playback: continuation policy must be stop, album, or similar")
-	ErrStartFailure        = errors.New("playback: start failure does not match the active decision")
+	ErrClosed               = errors.New("playback: store closed")
+	ErrIdempotencyConflict  = errors.New("playback: idempotency key reused with different request")
+	ErrRevisionConflict     = errors.New("playback: stale revision")
+	ErrSchemaTooNew         = errors.New("playback: database schema is newer than this binary")
+	ErrCorruptDatabase      = errors.New("playback: database integrity check failed")
+	ErrUnsafeWAL            = errors.New("playback: SQLite WAL build lacks required fix")
+	ErrInvalidObservation   = errors.New("playback: renderer observation is inconsistent")
+	ErrInvalidTransition    = errors.New("playback: invalid transport transition")
+	ErrBoundaryConflict     = errors.New("playback: boundary identity reused with different previous play")
+	ErrNonLocalDatabase     = errors.New("playback: database path must be a local filesystem path")
+	ErrInvalidRequest       = errors.New("playback: invalid request")
+	ErrQueueLimit           = errors.New("playback: enqueue exceeds 10,000 entries")
+	ErrAutomaticPreempted   = errors.New("playback: automatic preview was preempted by explicit queue")
+	ErrAutomaticConflict    = errors.New("playback: automatic boundary reused with different input")
+	ErrInvalidPolicy        = errors.New("playback: continuation policy must be stop, album, or similar")
+	ErrStartFailure         = errors.New("playback: start failure does not match the active decision")
+	ErrPlaybackHistoryEmpty = errors.New("playback: no prior playback history")
 )
 
 type (
@@ -100,15 +101,6 @@ const (
 	JournalWAL      JournalMode = "wal"
 )
 
-type Config struct {
-	Path            string
-	MigrationPath   string
-	ExpansionPath   string
-	BackupDirectory string
-	SupportedSchema int
-	JournalMode     JournalMode
-}
-
 type QueueTrack struct {
 	ID        TrackID
 	Available bool
@@ -124,6 +116,7 @@ type EnqueueRequest struct {
 type EnqueueResult struct {
 	Revision Revision
 	EntryIDs []QueueEntryID
+	Replayed bool
 }
 
 type AvailabilityRequest struct {
@@ -189,6 +182,16 @@ type ReconcileResult struct {
 
 type migrationHook func(version int) error
 
+type migrationCutpoint string
+
+const (
+	migrationAfterBackup  migrationCutpoint = "after-backup"
+	migrationAfterExpand  migrationCutpoint = "after-expand"
+	migrationBeforeCommit migrationCutpoint = "before-commit"
+)
+
+type migrationCutpointHook func(migrationCutpoint) error
+
 type RestoreRequest struct {
 	BackupPath      string
 	TargetPath      string
@@ -221,7 +224,8 @@ type zoneDecisionUpdate struct {
 	transport Transport
 }
 type migrationRun struct {
-	db     *sqliteDB
-	config Config
-	hook   migrationHook
+	db       *sqliteDB
+	config   Config
+	hook     migrationHook
+	cutpoint migrationCutpointHook
 }

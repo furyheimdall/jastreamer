@@ -15,14 +15,13 @@ func (service *server) discovery(writer http.ResponseWriter, request *http.Reque
 	if _, ok := service.authenticate(writer, request); !ok {
 		return
 	}
-	majors, err := compatibility.ParseMajorHeader(request.Header.Get("X-Jake-Protocol-Major"))
+	majors, err := compatibility.ParseMajorHeader(request.Header.Get(compatibility.SupportedMajorsHeader))
 	if err != nil {
-		var requestError *compatibility.RequestError
-		if errors.As(err, &requestError) {
-			writeJSON(writer, requestError.HTTPStatus, requestError)
-			return
-		}
-		writeError(writer, err)
+		writeJSON(writer, http.StatusUpgradeRequired, &compatibility.ProtocolError{
+			HTTPStatus: http.StatusUpgradeRequired,
+			Code:       "UNSUPPORTED_PROTOCOL_MAJOR",
+			Message:    "supported protocol majors header is malformed",
+		})
 		return
 	}
 	session, err := compatibility.Negotiate(majors)
@@ -36,15 +35,13 @@ func (service *server) discovery(writer http.ResponseWriter, request *http.Reque
 		return
 	}
 	snapshot := service.catalogSnapshot(request.Context())
-	writer.Header().Set("X-Jake-Protocol-Major", session.Major().String())
+	writer.Header().Set(compatibility.SupportedMajorsHeader, compatibility.FormatMajorHeader(compatibility.SupportedMajors()))
+	writer.Header().Set(compatibility.SelectedMajorHeader, session.Major().String())
 	writeJSON(writer, http.StatusOK, map[string]any{
 		"product_version": service.config.ProductVersion, "source_revision": service.config.SourceRevision,
 		"protocol_major": session.Major(), "supported_protocol_majors": compatibility.SupportedMajors(),
-		"capabilities": []string{
-			"catalog-status", "queue", "continuation-policy", "automatic-preview",
-			"decision-explanation", "wss-state", "renderer-play", "renderer-stop",
-		},
-		"pairing_url": "/pair/", "certificate_sha256": service.config.CertificateFingerprint,
+		"capabilities": session.Capabilities(),
+		"pairing_url":  "/pair/", "certificate_sha256": service.config.CertificateFingerprint,
 		"contract_revision": contractRevision, "algorithm_revision": ranking.AlgorithmVersion,
 		"analysis_revision": analysis.CurrentSchemaVersion, "catalog_revision": snapshot.Revision,
 	})
@@ -104,6 +101,9 @@ func (service *server) scanCatalog(writer http.ResponseWriter, request *http.Req
 }
 
 func (service *server) catalogSnapshot(ctx context.Context) catalog.Snapshot {
+	if service.config.CatalogSnapshot != nil {
+		return service.config.CatalogSnapshot(ctx)
+	}
 	service.catalogMu.RLock()
 	cached := service.catalog
 	service.catalogMu.RUnlock()

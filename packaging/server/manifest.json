@@ -6,6 +6,20 @@
   "license": "Apache-2.0",
   "tag_pattern": "server-v<major>.<minor>.<patch>",
   "floating_tags": false,
+  "operational_capabilities": {
+    "admin_config": "/api/v1/config",
+    "secure_pairing": "/api/v1/pairing-codes",
+    "catalog_browse": "/api/v1/catalog/tracks",
+    "original_media": "original-first",
+    "l16_transcode": "external-ffmpeg-pcm-s16be",
+    "l16_sink_selection": "renderer-protocol-info",
+    "k17_scope": "FiiO K17 V261+",
+    "synology_compose": "deploy/docker/server/compose.synology.yaml",
+    "synology_backup_restore": "data-and-config-bind-mounts",
+    "windows_service": "jastreamer-server",
+    "publication_guard": "default-deny",
+    "promotion_gate": "signed-product-promotion-gate-v1"
+  },
   "native_artifacts": [
     "jastreamer-server_<version>_windows_amd64.exe",
     "jastreamer-server_<version>_windows_amd64.msi",

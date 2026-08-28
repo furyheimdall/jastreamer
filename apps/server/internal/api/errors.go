@@ -42,12 +42,42 @@ func mapError(err error) apiError {
 		return apiError{http.StatusTooManyRequests, "PAIRING_RATE_LIMITED", "too many invalid pairing attempts"}
 	case errors.Is(err, security.ErrDeviceNotFound):
 		return apiError{http.StatusNotFound, "NOT_FOUND", "device was not found"}
-	case errors.Is(err, security.ErrInvalidRegistration):
-		return apiError{http.StatusBadRequest, "INVALID_REQUEST", "device name is invalid"}
+	case errors.Is(err, security.ErrInvalidRegistration), errors.Is(err, security.ErrInvalidRole):
+		return apiError{http.StatusBadRequest, "INVALID_REQUEST", "device registration is invalid"}
+	case errors.Is(err, security.ErrLastAdmin):
+		return apiError{http.StatusConflict, "LAST_ADMIN", "the last active administrator cannot be revoked"}
+	case errors.Is(err, security.ErrRendererOperationPending), errors.Is(err, security.ErrRendererStoreUnavailable):
+		return apiError{http.StatusServiceUnavailable, "RENDERER_OPERATION_PENDING", "renderer operation is pending recovery"}
+	case errors.Is(err, playback.ErrZoneActive):
+		return apiError{http.StatusConflict, "ZONE_ACTIVE", "an active zone cannot be reassigned"}
+	case errors.Is(err, playback.ErrRendererAssigned):
+		return apiError{http.StatusConflict, "RENDERER_ASSIGNED", "renderer is already assigned to another zone"}
+	case errors.Is(err, playback.ErrRendererNotFound), errors.Is(err, playback.ErrZoneNotFound):
+		return apiError{http.StatusNotFound, "NOT_FOUND", "renderer or zone was not found"}
+	case errors.Is(err, playback.ErrInvalidRenderer), errors.Is(err, playback.ErrInvalidZone):
+		return apiError{http.StatusBadRequest, "INVALID_REQUEST", "renderer or zone is invalid"}
 	case errors.Is(err, playback.ErrRevisionConflict):
 		return apiError{http.StatusConflict, "STALE_REVISION", "queue revision is stale"}
 	case errors.Is(err, playback.ErrIdempotencyConflict):
 		return apiError{http.StatusConflict, "IDEMPOTENCY_CONFLICT", "idempotency key was reused for a different request"}
+	case errors.Is(err, playback.ErrQueueEntryNotFound):
+		return apiError{http.StatusNotFound, "QUEUE_ENTRY_NOT_FOUND", "queue entry was not found"}
+	case errors.Is(err, playback.ErrQueueEntryActive):
+		return apiError{http.StatusConflict, "QUEUE_ENTRY_ACTIVE", "active queue entry cannot be changed"}
+	case errors.Is(err, playback.ErrQueueHeadState), errors.Is(err, playback.ErrInvalidTransition):
+		return apiError{http.StatusConflict, "INVALID_STATE", "operation is not valid in the current state"}
+	case errors.Is(err, playback.ErrRendererOffline), errors.Is(err, playback.ErrRendererRequired):
+		return apiError{http.StatusConflict, "RENDERER_OFFLINE", "an assigned online renderer is required"}
+	case errors.Is(err, playback.ErrUnsupportedCapability):
+		return apiError{http.StatusConflict, "UNSUPPORTED_CAPABILITY", "renderer does not support this command"}
+	case errors.Is(err, playback.ErrQueueEmpty):
+		return apiError{http.StatusConflict, "QUEUE_EMPTY", "queue is empty"}
+	case errors.Is(err, playback.ErrPlaybackHistoryEmpty):
+		return apiError{http.StatusConflict, "PLAYBACK_HISTORY_EMPTY", "no prior playback history is available"}
+	case errors.Is(err, playback.ErrQueueBlocked):
+		return apiError{http.StatusConflict, "BLOCKED_EXPLICIT_HEAD", "explicit queue head is unavailable"}
+	case errors.Is(err, playback.ErrInvalidRequest), errors.Is(err, playback.ErrQueueLimit):
+		return apiError{http.StatusBadRequest, "INVALID_REQUEST", "queue mutation is invalid"}
 	default:
 		return apiError{http.StatusInternalServerError, "INTERNAL", "internal server error"}
 	}

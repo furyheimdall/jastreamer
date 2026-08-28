@@ -12,6 +12,7 @@ import (
 
 type Scanner struct {
 	root   string
+	rootID RootID
 	reader SnapshotReader
 }
 
@@ -47,7 +48,7 @@ func NewScannerWithReader(root string, reader SnapshotReader) (*Scanner, error) 
 	if reader == nil {
 		return nil, errors.New("catalog: nil snapshot reader")
 	}
-	return &Scanner{root: canonical, reader: reader}, nil
+	return &Scanner{root: canonical, rootID: RootID(hashID("logical-root", canonical)), reader: reader}, nil
 }
 
 func (s *Scanner) Scan(ctx context.Context, previous Snapshot) (ScanResult, error) {
@@ -137,7 +138,7 @@ func (s *Scanner) Scan(ctx context.Context, previous Snapshot) (ScanResult, erro
 			status = prior.AnalysisStatus
 		}
 		track := Track{
-			FileID: ids.FileID, TrackID: ids.TrackID, RecordingID: ids.RecordingID, AlbumID: ids.AlbumID,
+			RootID: s.rootID, FileID: ids.FileID, TrackID: ids.TrackID, RecordingID: ids.RecordingID, AlbumID: ids.AlbumID,
 			RelativePath: filepathSlash(relative), Format: media.Format, Fingerprint: media.ContentFingerprint,
 			AudioFingerprint: media.AudioFingerprint, FileVersion: after, Metadata: media.Metadata,
 			Order: NewOrderKey(media.Metadata, relative, ids.TrackID), Available: true, Generation: generation,

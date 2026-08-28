@@ -82,6 +82,8 @@ func cloneState(state persistedState) persistedState {
 	maps.Copy(cloned.Codes, state.Codes)
 	cloned.Failures = make(map[string]failures, len(state.Failures))
 	maps.Copy(cloned.Failures, state.Failures)
+	cloned.RendererOperations = make(map[string]storedRendererOperation, len(state.RendererOperations))
+	maps.Copy(cloned.RendererOperations, state.RendererOperations)
 	return cloned
 }
 
@@ -94,6 +96,9 @@ func (manager *Manager) ensureMaps() {
 	}
 	if manager.state.Failures == nil {
 		manager.state.Failures = map[string]failures{}
+	}
+	if manager.state.RendererOperations == nil {
+		manager.state.RendererOperations = map[string]storedRendererOperation{}
 	}
 }
 

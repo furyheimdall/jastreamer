@@ -21,11 +21,12 @@ type apiClock struct{ now time.Time }
 func (clock *apiClock) Now() time.Time { return clock.now }
 
 type fixture struct {
-	handler http.Handler
-	manager *security.Manager
-	admin   security.Credential
-	store   *playback.Store
-	catalog *catalog.Snapshot
+	handler        http.Handler
+	manager        *security.Manager
+	admin          security.Credential
+	store          *playback.Store
+	playbackConfig playback.Config
+	catalog        *catalog.Snapshot
 }
 
 func newFixture(t *testing.T) fixture {
@@ -40,12 +41,13 @@ func newFixture(t *testing.T) fixture {
 		t.Fatalf("bootstrap: %v", err)
 	}
 	directory := t.TempDir()
-	store, err := playback.Open(context.Background(), playback.Config{
+	playbackConfig := playback.Config{
 		Path: filepath.Join(directory, "playback.sqlite"), MigrationPath: "../../migrations/002_playback.sql",
 		ExpansionPath: "../../migrations/003_todo12.sql", BackupDirectory: filepath.Join(directory, "backups"),
 		SupportedSchema: playback.CurrentSchemaVersion,
 		JournalMode:     playback.JournalRollback,
-	})
+	}
+	store, err := playback.Open(context.Background(), playbackConfig)
 	if err != nil {
 		t.Fatalf("playback: %v", err)
 	}
@@ -64,7 +66,10 @@ func newFixture(t *testing.T) fixture {
 			return previous, nil
 		},
 	})
-	return fixture{handler: handler, manager: manager, admin: admin, store: store, catalog: &snapshot}
+	return fixture{
+		handler: handler, manager: manager, admin: admin, store: store,
+		playbackConfig: playbackConfig, catalog: &snapshot,
+	}
 }
 
 func request(t *testing.T, handler http.Handler, method, path, token, body string, headers map[string]string) *httptest.ResponseRecorder {
@@ -106,6 +111,18 @@ func pairController(t *testing.T, value fixture) security.Credential {
 		t.Fatalf("pair: %v", err)
 	}
 	return credential
+}
+
+func issueEventTicket(t *testing.T, value fixture, token string) string {
+	t.Helper()
+	response := request(t, value.handler, http.MethodPost, "/api/v1/event-tickets", token, "", nil)
+	var body struct {
+		Ticket string `json:"ticket"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil || response.Code != http.StatusCreated {
+		t.Fatalf("issue event ticket = %d %s (%v)", response.Code, response.Body.String(), err)
+	}
+	return body.Ticket
 }
 
 func TestHealth_and_identity_are_public_but_discovery_requires_supported_authenticated_protocol(t *testing.T) {
@@ -250,7 +267,8 @@ func TestStateStream_requires_websocket_upgrade(t *testing.T) {
 	controller := pairController(t, value)
 
 	// When
-	response := request(t, value.handler, http.MethodGet, "/api/v1/events", controller.Token, "", nil)
+	ticket := issueEventTicket(t, value, controller.Token)
+	response := request(t, value.handler, http.MethodGet, "/api/v1/events?ticket="+ticket, "", "", nil)
 
 	// Then
 	if response.Code != http.StatusUpgradeRequired || responseCode(t, response) != "WEBSOCKET_UPGRADE_REQUIRED" {

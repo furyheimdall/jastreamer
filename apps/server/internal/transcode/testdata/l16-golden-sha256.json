@@ -1,0 +1,18 @@
+{
+  "schema_version": 1,
+  "ffmpeg_reference_version": "6.1.1",
+  "output": {
+    "media_type": "audio/L16",
+    "sample_rate_hz": 44100,
+    "channels": 2,
+    "bits_per_sample": 16,
+    "byte_order": "big_endian"
+  },
+  "sha256": {
+    "flac": "14139ebc20b17d5aedd7e1fb8a000dee723172a871f736e39723628e3df323ce",
+    "mp3": "a66896688fe29a32446de27f65de76858473e6e6289dcfaeaa7eb6148ada350f",
+    "ogg": "c250063f2e71df47b82078f05e5c0c8ce76fd74f2abb38211c5f78d761bd2727",
+    "opus": "b9cc9564fbf701df671cb5748681f00d1e1f94918b5ee071c9d8cb64885cd39b",
+    "wav": "14139ebc20b17d5aedd7e1fb8a000dee723172a871f736e39723628e3df323ce"
+  }
+}

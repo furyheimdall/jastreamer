@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/jastreamer/jastreamer-server/internal/security"
 )
 
 type serverConfig struct {
@@ -77,7 +79,13 @@ func loadConfig(args []string) (serverConfig, error) {
 	}
 	setupSecret := os.Getenv("JASTREAMER_SETUP_SECRET")
 	if setupSecret == "" {
-		return serverConfig{}, fmt.Errorf("JASTREAMER_SETUP_SECRET is required until first-admin recovery is configured")
+		bootstrapped, err := security.BootstrapComplete(filepath.Join(dataDirectory, "security", "state.json"))
+		if err != nil {
+			return serverConfig{}, err
+		}
+		if !bootstrapped {
+			return serverConfig{}, fmt.Errorf("JASTREAMER_SETUP_SECRET is required until first administrator bootstrap completes")
+		}
 	}
 	pairingTTL, err := time.ParseDuration(envOr("JASTREAMER_PAIRING_TTL", configured.PairingTTL))
 	if err != nil || pairingTTL <= 0 {

@@ -11,6 +11,7 @@ import (
 type Store struct {
 	mu         sync.Mutex
 	db         *sqliteDB
+	clock      Clock
 	commitHook func(commitStage) error
 	closed     bool
 	version    int
@@ -47,7 +48,15 @@ func Open(ctx context.Context, config Config) (*Store, error) {
 	if err := db.exec(journal); err != nil {
 		return nil, errors.Join(err, db.close())
 	}
-	return &Store{db: db, version: version}, nil
+	clock := config.Clock
+	if clock == nil {
+		clock = playbackClock{}
+	}
+	store := &Store{db: db, clock: clock, version: version}
+	if err := store.recoverRendererSessions(ctx); err != nil {
+		return nil, errors.Join(err, db.close())
+	}
+	return store, nil
 }
 
 func validateJournalVersion(mode JournalMode, version int) error {

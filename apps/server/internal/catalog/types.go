@@ -60,6 +60,7 @@ type OrderKey struct {
 }
 
 type Track struct {
+	RootID              RootID
 	FileID              FileID
 	TrackID             TrackID
 	RecordingID         RecordingID

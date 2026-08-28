@@ -1,11 +1,33 @@
 package main
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
+
+func TestMainExitCode_helpReturnsSuccess(t *testing.T) {
+	// Given
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+
+	// When
+	code := mainExitCode([]string{"--help"}, &stdout, &stderr)
+
+	// Then
+	if code != 0 {
+		t.Fatalf("exit code = %d stderr=%q", code, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "Usage: jastreamer-server") {
+		t.Fatalf("stdout = %q", stdout.String())
+	}
+	if stderr.Len() != 0 {
+		t.Fatalf("stderr = %q", stderr.String())
+	}
+}
 
 func TestLoadConfig_requires_installer_setup_secret(t *testing.T) {
 	// Given

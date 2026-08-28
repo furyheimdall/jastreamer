@@ -35,6 +35,7 @@ func (store *Store) Enqueue(ctx context.Context, request EnqueueRequest) (Enqueu
 		}
 		if replayed {
 			result = replay
+			result.Replayed = true
 			return nil
 		}
 		zone, err := loadZone(db, request.ZoneID)

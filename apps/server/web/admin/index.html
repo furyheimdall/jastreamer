@@ -1,0 +1,241 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Authenticated local administration for jastreamer Server.">
+  <meta name="color-scheme" content="light dark">
+  <title>Server administration | jastreamer</title>
+  <link rel="stylesheet" href="style.css">
+  <script type="module" src="app.js"></script>
+</head>
+<body>
+  <a class="skip-link" href="#main-content">Skip to administration</a>
+
+  <main id="login-panel" class="session-page">
+    <section class="session-card stack" aria-labelledby="login-title">
+      <div class="stack compact">
+        <p class="product">jastreamer Server</p>
+        <h1>Server administration</h1>
+        <p>Manage this Server with an administrator device token. First-time setup stays in the separate <a href="/pair/">pairing portal</a>.</p>
+      </div>
+      <form id="login-form" class="stack" aria-describedby="login-guidance login-error">
+        <div class="stack compact">
+          <h2 id="login-title">Administrator session</h2>
+          <p id="login-guidance">The token remains only in this browser tab and is cleared when the session ends.</p>
+        </div>
+        <label for="admin-token">Administrator token</label>
+        <input id="admin-token" name="token" type="password" autocomplete="off" spellcheck="false" required>
+        <button type="submit">Open administration</button>
+        <output id="login-error" class="message error" aria-live="assertive" tabindex="-1"></output>
+      </form>
+    </section>
+  </main>
+
+  <div id="admin-shell" class="app-shell" hidden>
+    <aside class="rail" aria-label="Administration navigation">
+      <div class="rail-heading stack compact">
+        <p class="product">jastreamer Server</p>
+        <strong id="server-name">Administration</strong>
+        <span class="status" id="session-status">Authenticated</span>
+      </div>
+      <nav class="section-nav" aria-label="Settings sections">
+        <a id="nav-settings" href="#settings" aria-current="location">Settings</a>
+        <a id="nav-catalog" href="#catalog">Catalog</a>
+        <a id="nav-renderers" href="#renderers">Renderers</a>
+        <a id="nav-devices" href="#devices">Devices</a>
+      </nav>
+      <button id="end-session" class="secondary rail-action" type="button">End session</button>
+    </aside>
+
+    <main id="main-content" class="admin-main" tabindex="-1">
+      <header class="page-heading stack compact">
+        <p class="product">Local operations</p>
+        <h1>Server administration</h1>
+        <p>Configuration, catalog indexing, Renderer assignment, and trusted-device access in one authenticated surface.</p>
+      </header>
+
+      <section id="restart-banner" class="banner warning" aria-labelledby="restart-title" tabindex="-1" hidden>
+        <div>
+          <h2 id="restart-title">Restart required</h2>
+          <p>Saved changes are staged. Restart the Server process to apply: <span id="restart-fields"></span>.</p>
+        </div>
+      </section>
+
+      <section id="conflict-panel" class="banner conflict" aria-labelledby="conflict-title" tabindex="-1" hidden>
+        <div class="stack compact">
+          <h2 id="conflict-title">Settings changed elsewhere</h2>
+          <p>Your edits are still in the form. Refresh the current revision and reapply them before saving.</p>
+        </div>
+        <button id="refresh-reapply" type="button">Refresh and reapply</button>
+      </section>
+
+      <section id="settings" class="section stack" aria-labelledby="settings-title">
+        <div class="section-heading stack compact">
+          <h2 id="settings-title">Settings</h2>
+          <p>Editable values are revisioned. Runtime identity and environment overrides remain read only.</p>
+        </div>
+        <form id="settings-form" class="stack" novalidate>
+          <fieldset class="panel stack">
+            <legend>Server identity and access</legend>
+            <div class="form-grid">
+              <div class="field stack compact">
+                <label for="display-name">Server display name</label>
+                <input id="display-name" name="display_name" maxlength="80" required>
+                <small>Shown to paired Controls and administrators.</small>
+              </div>
+              <div class="field stack compact">
+                <label for="pairing-ttl">Pairing TTL in seconds</label>
+                <input id="pairing-ttl" name="pairing_ttl_seconds" type="number" min="60" max="3600" inputmode="numeric" required>
+                <small>Accepted range: 60 to 3600 seconds.</small>
+              </div>
+            </div>
+            <div class="field stack compact">
+              <label for="control-origins">Exact Control origins</label>
+              <textarea id="control-origins" name="control_origins" rows="3" spellcheck="false" placeholder="https://control.example"></textarea>
+              <small>One exact HTTPS origin per line. Wildcards are rejected.</small>
+            </div>
+          </fieldset>
+
+          <fieldset class="panel stack">
+            <legend>Renderer and audio</legend>
+            <div class="form-grid">
+              <div class="field stack compact">
+                <label for="upnp-interfaces">UPnP interfaces</label>
+                <textarea id="upnp-interfaces" name="upnp_interfaces" rows="3" spellcheck="false"></textarea>
+                <small>One selected interface per line; blank uses no explicit selection.</small>
+              </div>
+              <div class="field stack compact">
+                <label for="ffmpeg-path">FFmpeg absolute path</label>
+                <input id="ffmpeg-path" name="ffmpeg_path" spellcheck="false">
+                <small>PCM fallback remains unavailable when this is blank.</small>
+              </div>
+            </div>
+            <label class="check-row" for="k17-http-enabled">
+              <input id="k17-http-enabled" name="k17_http_enabled" type="checkbox">
+              <span>Enable K17 media-only HTTP compatibility</span>
+            </label>
+            <div class="field stack compact">
+              <label for="k17-listener-address">K17 compatibility listener address</label>
+              <input id="k17-listener-address" name="k17_listener_address" spellcheck="false">
+              <small>This does not change the Server TLS listener.</small>
+            </div>
+          </fieldset>
+
+          <fieldset class="panel stack read-only-group">
+            <legend>Runtime identity <span class="status">Read only</span></legend>
+            <div class="form-grid">
+              <div class="field stack compact">
+                <label for="listen-address">Listen address</label>
+                <input id="listen-address" readonly disabled>
+              </div>
+              <div class="field stack compact">
+                <label for="certificate-fingerprint">Certificate fingerprint</label>
+                <input id="certificate-fingerprint" class="mono" readonly disabled>
+              </div>
+              <div class="field stack compact">
+                <label for="certificate-sans">Certificate SANs</label>
+                <textarea id="certificate-sans" rows="3" readonly disabled></textarea>
+              </div>
+              <div class="field stack compact">
+                <label for="data-directory">Data directory</label>
+                <input id="data-directory" readonly disabled>
+              </div>
+            </div>
+            <p id="locked-fields" class="message"></p>
+          </fieldset>
+
+          <div class="action-row">
+            <button id="save-settings" type="submit">Save settings</button>
+            <button id="reset-settings" class="secondary" type="button">Discard edits</button>
+            <output id="settings-message" class="message" aria-live="polite"></output>
+          </div>
+        </form>
+      </section>
+
+      <section id="catalog" class="section stack" aria-labelledby="catalog-title">
+        <div class="section-heading stack compact">
+          <h2 id="catalog-title">Catalog roots and jobs</h2>
+          <p>Add directories beneath an allowed base, then start and inspect asynchronous scans.</p>
+        </div>
+        <form id="root-form" class="panel form-grid" aria-describedby="root-message">
+          <div class="field stack compact">
+            <label for="root-name">Catalog root name</label>
+            <input id="root-name" name="display_name" maxlength="80" required>
+          </div>
+          <div class="field stack compact">
+            <label for="root-path">Catalog root path</label>
+            <input id="root-path" name="path" spellcheck="false" required>
+          </div>
+          <div class="action-row form-grid-action">
+            <button type="submit">Add root</button>
+            <output id="root-message" class="message" aria-live="polite"></output>
+          </div>
+        </form>
+        <div class="content-grid">
+          <article class="panel stack" aria-labelledby="roots-title">
+            <div class="subheading-row">
+              <h3 id="roots-title">Roots</h3>
+              <button id="refresh-roots" class="secondary compact-button" type="button">Refresh roots</button>
+            </div>
+            <ul id="catalog-roots" class="inventory-list" aria-live="polite"></ul>
+          </article>
+          <article class="panel stack" aria-labelledby="jobs-title">
+            <div class="subheading-row">
+              <h3 id="jobs-title">Jobs from this session</h3>
+              <button id="refresh-jobs" class="secondary compact-button" type="button">Refresh jobs</button>
+            </div>
+            <ul id="scan-jobs" class="inventory-list" aria-live="polite"></ul>
+          </article>
+        </div>
+      </section>
+
+      <section id="renderers" class="section stack" aria-labelledby="renderers-title">
+        <div class="section-heading stack compact">
+          <h2 id="renderers-title">Renderers and audio paths</h2>
+          <p>Inspect observed Renderer state and assign one available Renderer to each zone.</p>
+        </div>
+        <div class="status-grid">
+          <article class="metric" id="upnp-status" aria-labelledby="upnp-title">
+            <h3 id="upnp-title">UPnP</h3>
+            <strong id="upnp-value">Loading</strong>
+            <p id="upnp-detail">Reading configured interfaces and K17 inventory.</p>
+          </article>
+          <article class="metric" id="pcm-status" aria-labelledby="pcm-title">
+            <h3 id="pcm-title">PCM fallback</h3>
+            <strong id="pcm-value">Loading</strong>
+            <p id="pcm-detail">Reading the configured FFmpeg path.</p>
+          </article>
+        </div>
+        <output id="renderer-message" class="message" aria-live="polite"></output>
+        <div class="content-grid">
+          <article class="panel stack" aria-labelledby="inventory-title">
+            <h3 id="inventory-title">Renderer inventory</h3>
+            <ul id="renderer-inventory" class="inventory-list" aria-live="polite"></ul>
+          </article>
+          <article class="panel stack" aria-labelledby="zones-title">
+            <div class="subheading-row">
+              <h3 id="zones-title">Zone assignments</h3>
+              <button id="refresh-renderers" class="secondary compact-button" type="button">Refresh</button>
+            </div>
+            <ul id="zones-list" class="inventory-list" aria-live="polite"></ul>
+          </article>
+        </div>
+      </section>
+
+      <section id="devices" class="section stack" aria-labelledby="devices-title">
+        <div class="section-heading split-heading">
+          <div class="stack compact">
+            <h2 id="devices-title">Trusted devices</h2>
+            <p>Revocation takes effect on the device's next request and ends an active session immediately.</p>
+          </div>
+          <button id="refresh-devices" class="secondary" type="button">Refresh devices</button>
+        </div>
+        <p id="active-device-name" class="message">Authenticated administrator session</p>
+        <ul id="device-list" class="panel inventory-list" aria-live="polite"></ul>
+        <output id="device-message" class="message" aria-live="polite"></output>
+      </section>
+    </main>
+  </div>
+</body>
+</html>

@@ -32,11 +32,12 @@ func TestWSS_rejects_unlisted_origin_but_allows_native_no_origin(t *testing.T) {
 	// Given
 	value := newFixture(t)
 	controller := pairController(t, value)
+	ticket := issueEventTicket(t, value, controller.Token)
 
 	// When
-	blocked := request(t, value.handler, http.MethodGet, "/api/v1/events", controller.Token, "",
+	blocked := request(t, value.handler, http.MethodGet, "/api/v1/events?ticket="+ticket, "", "",
 		map[string]string{"Origin": "https://attacker.invalid"})
-	native := request(t, value.handler, http.MethodGet, "/api/v1/events", controller.Token, "", nil)
+	native := request(t, value.handler, http.MethodGet, "/api/v1/events?ticket="+ticket, "", "", nil)
 
 	// Then
 	if blocked.Code != http.StatusForbidden || responseCode(t, blocked) != "ORIGIN_FORBIDDEN" {

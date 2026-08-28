@@ -148,7 +148,7 @@ inspect_linux amd64
 
 todo17="$work/todo17-root"
 mkdir -p "$todo17/apps" "$todo17/packaging" "$todo17/deploy/docker" "$todo17/tooling"
-cp -a "$root/apps/server" "$todo17/apps/server"
+"$root/packaging/server/stage-source.sh" "$root/apps/server" "$todo17/apps/server"
 cp -a "$root/packaging/container" "$todo17/packaging/container"
 cp -a "$root/deploy/docker/server" "$todo17/deploy/docker/server"
 cp -a "$root/tooling/container" "$todo17/tooling/container"

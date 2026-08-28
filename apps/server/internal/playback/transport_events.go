@@ -3,6 +3,7 @@ package playback
 import (
 	"context"
 	"fmt"
+	"time"
 )
 
 func (store *Store) applyEvent(ctx context.Context, zoneID ZoneID, event TransportEvent) error {
@@ -77,15 +78,24 @@ func (store *Store) Stop(ctx context.Context, zoneID ZoneID) error {
 		}
 		revision := zone.revision + 1
 		if zone.currentPlay != "" {
-			if err := execBound(db, "UPDATE renderer_outbox SET state='confirmed' WHERE zone_id=? AND play_id=? AND command_type='play' AND state!='confirmed'", func(stmt *sqliteStmt) error {
-				if err := stmt.bindText(1, string(zoneID)); err != nil {
-					return err
+			commandID := fmt.Sprintf("%s:stop:%020d", zone.sessionID, revision)
+			supersededAt := store.clock.Now().UTC().Format(time.RFC3339Nano)
+			if err := execBound(db, `UPDATE renderer_outbox SET state='confirmed',receipt_state='terminal',
+				superseded_at=COALESCE(superseded_at,?),superseded_by=?
+				WHERE zone_id=? AND play_id=? AND command_type IN ('play','pause','resume')
+					AND command_id<>?`, func(stmt *sqliteStmt) error {
+				values := []string{
+					supersededAt, commandID, string(zoneID), string(zone.currentPlay), commandID,
 				}
-				return stmt.bindText(2, string(zone.currentPlay))
+				for index, value := range values {
+					if err := stmt.bindText(index+1, value); err != nil {
+						return err
+					}
+				}
+				return nil
 			}); err != nil {
 				return err
 			}
-			commandID := fmt.Sprintf("%s:stop:%020d", zone.sessionID, revision)
 			if err := execBound(db, "INSERT INTO renderer_outbox(command_id,zone_id,play_id,command_type,created_revision) VALUES (?,?,?,'stop',?)", func(stmt *sqliteStmt) error {
 				if err := stmt.bindText(1, commandID); err != nil {
 					return err
@@ -134,7 +144,7 @@ func (store *Store) Stop(ctx context.Context, zoneID ZoneID) error {
 func (store *Store) PendingOutbox(ctx context.Context, zoneID ZoneID) ([]OutboxCommand, error) {
 	var commands []OutboxCommand
 	err := store.read(ctx, func(db *sqliteDB) error {
-		stmt, err := db.prepare("SELECT command_id,play_id,command_type,state FROM renderer_outbox WHERE zone_id=? AND state='pending' AND failed_revision IS NULL ORDER BY created_revision,command_id")
+		stmt, err := db.prepare("SELECT command_id,play_id,COALESCE(NULLIF(transport_kind,''),command_type),state FROM renderer_outbox WHERE zone_id=? AND state='pending' AND failed_revision IS NULL ORDER BY created_revision,command_id")
 		if err != nil {
 			return err
 		}

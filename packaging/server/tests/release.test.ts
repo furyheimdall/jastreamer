@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { X509Certificate } from "node:crypto";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { parseArgs } from "../tooling/args";
@@ -25,6 +25,14 @@ describe("Server release contract", () => {
     expect(() => parseArgs(["--component", "control", "--tag", "control-v1.2.3", "--no-publish", "--output", "out"])).toThrow();
     expect(() => parseArgs(["--component", "server", "--tag", "server-v1.2", "--no-publish", "--output", "out"])).toThrow();
   });
+  test("keeps externally supplied FFmpeg outside the image on an opt-in read-only mount", () => {
+    const root = resolve(new URL("../../..", import.meta.url).pathname);
+    const override = readFileSync(join(root, "deploy/docker/server/compose.ffmpeg.yaml"), "utf8");
+    const image = readFileSync(join(root, "apps/server/Dockerfile"), "utf8");
+    expect(override).toContain('target: /opt/jastreamer-external/ffmpeg');
+    expect(override).toContain("read_only: true");
+    expect(image).not.toMatch(/apk add[^\n]*ffmpeg|COPY[^\n]*ffmpeg/i);
+  });
   test("allowlists real native package formats and one OCI archive", () => {
     expect(distributables("1.2.3")).toEqual([
       "jastreamer-server_1.2.3_windows_amd64.exe", "jastreamer-server_1.2.3_windows_amd64.msi",
@@ -33,13 +41,35 @@ describe("Server release contract", () => {
       "jastreamer-server_1.2.3_linux_amd64-arm64.oci",
     ]);
   });
-  test("consumed music fixture mutation changes local source identity", () => {
-    const root = resolve(new URL("../../..", import.meta.url).pathname);
-    const fixture = join(root, "tooling/fixtures/music/real.wav.b64"); const original = readFileSync(fixture);
-    const before = sourceIdentity(root); let after = before;
-    try { writeFileSync(fixture, Buffer.concat([original, Buffer.from("\nidentity-mutation")])); after = sourceIdentity(root); }
-    finally { writeFileSync(fixture, original); }
-    expect(after).not.toBe(before); expect(sourceIdentity(root)).toBe(before);
+  test("consumed music fixture mutation changes an isolated source identity", () => {
+    const repository = resolve(new URL("../../..", import.meta.url).pathname);
+    const root = mkdtempSync(join(tmpdir(), "server-source-identity-"));
+    const fixture = join(root, "tooling/fixtures/music/real.wav.b64");
+    try {
+      mkdirSync(join(root, "tooling/fixtures/music"), { recursive: true });
+      cpSync(join(repository, "tooling/fixtures/music/real.wav.b64"), fixture);
+      const before = sourceIdentity(root, ["tooling/fixtures/music"]);
+      writeFileSync(fixture, Buffer.concat([readFileSync(fixture), Buffer.from("\nidentity-mutation")]));
+      expect(sourceIdentity(root, ["tooling/fixtures/music"])).not.toBe(before);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+  test("concurrent source identity checks never mutate the tracked fixture", async () => {
+    const repository = resolve(new URL("../../..", import.meta.url).pathname);
+    const fixture = join(repository, "tooling/fixtures/music/real.wav.b64");
+    const before = readFileSync(fixture);
+    await Promise.all(Array.from({ length: 8 }, async () => {
+      const root = mkdtempSync(join(tmpdir(), "server-source-concurrent-"));
+      try {
+        mkdirSync(join(root, "tooling/fixtures/music"), { recursive: true });
+        cpSync(fixture, join(root, "tooling/fixtures/music/real.wav.b64"));
+        sourceIdentity(root, ["tooling/fixtures/music"]);
+      } finally {
+        rmSync(root, { recursive: true, force: true });
+      }
+    }));
+    expect(readFileSync(fixture)).toEqual(before);
   });
   test("injected native arm64 failure is atomic and leaves promotion unreachable", async () => {
     const directory = mkdtempSync(join(tmpdir(), "server-release-failure-")); const marker = join(directory, "marker");
@@ -137,25 +167,53 @@ describe("Server release contract", () => {
     expect(oci.indexOf("docker/setup-qemu-action@")).toBeLessThan(oci.indexOf("docker/setup-buildx-action@"));
     expect(oci.indexOf("docker/setup-buildx-action@")).toBeLessThan(oci.indexOf("container build-qa"));
   });
-  test("promotion refuses overwrite, checks digest, and never suppresses cleanup", () => {
+  test("workflow publishes only exact prequalified Server bytes behind Todo 22", () => {
+    // Given: the complete Server candidate and publication workflow.
     const workflow = readFileSync(new URL("../../../.github/workflows/server-release.yml", import.meta.url), "utf8");
-    const promotion = workflow.slice(workflow.indexOf("  promote:"));
-    expect(promotion).toContain("absent_release"); expect(promotion).toContain("absent_registry_tag");
-    expect(promotion).toContain("gh release create"); expect(promotion).toContain("gh release upload");
-    expect(promotion).toContain('test "$pushed_digest" = "$expected_digest"');
-    expect(promotion).not.toContain("|| true"); expect(promotion).toContain("registry-auth-still-present");
+
+    // When: candidate and final-job permission surfaces are isolated.
+    const publishAt = workflow.indexOf("  publish-qualified:");
+    const candidate = workflow.slice(0, publishAt);
+    const publish = workflow.slice(publishAt);
+
+    // Then: staging stays read-only and the protected final job uses the typed exact-byte driver.
+    expect(candidate).not.toContain("contents: write");
+    expect(candidate).not.toContain("packages: write");
+    expect(publish).toContain("contents: write");
+    expect(publish).toContain("packages: write");
+    expect(publish).toContain("environment: product-promotion");
+    expect(publish).toContain("publication-cli.ts");
+    expect(publish).toContain("artifact-ids:");
+    expect(workflow).toContain("server-publication-stage");
+    expect(workflow).toContain("candidate.json");
+    expect(workflow).toContain("promotionReady:false");
   });
-  test("promotion owns only resources it creates and mounts the staged OCI archive", () => {
+  test("workflow dispatch and protected tags share the exact candidate pipeline", () => {
+    // Given: the Server candidate workflow.
     const workflow = readFileSync(new URL("../../../.github/workflows/server-release.yml", import.meta.url), "utf8");
-    const promotion = workflow.slice(workflow.indexOf("  promote:"));
-    expect(promotion).toContain("docker context inspect");
-    expect(promotion.indexOf("export DOCKER_HOST=")).toBeLessThan(promotion.indexOf('export DOCKER_CONFIG='));
-    expect(promotion).toContain("actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683");
-    expect(promotion).toContain('-v "$GITHUB_WORKSPACE/stage:/stage:ro"');
-    expect(promotion).toContain("release_created=false");
-    expect(promotion).toContain("image_promotion_started=false");
-    expect(promotion).toContain("[[ $release_created == true ]]");
-    expect(promotion).toContain("[[ $image_promotion_started == true");
+
+    // When: trigger and staged identity handling are inspected.
+    const stage = workflow.slice(workflow.indexOf("  stage:"));
+
+    // Then: dispatch supplies only a version and stage records exact digests with no writes.
+    expect(workflow).toContain("workflow_dispatch:");
+    expect(workflow).toContain("workflow_call:");
+    expect(workflow).toContain("candidate_tag=\"server-v$CANDIDATE_VERSION\"");
+    expect(stage).toContain("manifest_sha256");
+    expect(stage).toContain("artifact_set_sha256");
+    expect(stage).toContain("external_writes:[]");
+  });
+  test("binds the complete K17 emulator matrix to the staged manifest", () => {
+    const workflow = readFileSync(new URL("../../../.github/workflows/server-release.yml", import.meta.url), "utf8");
+    const validate = workflow.slice(workflow.indexOf("  validate:"), workflow.indexOf("  linux:"));
+    const stage = workflow.slice(workflow.indexOf("  stage:"), workflow.indexOf("  k17-physical:"));
+
+    expect(validate).not.toContain("k17-emulator-matrix.json");
+    expect(stage).toContain("actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16");
+    expect(stage).toContain("candidate_sha256=$(sha256sum stage/manifest.json");
+    expect(stage).toContain("bun tooling/qa/k17/cli.mjs emulator");
+    expect(stage).toContain("name: k17-emulator-matrix");
+    expect(stage.indexOf("manifest.json")).toBeLessThan(stage.indexOf("Run manifest-bound deterministic K17 emulator matrix"));
   });
   test("workflow is canonical, protected, pinned, and has no OIDC", () => {
     const workflow = readFileSync(new URL("../../../.github/workflows/server-release.yml", import.meta.url), "utf8");

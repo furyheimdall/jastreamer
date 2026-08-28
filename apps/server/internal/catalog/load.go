@@ -41,6 +41,7 @@ func (store *Store) Load(ctx context.Context) (snapshot Snapshot, err error) {
 		if scanErr != nil {
 			return Snapshot{}, errors.Join(scanErr, rows.Close())
 		}
+		track.RootID = RootID(store.rootID)
 		snapshot.Tracks[track.TrackID] = track
 	}
 	if readErr := errors.Join(rows.Err(), rows.Close()); readErr != nil {

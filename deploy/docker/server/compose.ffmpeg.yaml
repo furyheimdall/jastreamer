@@ -1,0 +1,7 @@
+services:
+  jastreamer-server:
+    volumes:
+      - type: bind
+        source: "${JASTREAMER_FFMPEG_PATH:?JASTREAMER_FFMPEG_PATH must name an administrator-supplied executable}"
+        target: /opt/jastreamer-external/ffmpeg
+        read_only: true
