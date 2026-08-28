@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "protocol_major": 3,
+  "required_capability": "render",
+  "stable_loopback_port_required": true,
+  "media_manifest": "fixture-manifest.json",
+  "scenarios": [
+    "play-pause-resume-seek-stop",
+    "endpoint-absent",
+    "endpoint-busy",
+    "endpoint-invalidated-restored",
+    "duplicate-conflict",
+    "revocation",
+    "server-restart",
+    "renderer-restart",
+    "disconnect-before-ack",
+    "disconnect-after-ack",
+    "disconnect-before-result",
+    "disconnect-after-result",
+    "corrupted-media",
+    "truncated-media",
+    "cleanup"
+  ]
+}

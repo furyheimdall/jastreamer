@@ -1,6 +1,7 @@
 use serde_json::Value;
+use std::io::Write;
 use std::path::PathBuf;
-use std::process::{Command, Output};
+use std::process::{Command, Output, Stdio};
 
 fn fixture(name: &str) -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -17,22 +18,85 @@ fn run(arguments: &[&str]) -> Output {
 }
 
 #[test]
-fn compatibility_fixture_preserves_unknown_command_when_remote_is_v1() {
+fn foreground_help_exposes_explicit_config_and_no_token_value_option() {
+    // Given / When
+    let output = run(&["--help"]);
+
+    // Then
+    assert!(output.status.success());
+    let help = String::from_utf8_lossy(&output.stdout);
+    for option in [
+        "--server-origin",
+        "--server-fingerprint",
+        "--renderer-id",
+        "--output-device",
+        "--share-mode",
+        "--state-directory",
+        "--token-stdin",
+    ] {
+        assert!(help.contains(option), "missing option {option}");
+    }
+    assert!(!help.contains("--token <"));
+}
+
+#[test]
+fn invalid_stdin_token_is_rejected_without_echoing_secret() {
+    // Given
+    let directory = tempfile::tempdir().expect("temporary state directory");
+    let mut child = Command::new(env!("CARGO_BIN_EXE_jastreamer-renderer"))
+        .args([
+            "--server-origin",
+            "https://127.0.0.1:1",
+            "--server-fingerprint",
+            &"0".repeat(64),
+            "--renderer-id",
+            "renderer",
+            "--output-device",
+            "fixture",
+            "--share-mode",
+            "shared",
+            "--state-directory",
+            directory.path().to_str().expect("UTF-8 path"),
+            "--token-stdin",
+        ])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("renderer starts");
+
+    // When
+    child
+        .stdin
+        .as_mut()
+        .expect("stdin pipe")
+        .write_all(b"secret\0sentinel\n")
+        .expect("token sent");
+    let output = child.wait_with_output().expect("renderer exits");
+
+    // Then
+    assert!(!output.status.success());
+    assert!(!String::from_utf8_lossy(&output.stderr).contains("secret"));
+}
+
+#[test]
+fn compatibility_fixture_returns_unsupported_command_when_remote_is_v3() {
     let path = fixture("future-command.json");
     let output = run(&[
         "--compatibility-fixture",
         path.to_str().expect("fixture path is UTF-8"),
         "--remote-majors",
-        "1",
+        "3,2",
         "--remote-capabilities",
-        "render,future-capability",
+        "render,renderer-session,future-capability",
     ]);
 
     assert!(output.status.success());
     let report: Value = serde_json::from_slice(&output.stdout).expect("valid JSON report");
-    assert_eq!(report["negotiatedMajor"], 1);
-    assert_eq!(report["fixtureMajor"], 1);
-    assert_eq!(report["commandKind"]["state"], "unknown");
+    assert_eq!(report["negotiatedMajor"], 3);
+    assert_eq!(report["fixtureMajor"], 3);
+    assert_eq!(report["commandKind"]["state"], "unsupported");
+    assert_eq!(report["errorCode"], "UNSUPPORTED_COMMAND");
     assert_eq!(report["commandKind"]["wireValue"], "future-command");
 }
 
@@ -43,7 +107,7 @@ fn compatibility_fixture_reports_known_command_without_unknown_flag() {
         "--compatibility-fixture",
         path.to_str().expect("fixture path is UTF-8"),
         "--remote-majors",
-        "2,1",
+        "2",
         "--remote-capabilities",
         "render",
     ]);
@@ -61,9 +125,9 @@ fn malformed_fixture_and_invalid_major_are_typed_failures() {
         "--compatibility-fixture",
         path.to_str().expect("fixture path is UTF-8"),
         "--remote-majors",
-        "1",
+        "3",
         "--remote-capabilities",
-        "render",
+        "render,renderer-session",
     ]);
     let invalid_major = run(&[
         "--compatibility-fixture",

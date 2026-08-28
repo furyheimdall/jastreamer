@@ -1,0 +1,89 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://jastreamer.invalid/schemas/windows-wasapi-qualification/v1",
+  "title": "Native Windows WASAPI loopback qualification receipt",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "kind", "recorded_at", "qualification_status", "binding"],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "kind": { "const": "windows_wasapi_qualification" },
+    "recorded_at": { "type": "string", "format": "date-time" },
+    "qualification_status": { "enum": ["awaiting_external_authorization", "qualified"] },
+    "binding": { "$ref": "#/$defs/binding" },
+    "runner_labels": {
+      "type": "array", "minItems": 4, "uniqueItems": true,
+      "items": { "type": "string", "minLength": 1, "pattern": ".*\\S.*" },
+      "allOf": [
+        { "contains": { "const": "self-hosted" }, "minContains": 1 },
+        { "contains": { "const": "windows" }, "minContains": 1 },
+        { "contains": { "const": "x64" }, "minContains": 1 },
+        { "contains": { "const": "jastreamer-audio" }, "minContains": 1 }
+      ]
+    },
+    "endpoint": { "$ref": "#/$defs/endpoint" },
+    "capture": { "$ref": "#/$defs/capture" },
+    "formats": { "type": "array" },
+    "scenarios": { "type": "array" },
+    "cleanup": { "type": "object" },
+    "network_calls": { "const": 0 },
+    "audio_mutations": { "const": 0 },
+    "external_writes": { "const": 0 },
+    "publication": { "$ref": "#/$defs/publication" }
+  },
+  "oneOf": [
+    {
+      "properties": { "qualification_status": { "const": "awaiting_external_authorization" } },
+      "required": ["network_calls", "audio_mutations", "external_writes", "publication"]
+    },
+    {
+      "properties": { "qualification_status": { "const": "qualified" } },
+      "required": ["runner_labels", "endpoint", "capture", "formats", "scenarios", "cleanup"]
+    }
+  ],
+  "$defs": {
+    "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "binding": {
+      "type": "object", "additionalProperties": false,
+      "required": ["renderer_executable_sha256", "probe_executable_sha256", "scenario_driver_sha256", "server_peer_sha256", "server_peer_input_sha256", "media_fixture_archive_sha256", "media_fixture_manifest_sha256", "source_sha256", "renderer_contract_sha256", "peer_set_sha256", "candidate_sha256", "endpoint_identity_sha256"],
+      "properties": {
+        "renderer_executable_sha256": { "$ref": "#/$defs/sha256" },
+        "probe_executable_sha256": { "$ref": "#/$defs/sha256" },
+        "scenario_driver_sha256": { "$ref": "#/$defs/sha256" },
+        "server_peer_sha256": { "$ref": "#/$defs/sha256" },
+        "server_peer_input_sha256": { "$ref": "#/$defs/sha256" },
+        "media_fixture_archive_sha256": { "$ref": "#/$defs/sha256" },
+        "media_fixture_manifest_sha256": { "$ref": "#/$defs/sha256" },
+        "source_sha256": { "$ref": "#/$defs/sha256" },
+        "renderer_contract_sha256": { "$ref": "#/$defs/sha256" },
+        "peer_set_sha256": { "$ref": "#/$defs/sha256" },
+        "candidate_sha256": { "$ref": "#/$defs/sha256" },
+        "endpoint_identity_sha256": { "oneOf": [{ "$ref": "#/$defs/sha256" }, { "type": "null" }] }
+      }
+    },
+    "endpoint": {
+      "type": "object", "additionalProperties": false,
+      "required": ["identity_sha256", "data_flow", "capture_mode"],
+      "properties": {
+        "identity_sha256": { "$ref": "#/$defs/sha256" },
+        "data_flow": { "const": "render" },
+        "capture_mode": { "const": "wasapi_loopback" }
+      }
+    },
+    "capture": {
+      "type": "object", "additionalProperties": false,
+      "required": ["sha256", "encoding", "sample_rate_hz", "channels", "tone", "pause_rms", "post_stop_500ms_rms", "seek"],
+      "properties": {
+        "sha256": { "$ref": "#/$defs/sha256" }, "encoding": { "const": "normalized_f32le" },
+        "sample_rate_hz": { "const": 48000 }, "channels": { "const": 2 },
+        "tone": { "type": "object" }, "pause_rms": { "type": "number", "maximum": 0.001 },
+        "post_stop_500ms_rms": { "type": "number", "maximum": 0.001 }, "seek": { "type": "object" }
+      }
+    },
+    "publication": {
+      "type": "object", "additionalProperties": false,
+      "required": ["code", "external_writes"],
+      "properties": { "code": { "const": "PRODUCT_GATE_REQUIRED" }, "external_writes": { "const": 0 } }
+    }
+  }
+}

@@ -5,8 +5,33 @@ edition = "2024"
 license = "Apache-2.0"
 
 [dependencies]
+clap = { version = "4", features = ["derive"] }
+fs2 = "0.4"
+futures-util = "0.3"
+hex = "0.4"
+parking_lot = "0.12"
+opus-decoder = "0.1"
+rpassword = "7"
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
+ureq = { version = "3", default-features = false, features = ["rustls-no-provider"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+sha2 = "0.10"
+symphonia = { version = "0.5", features = ["all"] }
+thiserror = "2"
+time = { version = "=0.3.41", features = ["formatting"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "signal", "sync", "time"] }
+tokio-tungstenite = { version = "0.27", features = ["rustls-tls-native-roots"] }
+url = "2"
+zeroize = { version = "1", features = ["derive"] }
+
+[target.'cfg(windows)'.dependencies]
+cpal = "0.16"
+windows = { version = "0.54", features = ["implement", "Win32_Foundation", "Win32_Media_Audio", "Win32_System_Com", "Win32_UI_Shell_PropertiesSystem"] }
+
+[dev-dependencies]
+rcgen = "0.14"
+tempfile = "3"
 
 [lib]
 path = "src/lib.rs"

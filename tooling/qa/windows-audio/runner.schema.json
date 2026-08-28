@@ -1,0 +1,34 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://jastreamer.invalid/schemas/windows-audio-runner/v1",
+  "title": "Authorized native Windows audio qualification runner",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "required_labels", "endpoint_environment", "endpoint_environment_protected", "probe", "restrictions"],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "required_labels": { "const": ["self-hosted", "windows", "x64", "jastreamer-audio"] },
+    "endpoint_environment": { "const": "JASTREAMER_QA_ENDPOINT_ID" },
+    "endpoint_environment_protected": { "const": true },
+    "probe": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["implementation", "target", "capture"],
+      "properties": {
+        "implementation": { "const": "native_rust_wasapi" },
+        "target": { "const": "x86_64-pc-windows-msvc" },
+        "capture": { "const": "shared-mode render endpoint loopback normalized to interleaved f32" }
+      }
+    },
+    "restrictions": {
+      "const": [
+        "authorization is evaluated before any process, network, or audio operation",
+        "endpoint identity is accepted only through a protected environment and retained only as SHA-256",
+        "the staged Renderer, probe, scenario driver, Server peer executable and input contracts are independently hashed and never rebuilt",
+        "capture starts only for the exact render endpoint with WASAPI loopback",
+        "state and capture events are subscribed before mutation and awaited with bounded timeouts",
+        "all resources are released before successful exit"
+      ]
+    }
+  }
+}

@@ -1,8 +1,41 @@
-pub const SUPPORTED_MAJORS: [u16; 2] = [2, 1];
+pub mod audio;
+mod audio_buffer;
+pub mod cli;
+pub mod compatibility;
+mod decoder;
+pub mod endpoint;
+#[cfg(windows)]
+mod endpoint_windows;
+pub mod engine;
+pub mod harness;
+pub mod media;
+mod media_http;
+mod media_stream;
+mod opus;
+pub mod protocol;
+pub mod security;
+pub mod session;
+mod session_executor;
+mod session_messages;
+mod session_transport;
+pub mod wasapi;
+
+pub const SUPPORTED_MAJORS: [u16; 2] = [3, 2];
+pub const SUPPORTED_MAJORS_HEADER: &str = "X-Jake-Supported-Protocol-Majors";
+pub const SELECTED_MAJOR_HEADER: &str = "X-Jake-Selected-Protocol-Major";
+const V2_CAPABILITIES: [&str; 1] = ["render"];
+const V3_CAPABILITIES: [&str; 4] = [
+    "render",
+    "renderer-session",
+    "media-representations",
+    "durable-results",
+];
+
 #[derive(Debug, PartialEq, Eq)]
 pub enum ProtocolError {
     UnsupportedProtocolMajor { requested: u16 },
     MissingCapability { capability: String },
+    UnsupportedCommand { command_id: String, kind: String },
 }
 impl std::fmt::Display for ProtocolError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -12,6 +45,9 @@ impl std::fmt::Display for ProtocolError {
             }
             Self::MissingCapability { capability } => {
                 write!(f, "MISSING_CAPABILITY: {capability}")
+            }
+            Self::UnsupportedCommand { command_id, kind } => {
+                write!(f, "UNSUPPORTED_COMMAND: {command_id} kind={kind}")
             }
         }
     }
@@ -29,6 +65,41 @@ impl std::fmt::Display for BackendError {
     }
 }
 impl std::error::Error for BackendError {}
+#[derive(Debug, PartialEq, Eq)]
+pub enum RendererCommandKind {
+    Play,
+    Pause,
+    Resume,
+    Stop,
+    Seek,
+}
+
+pub const fn capabilities_for_major(major: u16) -> &'static [&'static str] {
+    match major {
+        2 => &V2_CAPABILITIES,
+        3 => &V3_CAPABILITIES,
+        _ => &[],
+    }
+}
+
+pub fn parse_renderer_command(
+    selected_major: u16,
+    command_id: &str,
+    kind: &str,
+) -> Result<RendererCommandKind, ProtocolError> {
+    match (selected_major, kind) {
+        (2 | 3, "play") => Ok(RendererCommandKind::Play),
+        (3, "pause") => Ok(RendererCommandKind::Pause),
+        (3, "resume") => Ok(RendererCommandKind::Resume),
+        (2 | 3, "stop") => Ok(RendererCommandKind::Stop),
+        (2 | 3, "seek") => Ok(RendererCommandKind::Seek),
+        (_, _) => Err(ProtocolError::UnsupportedCommand {
+            command_id: command_id.to_owned(),
+            kind: kind.to_owned(),
+        }),
+    }
+}
+
 pub trait AudioBackend {
     fn start(&mut self) -> Result<(), BackendError>;
     fn diagnostics(&self) -> String;
@@ -49,31 +120,36 @@ impl AudioBackend for FakeBackend {
 pub struct Renderer<B: AudioBackend> {
     backend: B,
 }
+
+pub struct Negotiation<'a> {
+    pub local_majors: &'a [u16],
+    pub remote_majors: &'a [u16],
+    pub required_capabilities: &'a [&'a str],
+    pub remote_capabilities: &'a [&'a str],
+}
+
 impl<B: AudioBackend> Renderer<B> {
     pub fn new(backend: B) -> Self {
         Self { backend }
     }
-    pub fn negotiate(
-        local: &[u16],
-        remote: &[u16],
-        required_capabilities: &[&str],
-        remote_capabilities: &[&str],
-    ) -> Result<u16, ProtocolError> {
-        let major = local
+    pub fn negotiate(input: Negotiation<'_>) -> Result<u16, ProtocolError> {
+        let major = input
+            .local_majors
             .iter()
-            .filter(|major| remote.contains(major))
+            .filter(|major| input.remote_majors.contains(major))
             .copied()
-            .filter(|major| *major == 1 || *major == 2)
+            .filter(|major| *major == 2 || *major == 3)
             .max();
         let major = match major {
             Some(value) => value,
             None => {
-                let requested = remote.iter().copied().fold(0, u16::max);
+                let requested = input.remote_majors.iter().copied().fold(0, u16::max);
                 return Err(ProtocolError::UnsupportedProtocolMajor { requested });
             }
         };
-        if let Some(capability) = required_capabilities.iter().find(|capability| {
-            !remote_capabilities
+        if let Some(capability) = input.required_capabilities.iter().find(|capability| {
+            !input
+                .remote_capabilities
                 .iter()
                 .any(|remote| remote == *capability)
         }) {

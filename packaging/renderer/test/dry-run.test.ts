@@ -1,21 +1,17 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { describe, expect, test } from "bun:test";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
 const root = resolve(new URL("../../..", import.meta.url).pathname);
-const temporaryDirectories: string[] = [];
 
-afterEach(() => {
-  for (const directory of temporaryDirectories.splice(0)) {
+const withTemporaryDirectory = async (testBody: (directory: string) => Promise<void>): Promise<void> => {
+  const directory = mkdtempSync(join(tmpdir(), "renderer-release-test-"));
+  try {
+    await testBody(directory);
+  } finally {
     rmSync(directory, { force: true, recursive: true });
   }
-});
-
-const temporaryDirectory = (): string => {
-  const directory = mkdtempSync(join(tmpdir(), "renderer-release-test-"));
-  temporaryDirectories.push(directory);
-  return directory;
 };
 
 const run = async (
@@ -35,8 +31,8 @@ const run = async (
 };
 
 describe("Renderer release dry-run", () => {
-  test("rejects an unsupported protocol major atomically", async () => {
-    const output = join(temporaryDirectory(), "release");
+  test("rejects an unsupported protocol major atomically", async () => withTemporaryDirectory(async (directory) => {
+    const output = join(directory, "release");
     writeFileSync(output, "immutable");
     const before = readFileSync(output);
 
@@ -57,12 +53,12 @@ describe("Renderer release dry-run", () => {
     expect(result.code).toBe(78);
     expect(result.stderr).toContain("UNSUPPORTED_PROTOCOL_MAJOR");
     expect(readFileSync(output)).toEqual(before);
-  });
+  }));
 
   test.skipIf(process.platform === "win32")(
     "refuses to fabricate Windows artifacts on a non-Windows host",
-    async () => {
-      const output = join(temporaryDirectory(), "release");
+    async () => withTemporaryDirectory(async (directory) => {
+      const output = join(directory, "release");
 
       const result = await run([
         "--component",
@@ -79,21 +75,26 @@ describe("Renderer release dry-run", () => {
       expect(result.code).toBe(69);
       expect(result.stderr).toContain("WINDOWS_RUNNER_REQUIRED");
       expect(existsSync(output)).toBe(false);
-    },
+    }),
   );
 
-  test("workflow signs the executable before packaging and publishes staged assets", () => {
+  test("workflow signs the executable before packaging and retains only a CI candidate", () => {
+    // Given: the Renderer packaging script and candidate workflow.
     const workflow = readFileSync(join(root, ".github/workflows/renderer-release.yml"), "utf8");
     const release = readFileSync(join(root, "packaging/renderer/release.ps1"), "utf8");
+
+    // When: signing order and publication reachability are inspected.
     const signExecutable = release.indexOf("sign.ps1");
     const buildMsi = release.indexOf("build-msi.ps1");
-    const promotion = workflow.indexOf("  promote:");
 
+    // Then: signed outputs stage as CI artifacts and no public promotion exists.
     expect(workflow).toContain("github.repository == 'furyheimdall/jastreamer'");
     expect(signExecutable).toBeGreaterThan(-1);
     expect(buildMsi).toBeGreaterThan(signExecutable);
-    expect(promotion).toBeGreaterThan(-1);
-    expect(workflow.slice(promotion)).toContain("gh release create");
+    expect(workflow).not.toContain("  promote:");
+    expect(workflow).not.toContain("gh release");
+    expect(workflow).toContain("renderer-candidate-ci");
+    expect(workflow).toContain('retention:"ci-artifact-only"');
     expect(workflow).not.toContain("placeholder");
   });
 });

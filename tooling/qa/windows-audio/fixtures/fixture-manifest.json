@@ -1,0 +1,39 @@
+{
+  "schema_version": 1,
+  "sample_rate_hz": 48000,
+  "channels": 2,
+  "files": [
+    {
+      "name": "corrupted.bin",
+      "sha256": "310ac0022b3454b0337a40cabc99df9cf90fb54622be028ef7b711130314ebbf"
+    },
+    {
+      "name": "seek_tones.wav",
+      "sha256": "c5fcf03e1dc9af04c8a4243cfdfab18808c4bff67b3c3249aa6041e5e766a6a2"
+    },
+    {
+      "name": "tone_1khz.flac",
+      "sha256": "50f5c1b4536ca8cc1c2c667a22485b44f67140b70a54f31473cd5c01300a26e6"
+    },
+    {
+      "name": "tone_1khz.mp3",
+      "sha256": "e61ae670cbc3b4abb0f99726df798bec37996122e4feaab6743dd8f133d1d609"
+    },
+    {
+      "name": "tone_1khz.opus",
+      "sha256": "6590f99cbdf2ace4c13edf01cb55460faa60efdf0100658845f4e7ffa39a9c48"
+    },
+    {
+      "name": "tone_1khz.vorbis",
+      "sha256": "7e9670b38200bfce74ef704317a37d6f0324ed6e7c819bd44878a5ba07bb172c"
+    },
+    {
+      "name": "tone_1khz.wav",
+      "sha256": "1d7070b5141687c8fc34b59734742c4c3b631ce4f8b4419f1f2aac175ccff863"
+    },
+    {
+      "name": "truncated.mp3",
+      "sha256": "e61ae670cbc3b4abb0f99726df798bec37996122e4feaab6743dd8f133d1d609"
+    }
+  ]
+}

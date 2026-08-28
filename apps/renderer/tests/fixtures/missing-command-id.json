@@ -1,6 +1,6 @@
 {
-  "protocolMajor": 1,
-  "capabilities": ["render"],
+  "protocolMajor": 3,
+  "capabilities": ["render", "renderer-session"],
   "positionMs": 0,
   "commandKind": "play"
 }

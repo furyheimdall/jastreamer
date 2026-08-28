@@ -4,6 +4,7 @@
   "package": "jastreamer-renderer",
   "versionSource": "apps/renderer/VERSION",
   "artifacts": ["msi", "diagnostic-zip"],
+  "distribution": "ci-artifact-only",
   "protocol": {"supportedMajors": [1, 2], "requiredCapabilities": ["render"], "unsupportedExitCode": 78, "unsupportedToken": "UNSUPPORTED_PROTOCOL_MAJOR"},
   "wix": {"version": "4.0.5", "redistribution": false, "policy": "build-only"},
   "signing": {"algorithm": "sha256", "oidc": false, "pfxSecret": "RENDERER_WINDOWS_SIGNING_PFX_B64", "pfxPasswordSecret": "RENDERER_WINDOWS_SIGNING_PFX_PASSWORD"},
