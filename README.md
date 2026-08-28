@@ -1,12 +1,12 @@
 # jastreamer
 
-jastreamer is a locally controlled music streaming system with three independently versioned products:
+jastreamer is a locally controlled music streaming system with independently versioned Server and Control products plus a CI-only Renderer test harness:
 
-| Product | Directory | Prefix | Version Source |
-| --- | --- | --- | --- |
-| Server | `apps/server` | `jastreamer-server` | `apps/server/VERSION` |
-| Control | `apps/control` | `jastreamer-control` | `apps/control/VERSION` |
-| Renderer | `apps/renderer` | `jastreamer-renderer` | `apps/renderer/VERSION` |
+| Component | Distribution | Directory | Prefix | Version Source |
+| --- | --- | --- | --- | --- |
+| Server | product candidate; not yet publicly released | `apps/server` | `jastreamer-server` | `apps/server/VERSION` |
+| Control | product candidate; not yet publicly released | `apps/control` | `jastreamer-control` | `apps/control/VERSION` |
+| Renderer | foreground Windows CI/test harness; never a public product | `apps/renderer` | `jastreamer-renderer` | `apps/renderer/VERSION` |
 
 Each product owns its dependencies, lockfile, version, changelog, and build entry point. The root tooling only orchestrates those entry points; it is not a package workspace. Contracts and tooling are shared machine-readable inputs, not implementation packages.
 
@@ -18,7 +18,7 @@ Licensed under Apache-2.0. See [LICENSE](LICENSE).
 
 - **Server** (`apps/server`): Go binary, catalog, playback state machine, acoustic analysis, pairing portal, HTTPS API.
 - **Control** (`apps/control`): Flutter Web PWA, Windows MSIX, Android APK. Shared behavior model across platforms.
-- **Renderer** (`apps/renderer`): Rust/WASAPI Windows binary. Protocol compatibility adapter.
+- **Renderer test harness** (`apps/renderer`): foreground Rust/WASAPI Windows test peer. It is CI-only, has no public release, service, tray, or autostart behavior.
 
 ## Build / Test / Package Commands
 
@@ -45,7 +45,7 @@ See `packaging/*/manifest.json` and `packaging/*/config.json` for exact names an
 - [Windows Control](docs/control-windows.md)
 - [Web Control](docs/control-web.md)
 - [Android Control](docs/control-android.md)
-- [Windows Renderer](docs/renderer-windows.md)
+- [Windows Renderer test harness](docs/renderer-windows.md)
 - [Release targets and operations](docs/releasing.md)
 
 ## Compatibility
@@ -57,7 +57,14 @@ See `tooling/fixtures/compatibility/released-peers.yaml` for the supported matri
 ```sh
 ./tooling/componentctl release dry-run --component server --tag server-v1.2.3 --no-publish --output out/
 ./tooling/componentctl release dry-run --component control --tag control-v1.2.3 --no-publish --scenario android-in-place-upgrade --output out/
+# Renderer candidate generation is CI/test-only and must never publish.
 ./tooling/componentctl release dry-run --component renderer --tag renderer-v1.2.3 --no-publish --scenario clean-windows-vm --output out/
+```
+
+Documentation claims are checked against the versioned capability registry and executable receipt mappings:
+
+```sh
+bun tooling/docs/verify.mjs --claims docs/claims.json --receipt-schema tooling/qa/product-receipt.schema.json
 ```
 
 ## Server Operations
@@ -93,7 +100,10 @@ Incremental scan resumes from the last successful generation. Tombs are durable.
 - `STOP_NO_SIGNAL`: No explicit head and no continuation policy.
 - `STOP_AUTO_FAILURE_LIMIT`: Three generated failures without explicit intervention.
 
-## Renderer Limitations
+## Renderer Test-Harness Limitations
 
-- Windows-only native build.
-- Protocol compatibility is explicit (major + capabilities). No generic UPnP gapless/synchronized behavior is claimed.
+- Windows amd64 foreground test process only; no public Renderer product or installer claim.
+- Native WASAPI loopback qualification remains pending on the authorized runner.
+- Protocol compatibility is explicit (major + capabilities). No generic UPnP, gapless, synchronized, or multi-room behavior is claimed.
+
+Server and Control publication also remains blocked until the physical FiiO K17 V261+ and native Windows audio gates produce exact candidate-bound receipts. Emulator and workflow existence are not publication readiness.

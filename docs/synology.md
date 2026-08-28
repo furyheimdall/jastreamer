@@ -1,168 +1,132 @@
-# Synology DSM 설치, 업데이트, 롤백
+# Synology DSM Server 운영
 
-> 현재 GHCR 이미지와 GitHub Release는 아직 공개되지 않았다. 이 문서는
-> `deploy/docker/server/compose.synology.yaml`의 배포 계약을 설명한다.
-> 설치할 때는 실제로 게시된 버전 태그 또는 digest를 확인해야 한다.
+> 공개 GHCR 이미지는 아직 없고 Container Manager 실기기 변경 승인도 false다.
+> DS918+ DSM 7.2.2는 `candidate-pending-runtime-authorization`, Synology arm64는
+> `unverified`, ARMv7은 `unsupported`다. 모든 Synology를 지원한다는 뜻이 아니다.
 
-## 지원 범위
+## 지원 계약과 준비
 
-| 대상 | OCI 플랫폼 | 현재 상태 |
-| --- | --- | --- |
-| DS918+, DSM 7.2.2 | `linux/amd64` | `candidate-pending-runtime-authorization` |
-| Synology arm64 | `linux/arm64` | `unverified` |
-| Synology ARMv7 | - | `unsupported` |
-
-Server 이미지는 `linux/amd64`와 `linux/arm64`만 대상으로 한다. SPK는
-제공하지 않으며 Container Manager의 Compose 프로젝트로 설치한다.
-
-## 사전 준비
-
-NAS에 다음 디렉터리를 만든다.
+배포 방식은 SPK가 아니라 `deploy/docker/server/compose.synology.yaml` 기반 Compose다.
+OCI 대상은 정확히 `linux/amd64`, `linux/arm64`다. UPnP/K17 검색 때문에 host network를
+사용하며 container는 UID/GID `10001:10001`, read-only root, dropped capabilities,
+`no-new-privileges`로 실행된다.
 
 ```text
 /volume1/docker/jastreamer/
-├── config/
-│   └── server.json
-└── data/
+├── config/server.json
+├── data/
+├── media/
+└── external/ffmpeg/       # 선택, 관리자가 제공
 ```
 
-`data`는 카탈로그와 SQLite 상태를 보존한다. 컨테이너는 UID/GID
-`10001:10001`로 실행되므로 이 사용자가 데이터 디렉터리에 쓸 수 있어야
-한다. `config`는 읽기 전용으로 마운트된다.
+`data`와 허용 media root는 UID/GID 10001이 접근할 수 있어야 한다. repository의
+`packaging/server/server.json`을 복사하고 컨테이너 내부 경로를 사용한다. 기본 catalog
+root `/var/lib/jastreamer/catalog`를 NAS 음악에 연결하려면 Compose에 read-only bind
+mount를 명시한다. 임의 host path 탐색은 지원하지 않는다.
 
-설정 파일은 `packaging/server/server.json`을 환경에 맞게 복사한다.
-특히 실제 접속 주소를 TLS 인증서 이름/IP에 포함한다.
+필수 project 변수:
 
-```json
-{
-  "address": ":8443",
-  "data_directory": "/var/lib/jastreamer",
-  "catalog_root": "/var/lib/jastreamer/catalog",
-  "catalog_migration": "/usr/lib/jastreamer-server/migrations/001_catalog.sql",
-  "playback_migration": "/usr/lib/jastreamer-server/migrations/002_playback.sql",
-  "playback_expansion": "/usr/lib/jastreamer-server/migrations/003_todo12.sql",
-  "certificate_dns": ["music-server.local"],
-  "certificate_ips": ["192.168.1.20"],
-  "allowed_origins": [],
-  "pairing_ttl": "5m"
-}
+```text
+JASTREAMER_SERVER_IMAGE=<실제로 staged된 immutable digest>
+JASTREAMER_SETUP_SECRET=<최초 bootstrap용 secret>
+JASTREAMER_DATA_PATH=/volume1/docker/jastreamer/data
+JASTREAMER_CONFIG_PATH=/volume1/docker/jastreamer/config
 ```
 
-## 필수 환경 변수
+`latest`나 문서 예제의 미게시 tag를 사용하지 않는다. secret을 Compose YAML에 저장하지
+않는다. **현재 기본 Compose는 매 expansion과 start에서 non-empty
+`JASTREAMER_SETUP_SECRET`을 요구하고 그대로 container에 전달한다.** 최초 admin 생성 뒤
+Server는 이 값으로 다시 bootstrap하지 않지만 Compose 계약은 계속 값을 요구한다. 따라서
+Container Manager의 보호된 project 변수에 같은 secret을 유지하거나, 별도로 검토한
+operator override에서 해당 environment 항목과 required expansion을 함께 제거해야 한다.
+기본 파일을 그대로 쓰면서 변수만 삭제하면 `docker compose config`부터 실패한다.
 
-| 변수 | 설명 |
-| --- | --- |
-| `JASTREAMER_SERVER_IMAGE` | 게시된 이미지 태그 또는 immutable digest |
-| `JASTREAMER_SETUP_SECRET` | 최초 관리자 bootstrap secret |
-| `JASTREAMER_DATA_PATH` | 기본값 `/volume1/docker/jastreamer/data` |
-| `JASTREAMER_CONFIG_PATH` | 기본값 `/volume1/docker/jastreamer/config` |
+## disposable config 검사와 배포
 
-추가로 `JASTREAMER_ADDR`, `JASTREAMER_CATALOG_ROOT`,
-`JASTREAMER_PAIRING_TTL`, `JASTREAMER_CERT_DNS`,
-`JASTREAMER_CERT_IPS`, `JASTREAMER_ALLOWED_ORIGINS`를 사용할 수 있다.
-환경 변수는 `server.json`보다 우선한다.
-
-`JASTREAMER_SETUP_SECRET`은 Compose 파일에 직접 기록하지 말고 Container
-Manager의 프로젝트 환경 변수나 별도 secret 관리 수단으로 주입한다.
-
-## Container Manager 설치
-
-1. DSM에서 **Container Manager → 프로젝트 → 생성**을 연다.
-2. 프로젝트 이름을 `jastreamer`로 지정한다.
-3. 저장소의 `deploy/docker/server/compose.synology.yaml`을 사용한다.
-4. 위 네 환경 변수를 설정한다.
-5. `JASTREAMER_SERVER_IMAGE`에는 실제 게시 여부를 확인한 버전 또는
-   digest를 입력한다. `latest`는 사용하지 않는다.
-6. 프로젝트를 배포한다.
-
-CLI를 사용할 수 있다면 배포 전에 Compose를 렌더링한다.
+현재 repository 경로에서 외부 write 없이 Compose expansion을 검사할 수 있다.
 
 ```sh
-JASTREAMER_SETUP_SECRET=compose-validation \
-JASTREAMER_CONFIG_PATH=/volume1/docker/jastreamer/config \
-JASTREAMER_DATA_PATH=/volume1/docker/jastreamer/data \
+JASTREAMER_SERVER_IMAGE='ghcr.io/furyheimdall/jastreamer-server@sha256:<digest>' \
+JASTREAMER_SETUP_SECRET='validation-only-not-production' \
+JASTREAMER_CONFIG_PATH='/volume1/docker/jastreamer/config' \
+JASTREAMER_DATA_PATH='/volume1/docker/jastreamer/data' \
 docker compose -f deploy/docker/server/compose.synology.yaml config
 ```
 
-Compose의 보안 계약은 다음과 같다.
-
-- `network_mode: host`
-- 비루트 `10001:10001`
-- 읽기 전용 root filesystem
-- 모든 capability 제거
-- `no-new-privileges`
-- privileged 모드와 임의 포트 매핑 없음
-
-UPnP 검색 때문에 host network를 사용한다.
-
-## 시작 확인
-
-healthcheck는 다음 명령을 30초 간격으로 실행한다.
+DSM에서 **Container Manager → 프로젝트 → 생성** 후 같은 파일과 변수를 사용한다.
+배포 뒤 상태:
 
 ```sh
-/usr/local/bin/jastreamer-server health
+docker compose -f deploy/docker/server/compose.synology.yaml ps
+docker compose -f deploy/docker/server/compose.synology.yaml logs --tail 100 jastreamer-server
+docker compose -f deploy/docker/server/compose.synology.yaml exec jastreamer-server \
+  /usr/local/bin/jastreamer-server health
 ```
 
-HTTPS API는 다음 경로로도 확인할 수 있다.
+`/pair/` bootstrap과 `/admin/` 설정은 [Server 운영](server-pairing.md)을 따른다.
+health가 실패하면 config mount, 10001 쓰기 권한, 8443 충돌, 인증서 SAN, migration 경로를
+확인한다. 잘못된 config를 고치기 위해 data를 삭제하지 않는다.
 
-```text
-GET https://<NAS 주소>:8443/healthz
+## catalog, K17, FFmpeg
+
+K17 지원은 FiiO K17 V261 이상에만 한정한다. private LAN의 명시 interface를 `/admin/`에
+설정한다. host networking은 범용 UPnP 지원이나 자동 장치 신뢰를 의미하지 않는다.
+물리 K17 gate는 현재 pending이며 publication readiness를 제공하지 않는다.
+
+호환 원본을 항상 먼저 stream한다. L16 fallback이 필요하면 관리자가 Synology CPU
+architecture에 맞는 FFmpeg를 취득·검증한다. project는 FFmpeg를 배포하거나 다운로드하지
+않는다. canonical override `deploy/docker/server/compose.ffmpeg.yaml`은 host executable을
+container의 `/opt/jastreamer-external/ffmpeg`에 read-only로 mount한다.
+
+```sh
+JASTREAMER_SERVER_IMAGE='ghcr.io/furyheimdall/jastreamer-server@sha256:<digest>' \
+JASTREAMER_SETUP_SECRET='<보호된-project-secret>' \
+JASTREAMER_CONFIG_PATH='/volume1/docker/jastreamer/config' \
+JASTREAMER_DATA_PATH='/volume1/docker/jastreamer/data' \
+JASTREAMER_FFMPEG_PATH='/volume1/docker/jastreamer/external/ffmpeg/ffmpeg' \
+docker compose \
+  -f deploy/docker/server/compose.synology.yaml \
+  -f deploy/docker/server/compose.ffmpeg.yaml config
 ```
 
-healthy가 되지 않으면 다음을 확인한다.
+같은 두 `-f` 인수를 Container Manager project 배포 또는 `docker compose up -d`에도
+사용한다. `/admin/`의 `ffmpeg_path`는 정확히
+`/opt/jastreamer-external/ffmpeg`로 설정한다. 실행 권한과
+`diagnostics.ffmpeg` probe를 확인한다. FFmpeg가 없으면 L16만 disabled다.
 
-- `JASTREAMER_SETUP_SECRET`이 비어 있지 않은가
-- `/etc/jastreamer/server.json`이 컨테이너에서 보이는가
-- `data`가 UID/GID `10001:10001`로 쓰기 가능한가
-- NAS의 8443 포트를 다른 프로세스가 사용하지 않는가
-- 인증서 DNS/IP가 Controller가 사용할 주소와 일치하는가
+K17가 self-signed HTTPS media를 받지 못한다는 물리 검증이 있을 때만 private interface의
+media-only HTTP listener를 opt-in한다. 이 listener는 signed media GET/HEAD 전용이며
+admin/API를 제공하지 않는다. NAS firewall/router에서 외부에 노출하지 않는다.
 
-최초 관리자와 Controller pairing은
-[Server bootstrap 및 pairing](server-pairing.md)을 따른다.
+## backup, upgrade, rollback
 
-## 업데이트
+upgrade 전 프로젝트를 중지하고 SQLite 일관성 backup, `data`, `config/server.json`,
+현재 image digest, 비밀 제외 환경 기록을 보존한다. 새 digest로 바꾼 뒤 health, identity
+fingerprint, admin config revision, devices, catalog scan, zone/queue를 확인한다.
 
-1. Container Manager 프로젝트를 중지한다.
-2. `data`, `config/server.json`, 현재 이미지 태그/digest를 백업한다.
-3. 실제 게시된 새 이미지의 플랫폼과 digest를 확인한다.
-4. `JASTREAMER_SERVER_IMAGE`를 새 버전 또는 digest로 바꾼다.
-5. 프로젝트를 다시 배포한다.
-6. healthcheck, `/healthz`, pairing, catalog, queue 상태를 확인한다.
+schema upgrade 뒤 old image가 새 data를 읽는다고 가정하지 않는다. old binary의 downgrade
+거부는 안전 장치다. rollback은 프로젝트를 중지하고 **이전 image digest와 upgrade 전
+전체 data backup을 함께** 복구한 뒤 시작한다. 빈 volume이나 부분 DB 교체는 rollback이
+아니다.
 
-Server 릴리스 워크플로우는 하나의 OCI index에 정확히
-`linux/amd64`, `linux/arm64`를 넣도록 검증한다.
+## 제거와 trust removal
 
-## 롤백
+```sh
+docker compose -f deploy/docker/server/compose.synology.yaml down
+```
 
-1. 프로젝트를 중지한다.
-2. 업데이트 전에 기록한 이전 태그 또는 digest로 이미지 참조를 되돌린다.
-3. 같은 데이터와 설정 bind mount를 유지한다.
-4. migration 이후 하위 버전 호환이 보장되지 않으면 업데이트 전 SQLite
-   백업도 함께 복구한다.
-5. 프로젝트를 시작하고 health, portal, catalog, pairing을 확인한다.
+이 명령은 bind-mounted data를 지우지 않는다. 영구 제거 전에 모든 device token을
+철회하고 backup 정책을 확인한다. 그 뒤 관리자가 project와 전용 data/config/media bind
+경로만 삭제한다. shared media나 다른 certificate를 삭제하지 않는다.
 
-빈 볼륨으로 바꾸거나 `data`를 삭제하는 것은 롤백이 아니다.
+## 현재 qualification gate
 
-## 백업 및 복구
+- `candidate`: exact OCI digest와 구조를 묶는 stage gate
+- `server_control_e2e`: 설치된 Server/Control workflow gate
+- `k17`: 승인된 물리 K17 V261+ gate
+- `wasapi`: 승인된 native Windows audio runner gate
+- `external_authorization_pending`: device/audio 변경 0과 publication denied를 증명하는
+  pending receipt
 
-최소 백업 대상:
-
-- `/volume1/docker/jastreamer/data`
-- `/volume1/docker/jastreamer/config/server.json`
-- 사용한 이미지 태그와 digest
-- 비밀값을 제외한 환경 설정 기록
-
-SQLite는 가능한 경우 online backup으로 일관된 사본을 만든다.
-`JASTREAMER_SETUP_SECRET`은 데이터 백업과 분리해 안전하게 보관한다.
-
-복구 후에는 health뿐 아니라 인증서 지문, 관리자 세션, Controller pairing,
-catalog와 queue 상태까지 확인한다.
-
-## 제한
-
-- ARMv7은 지원하지 않는다.
-- DS918+는 인증 완료가 아니라 런타임 승인 대기 후보이다.
-- Synology arm64 실기기는 아직 검증되지 않았다.
-- 문서의 기본 이미지 문자열은 실제 게시를 보장하지 않는다.
-- bridge network, privileged mode, 익명 데이터 볼륨은 지원 배포 계약이
-  아니다.
+현재 K17/Windows native qualification이 pending이므로 workflow나 emulator 성공만으로
+Server/Control을 공개하면 안 된다.

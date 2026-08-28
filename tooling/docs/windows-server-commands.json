@@ -1,0 +1,12 @@
+{
+  "schema_version": 1,
+  "service_name": "jastreamer-server",
+  "environment_registry": {
+    "command": "New-ItemProperty",
+    "path": "HKLM:\\SYSTEM\\CurrentControlSet\\Services\\jastreamer-server",
+    "name": "Environment",
+    "property_type": "MultiString",
+    "force": true
+  },
+  "startup": {"command":"Start-Service","name":"jastreamer-server"}
+}

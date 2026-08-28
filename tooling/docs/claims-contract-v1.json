@@ -1,0 +1,153 @@
+{
+  "schema_version": 1,
+  "claim_set_id": "jastreamer-operational-claims-v1",
+  "claims": [
+    {
+      "id": "server-admin-config",
+      "document": "docs/server-pairing.md",
+      "component": "server",
+      "capability": "control-api-v3.server-admin",
+      "required_gate": "server_control_e2e"
+    },
+    {
+      "id": "server-secure-pairing",
+      "document": "docs/server-pairing.md",
+      "component": "server",
+      "capability": "control-api-v3.secure-pairing",
+      "required_gate": "server_control_e2e"
+    },
+    {
+      "id": "server-catalog-browse",
+      "document": "docs/server-pairing.md",
+      "component": "server",
+      "capability": "control-api-v3.catalog-browse",
+      "required_gate": "server_control_e2e"
+    },
+    {
+      "id": "server-original-k17-media",
+      "document": "docs/server-pairing.md",
+      "component": "server",
+      "capability": "renderer-protocol-v3.original-first",
+      "required_gate": "k17"
+    },
+    {
+      "id": "server-l16-ffmpeg",
+      "document": "docs/server-pairing.md",
+      "component": "server",
+      "capability": "renderer-protocol-v3.l16-transcode",
+      "required_gate": "ffmpeg"
+    },
+    {
+      "id": "server-l16-k17",
+      "document": "docs/server-pairing.md",
+      "component": "server",
+      "capability": "renderer-protocol-v3.l16-sink-selection",
+      "required_gate": "k17"
+    },
+    {
+      "id": "server-k17-v261",
+      "document": "docs/server-pairing.md",
+      "component": "server",
+      "capability": "renderer-protocol-v3.k17-v261",
+      "required_gate": "k17"
+    },
+    {
+      "id": "synology-container-candidate",
+      "document": "docs/synology.md",
+      "component": "server",
+      "capability": "release-v1.synology-container-deploy",
+      "required_gate": "candidate"
+    },
+    {
+      "id": "synology-backup-restore",
+      "document": "docs/synology.md",
+      "component": "server",
+      "capability": "release-v1.synology-backup-restore",
+      "required_gate": "server_control_e2e"
+    },
+    {
+      "id": "windows-server-service",
+      "document": "docs/server-pairing.md",
+      "component": "server",
+      "capability": "release-v1.windows-server-service",
+      "required_gate": "candidate"
+    },
+    {
+      "id": "web-control-workflow",
+      "document": "docs/control-web.md",
+      "component": "control",
+      "capability": "control-api-v3.web-queue-surface",
+      "required_gate": "server_control_e2e"
+    },
+    {
+      "id": "web-control-transport",
+      "document": "docs/control-web.md",
+      "component": "control",
+      "capability": "control-api-v3.web-transport-surface",
+      "required_gate": "server_control_e2e"
+    },
+    {
+      "id": "web-control-events",
+      "document": "docs/control-web.md",
+      "component": "control",
+      "capability": "control-api-v3.web-event-recovery",
+      "required_gate": "server_control_e2e"
+    },
+    {
+      "id": "windows-control-candidate",
+      "document": "docs/control-windows.md",
+      "component": "control",
+      "capability": "release-v1.control-windows",
+      "required_gate": "candidate"
+    },
+    {
+      "id": "windows-control-credentials",
+      "document": "docs/control-windows.md",
+      "component": "control",
+      "capability": "control-api-v3.windows-dpapi-credentials",
+      "required_gate": "server_control_e2e"
+    },
+    {
+      "id": "windows-control-state",
+      "document": "docs/control-windows.md",
+      "component": "control",
+      "capability": "control-api-v3.windows-state-truth",
+      "required_gate": "server_control_e2e"
+    },
+    {
+      "id": "android-control-candidate",
+      "document": "docs/control-android.md",
+      "component": "control",
+      "capability": "release-v1.control-android",
+      "required_gate": "candidate"
+    },
+    {
+      "id": "android-control-credentials",
+      "document": "docs/control-android.md",
+      "component": "control",
+      "capability": "control-api-v3.android-keystore-credentials",
+      "required_gate": "server_control_e2e"
+    },
+    {
+      "id": "android-control-transport",
+      "document": "docs/control-android.md",
+      "component": "control",
+      "capability": "control-api-v3.android-transport-surface",
+      "required_gate": "server_control_e2e"
+    },
+    {
+      "id": "renderer-foreground-wasapi",
+      "document": "docs/renderer-windows.md",
+      "component": "renderer",
+      "capability": "renderer-protocol-v3.foreground-wasapi",
+      "required_gate": "wasapi"
+    },
+    {
+      "id": "release-default-deny",
+      "document": "docs/releasing.md",
+      "component": "release",
+      "capability": "release-v1.default-deny-publication",
+      "required_gate": "external_authorization_pending"
+    }
+  ]
+}

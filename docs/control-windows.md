@@ -1,129 +1,85 @@
-# Windows Control 설치 및 사용
+# Windows Control 설치와 운영
 
-> 현재 공개 릴리스는 아직 생성되지 않았다. 아래 파일명은
-> `control-vX.Y.Z` 워크플로우가 생성할 산출물 계약이다.
+> Windows MSIX는 아직 공개 출시되지 않았다. candidate stage와 native 설치 검사는
+> publication이 아니며, Todo 19/21 native qualification은 현재 pending이다.
 
-## 필요한 파일
+## candidate 확인, trust와 설치
 
-같은 GitHub Release에서 다음 파일을 받는다.
-
-```text
-jastreamer-control_<버전>_windows.msix
-control-windows.cer
-Windows-CERT-SHA256.txt
-SHA256SUMS
-```
-
-Control의 application ID는 `io.jastreamer.control`, MSIX publisher는
-`CN=jastreamer`이다.
-
-## 무결성과 인증서 확인
-
-먼저 `SHA256SUMS`와 MSIX의 SHA-256을 비교한다.
+같은 candidate set의 MSIX, `SHA256SUMS`, `control-windows.cer`,
+`Windows-CERT-SHA256.txt`를 사용한다.
 
 ```powershell
 Get-FileHash .\jastreamer-control_<버전>_windows.msix -Algorithm SHA256
-```
-
-Control은 개인용 자체 서명 인증서를 사용한다. Windows Public Trust나
-SmartScreen 평판이 없으므로 인증서를 직접 확인해야 한다.
-
-```powershell
 certutil -dump .\control-windows.cer
 ```
 
-표시된 SHA-256 인증서 지문이 `Windows-CERT-SHA256.txt`와 정확히
-일치해야 한다. 다르면 설치하지 않는다.
-
-관리자 PowerShell에서 확인한 인증서를 `TrustedPeople`에 가져온다.
+두 digest를 독립 배포 기록과 비교한다. 자체 서명 `CN=jastreamer`는 Public Trust나
+SmartScreen 평판이 아니다. 확인한 certificate만 관리자 PowerShell에서 trust한다.
 
 ```powershell
-Import-Certificate `
-  -FilePath .\control-windows.cer `
+Import-Certificate -FilePath .\control-windows.cer `
   -CertStoreLocation Cert:\LocalMachine\TrustedPeople
-```
-
-## 설치와 제거
-
-```powershell
 Add-AppxPackage .\jastreamer-control_<버전>_windows.msix
+Get-AppxPackage -Name io.jastreamer.control
 ```
 
-설치 전 신뢰가 없으면 실패하는 것이 정상이다. 경고를 우회하지 말고
-지문과 파일 digest를 다시 확인한다.
+불일치나 install warning을 우회하지 않는다. certificate 교체도 자동 신뢰하지 않는다.
 
-제거:
+## pairing과 secure token
+
+1. Server HTTPS origin과 별도 경로로 받은 certificate SHA-256을 입력한다.
+2. **Discover Server** 뒤 identity와 protocol major 3 capabilities를 확인한다.
+3. 관리자가 `/pair/`에서 controller 역할 one-time code를 만든다.
+4. code를 소비해 한 번 표시되는 token을 **Complete pairing return**에 입력한다.
+5. pairing 완료 후 앱을 재시작해 reconnect 상태를 확인한다.
+
+Windows Control은 token record를 현재 Windows 사용자 범위 DPAPI로 암호화하고 app/package
+identity를 entropy로 묶는다. 유효 token은 같은 사용자와 signer/application identity의
+upgrade 뒤 유지된다. 다른 사용자, 다른 app identity, 복사된/corrupt blob은 사용할 수
+없고 삭제된다. token을 command line, URL, log, screenshot에 넣지 않는다.
+
+## browse, queue, transport와 truth
+
+Browse/Search는 Server catalog의 title/artist/album/album artist 결과를 사용한다. track을
+explicit queue에 Add하고 Remove, Earlier/Later reorder, Clear, Retry blocked, Skip blocked를
+사용할 수 있다. active row나 stale revision 실패에는 자동 retry하지 않는다.
+
+모든 transport action은 Previous, Play/Start, Pause, Resume, Next/Skip, Stop, Seek다.
+Start는 assigned online Renderer가 필요하고 enqueue만으로 시작하지 않는다. Stop은 queue를
+자동 진행하지 않는다. unsupported seek, offline Renderer, unavailable explicit head는
+Server의 typed failure로 남는다.
+
+**Server intent**, **Renderer observed**, **pending command**를 각각 확인한다. `202`는 물리
+작업 접수이지 재생 성공이 아니다. event gap이나 reconnect 뒤 Control은 authoritative REST
+state를 full resync한다. automatic preview와 Server decision은 read-only이고 Control이
+next track을 계산하지 않는다.
+
+복구:
+
+- `TOKEN_REVOKED`: **Clear & pair again**으로 DPAPI record를 지우고 새 code를 사용한다.
+- certificate mismatch/change: 연결을 중지하고 identity를 독립 확인한 뒤 다시 pairing한다.
+- stale revision: **Refresh Server truth** 후 보존된 intent를 검토해 수동 재제출한다.
+- Renderer offline/command failure: Server assignment와 observed state를 확인한 뒤 재시도한다.
+- blocked track: 원인 복구 후 Retry blocked 또는 Skip blocked를 명시한다.
+
+## update, rollback, 제거와 trust removal
+
+새 MSIX의 digest, publisher, application ID, signer lineage를 확인한 뒤
+`Add-AppxPackage`로 in-place update한다. signer/application identity가 다르면 token 유지나
+upgrade를 기대하지 않는다. rollback MSIX가 허용되지 않으면 제거/재설치 전에 Server에서
+credential을 철회하고 새 pairing 계획을 세운다. 앱 rollback은 Server state를 되돌리지
+않는다.
 
 ```powershell
 Get-AppxPackage -Name io.jastreamer.control | Remove-AppxPackage
 ```
 
-## 서버 찾기
-
-1. **Server HTTPS address**에 주소를 입력한다.
-   예: `https://music-server.local:8443`
-2. Server 콘솔이나 관리자가 별도 경로로 제공한 HTTPS 인증서 SHA-256
-   지문을 **Advertised SHA-256 fingerprint**에 입력한다.
-3. **Discover Server**를 선택한다.
-4. 결과의 이름, 주소, 지문을 다시 비교한다.
-
-Windows Control은 인증서 DER의 SHA-256을 입력값과 직접 비교한다. 일반
-인증서 chain이 통과하더라도 지문이 다르면 연결하지 않는다.
-
-## Pairing
-
-1. 발견한 Server에서 **Open pairing page**를 선택한다.
-2. Server 관리자가 기본 5분 유효한 일회용 code를 생성한다.
-3. 브라우저의 Server pairing 페이지에서 이 Windows 기기를 등록한다.
-4. 한 번 표시되는 controller token을 복사한다.
-5. Control의 **Complete pairing return**에 token을 입력한다.
-6. **Complete pairing**을 선택한다.
-
-token을 URL, 브라우저 기록, 로그, 화면 캡처에 넣지 않는다. 현재 네이티브
-Control은 token을 메모리에 보관하므로 앱 재시작 후 재pairing이 필요할 수
-있다.
-
-## 사용
-
-pairing 후 다음 영역을 사용할 수 있다.
-
-- continuation policy: 정지, 앨범 이어듣기, 비슷한 음악
-- artist/album cooldown과 세션 재정의
-- catalog 인덱싱 및 분석 coverage
-- explicit queue와 automatic next preview
-- Server decision 설명
-- **Refresh Server state**
-
-정책 변경은 **Save policy**로 저장한다. Server revision이 먼저 바뀌어
-stale 상태가 되면 최신 상태를 검토한 뒤 **Retry saved intent**를 사용한다.
-
-## 업데이트
-
-1. 새 MSIX와 `SHA256SUMS`를 확인한다.
-2. 새 릴리스 인증서 지문을 확인한다.
-3. 같은 application ID와 서명 계보인지 확인한다.
-4. 새 MSIX를 `Add-AppxPackage`로 설치한다.
-5. Server discovery와 pairing 상태를 확인한다.
-
-자체 서명 인증서가 바뀌었다면 새 인증서를 자동으로 신뢰하지 않는다.
-별도 경로로 새 지문을 검증한 후 가져온다.
-
-## 인증서 신뢰 제거
-
-Control을 먼저 제거한 다음, `Windows-CERT-SHA256.txt`와 일치하는
-인증서만 삭제한다.
+제거 전 또는 즉시 뒤 Server `/admin/`에서 해당 device를 철회한다. 그 다음
+`Windows-CERT-SHA256.txt`와 일치하는 certificate만 삭제한다.
 
 ```powershell
 Get-ChildItem Cert:\LocalMachine\TrustedPeople
-Remove-Item "Cert:\LocalMachine\TrustedPeople\<확인한-THUMBPRINT>"
+Remove-Item 'Cert:\LocalMachine\TrustedPeople\<확인한-THUMBPRINT>'
 ```
 
-관련 없는 인증서를 삭제하지 않는다. 신뢰를 제거하면 재설치 전에 다시
-인증서를 검증하고 가져와야 한다.
-
-## 제한
-
-- 인증서는 Windows Public Trust가 아니다.
-- SmartScreen 평판을 제공하지 않는다.
-- 서명 또는 Server TLS 검증을 비활성화하는 설치 방식은 지원하지 않는다.
-- 앱 종료 또는 재설치 뒤 token 유지가 보장되지 않는다.
+관련 없는 certificate를 삭제하지 않는다.
