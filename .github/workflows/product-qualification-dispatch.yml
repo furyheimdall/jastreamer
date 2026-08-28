@@ -43,8 +43,8 @@ jobs:
     with:
       version: ${{ inputs.version }}
       invocation_mode: authoritative
-      caller_run_id: ${{ github.run_id }}
-      caller_run_attempt: ${{ github.run_attempt }}
+      caller_run_id: ${{ format('{0}', github.run_id) }}
+      caller_run_attempt: ${{ format('{0}', github.run_attempt) }}
       caller_ref: ${{ github.ref }}
       caller_sha: ${{ github.sha }}
       caller_workflow_path: .github/workflows/product-qualification-dispatch.yml
@@ -56,8 +56,8 @@ jobs:
     with:
       version: ${{ inputs.version }}
       invocation_mode: authoritative
-      caller_run_id: ${{ github.run_id }}
-      caller_run_attempt: ${{ github.run_attempt }}
+      caller_run_id: ${{ format('{0}', github.run_id) }}
+      caller_run_attempt: ${{ format('{0}', github.run_attempt) }}
       caller_ref: ${{ github.ref }}
       caller_sha: ${{ github.sha }}
       caller_workflow_path: .github/workflows/product-qualification-dispatch.yml
