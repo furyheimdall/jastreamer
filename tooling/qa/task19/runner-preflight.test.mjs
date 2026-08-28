@@ -30,6 +30,8 @@ describe("Task19 self-hosted runner preflight", () => {
       "actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683",
     );
     expect(preflight).toContain("persist-credentials: false");
+    expect(preflight).toContain("shell: powershell");
+    expect(preflight).not.toContain("shell: pwsh");
     expect(value).not.toMatch(/contents:\s*write|packages:\s*write|actions:\s*write/);
   });
 
@@ -40,6 +42,10 @@ describe("Task19 self-hosted runner preflight", () => {
     expect(value).toContain("TASK19_ADB_DEVICE_COUNT_INVALID");
     expect(value).toContain("androidDeviceSerialSha256");
     expect(value).toContain("publicationWrites = 0");
+    expect(value).toContain("[Security.Cryptography.SHA256]::Create()");
+    expect(value).toContain("ComputeHash");
+    expect(value).not.toContain("::HashData");
+    expect(value).not.toContain("[Convert]::ToHexString");
     expect(value).not.toContain("Start-Sleep");
     expect(value).not.toMatch(/androidDeviceSerial\s*=/);
   });

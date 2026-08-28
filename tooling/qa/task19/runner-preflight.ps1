@@ -7,6 +7,19 @@ param(
 $ErrorActionPreference = 'Stop'
 $PSNativeCommandUseErrorActionPreference = $true
 
+function Get-Sha256Hex {
+    param([byte[]]$Bytes)
+
+    $algorithm = [Security.Cryptography.SHA256]::Create()
+    try {
+        $hash = $algorithm.ComputeHash($Bytes)
+        return ([BitConverter]::ToString($hash) -replace '-', '').ToLowerInvariant()
+    }
+    finally {
+        $algorithm.Dispose()
+    }
+}
+
 if ($env:RUNNER_OS -ne 'Windows' -or $env:RUNNER_ARCH -ne 'X64') {
     throw 'TASK19_RUNNER_PLATFORM_INVALID'
 }
@@ -46,17 +59,11 @@ if ($entries[0].State -ne 'device') {
 }
 
 $deviceId = $entries[0].Id
-$deviceHash = [Convert]::ToHexString(
-    [Security.Cryptography.SHA256]::HashData(
-        [Text.Encoding]::UTF8.GetBytes($deviceId)
-    )
-).ToLowerInvariant()
+$deviceHash = Get-Sha256Hex ([Text.Encoding]::UTF8.GetBytes($deviceId))
 $adbHash = (Get-FileHash $adb.Source -Algorithm SHA256).Hash.ToLowerInvariant()
-$versionHash = [Convert]::ToHexString(
-    [Security.Cryptography.SHA256]::HashData(
-        [Text.Encoding]::UTF8.GetBytes(($adbVersion -join "`n"))
-    )
-).ToLowerInvariant()
+$versionHash = Get-Sha256Hex (
+    [Text.Encoding]::UTF8.GetBytes(($adbVersion -join "`n"))
+)
 
 $receipt = [ordered]@{
     schemaVersion = 1
