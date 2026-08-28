@@ -42,7 +42,7 @@ bool requiredBoolean(Map<String, Object?> value, String key) {
 
 List<String> requiredStrings(Map<String, Object?> value, String key) {
   final field = value[key];
-  if (field is! List<Object?> || field.any((item) => item is! String)) {
+  if (field is! List || field.any((item) => item is! String)) {
     throw FormatException('$key must be a string array');
   }
   return field.whereType<String>().toList(growable: false);
@@ -50,8 +50,33 @@ List<String> requiredStrings(Map<String, Object?> value, String key) {
 
 List<int> requiredIntegers(Map<String, Object?> value, String key) {
   final field = value[key];
-  if (field is! List<Object?> || field.any((item) => item is! int)) {
+  if (field is! List || field.any((item) => item is! int)) {
     throw FormatException('$key must be an integer array');
   }
   return field.whereType<int>().toList(growable: false);
+}
+
+String? optionalString(Map<String, Object?> value, String key) {
+  final field = value[key];
+  if (field == null) return null;
+  if (field is! String) throw FormatException('$key must be a string or null');
+  return field;
+}
+
+int? optionalInteger(Map<String, Object?> value, String key) {
+  final field = value[key];
+  if (field == null) return null;
+  if (field is! int) throw FormatException('$key must be an integer or null');
+  return field;
+}
+
+List<Map<String, Object?>> requiredObjects(
+  Map<String, Object?> value,
+  String key,
+) {
+  final field = value[key];
+  if (field is! List || field.any((item) => item is! Map<String, Object?>)) {
+    throw FormatException('$key must be an object array');
+  }
+  return field.whereType<Map<String, Object?>>().toList(growable: false);
 }

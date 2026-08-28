@@ -7,6 +7,7 @@ project(runner LANGUAGES CXX)
 #
 # Any new source files that you add to the application should be added here.
 add_executable(${BINARY_NAME} WIN32
+  "credential_vault.cpp"
   "flutter_window.cpp"
   "main.cpp"
   "utils.cpp"
@@ -33,8 +34,19 @@ target_compile_definitions(${BINARY_NAME} PRIVATE "NOMINMAX")
 # Add dependency libraries and include directories. Add any application-specific
 # dependencies here.
 target_link_libraries(${BINARY_NAME} PRIVATE flutter flutter_wrapper_app)
-target_link_libraries(${BINARY_NAME} PRIVATE "dwmapi.lib")
+target_link_libraries(${BINARY_NAME} PRIVATE "crypt32.lib" "dwmapi.lib" "shell32.lib")
 target_include_directories(${BINARY_NAME} PRIVATE "${CMAKE_SOURCE_DIR}")
+
+include(CTest)
+if(BUILD_TESTING)
+  add_executable(credential_vault_test
+    "credential_vault.cpp"
+    "credential_vault_test.cpp"
+  )
+  apply_standard_settings(credential_vault_test)
+  target_link_libraries(credential_vault_test PRIVATE "crypt32.lib" "ole32.lib" "shell32.lib")
+  add_test(NAME credential_vault_dpapi COMMAND credential_vault_test)
+endif()
 
 # Run the Flutter tool portions of the build. This must not be removed.
 add_dependencies(${BINARY_NAME} flutter_assemble)

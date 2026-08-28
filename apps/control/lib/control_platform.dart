@@ -1,35 +1,11 @@
 import 'package:http/http.dart' as http;
 import 'package:jastreamer_control/behavior_model.dart';
 import 'package:jastreamer_control/control_gateway.dart';
-import 'package:jastreamer_control/control_models.dart';
+import 'package:jastreamer_control/credential_vault.dart';
 import 'package:jastreamer_control/tls_client.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 typedef ControlClientFactory = http.Client Function(String? certificateSha256);
-
-abstract interface class TokenVault {
-  Uri? get callbackUri;
-  Future<SessionToken?> read();
-  Future<void> store(SessionToken token);
-  Future<void> clear();
-}
-
-final class MemoryTokenVault implements TokenVault {
-  SessionToken? _token;
-  @override
-  Uri? get callbackUri => null;
-  @override
-  Future<SessionToken?> read() async => _token;
-  @override
-  Future<void> store(SessionToken token) async {
-    _token = token;
-  }
-
-  @override
-  Future<void> clear() async {
-    _token = null;
-  }
-}
 
 abstract interface class ExternalLauncher {
   Future<bool> open(Uri uri);
@@ -48,14 +24,14 @@ final class SystemExternalLauncher implements ExternalLauncher {
 final class ControlPlatform {
   ControlPlatform({
     ControlClientFactory? clientFactory,
-    TokenVault? vault,
+    CredentialVault? vault,
     ExternalLauncher? launcher,
   })  : _clientFactory = clientFactory ?? _defaultClientFactory,
-        vault = vault ?? MemoryTokenVault(),
+        vault = vault ?? createPlatformCredentialVault(),
         launcher = launcher ?? const SystemExternalLauncher();
 
   final ControlClientFactory _clientFactory;
-  final TokenVault vault;
+  final CredentialVault vault;
   final ExternalLauncher launcher;
   final List<http.Client> _clients = <http.Client>[];
 
@@ -65,6 +41,7 @@ final class ControlPlatform {
   ControlEndpoint endpoint(DiscoveredServer server) => ControlEndpoint(
         client: _track(_clientFactory(server.certificateSha256)),
         origin: server.origin,
+        certificateSha256: server.certificateSha256,
       );
 
   http.Client _track(http.Client client) {
@@ -73,7 +50,6 @@ final class ControlPlatform {
   }
 
   Future<void> dispose() async {
-    await vault.clear();
     for (final client in _clients) {
       client.close();
     }

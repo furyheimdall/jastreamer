@@ -43,9 +43,19 @@ Paired, stale revision, coverage, and blocked-head variants with icon, heading, 
 ### ServerCard
 Discovered identity, HTTPS origin, SHA-256 fingerprint, pairing status, and one Server-advertised pairing action. States: available, pairing, paired, failed.
 ### PairingCompletion
-External Server portal launch followed by explicit one-time controller-token paste. The obscured token exists only in session memory and never in a URL, history entry, screenshot, log, or persisted store.
+External Server portal launch followed by explicit one-time controller-token paste. The token never enters a URL, history entry, screenshot, or log. Native Controls retain it in OS-protected user/app storage (Windows DPAPI user scope and Android Keystore-backed storage); Web retains it only in `sessionStorage` for the current tab session and never uses `localStorage`.
 ### PolicySaveStatus
 Server-confirmed revision and saved/unsaved state. A stale response rebases effective Server policy while preserving desired intent for an explicit retry; optimistic state is never labeled saved.
+### CatalogBrowser
+Search field plus Server-returned track rows. States: loading, results, empty, unavailable. Add is an explicit queue mutation and disables all mutation affordances until the matching response and invalidation settle.
+### ZoneTransport
+Zone and Renderer selectors above three separate truth badges: logical Server intent, observed Renderer state, and pending command. Transport controls expose play, pause, resume, stop, seek, next, and previous as semantic buttons; “next” always sends a Server skip command and never chooses a track locally.
+### ExplicitQueueEditor
+Amber-neutral elevated rows with visible order, move earlier/later, remove, clear, retry-blocked, and skip-blocked controls. Blocked rows use the danger surface and exact Server error copy. The editor is visually and semantically separate from `AutomaticPreview`.
+### AutomaticPreview
+Read-only surface with a 4px amber needle, active Server automatic candidate, persisted reason, revisions, and coverage. When `preview.active` is false the same location is titled “Current Server decision” and shows the Server explanation without labeling an explicit-current decision as automatic. The preview never shares queue-row anatomy and never offers local reordering or removal.
+### RecoveryBanner
+Live-region error surface showing exact typed code/message and one explicit recovery action. Offline and conflicts never retry automatically; revocation clears the credential and returns to pairing.
 
 ## 6. Motion & Interaction
 Use Material transitions at 200ms. Interactive state changes use transform/opacity-equivalent Material feedback only. No decorative loops. Reduced motion follows platform accessibility settings.

@@ -5,7 +5,7 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:jastreamer_control/control_gateway.dart';
 import 'package:jastreamer_control/control_models.dart';
-import 'package:jastreamer_control/control_platform.dart';
+import 'package:jastreamer_control/credential_vault.dart';
 
 void main() {
   test(
@@ -13,7 +13,14 @@ void main() {
     () async {
       final client = MockClient((request) async {
         expect(request.headers['authorization'], 'Bearer session-secret');
-        expect(request.headers['x-jake-protocol-major'], '2');
+        final requested = request.headers['x-jake-protocol-major'];
+        if (requested == '3') {
+          return http.Response(
+            jsonEncode({'code': 'UNSUPPORTED_PROTOCOL_MAJOR'}),
+            426,
+          );
+        }
+        expect(requested, '2');
         return http.Response(
           jsonEncode({
             'protocol_major': 2,
@@ -67,15 +74,63 @@ void main() {
   test(
     'Given a token vault When stored Then it never creates a callback URI',
     () async {
-      final vault = MemoryTokenVault();
+      final vault = SerializedCredentialVault(
+        MemoryCredentialVaultStorage(),
+      );
       const token = SessionToken('one-time-secret');
+      final binding = CredentialBinding(
+        serverOrigin: Uri.parse('https://living.local:8443'),
+        certificateSha256: 'AABB',
+      );
 
-      await vault.store(token);
+      await vault.save(ControlCredential(binding: binding, token: token));
 
-      expect((await vault.read())?.value, token.value);
-      expect(vault.callbackUri, isNull);
+      expect((await vault.load(binding))?.token.value, token.value);
     },
   );
+
+  test('revocation invalidates the persisted credential before surfacing',
+      () async {
+    var invalidations = 0;
+    final gateway = HttpControlGateway(
+      client: MockClient((_) async => http.Response(
+            jsonEncode({'code': 'TOKEN_REVOKED', 'message': 'do-not-reflect'}),
+            401,
+          )),
+      origin: Uri.parse('https://living.local:8443'),
+      token: const SessionToken('runtime-generated-token'),
+      onCredentialInvalidated: () async => invalidations++,
+    );
+
+    await expectLater(gateway.policy(), throwsA(isA<TokenRevokedFailure>()));
+    expect(invalidations, 1);
+    await expectLater(gateway.policy(), throwsA(isA<TokenRevokedFailure>()));
+    expect(invalidations, 1);
+  });
+
+  test('failed secure deletion is typed and never reflects credentials',
+      () async {
+    final gateway = HttpControlGateway(
+      client: MockClient((_) async => http.Response(
+            jsonEncode({'code': 'TOKEN_REVOKED'}),
+            401,
+          )),
+      origin: Uri.parse('https://living.local:8443'),
+      token: const SessionToken('runtime-generated-token'),
+      onCredentialInvalidated: () => throw const CredentialVaultFailure(),
+    );
+
+    await expectLater(
+      gateway.policy(),
+      throwsA(
+        isA<CredentialInvalidationFailure>().having(
+          (failure) => failure.toString(),
+          'redacted diagnostic',
+          isNot(contains('runtime-generated-token')),
+        ),
+      ),
+    );
+  });
 
   test('Given omitted empty session override Then policy parses no override',
       () async {

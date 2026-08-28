@@ -122,6 +122,7 @@ final class ServerCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final paired = server.pairing == PairingStatus.paired;
+    final pairing = server.pairing == PairingStatus.pairing;
     return Padding(
       padding: const EdgeInsets.only(top: 12),
       child: DecoratedBox(
@@ -165,16 +166,18 @@ final class ServerCard extends StatelessWidget {
                 liveRegion: true,
                 child: Text(
                   paired
-                      ? 'Paired device · authenticated discovery verified · session token held only in memory'
+                      ? 'Paired device · authenticated discovery verified · native apps use OS-protected storage; Web keeps the credential only for this tab session'
                       : 'Compare this fingerprint with the Server console before entering a one-time code.',
                 ),
               ),
               const SizedBox(height: 8),
               if (!paired)
                 OutlinedButton.icon(
-                  onPressed: () => openPairing(server),
-                  icon: const Icon(Icons.open_in_new),
-                  label: const Text('Open pairing page'),
+                  onPressed: pairing ? null : () => openPairing(server),
+                  icon: Icon(pairing ? Icons.hourglass_top : Icons.open_in_new),
+                  label: Text(
+                    pairing ? 'Pairing page opened' : 'Open pairing page',
+                  ),
                 ),
             ],
           ),

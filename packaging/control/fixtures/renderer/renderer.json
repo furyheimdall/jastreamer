@@ -6,6 +6,7 @@
   "license": "Apache-2.0",
   "third_party_notices": "THIRD_PARTY_NOTICES",
   "source_revision": "fixture-revision",
+  "distribution": "ci-artifact-only",
   "signing": {"ca": false, "private_key": false},
   "windows_signing": {"publisher": "CN=jastreamer", "fingerprint": "sha256:fixture", "ca": false, "code_signing_eku": true, "private_key": false},
   "previous_component_tag": "renderer-v0.0.9",

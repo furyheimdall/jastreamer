@@ -4,8 +4,10 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:jastreamer_control/control_application.dart';
+import 'package:jastreamer_control/control_models.dart';
 import 'package:jastreamer_control/control_platform.dart';
 import 'package:jastreamer_control/control_theme.dart';
+import 'package:jastreamer_control/credential_vault.dart';
 
 void main() {
   testWidgets('Given startup When rendered Then discovery is the first task', (
@@ -52,7 +54,9 @@ void main() {
   testWidgets(
     'Given rejected token When pairing load fails Then vault is empty',
     (tester) async {
-      final vault = MemoryTokenVault();
+      final vault = SerializedCredentialVault(
+        MemoryCredentialVaultStorage(),
+      );
       final client = MockClient((request) async {
         if (request.url.path == '/api/v1/identity') {
           return http.Response(
@@ -90,8 +94,15 @@ void main() {
       await tester.tap(find.text('Complete pairing'));
       await tester.pumpAndSettle();
 
-      expect(await vault.read(), isNull);
+      expect(
+        await vault.load(CredentialBinding(
+          serverOrigin: Uri.parse('https://living.local:8443'),
+          certificateSha256: 'AABB',
+        )),
+        isNull,
+      );
       expect(find.textContaining('UNAUTHORIZED'), findsOneWidget);
+      expect(find.text('Open pairing page'), findsOneWidget);
     },
   );
 
@@ -102,6 +113,7 @@ void main() {
       final client = _todo13Client();
       final platform = ControlPlatform(
         clientFactory: (_) => client,
+        vault: SerializedCredentialVault(MemoryCredentialVaultStorage()),
         launcher: const _FixtureLauncher(),
       );
       await tester.pumpWidget(
@@ -155,6 +167,42 @@ void main() {
       expect(find.text('Revocable preview'), findsOneWidget);
       expect(find.textContaining('Analysis incomplete'), findsWidgets);
       semantics.dispose();
+    },
+  );
+
+  testWidgets(
+    'Given matching persisted credential When identity is pinned Then restart restores pairing',
+    (tester) async {
+      final storage = MemoryCredentialVaultStorage();
+      final vault = SerializedCredentialVault(storage);
+      final binding = CredentialBinding(
+        serverOrigin: Uri.parse('https://living.local:8443'),
+        certificateSha256: 'AABB',
+      );
+      await vault.save(ControlCredential(
+        binding: binding,
+        token: const SessionToken('restart-runtime-token'),
+      ));
+      final platform = ControlPlatform(
+        clientFactory: (_) => _todo13Client(),
+        vault: SerializedCredentialVault(storage),
+        launcher: const _FixtureLauncher(),
+      );
+      await tester.pumpWidget(ControlApp(
+        platform: platform,
+        initialServer: binding.serverOrigin,
+        initialFingerprint: 'AA:BB',
+      ));
+
+      await tester.tap(find.text('Discover Server'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Paired device'), findsOneWidget);
+      expect(find.text('Complete pairing return'), findsNothing);
+      expect(
+        (await vault.load(binding))?.token.value,
+        'restart-runtime-token',
+      );
     },
   );
 }

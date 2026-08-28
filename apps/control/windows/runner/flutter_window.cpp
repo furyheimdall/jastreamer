@@ -1,7 +1,14 @@
 #include "flutter_window.h"
 
-#include <optional>
+#include <flutter/method_channel.h>
+#include <flutter/standard_method_codec.h>
 
+#include <memory>
+#include <optional>
+#include <string>
+#include <variant>
+
+#include "credential_vault.h"
 #include "flutter/generated_plugin_registrant.h"
 
 FlutterWindow::FlutterWindow(const flutter::DartProject& project)
@@ -25,6 +32,43 @@ bool FlutterWindow::OnCreate() {
     return false;
   }
   RegisterPlugins(flutter_controller_->engine());
+
+  auto vault = std::make_shared<CredentialVault>(CreateDefaultCredentialVault());
+  auto vault_channel =
+      std::make_unique<flutter::MethodChannel<flutter::EncodableValue>>(
+          flutter_controller_->engine()->messenger(),
+          "io.jastreamer.control/credential-vault",
+          &flutter::StandardMethodCodec::GetInstance());
+  vault_channel->SetMethodCallHandler(
+      [vault](const flutter::MethodCall<flutter::EncodableValue>& call,
+              std::unique_ptr<flutter::MethodResult<flutter::EncodableValue>>
+                  result) {
+        try {
+          if (call.method_name() == "load") {
+            const auto value = vault->Load();
+            if (value) {
+              result->Success(flutter::EncodableValue(*value));
+            } else {
+              result->Success(flutter::EncodableValue());
+            }
+          } else if (call.method_name() == "save") {
+            const auto* argument = std::get_if<std::string>(call.arguments());
+            if (!argument) throw std::invalid_argument("record required");
+            vault->Save(*argument);
+            result->Success();
+          } else if (call.method_name() == "delete") {
+            vault->Delete();
+            result->Success();
+          } else {
+            result->NotImplemented();
+          }
+        } catch (...) {
+          // Never include call arguments or native crypto diagnostics.
+          result->Error("credential_vault_unavailable",
+                        "Secure credential storage is unavailable.");
+        }
+      });
+  vault_channel_ = std::move(vault_channel);
   SetChildContent(flutter_controller_->view()->GetNativeWindow());
 
   flutter_controller_->engine()->SetNextFrameCallback([&]() {

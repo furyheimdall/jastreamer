@@ -87,4 +87,24 @@ describe("Control release policy", () => {
     expect(upgradeScript).toContain('test "$uid_before" = "$uid_after"');
     expect(upgradeScript).toContain('test "$version_after" = 1002003');
   });
+
+  test("runs browser QA against the exact staged Web archive", () => {
+    const workflow = readFileSync(
+      new URL("../../../.github/workflows/control-release.yml", import.meta.url),
+      "utf8",
+    );
+    const web = workflow.slice(
+      workflow.indexOf("  web:"),
+      workflow.indexOf("  android:"),
+    );
+    expect(web).toContain("Run exact staged Web QA");
+    expect(web).toContain('unzip -q "$archive" -d "$CONTROL_WEB_ROOT"');
+    expect(web).toContain("CONTROL_WEB_ROOT:");
+    expect(web).toContain("playwright test control.spec.mjs");
+    const qa = readFileSync(
+      new URL("../../../tooling/qa/control.spec.mjs", import.meta.url),
+      "utf8",
+    );
+    expect(qa).toContain("process.env.CONTROL_WEB_ROOT");
+  });
 });

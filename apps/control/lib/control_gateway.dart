@@ -1,20 +1,46 @@
+import 'dart:async';
 import 'dart:convert';
+
 import 'package:http/http.dart' as http;
+import 'package:jastreamer_control/control_events.dart';
 import 'package:jastreamer_control/control_models.dart';
 import 'package:jastreamer_control/control_wire.dart';
+import 'package:jastreamer_control/control_zone_wire.dart';
+import 'package:jastreamer_control/event_socket.dart';
 import 'package:jastreamer_control/protocol_compatibility.dart';
+import 'package:jastreamer_control/tls_client.dart';
+part 'control_gateway_discovery.dart';
+part 'control_gateway_resources.dart';
+part 'control_gateway_mutations.dart';
+part 'control_gateway_transport.dart';
+part 'control_gateway_views.dart';
+part 'control_gateway_live.dart';
+part 'control_gateway_parsing.dart';
 
-final class ControlApiFailure implements Exception {
-  const ControlApiFailure({required this.status, required this.code});
-  final int status;
-  final String code;
-  @override
-  String toString() => 'Control API request failed ($status, $code)';
+final class ControlApiFailure extends ControlFailure {
+  const ControlApiFailure({
+    required super.status,
+    required super.code,
+    super.message = '',
+    super.recoverable = false,
+    super.details,
+    super.intent,
+  });
+}
+
+final class CredentialInvalidationFailure extends ControlFailure {
+  const CredentialInvalidationFailure()
+      : super(
+          status: null,
+          code: 'CREDENTIAL_INVALIDATION_FAILED',
+          message: 'Secure credential invalidation failed.',
+          recoverable: true,
+        );
 }
 
 final class StalePolicyFailure extends ControlApiFailure {
   const StalePolicyFailure({required this.serverRevision})
-      : super(status: 412, code: 'STALE_POLICY_REVISION');
+      : super(status: 412, code: 'STALE_POLICY_REVISION', recoverable: true);
   final int serverRevision;
 }
 
@@ -30,35 +56,61 @@ final class ServerIdentity {
 }
 
 final class ControlEndpoint {
-  const ControlEndpoint({required this.client, required this.origin});
+  const ControlEndpoint({
+    required this.client,
+    required this.origin,
+    this.certificateSha256 = '',
+  });
+  factory ControlEndpoint.certificateBound({
+    required Uri origin,
+    required String certificateSha256,
+  }) =>
+      ControlEndpoint(
+        client: createCertificateBoundClient(certificateSha256),
+        origin: origin,
+        certificateSha256: certificateSha256,
+      );
+
   final http.Client client;
   final Uri origin;
-
+  final String certificateSha256;
   void close() => client.close();
 
   Future<ServerIdentity> identity() async {
-    final response = await client.get(origin.resolve('/api/v1/identity'));
-    final body = _object(response);
-    return ServerIdentity(
-      commonName: requiredString(body, 'common_name'),
-      certificateSha256: requiredString(body, 'sha256_fingerprint'),
-      pairingUrl: origin.resolve(requiredString(body, 'pairing_url')),
-    );
+    try {
+      final response = await client.get(origin.resolve('/api/v1/identity'));
+      final body = _object(response);
+      return ServerIdentity(
+        commonName: requiredString(body, 'common_name'),
+        certificateSha256: requiredString(body, 'sha256_fingerprint'),
+        pairingUrl: origin.resolve(requiredString(body, 'pairing_url')),
+      );
+    } catch (error) {
+      throw _networkFailure(error);
+    }
   }
 
-  HttpControlGateway authenticated(SessionToken token) =>
-      HttpControlGateway(client: client, origin: origin, token: token);
+  HttpControlGateway authenticated(
+    SessionToken token, {
+    String? certificateSha256,
+    EventSocketFactory? eventSocketFactory,
+    FutureOr<void> Function()? onCredentialInvalidated,
+  }) =>
+      HttpControlGateway(
+        client: client,
+        origin: origin,
+        token: token,
+        certificateSha256: certificateSha256 ?? this.certificateSha256,
+        eventSocketFactory: eventSocketFactory,
+        onCredentialInvalidated: onCredentialInvalidated,
+      );
 }
 
-void _requireSelectedProtocol(
-  Map<String, Object?> body,
-  int requestedMajor,
-) {
+void _requireSelectedProtocol(Map<String, Object?> body, int requestedMajor) {
   final selectedMajor = requiredInteger(body, 'protocol_major');
   if (selectedMajor != requestedMajor) {
     throw FormatException(
-      'Server selected protocol $selectedMajor '
-      'for requested major $requestedMajor.',
+      'Server selected protocol $selectedMajor for requested major $requestedMajor.',
     );
   }
 }
@@ -68,189 +120,37 @@ final class HttpControlGateway {
     required this.client,
     required this.origin,
     required this.token,
-  });
+    this.certificateSha256 = '',
+    EventSocketFactory? eventSocketFactory,
+    FutureOr<void> Function()? onCredentialInvalidated,
+  })  : _eventSocketFactory = eventSocketFactory ?? createEventSocketFactory(),
+        _onCredentialInvalidated = onCredentialInvalidated;
+
   final http.Client client;
   final Uri origin;
   final SessionToken token;
+  final String certificateSha256;
+  final EventSocketFactory _eventSocketFactory;
+  final FutureOr<void> Function()? _onCredentialInvalidated;
   int? _protocolMajor;
+  bool _credentialInvalidated = false;
+  final Set<ControlLiveSession> _subscriptions = {};
 
   int? get negotiatedProtocolMajor => _protocolMajor;
 
   Map<String, String> get _headers => <String, String>{
         'authorization': 'Bearer ${token.value}',
         'accept': 'application/json',
-        'x-jake-supported-protocol-majors':
-            controlSupportedProtocolMajors.join(','),
+        'x-jake-supported-protocol-majors': controlSupportedProtocolMajors.join(
+          ',',
+        ),
         if (_protocolMajor case final major?) 'x-jake-protocol-major': '$major',
       };
 
-  Future<DiscoveryView> discovery() async {
-    for (final requestedMajor in controlSupportedProtocolMajors) {
-      final response = await _requestDiscovery(requestedMajor);
-      if (response.statusCode == 426) continue;
-      var body = _object(response);
-      var serverMajors = requiredIntegers(
-        body,
-        'supported_protocol_majors',
-      );
-      final selectedMajor = selectProtocolMajor(serverMajors);
-      _requireSelectedProtocol(body, selectedMajor);
-      if (selectedMajor != requestedMajor) {
-        body = _object(await _requestDiscovery(selectedMajor));
-        serverMajors = requiredIntegers(
-          body,
-          'supported_protocol_majors',
-        );
-        if (selectProtocolMajor(serverMajors) != selectedMajor) {
-          throw UnsupportedProtocolMajor(
-            controlMajors: controlSupportedProtocolMajors,
-            serverMajors: serverMajors,
-          );
-        }
-        _requireSelectedProtocol(body, selectedMajor);
-      }
-      _protocolMajor = selectedMajor;
-      return DiscoveryView(
-        protocolMajor: selectedMajor,
-        supportedProtocolMajors: serverMajors,
-        pairingUrl: origin.resolve(requiredString(body, 'pairing_url')),
-        certificateSha256: requiredString(body, 'certificate_sha256'),
-        capabilities: requiredStrings(body, 'capabilities'),
-        contractRevision: requiredString(body, 'contract_revision'),
-        catalogRevision: requiredInteger(body, 'catalog_revision'),
-      );
+  void close() {
+    for (final subscription in _subscriptions.toList(growable: false)) {
+      unawaited(subscription.close());
     }
-    throw const UnsupportedProtocolMajor(
-      controlMajors: controlSupportedProtocolMajors,
-      serverMajors: <int>[],
-    );
+    client.close();
   }
-
-  Future<http.Response> _requestDiscovery(int major) => client.get(
-        origin.resolve('/api/v1/discovery'),
-        headers: <String, String>{
-          ..._headers,
-          'x-jake-protocol-major': '$major',
-        },
-      );
-
-  Future<PolicyView> policy() async => parsePolicy(
-        _object(
-          await client.get(
-            origin.resolve('/api/v1/zones/main/continuation-policy'),
-            headers: _headers,
-          ),
-        ),
-      );
-
-  Future<PolicyView> updatePolicy(
-    PolicyWrite write,
-    int expectedRevision,
-  ) async {
-    final response = await client.patch(
-      origin.resolve('/api/v1/zones/main/continuation-policy'),
-      headers: <String, String>{
-        ..._headers,
-        'content-type': 'application/json',
-        'if-match': '$expectedRevision',
-      },
-      body: jsonEncode(<String, Object>{
-        'mode': write.mode,
-        'artist_gap': write.artistGap,
-        'album_gap': write.albumGap,
-        'session_override': write.sessionOverride,
-      }),
-    );
-    if (response.statusCode == 412) {
-      final etag = response.headers['etag']?.replaceAll('"', '');
-      throw StalePolicyFailure(
-        serverRevision: int.tryParse(etag ?? '') ?? expectedRevision,
-      );
-    }
-    return parsePolicy(_object(response));
-  }
-
-  Future<CatalogView> catalog() async {
-    final body = _object(
-      await client.get(
-        origin.resolve('/api/v1/catalog/status'),
-        headers: _headers,
-      ),
-    );
-    return CatalogView(
-      revision: requiredInteger(body, 'catalog_revision'),
-      trackCount: requiredInteger(body, 'track_count'),
-      complete: requiredInteger(body, 'analysis_complete'),
-      queued: requiredInteger(body, 'analysis_queued'),
-      failed: requiredInteger(body, 'analysis_failed'),
-      coverage: requiredInteger(body, 'analysis_coverage'),
-    );
-  }
-
-  Future<QueueView> queue() async {
-    final body = _object(
-      await client.get(
-        origin.resolve('/api/v1/zones/main/queue'),
-        headers: _headers,
-      ),
-    );
-    final rawEntries = body['queue'];
-    if (rawEntries is! List<Object?>) {
-      throw const FormatException('queue must be an array');
-    }
-    return QueueView(
-      revision: requiredInteger(body, 'revision'),
-      entries: rawEntries.map((raw) {
-        if (raw is! Map<String, Object?>) {
-          throw const FormatException('queue entry must be an object');
-        }
-        return QueueEntryView(
-          trackId: requiredString(raw, 'track_id'),
-          state: requiredString(raw, 'state'),
-        );
-      }).toList(growable: false),
-    );
-  }
-
-  Future<PreviewView> preview() async {
-    final body = _object(
-      await client.get(
-        origin.resolve('/api/v1/zones/main/automatic-preview'),
-        headers: _headers,
-      ),
-    );
-    final raw = body['decision'];
-    if (raw is! Map<String, Object?>) {
-      throw const FormatException('decision must be an object');
-    }
-    return PreviewView(
-      active: requiredBoolean(body, 'active'),
-      replaceable: requiredBoolean(body, 'replaceable'),
-      committed: requiredBoolean(body, 'committed'),
-      decision: parseDecision(raw),
-    );
-  }
-
-  Future<DecisionView> explanation() async => parseDecision(
-        _object(
-          await client.get(
-            origin.resolve('/api/v1/zones/main/decision-explanation'),
-            headers: _headers,
-          ),
-        ),
-      );
-}
-
-Map<String, Object?> _object(http.Response response) {
-  final decoded = jsonDecode(response.body);
-  if (decoded is! Map<String, Object?>) {
-    throw const FormatException('response must be an object');
-  }
-  if (response.statusCode < 200 || response.statusCode >= 300) {
-    throw ControlApiFailure(
-      status: response.statusCode,
-      code: requiredString(decoded, 'code'),
-    );
-  }
-  return decoded;
 }

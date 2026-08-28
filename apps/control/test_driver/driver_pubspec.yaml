@@ -1,0 +1,7 @@
+name: jastreamer_control
+environment:
+  sdk: '>=3.5.0 <4.0.0'
+dependencies:
+  crypto: 3.0.6
+  http: 1.4.0
+  web_socket_channel: 3.0.3

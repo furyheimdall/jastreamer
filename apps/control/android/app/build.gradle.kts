@@ -28,8 +28,9 @@ android {
 
     defaultConfig {
         applicationId = "io.jastreamer.control"
-        minSdk = flutter.minSdkVersion
+        minSdk = maxOf(flutter.minSdkVersion, 23)
         targetSdk = flutter.targetSdkVersion
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         versionCode = flutter.versionCode
         versionName = flutter.versionName
     }
@@ -48,6 +49,12 @@ android {
             signingConfig = signingConfigs.getByName("controlRelease")
         }
     }
+}
+
+dependencies {
+    androidTestImplementation("androidx.test:core:1.3.0")
+    androidTestImplementation("androidx.test.ext:junit:1.1.2")
+    androidTestImplementation("androidx.test:runner:1.3.0")
 }
 
 flutter {

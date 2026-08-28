@@ -1,20 +1,18 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { distributables, finalize } from "../tooling/finalize";
 
 const root = resolve(new URL("../../..", import.meta.url).pathname);
-const temporaryDirectories: string[] = [];
 
-afterEach(() => {
-  for (const directory of temporaryDirectories.splice(0)) rmSync(directory, { force: true, recursive: true });
-});
-
-const temporaryDirectory = (): string => {
+const withTemporaryDirectory = async (testBody: (directory: string) => void | Promise<void>): Promise<void> => {
   const directory = mkdtempSync(join(tmpdir(), "control-release-test-"));
-  temporaryDirectories.push(directory);
-  return directory;
+  try {
+    await testBody(directory);
+  } finally {
+    rmSync(directory, { force: true, recursive: true });
+  }
 };
 
 const run = async (args: readonly string[]): Promise<Readonly<{ code: number; stdout: string; stderr: string }>> => {
@@ -32,8 +30,8 @@ const run = async (args: readonly string[]): Promise<Readonly<{ code: number; st
 };
 
 describe("Control release dry-run", () => {
-  test("finalizes exactly the public Control allowlist without publication", () => {
-    const output = join(temporaryDirectory(), "release");
+  test("finalizes exactly the public Control allowlist without publication", async () => withTemporaryDirectory(async (directory) => {
+    const output = join(directory, "release");
     mkdirSync(output);
     const records = [
       "Android-CERT-SHA256.txt",
@@ -66,10 +64,10 @@ describe("Control release dry-run", () => {
     ]);
     expect(manifest.publishReachable).toBe(false);
     expect(readdirSync(output).some((name) => name.endsWith(".aab"))).toBe(false);
-  });
+  }));
 
-  test("rejects changed signing lineage and public AAB atomically", async () => {
-    const output = join(temporaryDirectory(), "release");
+  test("rejects changed signing lineage and public AAB atomically", async () => withTemporaryDirectory(async (directory) => {
+    const output = join(directory, "release");
     writeFileSync(output, "immutable");
     const before = readFileSync(output);
     const result = await run([
@@ -86,10 +84,16 @@ describe("Control release dry-run", () => {
     expect(result.stderr).toContain('"server":"passed"');
     expect(result.stderr).toContain('"renderer":"passed"');
     expect(readFileSync(output)).toEqual(before);
-  });
+  }));
 
-  test("workflow builds real artifacts and keeps signing secrets out of promotion", () => {
+  test("workflow builds exact candidates and gates the three-asset publication job", () => {
+    // Given: the complete Control candidate workflow.
     const workflow = readFileSync(join(root, ".github/workflows/control-release.yml"), "utf8");
+
+    // When: build and publication surfaces are inspected.
+    const stage = workflow.slice(workflow.indexOf("  stage:"));
+
+    // Then: real signed builds remain and only the protected typed driver can promote them.
     expect(workflow).not.toContain("placeholder");
     expect(workflow).toContain("github.repository == 'furyheimdall/jastreamer'");
     expect(workflow).toContain("persist-credentials: false");
@@ -99,9 +103,16 @@ describe("Control release dry-run", () => {
     expect(workflow).toContain("MakeAppx");
     expect(workflow).toContain("SignTool");
     expect(workflow).toContain("if: always()");
-    const promotion = workflow.slice(workflow.indexOf("  promote:"));
-    expect(promotion).not.toContain("CONTROL_ANDROID_");
-    expect(promotion).not.toContain("CONTROL_WINDOWS_");
-    expect(promotion).not.toContain("control-aab-validation");
+    expect(workflow).not.toContain("  promote:");
+    expect(workflow).not.toContain("gh release");
+    expect(workflow).toContain("  publish-qualified:");
+    expect(workflow).toContain("environment: product-promotion");
+    expect(workflow).toContain("publication-cli.ts");
+    expect(workflow).toContain("control-publication-stage");
+    expect(stage).not.toContain("CONTROL_ANDROID_");
+    expect(stage).not.toContain("CONTROL_WINDOWS_");
+    expect(stage).not.toContain("control-aab-validation");
+    expect(stage).toContain("control-candidate-ci");
+    expect(stage).toContain("external_writes:[]");
   });
 });

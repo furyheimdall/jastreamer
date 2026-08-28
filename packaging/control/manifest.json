@@ -9,5 +9,15 @@
   "records": ["SHA256SUMS", "SBOM.spdx.json", "PROVENANCE.intoto.json", "control-windows.cer", "Windows-CERT-SHA256.txt", "Android-CERT-SHA256.txt", "trust.md", "remove-trust.md"],
   "license": "Apache-2.0",
   "stores": false,
-  "oidc": false
+  "oidc": false,
+  "promotionGate": "signed-product-promotion-gate-v1",
+  "operationalCapabilities": {
+    "webQueue": "append-remove-move-clear-retry-skip",
+    "webTransport": "previous-start-pause-resume-skip-stop-seek",
+    "webEvents": "gap-safe-invalidations",
+    "windowsCredentials": "dpapi-user-app-bound",
+    "windowsStateTruth": "server-intent-observed-pending",
+    "androidCredentials": "android-keystore-aes-gcm-no-backup",
+    "androidTransport": "previous-start-pause-resume-skip-stop-seek"
+  }
 }

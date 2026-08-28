@@ -34,6 +34,7 @@ final class PolicyPanel extends StatelessWidget {
                       (policy) => ChoiceChip(
                         label: Text(policy.korean),
                         selected: state.pendingPolicy == policy,
+                        selectedColor: ControlColors.accentPrimary,
                         onSelected: (_) => dispatch(SelectPolicy(policy)),
                       ),
                     )

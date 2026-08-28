@@ -36,6 +36,26 @@ ThemeData controlTheme() => ThemeData(
         ),
       ),
       focusColor: ControlColors.accentPrimary,
+      filledButtonTheme: const FilledButtonThemeData(
+        style: ButtonStyle(
+          minimumSize: WidgetStatePropertyAll(Size(48, 48)),
+        ),
+      ),
+      outlinedButtonTheme: const OutlinedButtonThemeData(
+        style: ButtonStyle(
+          minimumSize: WidgetStatePropertyAll(Size(48, 48)),
+        ),
+      ),
+      textButtonTheme: const TextButtonThemeData(
+        style: ButtonStyle(
+          minimumSize: WidgetStatePropertyAll(Size(48, 48)),
+        ),
+      ),
+      iconButtonTheme: const IconButtonThemeData(
+        style: ButtonStyle(
+          minimumSize: WidgetStatePropertyAll(Size(48, 48)),
+        ),
+      ),
       textTheme: const TextTheme(
         headlineMedium: TextStyle(fontSize: 28, fontWeight: FontWeight.w700),
         titleLarge: TextStyle(fontSize: 20, fontWeight: FontWeight.w700),
