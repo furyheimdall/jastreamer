@@ -39,6 +39,30 @@ jobs:
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with: { persist-credentials: false }
+      - name: Install exact Android platform tools
+        shell: powershell
+        env:
+          PLATFORM_TOOLS_URL: https://dl.google.com/android/repository/platform-tools_r37.0.1-win.zip
+          PLATFORM_TOOLS_SHA256: 45f4d63113e895ebde0c90f194099a4676b6ac653bd28d54314a9e022bbc1a99
+        run: |
+          $ErrorActionPreference = 'Stop'
+          [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+          $archive = Join-Path $env:RUNNER_TEMP 'task19-platform-tools.zip'
+          $installRoot = Join-Path $env:RUNNER_TEMP 'task19-platform-tools'
+          Remove-Item $archive -Force -ErrorAction SilentlyContinue
+          Remove-Item $installRoot -Recurse -Force -ErrorAction SilentlyContinue
+          Invoke-WebRequest -UseBasicParsing -Uri $env:PLATFORM_TOOLS_URL -OutFile $archive
+          if ((Get-Item $archive).Length -ne 8044989) { throw 'TASK19_PLATFORM_TOOLS_SIZE_MISMATCH' }
+          $actualSha256 = (Get-FileHash $archive -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($actualSha256 -ne $env:PLATFORM_TOOLS_SHA256) { throw 'TASK19_PLATFORM_TOOLS_DIGEST_MISMATCH' }
+          Expand-Archive -LiteralPath $archive -DestinationPath $installRoot
+          $platformTools = Join-Path $installRoot 'platform-tools'
+          if (!(Test-Path (Join-Path $platformTools 'adb.exe'))) { throw 'TASK19_ADB_ARCHIVE_INVALID' }
+          [IO.File]::AppendAllText(
+            $env:GITHUB_PATH,
+            "$platformTools`n",
+            [Text.UTF8Encoding]::new($false)
+          )
       - name: Verify Windows runner and one authorized USB Android device
         shell: powershell
         run: tooling/qa/task19/runner-preflight.ps1 -Output task19-runner-preflight.json
@@ -47,3 +71,9 @@ jobs:
           name: task19-runner-preflight
           path: task19-runner-preflight.json
           if-no-files-found: error
+      - name: Remove temporary Android platform tools
+        if: always()
+        shell: powershell
+        run: |
+          Remove-Item (Join-Path $env:RUNNER_TEMP 'task19-platform-tools.zip') -Force -ErrorAction SilentlyContinue
+          Remove-Item (Join-Path $env:RUNNER_TEMP 'task19-platform-tools') -Recurse -Force -ErrorAction SilentlyContinue

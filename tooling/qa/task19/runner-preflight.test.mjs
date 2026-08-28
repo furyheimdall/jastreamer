@@ -60,4 +60,24 @@ describe("Task19 self-hosted runner preflight", () => {
     expect(value).toContain("path: task19-runner-preflight.json");
     expect(value).toContain("if-no-files-found: error");
   });
+
+  test("bootstraps digest-pinned Android platform tools without package managers", () => {
+    const value = workflow();
+    const install = value.slice(
+      value.indexOf("Install exact Android platform tools"),
+      value.indexOf("Verify Windows runner and one authorized USB Android device"),
+    );
+
+    expect(install).toContain(
+      "platform-tools_r37.0.1-win.zip",
+    );
+    expect(install).toContain(
+      "45f4d63113e895ebde0c90f194099a4676b6ac653bd28d54314a9e022bbc1a99",
+    );
+    expect(install).toContain("Get-FileHash");
+    expect(install).toContain("Expand-Archive");
+    expect(install).toContain("$env:GITHUB_PATH");
+    expect(value).toContain("if: always()");
+    expect(value).not.toMatch(/\b(?:choco|winget)\b/);
+  });
 });
