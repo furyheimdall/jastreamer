@@ -1,11 +1,11 @@
 scenario: control-policy-failure
 expects:
-  - certificate-mismatch-rejected
-  - rejected-token-cleared
-  - stale-revision-intent-preserved
-  - analysis-coverage-incomplete-metadata-fallback
-  - unavailable-explicit-head-no-automatic-fallback
-  - revocable-preview
-  - committed-preview
-  - stop-similar-no-signal
+  - certificate-mismatch-and-rejected-token-recovery
+  - renderer-offline-no-blind-retry
+  - blocked-track-retry-and-skip
+  - stale-revision-preserves-intent-no-blind-retry
+  - command-failure
+  - event-sequence-gap-full-resync
+  - token-revocation-clear-and-repair
+  - desktop-mobile-keyboard-overflow-evidence
   - no-secret-evidence

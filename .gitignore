@@ -20,6 +20,8 @@
 # Component build output
 apps/server/bin/
 apps/server/dist/
+/apps/server/jastreamer-server
+/apps/server/jastreamer-server.exe
 apps/control/.dart_tool/
 apps/control/build/
 apps/renderer/target/

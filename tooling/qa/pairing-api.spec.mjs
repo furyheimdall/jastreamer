@@ -8,16 +8,16 @@ const repository = join(import.meta.dirname, "../..");
 const serverRoot = join(repository, "apps/server");
 const fixturePath = process.env.PAIRING_FIXTURE;
 const output = process.env.PAIRING_OUTPUT;
-if (!fixturePath || !output) throw new TypeError("PAIRING_FIXTURE and PAIRING_OUTPUT are required");
-const fixtureText = await readFile(fixturePath, "utf8");
+const qaEnabled = fixturePath !== undefined && output !== undefined;
+const fixtureText = qaEnabled ? await readFile(fixturePath, "utf8") : "";
 const scenario = fixtureText.match(/^scenario:\s*(.+)$/m)?.[1];
-if (scenario !== "happy" && scenario !== "security-failures") throw new TypeError("unsupported pairing fixture scenario");
+if (qaEnabled && scenario !== "happy" && scenario !== "security-failures") throw new TypeError("unsupported pairing fixture scenario");
 const expectedByScenario = {
   happy: ["portal-bootstrap", "controller-registration", "authenticated-discovery", "catalog-scan", "continuation-policy", "queue-enqueue", "wss-state", "mutation-p95-under-500ms"],
   "security-failures": ["pairing-expired-410", "pairing-reuse-409", "controller-admin-operation-403", "pairing-rate-limit-429", "certificate-mismatch", "stale-policy-412", "unauthorized-mutations-zero"],
 };
 const fixtureExpects = [...fixtureText.matchAll(/^\s+-\s+(.+)$/gm)].map((match) => match[1]);
-if (JSON.stringify(fixtureExpects) !== JSON.stringify(expectedByScenario[scenario])) throw new TypeError("pairing fixture expects list drifted");
+if (qaEnabled && JSON.stringify(fixtureExpects) !== JSON.stringify(expectedByScenario[scenario])) throw new TypeError("pairing fixture expects list drifted");
 
 const startServer = async (pairingTTL = "5m") => {
   const directory = await mkdtemp(join(tmpdir(), "jastreamer-pairing-api-"));
@@ -85,9 +85,9 @@ const pairController = async (request, origin, adminToken, name = "Fixture Contr
   return { code: code.code, credential: await paired.json() };
 };
 
-await mkdir(output, { recursive: true });
+if (qaEnabled) await mkdir(output, { recursive: true });
 
-test("pairing API fixture", async ({ browser, playwright }) => {
+if (qaEnabled) test("pairing API fixture", async ({ browser, playwright }) => {
   const server = await startServer();
   try {
     const context = await browser.newContext({ ignoreHTTPSErrors: true, viewport: { width: 1280, height: 900 } });

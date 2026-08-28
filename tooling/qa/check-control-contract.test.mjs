@@ -1,11 +1,13 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
-import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import test from "node:test";
 
 const checker = join(import.meta.dirname, "check-control-contract.mjs");
+const root = join(import.meta.dirname, "../..");
 
 const scanFixture = async ({ dependency = '', source = '' }) => {
   const directory = await mkdtemp(join(tmpdir(), 'control-forbidden-'));
@@ -19,6 +21,24 @@ const scanFixture = async ({ dependency = '', source = '' }) => {
     await rm(directory, { recursive: true, force: true });
   }
 };
+
+test('generated Control contract is bound to protocol major 3', async () => {
+  // Given: the canonical v3 HTTP contract and generated Dart constants.
+  const contract = await readFile(join(root, 'contracts/control-api/v3/http-api.json'));
+  const generated = await readFile(join(root, 'apps/control/lib/generated/control_contract.dart'), 'utf8');
+  const checkerSource = await readFile(checker, 'utf8');
+
+  // When: the production contract checker runs.
+  const result = spawnSync(process.execPath, [checker], { encoding: 'utf8' });
+
+  // Then: the checker and generated machine values select this exact v3 contract.
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(result.stdout.trim(), createHash('sha256').update(contract).digest('hex'));
+  assert.match(generated, /controlProtocolMajor = 3;/);
+  assert.match(generated, /controlContractRevision = 'control-api-v3';/);
+  assert.match(checkerSource, /createZoneInventoryValidator/);
+  assert.match(checkerSource, /validateZones\(zoneFixture\)/);
+});
 
 test('Control boundary scan rejects forbidden dependencies', async () => {
   const result = await scanFixture({ dependency: '  sqflite: 2.4.0\n' });

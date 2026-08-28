@@ -1,0 +1,259 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://jastreamer.invalid/schemas/product-qa-receipt/v1",
+  "title": "Jake Streamer product QA receipt bundle v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "kind", "purpose", "recordedAt", "runId", "source", "contracts", "peers", "requiredReceipts", "receipts"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "kind": { "const": "product_qa_bundle" },
+    "purpose": { "enum": ["validator_fixture", "qualification"] },
+    "recordedAt": { "type": "string", "format": "date-time" },
+    "runId": { "$ref": "#/$defs/opaqueId" },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["revision", "sha256"],
+      "properties": {
+        "revision": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+        "sha256": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "contracts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["controlSha256", "rendererSha256"],
+      "properties": {
+        "controlSha256": { "$ref": "#/$defs/sha256" },
+        "rendererSha256": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "peers": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/digestIdentity" } },
+    "installedProductReceipt": { "$ref": "task19/installed-product-receipt.schema.json" },
+    "requiredReceipts": {
+      "type": "array",
+      "minItems": 7,
+      "maxItems": 7,
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/receiptKind" }
+    },
+    "receipts": { "type": "array", "minItems": 7, "maxItems": 7, "items": { "$ref": "#/$defs/receipt" } }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "purpose": { "const": "qualification" } }, "required": ["purpose"] },
+      "then": { "required": ["installedProductReceipt"] }
+    }
+  ],
+  "x-jastreamer-gates": {
+    "candidate": {"schema_pointer":"#/$defs/candidatePayload","module":"tooling/qa/product-receipt.mjs","command":["bun","test","tooling/qa/product-receipt.test.mjs"],"machine_receipt_key":"receipts[].kind=candidate"},
+    "server_control_e2e": {"schema_pointer":"#/$defs/scenarioPayload","module":"tooling/qa/task19/product-e2e-receipt.mjs","command":["bun","test","tooling/qa/task19/product-e2e-receipt.test.mjs"],"machine_receipt_key":"receipts[].kind=server_control_e2e"},
+    "k17": {"schema_pointer":"#/$defs/k17Payload","module":"tooling/qa/k17/receipt.mjs","command":["bun","test","tooling/qa/k17/qualification.test.mjs"],"machine_receipt_key":"receipts[].kind=k17"},
+    "wasapi": {"schema_pointer":"#/$defs/wasapiPayload","module":"tooling/qa/windows-audio/receipt.mjs","command":["bun","test","tooling/qa/windows-audio/qualification.test.mjs"],"machine_receipt_key":"receipts[].kind=wasapi"},
+    "ffmpeg": {"schema_pointer":"#/$defs/ffmpegPayload","module":"tooling/qa/product-receipt.mjs","command":["bun","test","tooling/qa/product-receipt.test.mjs"],"machine_receipt_key":"receipts[].kind=ffmpeg"},
+    "external_authorization_pending": {"schema_pointer":"#/$defs/pendingPayload","module":"tooling/release/publication-guard.ts","command":["bun","test","tooling/release/publication-guard.test.ts"],"machine_receipt_key":"receipts[].kind=external_authorization_pending"},
+    "cleanup": {"schema_pointer":"#/$defs/cleanupPayload","module":"tooling/qa/product-receipt.mjs","command":["bun","test","tooling/qa/product-receipt.test.mjs"],"machine_receipt_key":"receipts[].kind=cleanup"}
+  },
+  "$defs": {
+    "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "opaqueId": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]{2,63}$" },
+    "receiptKind": {
+      "enum": ["candidate", "server_control_e2e", "k17", "wasapi", "ffmpeg", "external_authorization_pending", "cleanup"]
+    },
+    "digestIdentity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["component", "sha256"],
+      "properties": { "component": { "type": "string", "minLength": 1 }, "sha256": { "$ref": "#/$defs/sha256" } }
+    },
+    "binding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sourceSha256", "artifactSetSha256", "controlContractSha256", "rendererContractSha256", "peerSetSha256"],
+      "properties": {
+        "sourceSha256": { "$ref": "#/$defs/sha256" },
+        "artifactSetSha256": { "$ref": "#/$defs/sha256" },
+        "controlContractSha256": { "$ref": "#/$defs/sha256" },
+        "rendererContractSha256": { "$ref": "#/$defs/sha256" },
+        "peerSetSha256": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "candidatePayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["artifactSetSha256", "artifacts"],
+      "properties": {
+        "artifactSetSha256": { "$ref": "#/$defs/sha256" },
+        "artifacts": { "type": "array", "minItems": 3, "items": { "$ref": "#/$defs/digestIdentity" } }
+      }
+    },
+    "scenarioPayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["artifactSha256", "startupOrders", "scenarios"],
+      "properties": {
+        "artifactSha256": { "$ref": "#/$defs/sha256" },
+        "startupOrders": { "const": ["server_first", "control_first"] },
+        "scenarios": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["id", "result"],
+            "properties": { "id": { "$ref": "#/$defs/opaqueId" }, "result": { "const": "passed" } }
+          }
+        }
+      }
+    },
+    "k17Payload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["evidenceSource", "artifactSha256", "identitySha256", "model", "firmware", "runnerLabel", "protocolInfo", "protocolInfoSha256", "representations", "transport", "lifecycle", "externalOverride", "network", "audioProof", "cleanup", "recordedAt"],
+      "properties": {
+        "evidenceSource": { "const": "physical" },
+        "artifactSha256": { "$ref": "#/$defs/sha256" },
+        "identitySha256": { "$ref": "#/$defs/sha256" },
+        "model": { "const": "FiiO K17" },
+        "firmware": { "type": "integer", "minimum": 261 },
+        "runnerLabel": { "$ref": "#/$defs/opaqueId" },
+        "protocolInfo": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "string", "pattern": "^(?:http-get|\\*):[^:]*:(?:audio/[^:;]+|\\*)(?:;[^:]*)?:.*$" } },
+        "protocolInfoSha256": { "$ref": "#/$defs/sha256" },
+        "representations": {
+          "type": "array", "minItems": 6,
+          "items": {
+            "type": "object", "additionalProperties": false,
+            "required": ["format", "advertised", "selected", "audioProofSha256"],
+            "properties": {
+              "format": { "enum": ["flac", "mp3", "vorbis", "opus", "wav", "l16-fallback"] },
+              "advertised": { "type": "boolean" },
+              "selected": { "enum": ["original", "l16"] },
+              "audioProofSha256": { "$ref": "#/$defs/sha256" }
+            }
+          }
+        },
+        "transport": {
+          "type": "object", "additionalProperties": false,
+          "required": ["pause", "seek", "stop", "naturalEndCount"],
+          "properties": { "pause": { "const": "passed" }, "seek": { "const": "passed" }, "stop": { "const": "passed" }, "naturalEndCount": { "const": 1 } }
+        },
+        "lifecycle": {
+          "type": "object", "additionalProperties": false,
+          "required": ["disappearance", "reappearance"],
+          "properties": { "disappearance": { "const": "passed" }, "reappearance": { "const": "passed" } }
+        },
+        "externalOverride": {
+          "type": "object", "additionalProperties": false,
+          "required": ["observed", "adopted"],
+          "properties": { "observed": { "const": true }, "adopted": { "const": false } }
+        },
+        "network": {
+          "type": "object", "additionalProperties": false,
+          "required": ["https", "explicitMediaOnlyHttp", "privateNetworkOnly", "hostileLocationRejected", "redirectsRejected", "expiredUrlRejected"],
+          "properties": { "https": { "const": "passed" }, "explicitMediaOnlyHttp": { "const": "passed" }, "privateNetworkOnly": { "const": true }, "hostileLocationRejected": { "const": true }, "redirectsRejected": { "const": true }, "expiredUrlRejected": { "const": true } }
+        },
+        "audioProof": {
+          "type": "object", "additionalProperties": false,
+          "required": ["captureSha256", "method", "manualListening"],
+          "properties": { "captureSha256": { "$ref": "#/$defs/sha256" }, "method": { "const": "automated_capture" }, "manualListening": { "const": false } }
+        },
+        "cleanup": {
+          "type": "object", "additionalProperties": false,
+          "required": ["rawIdentityRetained", "firmwareMutated", "resourcesReleased", "processesTerminated"],
+          "properties": { "rawIdentityRetained": { "const": false }, "firmwareMutated": { "const": false }, "resourcesReleased": { "const": true }, "processesTerminated": { "const": true } }
+        },
+        "recordedAt": { "type": "string", "format": "date-time" }
+      }
+    },
+    "wasapiPayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["endpointIdentitySha256", "captureSha256", "sampleRateHz", "channels", "toneFrequencyHz", "durationMs", "seekMarkersObserved"],
+      "properties": {
+        "endpointIdentitySha256": { "$ref": "#/$defs/sha256" },
+        "captureSha256": { "$ref": "#/$defs/sha256" },
+        "sampleRateHz": { "const": 48000 },
+        "channels": { "const": 2 },
+        "toneFrequencyHz": { "const": 1000 },
+        "durationMs": { "const": 2000 },
+        "seekMarkersObserved": { "type": "integer", "minimum": 3 }
+      }
+    },
+    "ffmpegPayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["executableSha256", "version", "decoders", "encoder", "probeStatus"],
+      "properties": {
+        "executableSha256": { "$ref": "#/$defs/sha256" },
+        "version": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["major", "minor", "patch"],
+          "properties": { "major": { "type": "integer" }, "minor": { "type": "integer" }, "patch": { "type": "integer" } }
+        },
+        "decoders": { "type": "array", "contains": { "const": "flac" }, "minContains": 1 },
+        "encoder": { "const": "pcm_s16be" },
+        "probeStatus": { "const": "passed" }
+      }
+    },
+    "pendingPayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["gate", "qualificationStatus", "networkCalls", "audioMutations", "publicationEligible"],
+      "properties": {
+        "gate": { "enum": ["k17", "wasapi"] },
+        "qualificationStatus": { "const": "awaiting_external_authorization" },
+        "networkCalls": { "const": 0 },
+        "audioMutations": { "const": 0 },
+        "publicationEligible": { "const": false }
+      }
+    },
+    "cleanupPayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["resourcesReleased", "processesTerminated", "temporaryDirectoriesRemoved", "externalWrites"],
+      "properties": {
+        "resourcesReleased": { "const": true },
+        "processesTerminated": { "const": true },
+        "temporaryDirectoriesRemoved": { "const": true },
+        "externalWrites": { "const": 0 }
+      }
+    },
+    "receipt": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schemaVersion", "kind", "recordedAt", "runId", "binding", "evidenceMode", "payload"],
+      "properties": {
+        "schemaVersion": { "const": 1 },
+        "kind": { "$ref": "#/$defs/receiptKind" },
+        "recordedAt": { "type": "string", "format": "date-time" },
+        "runId": { "$ref": "#/$defs/opaqueId" },
+        "binding": { "$ref": "#/$defs/binding" },
+        "evidenceMode": { "enum": ["real", "contract_fixture", "pending"] },
+        "payload": { "type": "object" }
+      },
+      "discriminator": {
+        "propertyName": "kind",
+        "mapping": {
+          "candidate": "#/$defs/candidatePayload",
+          "server_control_e2e": "#/$defs/scenarioPayload",
+          "k17": "#/$defs/k17Payload",
+          "wasapi": "#/$defs/wasapiPayload",
+          "ffmpeg": "#/$defs/ffmpegPayload",
+          "external_authorization_pending": "#/$defs/pendingPayload",
+          "cleanup": "#/$defs/cleanupPayload"
+        }
+      },
+      "allOf": [
+        { "if": { "properties": { "kind": { "const": "candidate" } } }, "then": { "properties": { "payload": { "$ref": "#/$defs/candidatePayload" } } } },
+        { "if": { "properties": { "kind": { "const": "server_control_e2e" } } }, "then": { "properties": { "payload": { "$ref": "#/$defs/scenarioPayload" } } } },
+        { "if": { "properties": { "kind": { "const": "k17" } } }, "then": { "properties": { "payload": { "$ref": "#/$defs/k17Payload" } } } },
+        { "if": { "properties": { "kind": { "const": "wasapi" } } }, "then": { "properties": { "payload": { "$ref": "#/$defs/wasapiPayload" } } } },
+        { "if": { "properties": { "kind": { "const": "ffmpeg" } } }, "then": { "properties": { "payload": { "$ref": "#/$defs/ffmpegPayload" } } } },
+        { "if": { "properties": { "kind": { "const": "external_authorization_pending" } } }, "then": { "properties": { "payload": { "$ref": "#/$defs/pendingPayload" } } } },
+        { "if": { "properties": { "kind": { "const": "cleanup" } } }, "then": { "properties": { "payload": { "$ref": "#/$defs/cleanupPayload" } } } }
+      ]
+    }
+  }
+}

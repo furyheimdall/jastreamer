@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://jastreamer.invalid/schemas/k17-qualification/v1",
+  "title": "K17 qualification gate receipt",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "kind", "recorded_at", "candidate_sha256", "qualification_status"],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "kind": { "const": "k17_qualification" },
+    "recorded_at": { "type": "string", "format": "date-time" },
+    "candidate_sha256": { "$ref": "#/$defs/sha256" },
+    "qualification_status": { "enum": ["awaiting_external_authorization", "qualified"] },
+    "network_calls": { "$ref": "#/$defs/zeroCalls" },
+    "audio_mutations": { "const": 0 },
+    "publication": { "$ref": "#/$defs/publicationDenied" },
+    "physical": { "type": "object" }
+  },
+  "oneOf": [
+    {
+      "properties": { "qualification_status": { "const": "awaiting_external_authorization" } },
+      "required": ["network_calls", "audio_mutations", "publication"],
+      "not": { "required": ["physical"] }
+    },
+    {
+      "properties": { "qualification_status": { "const": "qualified" } },
+      "required": ["physical"],
+      "not": { "anyOf": [{ "required": ["network_calls"] }, { "required": ["audio_mutations"] }] }
+    }
+  ],
+  "$defs": {
+    "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "zeroCalls": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ssdpControl", "soap", "media"],
+      "properties": { "ssdpControl": { "const": 0 }, "soap": { "const": 0 }, "media": { "const": 0 } }
+    },
+    "publicationDenied": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "external_writes"],
+      "properties": { "code": { "const": "PRODUCT_GATE_REQUIRED" }, "external_writes": { "const": 0 } }
+    }
+  }
+}

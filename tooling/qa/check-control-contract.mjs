@@ -2,6 +2,8 @@ import { createHash } from "node:crypto";
 import { readdir, readFile } from "node:fs/promises";
 import { extname, join } from "node:path";
 import process from "node:process";
+import Ajv2020 from "./node_modules/ajv/dist/2020.js";
+import { createZoneInventoryValidator } from "./schema-validation.mjs";
 
 const root = join(import.meta.dirname, "../..");
 const forbiddenDependencies = /\b(sqflite|drift|sqlite3|onnx|tensorflow|tflite|ml_algo|recommendation_engine)\b/i;
@@ -44,11 +46,15 @@ if (process.argv[2] === "--scan") {
   process.exit(0);
 }
 
-const contract = await readFile(join(root, "contracts/control-api/http-api-v1.json"));
+const contract = await readFile(join(root, "contracts/control-api/v3/http-api.json"));
 const generated = await readFile(join(root, "apps/control/lib/generated/control_contract.dart"), "utf8");
 const digest = createHash("sha256").update(contract).digest("hex");
 if (!generated.includes(`'${digest}'`)) throw new Error(`generated Control contract digest drifted: ${digest}`);
 const parsed = JSON.parse(contract.toString("utf8"));
+const zoneSchema = JSON.parse(await readFile(join(root, "contracts/control-api/v3/schema.json"), "utf8"));
+const zoneFixture = JSON.parse(await readFile(join(root, "contracts/control-api/v3/fixtures/zones-snapshot.json"), "utf8"));
+const validateZones = createZoneInventoryValidator(new Ajv2020({ allErrors: true, strict: true }), zoneSchema);
+if (!validateZones(zoneFixture)) throw new Error("canonical Control zone fixture is invalid");
 for (const reason of parsed.reasonEnums) {
   if (!generated.includes(`'${reason}'`)) throw new Error(`generated Control contract omitted reason ${reason}`);
 }

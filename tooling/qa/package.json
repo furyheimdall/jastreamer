@@ -1,6 +1,7 @@
 {
   "private": true,
   "devDependencies": {
-    "@playwright/test": "1.62.1"
+    "@playwright/test": "1.62.1",
+    "ajv": "8.17.1"
   }
 }

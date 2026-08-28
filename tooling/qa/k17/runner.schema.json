@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://jastreamer.invalid/schemas/k17-physical-runner/v1",
+  "title": "K17 physical runner process contract",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "executable_arguments", "output", "restrictions"],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "executable_arguments": { "const": ["--candidate-sha256", "<sha256>", "--runner-label", "<exact-support-matrix-label>"] },
+    "output": { "const": "one physical qualification JSON object on stdout; diagnostics on stderr" },
+    "restrictions": {
+      "const": [
+        "selected only after external authorization and exact runner-label match",
+        "private or link-local K17 peer only",
+        "no firmware mutation",
+        "automated audio capture only",
+        "no raw UDN or IP in output",
+        "cleanup before successful exit"
+      ]
+    }
+  }
+}

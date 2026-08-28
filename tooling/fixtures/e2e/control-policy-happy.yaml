@@ -1,9 +1,9 @@
 scenario: control-policy-happy
 expects:
-  - real-todo13-authenticated-discovery
-  - server-advertised-https-pairing
-  - explicit-token-return
-  - stop-album-similar-save
-  - analysis-coverage-incomplete-metadata-fallback
-  - explicit-versus-automatic-preview
-  - desktop-mobile-screenshots
+  - real-todo13-authenticated-discovery-and-pairing
+  - catalog-browse-and-search
+  - zone-renderer-assignment
+  - two-queue-adds-and-reorder
+  - play-pause-seek-resume-next-stop
+  - desktop-mobile-keyboard-overflow-evidence
+  - no-secret-evidence

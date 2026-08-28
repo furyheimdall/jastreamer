@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "sampleRateHz": 48000,
+  "channels": 1,
+  "amplitude": 12000,
+  "signals": [
+    {
+      "id": "tone_1khz",
+      "durationSeconds": 2,
+      "segmentFrequenciesHz": [1000, 1000]
+    },
+    {
+      "id": "seek_tones",
+      "durationSeconds": 3,
+      "segmentFrequenciesHz": [440, 880, 1320]
+    }
+  ],
+  "codecs": ["flac", "mp3", "ogg", "opus", "wav"]
+}

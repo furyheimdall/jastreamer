@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://jastreamer.invalid/schemas/installed-product-receipt/v3",
+  "title": "Trusted candidate-bound installed product qualification receipt",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "kind", "recordedAt", "runId", "source", "bindings", "artifacts", "contracts", "peers", "runs", "performance", "probes"],
+  "properties": {
+    "schemaVersion": { "const": 3 }, "kind": { "const": "installed_server_control_e2e" },
+    "recordedAt": { "type": "string" }, "runId": { "$ref": "#/$defs/id" },
+    "source": { "type": "object", "additionalProperties": false, "required": ["revision", "sha256", "dirty", "files"], "properties": { "revision": { "type": "string", "pattern": "^[0-9a-f]{40}$" }, "sha256": { "$ref": "#/$defs/sha256" }, "dirty": { "type": "boolean" }, "files": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/path" } } } },
+    "bindings": { "type": "object", "additionalProperties": false, "required": ["sourceSha256", "artifactSetSha256", "controlContractSha256", "rendererContractSha256", "peerSetSha256"], "properties": { "sourceSha256": { "$ref": "#/$defs/sha256" }, "artifactSetSha256": { "$ref": "#/$defs/sha256" }, "controlContractSha256": { "$ref": "#/$defs/sha256" }, "rendererContractSha256": { "$ref": "#/$defs/sha256" }, "peerSetSha256": { "$ref": "#/$defs/sha256" } } },
+    "artifacts": { "type": "array", "minItems": 5, "maxItems": 5, "items": { "$ref": "#/$defs/artifact" } },
+    "contracts": { "type": "array", "minItems": 2, "maxItems": 2, "items": { "$ref": "#/$defs/contract" } },
+    "peers": { "type": "array", "minItems": 3, "maxItems": 3, "items": { "$ref": "#/$defs/peer" } },
+    "runs": { "type": "array", "minItems": 6, "maxItems": 6, "items": { "$ref": "#/$defs/run" } },
+    "performance": { "$ref": "#/$defs/signedReference" }, "probes": { "$ref": "#/$defs/signedReference" }
+  },
+  "$defs": {
+    "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }, "id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]{2,127}$" },
+    "path": { "type": "string", "pattern": "^(?!/)(?![A-Za-z]:\\\\)(?!.*(?:^|/)\\.\\.(?:/|$)).+$" },
+    "reference": { "type": "object", "additionalProperties": false, "required": ["path", "sha256"], "properties": { "path": { "$ref": "#/$defs/path" }, "sha256": { "$ref": "#/$defs/sha256" } } },
+    "signedReference": { "type": "object", "additionalProperties": false, "required": ["path", "sha256", "keyId", "signature"], "properties": { "path": { "$ref": "#/$defs/path" }, "sha256": { "$ref": "#/$defs/sha256" }, "keyId": { "$ref": "#/$defs/sha256" }, "signature": { "type": "string" } } },
+    "artifact": { "type": "object", "additionalProperties": false, "required": ["role", "candidateComponent", "path", "sha256"], "properties": { "role": { "enum": ["server", "control-web", "control-windows", "control-android", "renderer"] }, "candidateComponent": { "enum": ["server", "control", "renderer"] }, "path": { "$ref": "#/$defs/path" }, "sha256": { "$ref": "#/$defs/sha256" } } },
+    "contract": { "type": "object", "additionalProperties": false, "required": ["component", "path", "sha256"], "properties": { "component": { "enum": ["control", "renderer"] }, "path": { "$ref": "#/$defs/path" }, "sha256": { "$ref": "#/$defs/sha256" } } },
+    "peer": { "type": "object", "additionalProperties": false, "required": ["component", "artifactRole", "path", "sha256"], "properties": { "component": { "enum": ["server", "control", "renderer"] }, "artifactRole": { "enum": ["server", "control-web", "renderer"] }, "path": { "$ref": "#/$defs/path" }, "sha256": { "$ref": "#/$defs/sha256" } } },
+    "run": { "type": "object", "additionalProperties": false, "required": ["runId", "platform", "startupOrder", "path", "sha256", "keyId", "signature"], "properties": { "runId": { "$ref": "#/$defs/id" }, "platform": { "enum": ["web", "windows", "android"] }, "startupOrder": { "enum": ["server_first", "control_first"] }, "path": { "$ref": "#/$defs/path" }, "sha256": { "$ref": "#/$defs/sha256" }, "keyId": { "$ref": "#/$defs/sha256" }, "signature": { "type": "string" } } }
+  }
+}
