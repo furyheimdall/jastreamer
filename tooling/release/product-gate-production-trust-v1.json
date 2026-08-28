@@ -1,0 +1,38 @@
+{
+  "schemaVersion": 1,
+  "profile": "production",
+  "rotationEpoch": 1,
+  "gate": {
+    "keyId": "579092f85915a5a75a8c55894bb3c4be73495824e0cc34542051674fbeec08e3",
+    "publicKeyPath": "packaging/server/cert/server.cer",
+    "algorithm": "RSA-SHA256"
+  },
+  "artifactSigning": {
+    "keyIds": []
+  },
+  "canonical": {
+    "sourceRoot": ".",
+    "sourceRevision": "3e9a90888a0efb21d101b6ed7f6c1962503e2414",
+    "contracts": [
+      {
+        "component": "control",
+        "path": "contracts/control-api/v3/schema.json",
+        "sha256": "5e16d3895cfdbc27f24095a2aa8f2f0519b96cdbacec3e6aca1d4b695e95845d"
+      },
+      {
+        "component": "renderer",
+        "path": "contracts/renderer-protocol/v3/schema.json",
+        "sha256": "2533c183dcc2f77fa4289416b5e92c6a90dd1d5a3e7e43eb233e962ee0f2ef25"
+      }
+    ],
+    "peers": [
+      {
+        "component": "released",
+        "path": "tooling/fixtures/compatibility/released-peers.yaml",
+        "sha256": "d74ed830c7c7082183fe409e4af5efd1559a3731474cffc958c3d36df21916e6"
+      }
+    ],
+    "sourcePolicyPath": "tooling/release/product-gate-source-policy-v1.json"
+  },
+  "trustPolicyVersion": "product-gate-trust-v1"
+}

@@ -1,0 +1,15 @@
+{
+  "$schema":"https://json-schema.org/draft/2020-12/schema","$id":"https://jastreamer.invalid/schemas/product-gate-trust/v1","type":"object","additionalProperties":false,
+  "required":["schemaVersion","profile","trustPolicyVersion","rotationEpoch","gate","artifactSigning","qualification","builders","materialPolicy","canonical"],
+  "properties":{
+    "schemaVersion":{"const":1},"profile":{"enum":["production","fixture","current-audit"]},"trustPolicyVersion":{"type":"string","pattern":"^product-gate-trust-v[0-9]+$"},"rotationEpoch":{"type":"integer","minimum":1},
+    "gate":{"type":"object","additionalProperties":false,"required":["keyId","publicKeyPath","algorithm"],"properties":{"keyId":{"$ref":"#/$defs/sha256"},"publicKeyPath":{"$ref":"#/$defs/path"},"algorithm":{"enum":["Ed25519","RSA-SHA256"]}}},
+    "artifactSigning":{"type":"object","additionalProperties":false,"required":["keyIds","publicKeys"],"properties":{"keyIds":{"type":"array","minItems":1,"uniqueItems":true,"items":{"$ref":"#/$defs/sha256"}},"publicKeys":{"type":"array","minItems":1,"items":{"type":"object","additionalProperties":false,"required":["keyId","path"],"properties":{"keyId":{"$ref":"#/$defs/sha256"},"path":{"$ref":"#/$defs/path"}}}}}},
+    "qualification":{"type":"object","required":["todo19","k17","wasapi"]},
+    "builders":{"type":"array","minItems":1,"uniqueItems":true,"items":{"type":"string","minLength":1}},
+    "materialPolicy":{"type":"object","additionalProperties":false,"required":["buildType","sourceUri"],"properties":{"buildType":{"type":"string","minLength":1},"sourceUri":{"type":"string","minLength":1}}},
+    "publication":{"type":"object","additionalProperties":false,"required":["repository","environment","receiptKeyId"],"properties":{"repository":{"const":"furyheimdall/jastreamer"},"environment":{"const":"product-promotion"},"receiptKeyId":{"$ref":"#/$defs/sha256"}}},
+    "canonical":{"type":"object","required":["sourceRoot","sourcePolicyPath","sourceRevision","contracts","peers"]}
+  },
+  "$defs":{"sha256":{"type":"string","pattern":"^[0-9a-f]{64}$"},"path":{"type":"string","minLength":1}}
+}

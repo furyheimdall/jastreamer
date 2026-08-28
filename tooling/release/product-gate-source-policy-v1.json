@@ -1,0 +1,8 @@
+{
+  "schemaVersion": 1,
+  "policyId": "jastreamer-product-source-v1",
+  "includeRoots": ["apps", "contracts", "deploy", "docs", "packaging", "tooling", ".github"],
+  "includeRootFiles": [".gitignore", ".tool-versions", "LICENSE", "Makefile", "README.md", "THIRD_PARTY_NOTICES.template", "global.json"],
+  "excludePrefixes": [".omo/", "apps/control/.dart_tool/", "apps/control/build/", "apps/renderer/target/", "apps/server/tmp/", "node_modules/", "tooling/qa/node_modules/"],
+  "inventoryCommand": ["git", "ls-files", "--cached", "--others", "--exclude-standard", "-z"]
+}

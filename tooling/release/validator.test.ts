@@ -27,8 +27,9 @@ test("changelog starts at the matching component tag", () => {
 });
 
 
-type MutableSigning = { readonly [key: string]: string | boolean | undefined };
-type MutableManifest = { readonly artifacts: string[]; readonly signing: MutableSigning; readonly windows_signing: MutableSigning; readonly [key: string]: unknown };
+/** Mutable test fixture used to inject one invalid boundary value per case. */
+type MutableSigning = { [key: string]: string | boolean | undefined };
+type MutableManifest = { artifacts: string[]; signing: MutableSigning; windows_signing: MutableSigning; [key: string]: unknown };
 
 function rejects(component: string, changes: (manifest: MutableManifest) => void): readonly string[] {
   const dir = mkdtempSync("/tmp/release-contract-");
@@ -58,6 +59,12 @@ test("each Windows signing field is enforced for Control and Renderer", () => {
 
 test("Android identity, lineage, and key state are enforced", () => {
   for (const [field, value] of [["application_id", "wrong"], ["keystore_lineage", ""], ["private_key", true]] as const) expect(rejects("control", (m) => { m.signing[field] = value; })).toContain("ANDROID_SIGNING_LINEAGE_INVALID");
+});
+
+test("Renderer manifests are CI-artifact-only", () => {
+  expect(rejects("renderer", (manifest) => {
+    Object.defineProperty(manifest, "distribution", { value: "public" });
+  })).toContain("RENDERER_PUBLICATION_DISABLED");
 });
 
 test("changelog and mutable tag rejection remain explicit", () => {

@@ -1,0 +1,120 @@
+{
+  "schemaVersion": 1,
+  "profile": "current-audit",
+  "trustPolicyVersion": "product-gate-trust-v1",
+  "rotationEpoch": 1,
+  "gate": {
+    "keyId": "addd2c036bf2a8e38868c70de65bbfee4390c201c9d3685f1764b352c101d389",
+    "publicKeyPath": "tooling/release/product-gate-current-audit-public.pem",
+    "algorithm": "Ed25519"
+  },
+  "artifactSigning": {
+    "keyIds": [
+      "e7298ec127a6b16e6999b56c2ef29d2fb12d866bb4a4175932e04db7bd2a1f7e"
+    ],
+    "publicKeys": [
+      {
+        "keyId": "e7298ec127a6b16e6999b56c2ef29d2fb12d866bb4a4175932e04db7bd2a1f7e",
+        "path": "trust/artifact-signing-public.pem"
+      }
+    ]
+  },
+  "builders": [
+    "https://jastreamer.invalid/builder"
+  ],
+  "materialPolicy": {
+    "buildType": "https://jastreamer.invalid/build/product",
+    "sourceUri": "git+fixture"
+  },
+  "qualification": {
+    "todo19": {
+      "root": "installed",
+      "harnessKeyId": "73764e601ff39e087d1a46cc7ef2c99df6afa6ca686e845f2099e393581468fe",
+      "harnessPublicKeyPath": "trust/installed-harness-public.pem",
+      "trustedCandidates": {
+        "server": {
+          "manifestPath": "bound/server-candidate-manifest.json",
+          "manifestSha256": "0737c105cc0f14695d95721a355787d4b1e578d61053674b674f3bf0e88980ab",
+          "provenancePath": "bound/server-candidate-provenance.json",
+          "provenanceSha256": "2a729aa90e620d3de78efadc810d9eab020212a99690a2acce5cbba55244ad70"
+        },
+        "control": {
+          "manifestPath": "bound/control-candidate-manifest.json",
+          "manifestSha256": "a0afca165c9ac3d7592803e5aa42eb646a21538b94c9527a1f11a7aca98d81a9",
+          "provenancePath": "bound/control-candidate-provenance.json",
+          "provenanceSha256": "c91dad0a0c1d89dd4b071f4b20658cacc7174be28c4dd745ccca239e13244553"
+        },
+        "renderer": {
+          "manifestPath": "bound/renderer-candidate-manifest.json",
+          "manifestSha256": "8e7676fcc9c2d67f0ab3444c1745c56a0de2edff6b19ec13a11dbc6ef356336b",
+          "provenancePath": "bound/renderer-candidate-provenance.json",
+          "provenanceSha256": "c86ee315f551d72fba13fe1af6040aa9cc2c9e6d87c0c70813ff19e9c3f5e1c8"
+        }
+      },
+      "expectedBindings": {
+        "sourceSha256": "8f8de54b114235e3f0a23e1048df6dbace21cbeded3265c30fcf3d3648e2d591",
+        "artifactSetSha256": "124cac20c98526c27ec458a0eaa3b966b62c59b20641ba4534f5e9206b9ecf51",
+        "controlContractSha256": "aff19058d0fec0b41c772052ddefed3be1f28e75dcac1513b42807f3417bdb05",
+        "rendererContractSha256": "7e0e20b8ce71ec69e38ddc614c4d3e96bb305172be44e243afa7413913c2b1b2",
+        "peerSetSha256": "8c2efc3dd228a9317d70051efbf7bcc0ee77909475a37591c2623f886090d30f"
+      }
+    },
+    "k17": {
+      "artifactSha256": "13f88f3535405e02da1e177ab2f8df32115c734411b288017b5f8a1f2804cf70",
+      "runnerLabel": "jastreamer-k17-lab-a"
+    },
+    "wasapi": {
+      "expectedBinding": {
+        "renderer_executable_sha256": "db272edd14c5f51dbe9024ea474f7a3d7093c995b5e8fdde1d9c13001fb25ad3",
+        "probe_executable_sha256": "ba9c736f19e7f60b7f6764adb0b7908c0a2b394e09b6c09863528c7f2bc86095",
+        "scenario_driver_sha256": "b4def8217cadae26d4da633fd2a4e58e326cbb5d570afdc3989484da07af3579",
+        "server_peer_sha256": "be1b4c3771d063ea9c6aa053fdc05259828fea4917b72b2fcb745b5abf4e67c2",
+        "server_peer_input_sha256": "a055b4ed29f5212a610cdae06a638f02395fb8a1eedc22d8b9da03550d68b2f2",
+        "media_fixture_archive_sha256": "721c9525ade2ea8903d343ef25cf68b9bf4ab0aad56bb7b01fbe48d09bc7fcf4",
+        "media_fixture_manifest_sha256": "7d493146f238f5c984d53d00ef62e1f5b6b12bedc815dd498ba5e75e4f0a32f7",
+        "source_sha256": "8f8de54b114235e3f0a23e1048df6dbace21cbeded3265c30fcf3d3648e2d591",
+        "renderer_contract_sha256": "7e0e20b8ce71ec69e38ddc614c4d3e96bb305172be44e243afa7413913c2b1b2",
+        "peer_set_sha256": "8c2efc3dd228a9317d70051efbf7bcc0ee77909475a37591c2623f886090d30f",
+        "candidate_sha256": "13f88f3535405e02da1e177ab2f8df32115c734411b288017b5f8a1f2804cf70",
+        "endpoint_identity_sha256": "b6bf7bc8d96f3ea9d132c83b3da8e7760e420138485657372db4d6a981d3fd9e"
+      }
+    }
+  },
+  "canonical": {
+    "sourceRoot": "installed",
+    "sourcePolicyPath": "trust/source-policy-v1.json",
+    "sourceRevision": "5f4d016b12c36c45cb7e1322ee8405eb6fa46e71",
+    "contracts": [
+      {
+        "component": "control",
+        "path": "bound/control.contract.json",
+        "sha256": "aff19058d0fec0b41c772052ddefed3be1f28e75dcac1513b42807f3417bdb05"
+      },
+      {
+        "component": "renderer",
+        "path": "bound/renderer.contract.json",
+        "sha256": "7e0e20b8ce71ec69e38ddc614c4d3e96bb305172be44e243afa7413913c2b1b2"
+      }
+    ],
+    "peers": [
+      {
+        "component": "server",
+        "artifactRole": "server",
+        "path": "bound/server.peer.json",
+        "sha256": "080a7548a6e6405631dd271ca6893dee74321807c754d5392abb342b3f8d7a0f"
+      },
+      {
+        "component": "control",
+        "artifactRole": "control-web",
+        "path": "bound/control.peer.json",
+        "sha256": "6b99a46737353a83799ae603b9a15b555f6188c305ef24970eafb97f344e9142"
+      },
+      {
+        "component": "renderer",
+        "artifactRole": "renderer",
+        "path": "bound/renderer.peer.json",
+        "sha256": "f24910217605a5bb4f11e8da61bd60c449dde9fd5845b9ea3f0d6e508c3c196a"
+      }
+    ]
+  }
+}

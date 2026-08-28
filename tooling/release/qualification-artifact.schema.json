@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://jastreamer.invalid/schemas/qualification-artifact-binding/v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "component", "callerRunId", "callerRunAttempt", "callerRef", "callerSha", "calledWorkflowPath", "calledJob", "runId", "runAttempt", "sourceSha", "contentManifestSha256", "contractSha256"],
+  "properties": {
+    "schemaVersion": { "const": 2 },
+    "component": { "enum": ["server", "control"] },
+    "callerRunId": { "type": "string", "pattern": "^[1-9][0-9]*$" },
+    "callerRunAttempt": { "type": "integer", "minimum": 1 },
+    "callerRef": { "type": "string", "pattern": "^refs/heads/[A-Za-z0-9._/-]{1,200}$" },
+    "callerSha": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+    "calledWorkflowPath": { "enum": [".github/workflows/server-release.yml", ".github/workflows/control-release.yml"] },
+    "calledJob": { "enum": ["server", "control"] },
+    "runId": { "type": "string", "pattern": "^[1-9][0-9]*$" },
+    "runAttempt": { "type": "integer", "minimum": 1 },
+    "sourceSha": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+    "contentManifestSha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "contractSha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+  }
+}

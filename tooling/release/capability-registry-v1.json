@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "registry_id": "jastreamer-release-capabilities-v1",
+  "capabilities": [
+    {"id":"control-api-v3.server-admin","component":"server","required_gate":"server_control_e2e","source":{"file":"packaging/server/manifest.json","pointer":"/operational_capabilities/admin_config","value":"/api/v1/config"}},
+    {"id":"control-api-v3.secure-pairing","component":"server","required_gate":"server_control_e2e","source":{"file":"packaging/server/manifest.json","pointer":"/operational_capabilities/secure_pairing","value":"/api/v1/pairing-codes"}},
+    {"id":"control-api-v3.catalog-browse","component":"server","required_gate":"server_control_e2e","source":{"file":"packaging/server/manifest.json","pointer":"/operational_capabilities/catalog_browse","value":"/api/v1/catalog/tracks"}},
+    {"id":"renderer-protocol-v3.original-first","component":"server","required_gate":"k17","source":{"file":"packaging/server/manifest.json","pointer":"/operational_capabilities/original_media","value":"original-first"}},
+    {"id":"renderer-protocol-v3.l16-transcode","component":"server","required_gate":"ffmpeg","source":{"file":"packaging/server/manifest.json","pointer":"/operational_capabilities/l16_transcode","value":"external-ffmpeg-pcm-s16be"}},
+    {"id":"renderer-protocol-v3.l16-sink-selection","component":"server","required_gate":"k17","source":{"file":"packaging/server/manifest.json","pointer":"/operational_capabilities/l16_sink_selection","value":"renderer-protocol-info"}},
+    {"id":"renderer-protocol-v3.k17-v261","component":"server","required_gate":"k17","source":{"file":"packaging/server/manifest.json","pointer":"/operational_capabilities/k17_scope","value":"FiiO K17 V261+"}},
+    {"id":"release-v1.synology-container-deploy","component":"server","required_gate":"candidate","source":{"file":"packaging/server/manifest.json","pointer":"/operational_capabilities/synology_compose","value":"deploy/docker/server/compose.synology.yaml"}},
+    {"id":"release-v1.synology-backup-restore","component":"server","required_gate":"server_control_e2e","source":{"file":"packaging/server/manifest.json","pointer":"/operational_capabilities/synology_backup_restore","value":"data-and-config-bind-mounts"}},
+    {"id":"release-v1.windows-server-service","component":"server","required_gate":"candidate","source":{"file":"packaging/server/manifest.json","pointer":"/operational_capabilities/windows_service","value":"jastreamer-server"}},
+    {"id":"control-api-v3.web-queue-surface","component":"control","required_gate":"server_control_e2e","source":{"file":"packaging/control/manifest.json","pointer":"/operationalCapabilities/webQueue","value":"append-remove-move-clear-retry-skip"}},
+    {"id":"control-api-v3.web-transport-surface","component":"control","required_gate":"server_control_e2e","source":{"file":"packaging/control/manifest.json","pointer":"/operationalCapabilities/webTransport","value":"previous-start-pause-resume-skip-stop-seek"}},
+    {"id":"control-api-v3.web-event-recovery","component":"control","required_gate":"server_control_e2e","source":{"file":"packaging/control/manifest.json","pointer":"/operationalCapabilities/webEvents","value":"gap-safe-invalidations"}},
+    {"id":"release-v1.control-windows","component":"control","required_gate":"candidate","source":{"file":"packaging/control/manifest.json","pointer":"/publicAssetAllowlist/1","value":"MSIX"}},
+    {"id":"control-api-v3.windows-dpapi-credentials","component":"control","required_gate":"server_control_e2e","source":{"file":"packaging/control/manifest.json","pointer":"/operationalCapabilities/windowsCredentials","value":"dpapi-user-app-bound"}},
+    {"id":"control-api-v3.windows-state-truth","component":"control","required_gate":"server_control_e2e","source":{"file":"packaging/control/manifest.json","pointer":"/operationalCapabilities/windowsStateTruth","value":"server-intent-observed-pending"}},
+    {"id":"release-v1.control-android","component":"control","required_gate":"candidate","source":{"file":"packaging/control/manifest.json","pointer":"/publicAssetAllowlist/2","value":"UNIVERSAL_APK"}},
+    {"id":"control-api-v3.android-keystore-credentials","component":"control","required_gate":"server_control_e2e","source":{"file":"packaging/control/manifest.json","pointer":"/operationalCapabilities/androidCredentials","value":"android-keystore-aes-gcm-no-backup"}},
+    {"id":"control-api-v3.android-transport-surface","component":"control","required_gate":"server_control_e2e","source":{"file":"packaging/control/manifest.json","pointer":"/operationalCapabilities/androidTransport","value":"previous-start-pause-resume-skip-stop-seek"}},
+    {"id":"renderer-protocol-v3.foreground-wasapi","component":"renderer","required_gate":"wasapi","source":{"file":"packaging/renderer/config.json","pointer":"/distribution","value":"ci-artifact-only"}},
+    {"id":"release-v1.default-deny-publication","component":"release","required_gate":"external_authorization_pending","source":{"file":"packaging/server/manifest.json","pointer":"/operational_capabilities/publication_guard","value":"default-deny"}}
+  ]
+}

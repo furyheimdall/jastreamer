@@ -1,0 +1,11 @@
+{
+  "$schema":"https://json-schema.org/draft/2020-12/schema",
+  "$id":"https://jastreamer.invalid/schemas/product-gate-observation/v1",
+  "$defs":{
+    "inventory":{"type":"array","minItems":4,"items":{"type":"object","additionalProperties":false,"required":["type","ids"],"properties":{"type":{"enum":["process","container","temporary","listener","builder","browser"]},"ids":{"type":"array","uniqueItems":true,"items":{"type":"string"}}}}},
+    "operation":{"type":"object","additionalProperties":false,"required":["sequence","operation","externallyObserved"],"properties":{"sequence":{"type":"integer","minimum":1},"operation":{"type":"string","minLength":1},"externallyObserved":{"type":"boolean"}}},
+    "ledger":{"type":"object","additionalProperties":false,"required":["sequence","operation","externallyObserved","previousSha256","entrySha256"],"properties":{"sequence":{"type":"integer","minimum":1},"operation":{"type":"string","minLength":1},"externallyObserved":{"type":"boolean"},"previousSha256":{"type":"string","pattern":"^[0-9a-f]{64}$"},"entrySha256":{"type":"string","pattern":"^[0-9a-f]{64}$"}}}
+  },
+  "type":"object","additionalProperties":false,"required":["before","after","operations","ledger","priorPublished","stagingTemporaryRemoved","priorPublishedTouched"],
+  "properties":{"before":{"$ref":"#/$defs/inventory"},"after":{"$ref":"#/$defs/inventory"},"operations":{"type":"array","minItems":1,"items":{"$ref":"#/$defs/operation"}},"ledger":{"type":"array","minItems":1,"items":{"$ref":"#/$defs/ledger"}},"priorPublished":{"type":"array","minItems":1,"items":{"type":"object","additionalProperties":false,"required":["path","sha256"],"properties":{"path":{"type":"string","minLength":1},"sha256":{"type":"string","pattern":"^[0-9a-f]{64}$"}}}},"stagingTemporaryRemoved":{"const":true},"priorPublishedTouched":{"const":false}}
+}

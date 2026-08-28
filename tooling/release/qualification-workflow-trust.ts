@@ -1,0 +1,1 @@
+export const isTrustedQualificationCaller = (input: Readonly<{ refProtected: boolean; ref: string; defaultBranch: string; workflowPath: string }>): boolean => input.refProtected && input.ref === `refs/heads/${input.defaultBranch}` && input.workflowPath === ".github/workflows/product-qualification-dispatch.yml";

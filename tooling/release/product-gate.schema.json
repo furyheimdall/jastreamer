@@ -1,0 +1,136 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://jastreamer.invalid/schemas/product-promotion-gate/v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "kind", "recordedAt", "trustPolicyVersion", "rotationEpoch", "source", "bindings", "candidates", "qualifications", "supplyChain", "cleanup", "signature"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "kind": { "const": "product_promotion_gate" },
+    "recordedAt": { "type": "string", "format": "date-time" },
+    "trustPolicyVersion": { "type": "string", "pattern": "^product-gate-trust-v[0-9]+$" },
+    "rotationEpoch": { "type": "integer", "minimum": 1 },
+    "currentAudit": { "$ref": "#/$defs/authenticatedReference" },
+    "authoritativeReducer": {
+      "type": "object", "additionalProperties": false, "required": ["path", "sha256", "result"],
+      "properties": { "path": { "$ref": "#/$defs/path" }, "sha256": { "$ref": "#/$defs/sha256" }, "result": { "const": "success" } }
+    },
+    "source": {
+      "type": "object", "additionalProperties": false,
+      "required": ["revision", "dirtySha256", "snapshot"],
+      "properties": {
+        "revision": { "type": "string", "pattern": "^[0-9a-f]{40}$" }, "dirtySha256": { "$ref": "#/$defs/sha256" },
+        "snapshot": { "$ref": "#/$defs/authenticatedReference" }
+      }
+    },
+    "bindings": {
+      "type": "object", "additionalProperties": false,
+      "required": ["artifactSetSha256", "peerSetSha256", "controlContractSha256", "rendererContractSha256"],
+      "properties": {
+        "artifactSetSha256": { "$ref": "#/$defs/sha256" }, "peerSetSha256": { "$ref": "#/$defs/sha256" },
+        "controlContractSha256": { "$ref": "#/$defs/sha256" }, "rendererContractSha256": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "publication": {
+      "type": "object", "additionalProperties": false, "required": ["repository", "environment", "receiptKeyId"],
+      "properties": {
+        "repository": { "const": "furyheimdall/jastreamer" },
+        "environment": { "const": "product-promotion" },
+        "receiptKeyId": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "candidates": {
+      "type": "object", "additionalProperties": false, "required": ["server", "control", "rendererPeer"],
+      "properties": {
+        "server": { "$ref": "#/$defs/candidate" }, "control": { "$ref": "#/$defs/candidate" }, "rendererPeer": { "$ref": "#/$defs/candidate" }
+      }
+    },
+    "qualifications": {
+      "type": "object", "additionalProperties": false, "required": ["todo19", "k17", "wasapi"],
+      "properties": { "todo19": { "$ref": "#/$defs/qualification" }, "k17": { "$ref": "#/$defs/qualification" }, "wasapi": { "$ref": "#/$defs/qualification" } }
+    },
+    "supplyChain": {
+      "type": "object", "additionalProperties": false, "required": ["sbom", "provenance", "signing", "security"],
+      "properties": {
+        "sbom": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/authenticatedReference" } },
+        "provenance": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/authenticatedReference" } },
+        "signing": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/authenticatedReference" } },
+        "security": { "$ref": "#/$defs/authenticatedReference" }
+      }
+    },
+    "cleanup": {
+      "type": "object", "additionalProperties": false,
+      "required": ["inventoryBefore", "inventoryAfter", "attemptedOperations", "mutationLedger", "priorPublished", "stagingTemporaryRemoved", "priorPublishedTouched"],
+      "properties": {
+        "inventoryBefore": { "$ref": "#/$defs/authenticatedReference" }, "inventoryAfter": { "$ref": "#/$defs/authenticatedReference" },
+        "attemptedOperations": { "$ref": "#/$defs/authenticatedReference" }, "mutationLedger": { "$ref": "#/$defs/authenticatedReference" },
+        "priorPublished": { "$ref": "#/$defs/authenticatedReference" }, "stagingTemporaryRemoved": { "type": "boolean" }, "priorPublishedTouched": { "type": "boolean" }
+      }
+    },
+    "signature": {
+      "type": "object", "additionalProperties": false, "required": ["algorithm", "keyId", "value"],
+      "properties": { "algorithm": { "enum": ["Ed25519", "RSA-SHA256"] }, "keyId": { "$ref": "#/$defs/sha256" }, "value": { "type": "string", "minLength": 4 } }
+    }
+  },
+  "$defs": {
+    "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "path": { "type": "string", "pattern": "^(?!/)(?![A-Za-z]:\\\\)(?!.*(?:^|/)\\.\\.(?:/|$)).+$" },
+    "artifact": {
+      "type": "object", "additionalProperties": false, "required": ["kind", "path", "sha256"],
+      "properties": {
+        "kind": { "type": "string", "minLength": 1 }, "path": { "$ref": "#/$defs/path" }, "sha256": { "$ref": "#/$defs/sha256" },
+        "platforms": { "type": "array", "uniqueItems": true, "items": { "enum": ["linux/amd64", "linux/arm64"] } },
+        "indexDigest": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+        "attestations": { "type": "array", "minItems": 2, "items": { "$ref": "#/$defs/authenticatedReference" } },
+        "referrers": { "$ref": "#/$defs/authenticatedReference" }
+      }
+    },
+    "candidate": {
+      "type": "object", "additionalProperties": false, "required": ["component", "manifest", "floating", "artifacts"],
+      "properties": {
+        "component": { "enum": ["server", "control", "renderer"] }, "manifest": { "$ref": "#/$defs/authenticatedReference" },
+        "floating": { "type": "boolean" }, "artifacts": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/artifact" } },
+        "releaseTag": { "type": "string", "pattern": "^(server|control)-v[0-9]+\\.[0-9]+\\.[0-9]+$" },
+        "staging": { "$ref": "#/$defs/staging" }
+      }
+    },
+    "staging": {
+      "type": "object", "additionalProperties": false,
+      "required": ["repository", "workflowPath", "eventName", "headSha", "callerRunId", "callerRunAttempt", "callerRef", "callerSha", "calledWorkflowPath", "calledJob", "calledJobResult", "runId", "runAttempt", "artifactId", "artifactName", "artifactDigest", "artifactAttemptProvenance", "artifactManifestSha256", "artifactContentManifestSha256"],
+      "properties": {
+        "repository": { "const": "furyheimdall/jastreamer" },
+        "workflowPath": { "const": ".github/workflows/product-qualification-dispatch.yml" },
+        "eventName": { "const": "workflow_dispatch" },
+        "headSha": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+        "callerRunId": { "type": "string", "pattern": "^[1-9][0-9]*$" },
+        "callerRunAttempt": { "type": "integer", "minimum": 1 },
+        "callerRef": { "type": "string", "pattern": "^refs/heads/[A-Za-z0-9._/-]{1,200}$" },
+        "callerSha": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+        "calledWorkflowPath": { "enum": [".github/workflows/server-release.yml", ".github/workflows/control-release.yml"] },
+        "calledJob": { "enum": ["server", "control"] },
+        "calledJobResult": { "const": "success" },
+        "runId": { "type": "string", "pattern": "^[1-9][0-9]*$" },
+        "runAttempt": { "type": "integer", "minimum": 1 },
+        "artifactId": { "type": "string", "pattern": "^[1-9][0-9]*$" },
+        "artifactName": { "type": "string", "pattern": "^(server|control)-publication-stage-[1-9][0-9]*-[1-9][0-9]*$" },
+        "artifactDigest": { "$ref": "#/$defs/sha256" },
+        "artifactAttemptProvenance": { "const": "caller-run+upload-output+embedded-manifest" },
+        "artifactManifestSha256": { "$ref": "#/$defs/sha256" },
+        "artifactContentManifestSha256": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "authenticatedReference": {
+      "type": "object", "additionalProperties": false, "required": ["path", "sha256", "keyId", "signature", "trustPolicyVersion", "rotationEpoch"],
+      "properties": { "path": { "$ref": "#/$defs/path" }, "sha256": { "$ref": "#/$defs/sha256" }, "keyId": { "$ref": "#/$defs/sha256" }, "signature": { "type": "string", "minLength": 4 }, "trustPolicyVersion": { "type": "string" }, "rotationEpoch": { "type": "integer" } }
+    },
+    "qualification": {
+      "type": "object", "additionalProperties": false,
+      "required": ["path", "sha256", "keyId", "signature", "trustPolicyVersion", "rotationEpoch", "status", "evidenceSource"],
+      "properties": {
+        "path": { "$ref": "#/$defs/path" }, "sha256": { "$ref": "#/$defs/sha256" }, "keyId": { "$ref": "#/$defs/sha256" },
+        "signature": { "type": "string", "minLength": 4 }, "trustPolicyVersion": { "type": "string" }, "rotationEpoch": { "type": "integer" }, "status": { "enum": ["qualified", "pending"] },
+        "evidenceSource": { "enum": ["installed", "physical", "native", "emulator", "mock"] }
+      }
+    }
+  }
+}

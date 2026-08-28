@@ -1,0 +1,23 @@
+import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
+import { join, resolve } from "node:path";
+import { validateInstalledProductReceipt } from "../qa/task19/product-e2e-receipt.mjs";
+import { validateQualificationReceipt } from "../qa/k17/receipt.mjs";
+import { validateWindowsAudioReceipt } from "../qa/windows-audio/receipt.mjs";
+import { verifyProductGate } from "./product-gate.mjs";
+
+const sha256 = (value) => createHash("sha256").update(value).digest("hex");
+const repository = resolve(import.meta.dirname, "../..");
+const evidence = resolve(process.argv[2] ?? ".omo/evidence/functional-jastreamer-products/task-22/current-verifier");
+const root = join(evidence, "authenticated-gate");
+const staged = join(repository, ".omo/evidence/functional-jastreamer-products/task-19/staged");
+const manifestBytes = readFileSync(join(staged, "artifact-set-manifest.json")); const manifest = JSON.parse(manifestBytes);
+for (const item of manifest.artifacts) if (sha256(readFileSync(join(staged, item.name))) !== item.sha256) throw new Error(`CURRENT_ARTIFACT_DIGEST_MISMATCH:${item.name}`);
+const receipt = JSON.parse(readFileSync(join(root, "product-gate.json"))); const scan = JSON.parse(readFileSync(join(root, receipt.currentAudit.path)));
+if (scan.task19ManifestSha256 !== sha256(manifestBytes) || scan.artifacts.length !== manifest.artifacts.length) throw new Error("CURRENT_AUDIT_STALE");
+const now = new Date().toISOString(); const k17 = JSON.parse(readFileSync(join(repository, ".omo/evidence/functional-jastreamer-products/task-20/receipt.json"))); const wasapi = JSON.parse(readFileSync(join(repository, ".omo/evidence/functional-jastreamer-products/task-21/status.json")));
+const adapters = { todo19: validateInstalledProductReceipt(manifest, { now, root: staged }), k17: validateQualificationReceipt(k17, { now, candidateSha256: k17.candidate_sha256, runnerLabel: "" }), wasapi: validateWindowsAudioReceipt(wasapi, { now, expectedBinding: {} }) };
+if (JSON.stringify(adapters) !== JSON.stringify(scan.adapters)) throw new Error("CURRENT_ADAPTER_RESULT_DRIFT");
+const denial = verifyProductGate(join(root, "product-gate.json"), { root, now, profile: "current-audit", repositoryRoot: repository, trustConfigPath: "tooling/release/product-gate-current-audit-trust-v1.json", mutationLedgerPath: join(root, "evidence/cleanup/external-mutation-ledger.jsonl") });
+if (denial.code !== "CURRENT_AUDIT_NON_PROMOTABLE" || denial.externalMutations !== 0) throw new Error("CURRENT_AUDIT_NOT_DENIED");
+console.log(JSON.stringify({ denied: denial.code, exactArtifacts: scan.availableCount, publicCandidates: scan.publicCandidateCount, adapters, externalMutations: denial.externalMutations }));

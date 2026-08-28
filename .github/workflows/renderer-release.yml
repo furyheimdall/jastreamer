@@ -3,6 +3,17 @@ name: renderer-release
 on:
   push:
     tags: ["renderer-v[0-9]*.[0-9]*.[0-9]*"]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Exact candidate version from apps/renderer/VERSION
+        required: true
+        type: string
+      authorize_windows_audio:
+        description: Queue the protected native WASAPI qualification runner
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -17,6 +28,8 @@ jobs:
     runs-on: ubuntu-24.04
     outputs:
       version: ${{ steps.version.outputs.version }}
+      candidate_tag: ${{ steps.version.outputs.candidate_tag }}
+      windows_audio_authorized: ${{ steps.version.outputs.windows_audio_authorized }}
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with: { persist-credentials: false }
@@ -24,12 +37,26 @@ jobs:
         with: { bun-version: '1.3.14' }
       - id: version
         shell: bash
+        env:
+          DISPATCH_VERSION: ${{ inputs.version }}
+          AUDIO_AUTHORIZED: ${{ inputs.authorize_windows_audio }}
         run: |
           set -euo pipefail
-          version=${GITHUB_REF_NAME#renderer-v}
-          test "$GITHUB_REF_NAME" = "renderer-v$version"
+          if [[ $GITHUB_EVENT_NAME == workflow_dispatch ]]; then
+            candidate_tag="renderer-v$DISPATCH_VERSION"
+          else
+            candidate_tag=$GITHUB_REF_NAME
+          fi
+          version=${candidate_tag#renderer-v}
+          test "$candidate_tag" = "renderer-v$version"
           test "$version" = "$(cat apps/renderer/VERSION)"
           printf 'version=%s\n' "$version" >> "$GITHUB_OUTPUT"
+          printf 'candidate_tag=%s\n' "$candidate_tag" >> "$GITHUB_OUTPUT"
+          windows_audio_authorized=false
+          if [[ $GITHUB_EVENT_NAME == workflow_dispatch && $AUDIO_AUTHORIZED == true ]]; then
+            windows_audio_authorized=true
+          fi
+          printf 'windows_audio_authorized=%s\n' "$windows_audio_authorized" >> "$GITHUB_OUTPUT"
       - name: Test Renderer and release tooling
         run: |
           cargo fmt --manifest-path apps/renderer/Cargo.toml --check
@@ -96,6 +123,39 @@ jobs:
             ./packaging/renderer/release.ps1 `
               -Version '${{ needs.validate.outputs.version }}' `
               -Out dist
+            cargo build `
+              --manifest-path tooling/qa/windows-audio/probe/Cargo.toml `
+              --locked --release --target x86_64-pc-windows-msvc
+            Copy-Item `
+              tooling/qa/windows-audio/probe/target/x86_64-pc-windows-msvc/release/jastreamer-wasapi-loopback-probe.exe `
+              dist/jastreamer-wasapi-loopback-probe.exe
+            $diagnostic = Join-Path $env:RUNNER_TEMP 'renderer-diagnostic'
+            Expand-Archive `
+              "dist/jastreamer-renderer_${{ needs.validate.outputs.version }}_windows_amd64_diagnostic.zip" `
+              -DestinationPath $diagnostic
+            (Get-FileHash "$diagnostic/jastreamer-renderer.exe" -Algorithm SHA256).Hash.ToLowerInvariant() |
+              Set-Content -NoNewline dist/renderer-executable.sha256
+            Copy-Item tooling/qa/windows-audio/windows-audio-server-peer.mjs dist/windows-audio-server-peer.mjs
+            Copy-Item tooling/qa/windows-audio/windows-audio-server-peer.json dist/windows-audio-server-peer.json
+            $driverStage = Join-Path $env:RUNNER_TEMP 'windows-audio-driver'
+            New-Item -ItemType Directory -Path $driverStage | Out-Null
+            Copy-Item tooling/qa/windows-audio/scenario-driver.mjs "$driverStage/windows-audio-scenario-driver.mjs"
+            Copy-Item tooling/qa/windows-audio/windows-audio-native-runtime.mjs $driverStage
+            Copy-Item tooling/qa/windows-audio/windows-audio-event-bus.mjs $driverStage
+            Compress-Archive -Path "$driverStage/*" -DestinationPath dist/windows-audio-driver.zip
+            Compress-Archive -Path tooling/qa/windows-audio/fixtures/* -DestinationPath dist/windows-audio-media-fixtures.zip
+            (Get-FileHash dist/jastreamer-wasapi-loopback-probe.exe -Algorithm SHA256).Hash.ToLowerInvariant() |
+              Set-Content -NoNewline dist/probe-executable.sha256
+            (Get-FileHash dist/windows-audio-driver.zip -Algorithm SHA256).Hash.ToLowerInvariant() |
+              Set-Content -NoNewline dist/scenario-driver.sha256
+            (Get-FileHash dist/windows-audio-server-peer.mjs -Algorithm SHA256).Hash.ToLowerInvariant() |
+              Set-Content -NoNewline dist/server-peer.sha256
+            (Get-FileHash dist/windows-audio-server-peer.json -Algorithm SHA256).Hash.ToLowerInvariant() |
+              Set-Content -NoNewline dist/server-peer-input.sha256
+            (Get-FileHash dist/windows-audio-media-fixtures.zip -Algorithm SHA256).Hash.ToLowerInvariant() |
+              Set-Content -NoNewline dist/media-fixtures.sha256
+            (Get-FileHash tooling/qa/windows-audio/fixtures/fixture-manifest.json -Algorithm SHA256).Hash.ToLowerInvariant() |
+              Set-Content -NoNewline dist/media-manifest.sha256
           } finally {
             Remove-Item $pfx -Force -ErrorAction SilentlyContinue
             Remove-Item Env:JASTREAMER_RENDERER_PFX_PATH,Env:JASTREAMER_RENDERER_PFX_PASSWORD `
@@ -148,7 +208,7 @@ jobs:
           }
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: renderer-windows-public
+          name: renderer-windows-candidate-ci
           path: dist
           if-no-files-found: error
 
@@ -160,13 +220,14 @@ jobs:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with: { persist-credentials: false }
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
-        with: { name: renderer-windows-public, path: stage }
+        with: { name: renderer-windows-candidate-ci, path: stage }
       - name: Enforce artifact allowlist and generate release records
         env: { VERSION: '${{ needs.validate.outputs.version }}' }
         run: |
           set -euo pipefail
           cp LICENSE stage/Apache-2.0.txt
           cp tooling/policy/THIRD_PARTY_NOTICES.generated stage/THIRD_PARTY_NOTICES
+          git archive --format=tar HEAD | sha256sum | cut -d' ' -f1 > stage/source-binding.sha256
           mapfile -t packages < <(find stage -maxdepth 1 -type f \( -name '*.msi' -o -name '*.zip' \) -printf '%f\n' | sort)
           expected=("jastreamer-renderer_${VERSION}_windows_amd64.msi" "jastreamer-renderer_${VERSION}_windows_amd64_diagnostic.zip")
           test "${packages[*]}" = "${expected[*]}"
@@ -179,8 +240,8 @@ jobs:
           jq -n --argjson subjects "$subjects" \
             '{spdxVersion:"SPDX-2.3",dataLicense:"CC0-1.0",SPDXID:"SPDXRef-DOCUMENT",name:"jastreamer Renderer release",packages:[$subjects[]|{name:.name,SPDXID:("SPDXRef-"+.digest.sha256),downloadLocation:"NOASSERTION",filesAnalyzed:false,licenseConcluded:"Apache-2.0",licenseDeclared:"Apache-2.0",checksums:[{algorithm:"SHA256",checksumValue:.digest.sha256}]}]}' \
             > stage/SBOM.spdx.json
-          jq -n --argjson subject "$subjects" --arg revision "$GITHUB_SHA" --arg tag "$GITHUB_REF_NAME" \
-            '{_type:"https://in-toto.io/Statement/v1",subject:$subject,predicateType:"https://slsa.dev/provenance/v1",predicate:{buildDefinition:{buildType:"https://github.com/furyheimdall/jastreamer/renderer-release@v1",externalParameters:{tag:$tag}},runDetails:{builder:{id:"github-actions:renderer-release"},metadata:{sourceRevision:$revision}}}}' \
+          jq -n --argjson subject "$subjects" --arg revision "$GITHUB_SHA" --arg tag '${{ needs.validate.outputs.candidate_tag }}' \
+            '{_type:"https://in-toto.io/Statement/v1",subject:$subject,predicateType:"https://slsa.dev/provenance/v1",predicate:{buildDefinition:{buildType:"https://github.com/furyheimdall/jastreamer/renderer-candidate@v1",externalParameters:{candidateTag:$tag,publish:false}},runDetails:{builder:{id:"github-actions:renderer-release"},metadata:{sourceRevision:$revision}}}}' \
             > stage/PROVENANCE.intoto.json
           mapfile -t actual < <(find stage -maxdepth 1 -type f -printf '%f\n' | sort)
           mapfile -t allowed < <(printf '%s\n' \
@@ -195,57 +256,146 @@ jobs:
             "jastreamer-renderer_${VERSION}_windows_amd64_diagnostic.zip" \
             "protocol-range.json" \
             "remove-trust.md" \
+            "media-fixtures.sha256" \
+            "media-manifest.sha256" \
+            "probe-executable.sha256" \
+            "renderer-executable.sha256" \
+            "scenario-driver.sha256" \
+            "server-peer-input.sha256" \
+            "server-peer.sha256" \
+            "source-binding.sha256" \
             "trust.md" \
             "windows-help.txt" \
-            "windows-msi-inspection.json" | sort)
+            "windows-msi-inspection.json" \
+            "jastreamer-wasapi-loopback-probe.exe" \
+            "windows-audio-driver.zip" \
+            "windows-audio-media-fixtures.zip" \
+            "windows-audio-server-peer.json" \
+            "windows-audio-server-peer.mjs" | sort)
           test "${actual[*]}" = "${allowed[*]}"
+          records=$(find stage -maxdepth 1 -type f -printf '%f\n' | sort | while read -r name; do jq -n --arg name "$name" --arg sha "$(sha256sum "stage/$name" | cut -d' ' -f1)" '{name:$name,sha256:$sha}'; done | jq -s .)
+          jq -n --arg tag '${{ needs.validate.outputs.candidate_tag }}' --arg revision "$GITHUB_SHA" --argjson artifacts "$records" '{schema:1,component:"renderer",tag:$tag,source_revision:$revision,ciOnly:true,promotionReady:false,artifacts:$artifacts}' > stage/manifest.json
+          manifest_sha256=$(sha256sum stage/manifest.json | cut -d' ' -f1)
+          artifact_set_sha256=$(sha256sum stage/SHA256SUMS | cut -d' ' -f1)
+          jq -n --arg manifest_sha256 "$manifest_sha256" --arg artifact_set_sha256 "$artifact_set_sha256" --arg revision "$GITHUB_SHA" '{schema:1,candidate:{status:"staged",component:"renderer",manifest_sha256:$manifest_sha256,artifact_set_sha256:$artifact_set_sha256,source_revision:$revision,retention:"ci-artifact-only"},external_writes:[]}' > stage/candidate.json
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: renderer-release-stage
+          name: renderer-candidate-ci
           path: stage
           if-no-files-found: error
 
-  promote:
+  windows-audio-qualification-physical:
     needs: [validate, stage]
-    if: github.repository == 'furyheimdall/jastreamer' && needs.stage.result == 'success'
-    runs-on: ubuntu-24.04
-    environment: renderer-release
-    permissions:
-      contents: write
+    if: needs.validate.outputs.windows_audio_authorized == 'true'
+    runs-on: [self-hosted, windows, x64, jastreamer-audio]
+    environment: renderer-audio-qa
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with: { persist-credentials: false }
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
+        with: { bun-version: '1.3.14' }
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
-        with: { name: renderer-release-stage, path: stage }
-      - name: Publish immutable Renderer release with compensation
+        with: { name: renderer-candidate-ci, path: stage }
+      - name: Run bound native WASAPI qualification
+        shell: pwsh
         env:
-          GH_TOKEN: ${{ github.token }}
-          VERSION: '${{ needs.validate.outputs.version }}'
+          JASTREAMER_QA_ENDPOINT_ID: ${{ secrets.JASTREAMER_QA_ENDPOINT_ID }}
+          JASTREAMER_QA_RUNNER_NAME: ${{ runner.name }}
+        run: |
+          $labels = @('self-hosted', 'windows', 'x64', 'jastreamer-audio')
+          if (![string]::IsNullOrWhiteSpace($env:JASTREAMER_QA_RUNNER_NAME) -and
+              $env:JASTREAMER_QA_RUNNER_NAME -notin $labels) {
+            $labels += $env:JASTREAMER_QA_RUNNER_NAME
+          }
+          $archives = @(Get-ChildItem stage -Filter '*_windows_amd64_diagnostic.zip')
+          if ($archives.Count -ne 1) { throw 'STAGED_RENDERER_ARCHIVE_MISSING' }
+          ./tooling/qa/windows-audio/provision.ps1 `
+            -RendererArchive $archives[0].FullName `
+            -RendererExecutableSha256File stage/renderer-executable.sha256 `
+            -ProbeExecutable stage/jastreamer-wasapi-loopback-probe.exe `
+            -ProbeSha256File stage/probe-executable.sha256 `
+            -ScenarioDriverArchive stage/windows-audio-driver.zip `
+            -ScenarioDriverSha256File stage/scenario-driver.sha256 `
+            -ServerPeerExecutable stage/windows-audio-server-peer.mjs `
+            -ServerPeerSha256File stage/server-peer.sha256 `
+            -ServerPeerInput stage/windows-audio-server-peer.json `
+            -ServerPeerInputSha256File stage/server-peer-input.sha256 `
+            -MediaFixturesArchive stage/windows-audio-media-fixtures.zip `
+            -MediaFixturesSha256File stage/media-fixtures.sha256 `
+            -MediaManifestSha256File stage/media-manifest.sha256 `
+            -SourceSha256File stage/source-binding.sha256 `
+            -RendererContract contracts/renderer-protocol/v3/schema.json `
+            -PeerSet tooling/fixtures/compatibility/released-peers.yaml `
+            -Candidate stage/candidate.json `
+            -CandidateManifest stage/manifest.json `
+            -Output windows-audio-qualification.json `
+            -RunnerLabels $labels `
+            -EndpointIdProtected
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: renderer-windows-audio-qualification-physical
+          path: windows-audio-qualification.json
+          if-no-files-found: error
+
+  windows-audio-qualification-pending:
+    needs: [validate, stage]
+    if: needs.validate.outputs.windows_audio_authorized != 'true'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with: { persist-credentials: false }
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
+        with: { bun-version: '1.3.14' }
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with: { name: renderer-candidate-ci, path: stage }
+      - name: Emit truthful native-loopback authorization receipt
+        shell: bash
         run: |
           set -euo pipefail
-          complete=false
-          release_created=false
-          cleanup() {
-            original=$?
-            trap - EXIT
-            if [[ $complete != true && $release_created == true ]]; then
-              gh release delete "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --yes
-            fi
-            exit "$original"
-          }
-          trap cleanup EXIT
-          if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >"$RUNNER_TEMP/release-preflight.txt" 2>&1; then
-            echo RELEASE_ALREADY_EXISTS >&2
-            exit 65
-          fi
-          grep -Eqi 'release not found|HTTP 404|not found' "$RUNNER_TEMP/release-preflight.txt"
-          gh release create "$GITHUB_REF_NAME" \
-            --repo "$GITHUB_REPOSITORY" \
-            --title "jastreamer Renderer $VERSION" \
-            --draft \
-            --verify-tag
-          release_created=true
-          gh release upload "$GITHUB_REF_NAME" stage/* --repo "$GITHUB_REPOSITORY"
-          gh release edit "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --draft=false
-          test "$(gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --json isDraft --jq .isDraft)" = false
-          complete=true
+          set +e
+          bun tooling/release/publication-guard-cli.ts --component renderer --event push --manifest stage/manifest.json --output stage/publication.json
+          code=$?
+          set -e
+          test "$code" = 65
+          jq -n \
+            --arg renderer "$(cat stage/renderer-executable.sha256)" \
+            --arg probe "$(cat stage/probe-executable.sha256)" \
+            --arg driver "$(cat stage/scenario-driver.sha256)" \
+            --arg server_peer "$(cat stage/server-peer.sha256)" \
+            --arg server_peer_input "$(cat stage/server-peer-input.sha256)" \
+            --arg media_archive "$(cat stage/media-fixtures.sha256)" \
+            --arg media_manifest "$(cat stage/media-manifest.sha256)" \
+            --arg source "$(cat stage/source-binding.sha256)" \
+            --arg contract "$(sha256sum contracts/renderer-protocol/v3/schema.json | cut -d' ' -f1)" \
+            --arg peers "$(sha256sum tooling/fixtures/compatibility/released-peers.yaml | cut -d' ' -f1)" \
+            --arg candidate "$(sha256sum stage/candidate.json | cut -d' ' -f1)" \
+            '{renderer_executable_sha256:$renderer,probe_executable_sha256:$probe,scenario_driver_sha256:$driver,server_peer_sha256:$server_peer,server_peer_input_sha256:$server_peer_input,media_fixture_archive_sha256:$media_archive,media_fixture_manifest_sha256:$media_manifest,source_sha256:$source,renderer_contract_sha256:$contract,peer_set_sha256:$peers,candidate_sha256:$candidate,endpoint_identity_sha256:null}' \
+            > stage/windows-audio-binding.json
+          bun tooling/qa/windows-audio/cli.mjs pending \
+            --binding stage/windows-audio-binding.json \
+            --publication stage/publication.json \
+            --recorded-at "$(date --utc +%Y-%m-%dT%H:%M:%S.000Z)" \
+            --output stage/windows-audio-pending.json
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: renderer-windows-audio-qualification-pending
+          path: stage/windows-audio-pending.json
+          if-no-files-found: error
+
+  deny-tag-publication:
+    needs: [stage, windows-audio-qualification-physical, windows-audio-qualification-pending]
+    if: always() && github.event_name == 'push' && needs.stage.result == 'success'
+    runs-on: ubuntu-24.04
+    permissions: { contents: read }
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with: { persist-credentials: false }
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
+        with: { bun-version: '1.3.14' }
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with: { name: renderer-candidate-ci, path: stage }
+      - name: Default-deny public Renderer publication
+        run: bun tooling/release/publication-guard-cli.ts --component renderer --event push --manifest stage/manifest.json --output publication-guard.json
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with: { name: renderer-publication-denied, path: publication-guard.json, if-no-files-found: error }

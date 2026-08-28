@@ -1,0 +1,125 @@
+name: product-qualification-dispatch
+run-name: product-qualification:${{ inputs.version }}:${{ github.run_id }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Exact Server and Control candidate version
+        required: true
+        type: string
+
+permissions: { contents: read }
+
+concurrency:
+  group: product-qualification-${{ github.ref }}-${{ inputs.version }}
+  cancel-in-progress: false
+
+jobs:
+  authorize:
+    if: github.ref_protected == true && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+    runs-on: ubuntu-24.04
+    environment: product-qualification-dispatch
+    permissions: { contents: read }
+    steps:
+      - name: Bind the protected default-branch caller identity
+        env:
+          CANDIDATE_VERSION: ${{ inputs.version }}
+          CALLER_REF: ${{ github.ref }}
+          CALLER_SHA: ${{ github.sha }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          REF_PROTECTED: ${{ github.ref_protected }}
+        run: |
+          set -euo pipefail
+          [[ "$CANDIDATE_VERSION" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]
+          test "$REF_PROTECTED" = true
+          test "$CALLER_REF" = "refs/heads/$DEFAULT_BRANCH"
+          [[ "$CALLER_SHA" =~ ^[0-9a-f]{40}$ ]]
+
+  server:
+    needs: authorize
+    if: needs.authorize.result == 'success'
+    uses: ./.github/workflows/server-release.yml
+    with:
+      version: ${{ inputs.version }}
+      invocation_mode: authoritative
+      caller_run_id: ${{ github.run_id }}
+      caller_run_attempt: ${{ github.run_attempt }}
+      caller_ref: ${{ github.ref }}
+      caller_sha: ${{ github.sha }}
+      caller_workflow_path: .github/workflows/product-qualification-dispatch.yml
+
+  control:
+    needs: authorize
+    if: needs.authorize.result == 'success'
+    uses: ./.github/workflows/control-release.yml
+    with:
+      version: ${{ inputs.version }}
+      invocation_mode: authoritative
+      caller_run_id: ${{ github.run_id }}
+      caller_run_attempt: ${{ github.run_attempt }}
+      caller_ref: ${{ github.ref }}
+      caller_sha: ${{ github.sha }}
+      caller_workflow_path: .github/workflows/product-qualification-dispatch.yml
+
+  authoritative-reducer:
+    if: ${{ always() && needs.authorize.result == 'success' }}
+    needs: [authorize, server, control]
+    runs-on: ubuntu-24.04
+    permissions: { actions: read, contents: read }
+    outputs:
+      artifact_id: ${{ steps.reducer-artifact.outputs.artifact-id }}
+      artifact_name: authoritative-product-qualification-${{ github.run_id }}-${{ github.run_attempt }}
+      artifact_digest: ${{ steps.reducer-artifact.outputs.artifact-digest }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with: { persist-credentials: false }
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
+        with: { bun-version: '1.3.14' }
+      - name: Materialize trusted provider observation context
+        run: |
+          jq -n --arg repository "$GITHUB_REPOSITORY" --arg runId "$GITHUB_RUN_ID" --argjson runAttempt "$GITHUB_RUN_ATTEMPT" --arg headSha "$GITHUB_SHA" '{repository:$repository,runId:$runId,runAttempt:$runAttempt,headSha:$headSha}' > provider-context.json
+          printf '[]\n' > provider-observations.json
+      - name: Observe and hash exact same-run provider archives by provider ID
+        if: needs.server.result == 'success' && needs.control.result == 'success'
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          GITHUB_API_URL: ${{ github.api_url }}
+        run: bun tooling/release/qualification-provider-observer-cli.ts --context provider-context.json --output-root provider-bytes --output provider-observations.json
+      - name: Materialize scheduler-authoritative reducer input
+        if: always()
+        env:
+          SERVER_RESULT: ${{ needs.server.result }}
+          CONTROL_RESULT: ${{ needs.control.result }}
+          SERVER_OUTPUTS: ${{ toJSON(needs.server.outputs) }}
+          CONTROL_OUTPUTS: ${{ toJSON(needs.control.outputs) }}
+        run: |
+          set -euo pipefail
+          jq -n --arg repository "$GITHUB_REPOSITORY" --arg runId "$GITHUB_RUN_ID" --argjson runAttempt "$GITHUB_RUN_ATTEMPT" --arg ref "$GITHUB_REF" --arg sha "$GITHUB_SHA" \
+            --arg serverResult "$SERVER_RESULT" --arg controlResult "$CONTROL_RESULT" --argjson server "$SERVER_OUTPUTS" --argjson control "$CONTROL_OUTPUTS" --slurpfile provider provider-observations.json \
+            '{providerObservations:$provider[0],context:{repository:$repository,runId:$runId,runAttempt:$runAttempt,ref:$ref,sha:$sha,workflowPath:".github/workflows/product-qualification-dispatch.yml"},children:[{component:"server",result:$serverResult,outputs:{callerRunId:($server.caller_run_id//""),callerRunAttempt:(($server.caller_run_attempt//"1")|tonumber),callerRef:($server.caller_ref//""),callerSha:($server.caller_sha//""),calledWorkflowPath:$server.called_workflow_path,calledJob:$server.called_job,calledOutputIdentity:$server.called_output_identity,artifactId:$server.artifact_id,artifactName:$server.artifact_name,artifactDigest:(($server.artifact_digest//"")|sub("^sha256:";"")),stagingBindingArtifactId:$server.staging_binding_artifact_id,stagingBindingArtifactName:$server.staging_binding_artifact_name,stagingBindingArtifactDigest:(($server.staging_binding_artifact_digest//"")|sub("^sha256:";"")),stagingBindingSha256:$server.staging_binding_sha256}},{component:"control",result:$controlResult,outputs:{callerRunId:($control.caller_run_id//""),callerRunAttempt:(($control.caller_run_attempt//"1")|tonumber),callerRef:($control.caller_ref//""),callerSha:($control.caller_sha//""),calledWorkflowPath:$control.called_workflow_path,calledJob:$control.called_job,calledOutputIdentity:$control.called_output_identity,artifactId:$control.artifact_id,artifactName:$control.artifact_name,artifactDigest:(($control.artifact_digest//"")|sub("^sha256:";"")),stagingBindingArtifactId:$control.staging_binding_artifact_id,stagingBindingArtifactName:$control.staging_binding_artifact_name,stagingBindingArtifactDigest:(($control.staging_binding_artifact_digest//"")|sub("^sha256:";"")),stagingBindingSha256:$control.staging_binding_sha256}}]}' > reducer-input.json
+      - name: Reduce only scheduler results and verified child bytes
+        if: always()
+        run: bun tooling/release/qualification-authoritative-reducer-cli.ts --input reducer-input.json --root . --output authoritative-qualification.json
+      - id: reducer-artifact
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with: { name: 'authoritative-product-qualification-${{ github.run_id }}-${{ github.run_attempt }}', path: authoritative-qualification.json, if-no-files-found: error }
+
+  product-gate-input:
+    if: ${{ always() && needs.authorize.result == 'success' && needs.authoritative-reducer.result == 'success' }}
+    needs: [authorize, authoritative-reducer]
+    runs-on: ubuntu-24.04
+    permissions: { actions: read, contents: read }
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with: { persist-credentials: false }
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
+        with: { bun-version: '1.3.14' }
+      - name: Download the sole product-gate reducer input by exact provider ID
+        uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16
+        with: { artifact-ids: '${{ needs.authoritative-reducer.outputs.artifact_id }}', path: reducer, github-token: '${{ github.token }}', repository: '${{ github.repository }}', run-id: '${{ github.run_id }}' }
+      - name: Construct product-gate candidate input only from the reducer artifact
+        run: bun tooling/release/qualification-authoritative-input-cli.ts --reducer reducer/authoritative-qualification.json --output product-gate-authoritative-input.json
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with: { name: 'product-gate-authoritative-input-${{ github.run_id }}-${{ github.run_attempt }}', path: product-gate-authoritative-input.json, if-no-files-found: error }
