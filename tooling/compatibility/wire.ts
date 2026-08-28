@@ -16,6 +16,8 @@ export const decodeWire = (
   readonly major: number;
   readonly capabilities: readonly string[];
   readonly assertions: readonly string[];
+  readonly identity: string;
+  readonly semanticHash: string;
 } => {
   const base = resolve(root);
   const path = resolve(base, ref.file);
@@ -36,15 +38,16 @@ export const decodeWire = (
     text(value.commandKind, `${ref.id}.commandKind`) !== "future-command"
   )
     throw new CompatibilityError(`${ref.id} unknown-value oracle failed`);
+  const identity = ref.consumer === "control"
+    ? text(value.requestId, `${ref.id}.requestId`)
+    : text(value.commandId, `${ref.id}.commandId`);
   if (ref.consumer === "control") {
     if (
-      text(value.requestId, `${ref.id}.requestId`).length === 0 ||
       text(value.continuationPolicy, `${ref.id}.continuationPolicy`) !==
         "future-policy"
     )
       throw new CompatibilityError(`${ref.id} Control required field rejected`);
   } else if (
-    text(value.commandId, `${ref.id}.commandId`).length === 0 ||
     typeof value.positionMs !== "number" ||
     !Number.isInteger(value.positionMs) ||
     value.positionMs < 0
@@ -54,6 +57,8 @@ export const decodeWire = (
   return {
     major,
     capabilities,
+    identity,
+    semanticHash: sha(bytes),
     assertions: [
       "required-fields-decoded",
       "additive-field-ignored",

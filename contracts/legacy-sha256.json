@@ -1,0 +1,9 @@
+{
+  "control-api/http-api-v1.json": "2c764806ba98bb8cac8d2b692e07ac830a43efd97552230021230e316cb5ef79",
+  "control-api/schema.json": "1d90b3bd8ecce8650a3cd2bf87e8426cf3277962f995701cfb146015adab2ede",
+  "control-api/archived/v1/schema.json": "4fbbc1dcafab02a7504a8e774213e43398445357a81b1d837bdae6022b8cfb06",
+  "control-api/archived/v2/schema.json": "1d90b3bd8ecce8650a3cd2bf87e8426cf3277962f995701cfb146015adab2ede",
+  "renderer-protocol/schema.json": "affe4e04985c1c1f27053be564955bc2cd3d0abf0e88a8c6f56c1881a9aa36da",
+  "renderer-protocol/archived/v1/schema.json": "60e455482112c50d326e51af78c980553fa6dd5b5a70bc39a3514a837c2ce7b6",
+  "renderer-protocol/archived/v2/schema.json": "affe4e04985c1c1f27053be564955bc2cd3d0abf0e88a8c6f56c1881a9aa36da"
+}

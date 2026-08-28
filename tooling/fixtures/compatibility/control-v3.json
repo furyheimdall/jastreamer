@@ -1,0 +1,8 @@
+{
+  "protocolMajor": 3,
+  "capabilities": ["control-api", "catalog-browse", "future-capability"],
+  "requestId": "golden-control-v3",
+  "continuationPolicy": "future-policy",
+  "commandKind": "future-command",
+  "optionalMetadata": "additive"
+}

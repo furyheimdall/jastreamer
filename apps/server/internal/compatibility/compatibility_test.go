@@ -14,19 +14,33 @@ import (
 	"github.com/jastreamer/jastreamer-server/internal/compatibility"
 )
 
-func TestNegotiate_selects_highest_common_major_without_product_version(t *testing.T) {
+func TestNegotiate_selects_major_three_for_v3_peer(t *testing.T) {
 	// Given
-	peerMajors := []compatibility.Major{compatibility.Major1, compatibility.Major2}
+	peerMajors := []compatibility.Major{compatibility.Major3, compatibility.Major2}
 
 	// When
 	session, err := compatibility.Negotiate(peerMajors)
-
 	// Then
 	if err != nil {
 		t.Fatalf("negotiate: %v", err)
 	}
-	if session.Major() != compatibility.Major2 {
+	if session.Major() != compatibility.Major3 {
 		t.Fatalf("negotiated major = %d", session.Major())
+	}
+}
+
+func TestNegotiate_selects_major_two_without_v3_feature_claim_for_v2_peer(t *testing.T) {
+	// Given
+	peerMajors := []compatibility.Major{compatibility.Major2}
+
+	// When
+	session, err := compatibility.Negotiate(peerMajors)
+	// Then
+	if err != nil {
+		t.Fatalf("negotiate: %v", err)
+	}
+	if session.Major() != compatibility.Major2 || slices.Contains(session.Capabilities(), "catalog-browse") {
+		t.Fatalf("session = major %d capabilities %v", session.Major(), session.Capabilities())
 	}
 }
 
@@ -64,6 +78,8 @@ func TestParseRequest_accepts_additive_fields_unknown_capabilities_and_unknown_r
 		{name: "control v2", kind: compatibility.PeerControl, file: "control-v2.json"},
 		{name: "renderer v1", kind: compatibility.PeerRenderer, file: "renderer-v1.json"},
 		{name: "renderer v2", kind: compatibility.PeerRenderer, file: "renderer-v2.json"},
+		{name: "control v3", kind: compatibility.PeerControl, file: "control-v3.json"},
+		{name: "renderer v3", kind: compatibility.PeerRenderer, file: "renderer-v3.json"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			// Given
@@ -74,7 +90,6 @@ func TestParseRequest_accepts_additive_fields_unknown_capabilities_and_unknown_r
 
 			// When
 			request, err := compatibility.ParseRequest(test.kind, payload)
-
 			// Then
 			if err != nil {
 				t.Fatalf("parse fixture: %v", err)
@@ -108,14 +123,29 @@ func TestParseRequest_rejects_missing_known_required_field(t *testing.T) {
 	}
 }
 
+func TestNegotiationResponse_uses_supported_and_selected_major_headers(t *testing.T) {
+	// Given
+	request := compatibility.NegotiationRequest{Offered: []compatibility.Major{compatibility.Major3, compatibility.Major2}}
+
+	// When
+	response, err := compatibility.NegotiateResponse(request)
+	// Then
+	if err != nil {
+		t.Fatalf("negotiate response: %v", err)
+	}
+	if response.SupportedMajorsHeader != "3,2" || response.SelectedMajorHeader != "3" {
+		t.Fatalf("response = %#v", response)
+	}
+}
+
 func TestAdapter_unknown_behavior_is_per_request_and_does_not_mutate_state(t *testing.T) {
 	// Given
-	session, err := compatibility.Negotiate([]compatibility.Major{compatibility.Major2})
+	session, err := compatibility.Negotiate([]compatibility.Major{compatibility.Major3})
 	if err != nil {
 		t.Fatalf("negotiate: %v", err)
 	}
 	adapter := compatibility.NewAdapter(session)
-	payload, err := os.ReadFile(filepath.Join("testdata", "renderer-v2-unknown-command.json"))
+	payload, err := os.ReadFile(filepath.Join("testdata", "renderer-v3-unknown-command.json"))
 	if err != nil {
 		t.Fatalf("read fixture: %v", err)
 	}
@@ -129,7 +159,7 @@ func TestAdapter_unknown_behavior_is_per_request_and_does_not_mutate_state(t *te
 
 	// Then
 	var requestError *compatibility.RequestError
-	if !errors.As(err, &requestError) || requestError.Code != "UNSUPPORTED_COMMAND" || requestError.RequestID != "renderer-v2-unknown" {
+	if !errors.As(err, &requestError) || requestError.Code != "UNSUPPORTED_COMMAND" || requestError.RequestID != "renderer-v3-unknown" {
 		t.Fatalf("error = %T (%v)", err, err)
 	}
 	if adapter.AcceptedRequests() != 0 {
@@ -145,10 +175,10 @@ func TestRunFixture_supports_all_server_peer_cells_in_both_start_orders(t *testi
 			wire  string
 			major compatibility.Major
 		}{
-			{kind: compatibility.PeerControl, peer: "control-old-peer.json", wire: "control-v1.json", major: compatibility.Major1},
-			{kind: compatibility.PeerControl, peer: "control-current-peer.json", wire: "control-v2.json", major: compatibility.Major2},
-			{kind: compatibility.PeerRenderer, peer: "renderer-old-peer.json", wire: "renderer-v1.json", major: compatibility.Major1},
-			{kind: compatibility.PeerRenderer, peer: "renderer-current-peer.json", wire: "renderer-v2.json", major: compatibility.Major2},
+			{kind: compatibility.PeerControl, peer: "control-v2-peer.json", wire: "control-v2.json", major: compatibility.Major2},
+			{kind: compatibility.PeerControl, peer: "control-v3-peer.json", wire: "control-v3.json", major: compatibility.Major3},
+			{kind: compatibility.PeerRenderer, peer: "renderer-v2-peer.json", wire: "renderer-v2.json", major: compatibility.Major2},
+			{kind: compatibility.PeerRenderer, peer: "renderer-v3-peer.json", wire: "renderer-v3.json", major: compatibility.Major3},
 		} {
 			name := string(order) + "/" + test.peer
 			t.Run(name, func(t *testing.T) {
@@ -164,7 +194,6 @@ func TestRunFixture_supports_all_server_peer_cells_in_both_start_orders(t *testi
 
 				// When
 				report, err := compatibility.RunFixture(compatibility.FixtureInput{Kind: test.kind, Order: order, Peer: peer, Wire: wire})
-
 				// Then
 				if err != nil {
 					t.Fatalf("run fixture: %v", err)
@@ -178,11 +207,11 @@ func TestRunFixture_supports_all_server_peer_cells_in_both_start_orders(t *testi
 }
 
 func TestRunFixture_executes_start_steps_in_requested_order(t *testing.T) {
-	peer, err := os.ReadFile(filepath.Join("testdata", "renderer-current-peer.json"))
+	peer, err := os.ReadFile(filepath.Join("testdata", "renderer-v3-peer.json"))
 	if err != nil {
 		t.Fatalf("read peer: %v", err)
 	}
-	wire, err := os.ReadFile(filepath.Join("testdata", "renderer-v2.json"))
+	wire, err := os.ReadFile(filepath.Join("testdata", "renderer-v3.json"))
 	if err != nil {
 		t.Fatalf("read wire: %v", err)
 	}
@@ -219,11 +248,11 @@ func TestRunFixture_executes_start_steps_in_requested_order(t *testing.T) {
 }
 
 func TestRunFixture_uses_candidate_server_major_range(t *testing.T) {
-	peer, err := os.ReadFile(filepath.Join("testdata", "control-old-peer.json"))
+	peer, err := os.ReadFile(filepath.Join("testdata", "control-v2-peer.json"))
 	if err != nil {
 		t.Fatalf("read peer: %v", err)
 	}
-	wire, err := os.ReadFile(filepath.Join("testdata", "control-v1.json"))
+	wire, err := os.ReadFile(filepath.Join("testdata", "control-v2.json"))
 	if err != nil {
 		t.Fatalf("read wire: %v", err)
 	}
@@ -231,7 +260,7 @@ func TestRunFixture_uses_candidate_server_major_range(t *testing.T) {
 	_, err = compatibility.RunFixture(compatibility.FixtureInput{
 		Kind:         compatibility.PeerControl,
 		Order:        compatibility.OldFirst,
-		ServerMajors: []compatibility.Major{compatibility.Major2},
+		ServerMajors: []compatibility.Major{compatibility.Major3},
 		Peer:         peer,
 		Wire:         wire,
 	})

@@ -1,0 +1,8 @@
+{
+  "protocolMajor": 3,
+  "capabilities": ["render", "renderer-session", "future-capability"],
+  "commandId": "golden-renderer-v3",
+  "positionMs": 0,
+  "commandKind": "future-command",
+  "optionalMetadata": "additive"
+}

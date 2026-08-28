@@ -1,8 +1,8 @@
-// GENERATED from contracts/control-api/http-api-v1.json. Do not edit by hand.
+// GENERATED from contracts/control-api/v3/http-api.json. Do not edit by hand.
 const controlContractSha256 =
-    '2c764806ba98bb8cac8d2b692e07ac830a43efd97552230021230e316cb5ef79';
-const controlContractRevision = 'http-api-v1';
-const controlProtocolMajor = 2;
+    'b5c3bb56f4d101011b5d99c6abcc88429ee150ed56272d763996094e683843db';
+const controlContractRevision = 'control-api-v3';
+const controlProtocolMajor = 3;
 
 const decisionReasonValues = <String>[
   'PLAY_EXPLICIT',
@@ -18,10 +18,14 @@ const decisionReasonValues = <String>[
 ];
 
 const controllerCapabilities = <String>[
-  'catalog-status',
-  'queue',
-  'continuation-policy',
-  'automatic-preview',
-  'decision-explanation',
-  'wss-state',
+  'control-api',
+  'render',
+  'catalog-browse',
+  'queue-mutation',
+  'transport',
+  'zones',
+  'renderer-assignment',
+  'event-invalidations',
+  'renderer-session',
+  'media-representations',
 ];

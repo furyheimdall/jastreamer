@@ -7,35 +7,45 @@ const names = ["control-api", "renderer-protocol"] as const;
 type ContractName = (typeof names)[number];
 type Lock = { component: string; contracts: Record<ContractName, { version: string; digest: string }> };
 
-const pathFor = (name: ContractName, version: "v1" | "v2") => join(root, name, "archived", version, "schema.json");
+const pathFor = (name: ContractName, version: "v1" | "v2" | "v3") =>
+  version === "v3" ? join(root, name, version, "schema.json") : join(root, name, "archived", version, "schema.json");
 const digest = async (path: string) => `sha256:${createHash("sha256").update(await readFile(path)).digest("hex")}`;
 const canonical = async (path: string) => JSON.stringify(JSON.parse(await readFile(path, "utf8")));
 
-const verifyArchives = async (): Promise<boolean> => {
-  for (const name of names) for (const version of ["v1", "v2"] as const) {
-    if (!(await Bun.file(pathFor(name, version)).exists())) return false;
+const verifyLegacyContracts = async (): Promise<boolean> => {
+  const baseline: unknown = JSON.parse(await readFile(join(root, "legacy-sha256.json"), "utf8"));
+  if (typeof baseline !== "object" || baseline === null || Array.isArray(baseline)) return false;
+  for (const [relativePath, hash] of Object.entries(baseline)) {
+    if (typeof hash !== "string") return false;
+    const path = join(root, relativePath);
+    if (!(await Bun.file(path).exists()) || await digest(path) !== `sha256:${hash}`) return false;
   }
   return true;
 };
 
 const generate = async (repeat: number): Promise<number> => {
-  if (repeat < 1 || !(await verifyArchives())) return 1;
+  if (repeat < 1 || !(await verifyLegacyContracts())) return 1;
   let previous = "";
   for (let pass = 0; pass < repeat; pass++) {
-    const current = (await Promise.all(names.map((name) => canonical(join(root, name, "schema.json"))))).join("");
+    const current = (await Promise.all(names.map((name) => canonical(pathFor(name, "v3"))))).join("");
     if (pass > 0 && current !== previous) return 1;
     previous = current;
   }
-  for (const name of names) if (await canonical(join(root, name, "schema.json")) !== await canonical(pathFor(name, "v2"))) return 1;
+  const baseline: unknown = JSON.parse(await readFile(join(root, "v3-canonical-sha256.json"), "utf8"));
+  if (typeof baseline !== "object" || baseline === null || Array.isArray(baseline)) return 1;
+  for (const [relativePath, hash] of Object.entries(baseline)) {
+    if (typeof hash !== "string" || createHash("sha256").update(await canonical(join(root, relativePath))).digest("hex") !== hash) return 1;
+  }
   return 0;
 };
 
 const locks = async (): Promise<number> => {
+  if (!(await verifyLegacyContracts())) return 1;
   const expected: Record<string, readonly ContractName[]> = { control: ["control-api"], renderer: ["renderer-protocol"], server: names };
   for (const [component, contracts] of Object.entries(expected)) {
     const lock = JSON.parse(await readFile(join(root, "locks", `${component}.json`), "utf8")) as Lock;
     if (lock.component !== component || Object.keys(lock.contracts).length !== contracts.length) return 1;
-    for (const name of contracts) if (lock.contracts[name]?.version !== "v2" || lock.contracts[name]?.digest !== await digest(pathFor(name, "v2"))) return 1;
+    for (const name of contracts) if (lock.contracts[name]?.version !== "v3" || lock.contracts[name]?.digest !== await digest(pathFor(name, "v3"))) return 1;
   }
   return 0;
 };
@@ -49,8 +59,8 @@ const compatibility = async (path: string, output: string | undefined): Promise<
     const majors = /^\s+supported_majors:\s*\[([^\]]*)\]\s*$/.exec(line);
     if (majors && section) sections.set(section, majors[1].split(",").filter(Boolean).map((value) => Number(value.trim())));
   }
-  const commonMajors = [2, 1].filter((major) => ["control", "renderer", "server"].every((name) => sections.get(name)?.includes(major)));
-  const result = commonMajors.length ? { compatible: true, commonMajors } : { compatible: false, commonMajors: [], error: "INCOMPATIBLE_PROTOCOL_MAJOR" };
+  const commonMajors = [3, 2].filter((major) => ["control", "renderer", "server"].every((name) => sections.get(name)?.includes(major)));
+  const result = commonMajors.length ? { compatible: true, commonMajors } : { compatible: false, commonMajors: [], error: "INCOMPATIBLE_PROTOCOL_MAJOR", httpStatus: 426 };
   if (output) await Bun.write(output, `${JSON.stringify(result)}\n`);
   if (!result.compatible) { console.error(result.error); return 65; }
   return 0;

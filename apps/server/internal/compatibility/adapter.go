@@ -50,17 +50,17 @@ func (adapter *Adapter) Handle(request Request) (Response, error) {
 			Offered:    []Major{request.major},
 		}
 	}
-	switch request.behavior {
-	case "", "play", "stop", "seek", "set-position", "continuation:stop", "continuation:album", "continuation:similar":
+	known := request.behavior == "" || request.behavior == "play" || request.behavior == "stop" || request.behavior == "seek" || request.behavior == "set-position" || request.behavior == "continuation:stop" || request.behavior == "continuation:album" || request.behavior == "continuation:similar"
+	v3Only := request.behavior == "pause" || request.behavior == "resume" || request.behavior == "queue:remove" || request.behavior == "queue:move" || request.behavior == "queue:clear"
+	if known || (adapter.session.major == Major3 && v3Only) {
 		adapter.acceptedRequests++
 		return Response{RequestID: request.id, ProtocolMajor: adapter.session.major, Status: "accepted"}, nil
-	default:
-		return Response{}, &RequestError{
-			HTTPStatus: http.StatusNotImplemented,
-			Code:       "UNSUPPORTED_COMMAND",
-			Message:    "command is not supported by the negotiated protocol adapter",
-			RequestID:  request.id,
-		}
+	}
+	return Response{}, &RequestError{
+		HTTPStatus: http.StatusNotImplemented,
+		Code:       "UNSUPPORTED_COMMAND",
+		Message:    "command is not supported by the negotiated protocol adapter",
+		RequestID:  request.id,
 	}
 }
 

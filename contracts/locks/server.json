@@ -1,1 +1,1 @@
-{"component":"server","contracts":{"control-api":{"version":"v2","digest":"sha256:91eb615f969121bb46f80b39a5d9dfafcfe54e6eff29c96fb85391fe92267799"},"renderer-protocol":{"version":"v2","digest":"sha256:24311b169235abdc3a7827d95bf51a26b9d7fca5bdc17f61eb4c567232346bfa"}}}
+{"component":"server","contracts":{"control-api":{"version":"v3","digest":"sha256:5e16d3895cfdbc27f24095a2aa8f2f0519b96cdbacec3e6aca1d4b695e95845d"},"renderer-protocol":{"version":"v3","digest":"sha256:2533c183dcc2f77fa4289416b5e92c6a90dd1d5a3e7e43eb233e962ee0f2ef25"}}}

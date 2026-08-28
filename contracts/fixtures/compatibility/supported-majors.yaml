@@ -1,6 +1,6 @@
 control:
-  supported_majors: [2, 1]
+  supported_majors: [3, 2]
 renderer:
-  supported_majors: [2, 1]
+  supported_majors: [3, 2]
 server:
-  supported_majors: [2, 1]
+  supported_majors: [3, 2]

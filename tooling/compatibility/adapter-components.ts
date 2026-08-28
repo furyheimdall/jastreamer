@@ -69,7 +69,8 @@ export const executeControl = (
     !Array.isArray(value.unknownCapabilities) ||
     !value.unknownCapabilities.includes("future-capability") ||
     !isRecord(value.commandKind) ||
-    value.commandKind.state !== "unknown"
+    value.commandKind.state !== "unknown" ||
+    (expectedMajor === 2 && peer.capabilities.includes("catalog-browse"))
   )
     throw new CompatibilityError("Control adapter assertion failed");
   return {
@@ -144,10 +145,12 @@ export const executeRenderer = (
     !isRecord(value) ||
     value.negotiatedMajor !== expectedMajor ||
     !isRecord(value.commandKind) ||
-    value.commandKind.state !== "unknown" ||
+    value.commandKind.state !== "unsupported" ||
+    value.errorCode !== "UNSUPPORTED_COMMAND" ||
     !stringList(value.capabilities, "Renderer capabilities").includes(
       "future-capability",
-    )
+    ) ||
+    (expectedMajor === 2 && peer.capabilities.includes("renderer-session"))
   )
     throw new CompatibilityError("Renderer adapter assertion failed");
   return {
@@ -156,7 +159,7 @@ export const executeRenderer = (
     assertions: [
       "selected-major",
       "unknown-capability-preserved",
-      "unknown-enum-preserved",
+      "unknown-command-typed",
       ...orderAssertions,
     ],
   };
@@ -170,12 +173,17 @@ export const executeServer = (
   wireFile: string,
   expectedMajor: number | undefined,
 ): ComponentEvidence => {
+  const peerFixture = peer.id === "control-old"
+    ? "control-v2-peer.json"
+    : peer.id === "renderer-old"
+      ? "renderer-v2-peer.json"
+      : `${peer.id}.json`;
   const result = run([
     builds.serverBinary,
     "--peer",
     peer.component,
     "--peer-fixture",
-    resolve(builds.fixtureRoot, `${peer.id}.json`),
+    resolve(builds.fixtureRoot, peerFixture),
     "--wire-fixture",
     resolve(builds.fixtureRoot, wireFile),
     "--start-order",

@@ -1,0 +1,1 @@
+{"protocolMajor":3,"type":"negotiation","requestId":"control-v3-negotiation","supportedMajors":[3,2],"selectedMajor":3,"capabilities":["control-api","catalog-browse","queue-mutation","transport","zones","renderer-assignment","event-invalidations"]}

@@ -1,0 +1,9 @@
+{
+  "id": "renderer-old",
+  "component": "renderer",
+  "version": "2.0.0",
+  "supportedMajors": [2],
+  "capabilities": ["render"],
+  "adapter": "fixture:renderer-v2",
+  "sentinel": "renderer-v2-adapter"
+}

@@ -6,14 +6,37 @@ import 'package:jastreamer_control/protocol_compatibility.dart';
 
 void main() {
   test(
-    'Given v1 and v2 Server majors When selected Then highest common wins',
+    'Given v3 and v2 Server majors When selected Then major three wins',
     () {
-      const serverMajors = <int>[1, 2];
+      const serverMajors = <int>[2, 3];
 
       final selected = selectProtocolMajor(serverMajors);
 
-      expect(controlSupportedProtocolMajors, [2, 1]);
-      expect(selected, 2);
+      expect(controlSupportedProtocolMajors, [3, 2]);
+      expect(selected, 3);
+    },
+  );
+
+  test(
+    'Given only v2 When selected Then v3 capabilities are not claimed',
+    () {
+      final session = negotiateControlProtocol(const <int>[2]);
+
+      expect(session.selectedMajor, 2);
+      expect(session.capabilities, isNot(contains('catalog-browse')));
+    },
+  );
+
+  test(
+    'Given no common major When selected Then upgrade required is typed',
+    () {
+      expect(
+        () => negotiateControlProtocol(const <int>[1]),
+        throwsA(
+          isA<UnsupportedProtocolMajor>()
+              .having((failure) => failure.httpStatus, 'httpStatus', 426),
+        ),
+      );
     },
   );
 

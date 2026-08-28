@@ -10,27 +10,27 @@ import 'package:jastreamer_control/protocol_compatibility.dart';
 
 void main() {
   test(
-    'Given a v1 Server When discovered Then Control retries with major 1',
+    'Given a v2 Server When discovered Then Control retries with major 2',
     () async {
       final requestedMajors = <String>[];
       final gateway = HttpControlGateway(
         client: MockClient((request) async {
           final requestedMajor = request.headers['x-jake-protocol-major']!;
           requestedMajors.add(requestedMajor);
-          expect(request.headers['x-jake-supported-protocol-majors'], '2,1');
-          if (requestedMajor == '2') {
+          expect(request.headers['x-jake-supported-protocol-majors'], '3,2');
+          if (request.url.path == '/api/v1/zones/main/queue') {
+            return http.Response(jsonEncode({'revision': 1, 'queue': []}), 200);
+          }
+          if (requestedMajor == '3') {
             return http.Response(
               jsonEncode({'code': 'UNSUPPORTED_PROTOCOL_MAJOR'}),
               426,
             );
           }
-          if (request.url.path == '/api/v1/zones/main/queue') {
-            return http.Response(jsonEncode({'revision': 1, 'queue': []}), 200);
-          }
           return http.Response(
             jsonEncode({
-              'protocol_major': 1,
-              'supported_protocol_majors': [1],
+              'protocol_major': 2,
+              'supported_protocol_majors': [2],
               'capabilities': ['queue', 'future-capability'],
               'pairing_url': '/pair/',
               'certificate_sha256': 'AA:BB',
@@ -47,8 +47,8 @@ void main() {
       final discovery = await gateway.discovery();
       final queue = await gateway.queue();
 
-      expect(requestedMajors, ['2', '1', '1']);
-      expect(discovery.protocolMajor, 1);
+      expect(requestedMajors, ['3', '2', '2']);
+      expect(discovery.protocolMajor, 2);
       expect(discovery.catalogRevision, 42);
       expect(discovery.capabilities, contains('future-capability'));
       expect(queue.entries, isEmpty);

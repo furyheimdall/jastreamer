@@ -1,0 +1,1 @@
+{"protocolMajor":3,"type":"hello","rendererId":"renderer-1","supportedMajors":[3,2],"capabilities":{"commands":["play","pause","resume","stop","seek"],"mediaTypes":["audio/flac","audio/mpeg","audio/ogg","audio/wav","audio/L16"],"supportsRange":true,"maxChannels":2,"maxSampleRateHz":192000},"lastServerSequence":0,"pendingResults":[]}

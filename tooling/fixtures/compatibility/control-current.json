@@ -3,11 +3,12 @@
   "component": "control",
   "version": "0.1.0",
   "supportedMajors": [
-    2,
-    1
+    3,
+    2
   ],
   "capabilities": [
     "control-api",
+    "catalog-browse",
     "future-capability"
   ],
   "adapter": "candidate:control",

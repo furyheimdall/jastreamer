@@ -2,6 +2,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { read, parseMatrix, CompatibilityError } from "./parser";
 import { runMatrix } from "./executor";
+import { SUPPORTED_PROTOCOL_MAJORS } from "./protocol";
 
 const args = process.argv.slice(2);
 const matrixIndex = args.indexOf("--matrix");
@@ -39,7 +40,10 @@ try {
     output,
     `${JSON.stringify(
       {
-        protocol: { current: 2, previous: 1 },
+        protocol: {
+          current: SUPPORTED_PROTOCOL_MAJORS[0],
+          previous: SUPPORTED_PROTOCOL_MAJORS[1],
+        },
         summary: {
           passed,
           failed,

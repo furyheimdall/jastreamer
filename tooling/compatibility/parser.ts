@@ -114,11 +114,11 @@ export const parseArtifact = (root: string, ref: PeerRef): Artifact => {
     throw new CompatibilityError(`${ref.id}.version invalid`);
   const adapter = text(value.adapter, `${ref.id}.adapter`);
   const expectedAdapters: Readonly<Record<string, string>> = {
-    "server-old": "fixture:server-v1",
+    "server-old": "fixture:server-v2",
     "server-new": "candidate:server",
-    "control-old": "fixture:control-v1",
+    "control-old": "fixture:control-v2",
     "control-current": "candidate:control",
-    "renderer-old": "fixture:renderer-v1",
+    "renderer-old": "fixture:renderer-v2",
     "renderer-candidate": "candidate:renderer",
   };
   if (adapter !== expectedAdapters[ref.id])

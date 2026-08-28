@@ -1,0 +1,241 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://jastreamer.dev/contracts/control-api/v3",
+  "title": "jastreamer Control API protocol major 3",
+  "description": "Messages carried beneath the stable /api/v1 route prefix. Unknown response and event string values are preserved by clients and never interpreted as mutations.",
+  "x-jastreamer-semantics": {
+    "version": 1,
+    "validators": ["zones-inventory-v1"]
+  },
+  "oneOf": [
+    {"$ref": "#/$defs/negotiation"},
+    {"$ref": "#/$defs/catalogPage"},
+    {"$ref": "#/$defs/queueCommand"},
+    {"$ref": "#/$defs/queueSnapshot"},
+    {"$ref": "#/$defs/transportCommand"},
+    {"$ref": "#/$defs/zonesSnapshot"},
+    {"$ref": "#/$defs/rendererAssignment"},
+    {"$ref": "#/$defs/eventTicket"},
+    {"$ref": "#/$defs/invalidation"},
+    {"$ref": "#/$defs/error"}
+  ],
+  "$defs": {
+    "id": {"type": "string", "minLength": 1, "maxLength": 256},
+    "revision": {"type": "integer", "minimum": 0},
+    "capability": {"type": "string", "minLength": 1},
+    "base": {
+      "type": "object",
+      "required": ["protocolMajor", "type", "requestId"],
+      "properties": {
+        "protocolMajor": {"const": 3},
+        "type": {"type": "string", "minLength": 1},
+        "requestId": {"$ref": "#/$defs/id"}
+      }
+    },
+    "negotiation": {
+      "type": "object",
+      "required": ["protocolMajor", "type", "requestId", "supportedMajors", "selectedMajor", "capabilities"],
+      "properties": {
+        "protocolMajor": {"const": 3},
+        "type": {"const": "negotiation"},
+        "requestId": {"$ref": "#/$defs/id"},
+        "supportedMajors": {"const": [3, 2]},
+        "selectedMajor": {"enum": [2, 3]},
+        "capabilities": {"type": "array", "items": {"$ref": "#/$defs/capability"}, "uniqueItems": true}
+      },
+      "additionalProperties": false
+    },
+    "track": {
+      "type": "object",
+      "required": ["trackId", "title", "artists", "album", "available", "representations"],
+      "properties": {
+        "trackId": {"$ref": "#/$defs/id"},
+        "title": {"type": "string"},
+        "artists": {"type": "array", "items": {"type": "string"}},
+        "album": {"type": "string"},
+        "albumArtist": {"type": ["string", "null"]},
+        "durationMs": {"type": ["integer", "null"], "minimum": 0},
+        "available": {"type": "boolean"},
+        "representations": {"type": "array", "items": {"$ref": "#/$defs/mediaRepresentation"}}
+      },
+      "additionalProperties": false
+    },
+    "mediaRepresentation": {
+      "type": "object",
+      "required": ["representationId", "kind", "mimeType", "seekable"],
+      "properties": {
+        "representationId": {"$ref": "#/$defs/id"},
+        "kind": {"enum": ["original", "l16"]},
+        "mimeType": {"type": "string", "minLength": 1},
+        "codec": {"type": ["string", "null"]},
+        "sampleRateHz": {"type": ["integer", "null"], "minimum": 1},
+        "channels": {"type": ["integer", "null"], "minimum": 1},
+        "bitsPerSample": {"type": ["integer", "null"], "minimum": 1},
+        "seekable": {"type": "boolean"}
+      },
+      "additionalProperties": false
+    },
+    "catalogPage": {
+      "type": "object",
+      "required": ["protocolMajor", "type", "requestId", "catalogRevision", "tracks"],
+      "properties": {
+        "protocolMajor": {"const": 3},
+        "type": {"const": "catalog.page"},
+        "requestId": {"$ref": "#/$defs/id"},
+        "catalogRevision": {"$ref": "#/$defs/revision"},
+        "query": {"type": ["string", "null"], "maxLength": 200},
+        "nextCursor": {"type": ["string", "null"]},
+        "tracks": {"type": "array", "items": {"$ref": "#/$defs/track"}, "maxItems": 500}
+      },
+      "additionalProperties": false
+    },
+    "queueEntry": {
+      "type": "object",
+      "required": ["entryId", "trackId", "state"],
+      "properties": {
+        "entryId": {"$ref": "#/$defs/id"},
+        "trackId": {"$ref": "#/$defs/id"},
+        "state": {"type": "string", "minLength": 1},
+        "blockedError": {"oneOf": [{"$ref": "#/$defs/error"}, {"type": "null"}]}
+      },
+      "additionalProperties": false
+    },
+    "queueCommand": {
+      "type": "object",
+      "required": ["protocolMajor", "type", "requestId", "zoneId", "expectedRevision", "idempotencyKey", "command"],
+      "properties": {
+        "protocolMajor": {"const": 3},
+        "type": {"const": "queue.command"},
+        "requestId": {"$ref": "#/$defs/id"},
+        "zoneId": {"$ref": "#/$defs/id"},
+        "expectedRevision": {"$ref": "#/$defs/revision"},
+        "idempotencyKey": {"$ref": "#/$defs/id"},
+        "command": {"enum": ["append", "remove", "move", "clear", "retry_blocked", "skip_blocked"]},
+        "trackIds": {"type": "array", "items": {"$ref": "#/$defs/id"}},
+        "entryId": {"$ref": "#/$defs/id"},
+        "beforeEntryId": {"type": ["string", "null"]}
+      },
+      "additionalProperties": false
+    },
+    "queueSnapshot": {
+      "type": "object",
+      "required": ["protocolMajor", "type", "requestId", "zoneId", "revision", "transport", "observedTransport", "entries"],
+      "properties": {
+        "protocolMajor": {"const": 3},
+        "type": {"const": "queue.snapshot"},
+        "requestId": {"$ref": "#/$defs/id"},
+        "zoneId": {"$ref": "#/$defs/id"},
+        "revision": {"$ref": "#/$defs/revision"},
+        "transport": {"type": "string", "minLength": 1},
+        "observedTransport": {"type": "string", "minLength": 1},
+        "pendingCommandId": {"type": ["string", "null"]},
+        "entries": {"type": "array", "items": {"$ref": "#/$defs/queueEntry"}}
+      },
+      "additionalProperties": false
+    },
+    "transportCommand": {
+      "type": "object",
+      "required": ["protocolMajor", "type", "requestId", "zoneId", "expectedRevision", "idempotencyKey", "command"],
+      "properties": {
+        "protocolMajor": {"const": 3},
+        "type": {"const": "transport.command"},
+        "requestId": {"$ref": "#/$defs/id"},
+        "zoneId": {"$ref": "#/$defs/id"},
+        "expectedRevision": {"$ref": "#/$defs/revision"},
+        "idempotencyKey": {"$ref": "#/$defs/id"},
+        "command": {"enum": ["start", "pause", "resume", "stop", "skip", "previous", "seek"]},
+        "positionMs": {"type": "integer", "minimum": 0}
+      },
+      "additionalProperties": false
+    },
+    "renderer": {
+      "type": "object",
+      "required": ["renderer_id", "name", "kind", "status", "capabilities", "last_seen_at"],
+      "properties": {
+        "renderer_id": {"$ref": "#/$defs/id"},
+        "name": {"type": "string", "minLength": 1},
+        "kind": {"enum": ["k17", "custom"]},
+        "status": {"enum": ["unavailable", "available", "connected", "incompatible", "revoked"]},
+        "capabilities": {"type": "array", "items": {"$ref": "#/$defs/capability"}, "uniqueItems": true},
+        "last_seen_at": {"type": "string", "format": "date-time"}
+      },
+      "additionalProperties": false
+    },
+    "zone": {
+      "type": "object",
+      "required": ["zone_id", "name", "revision", "renderer_id", "transport"],
+      "properties": {
+        "zone_id": {"$ref": "#/$defs/id"},
+        "name": {"type": "string", "minLength": 1},
+        "revision": {"$ref": "#/$defs/revision"},
+        "renderer_id": {"oneOf": [{"$ref": "#/$defs/id"}, {"type": "null"}]},
+        "transport": {"enum": ["idle", "selecting", "starting", "playing", "paused", "blocked", "suspended"]}
+      },
+      "additionalProperties": false
+    },
+    "zonesSnapshot": {
+      "type": "object",
+      "required": ["zones", "renderers"],
+      "properties": {
+        "zones": {"type": "array", "items": {"$ref": "#/$defs/zone"}},
+        "renderers": {"type": "array", "items": {"$ref": "#/$defs/renderer"}}
+      },
+      "additionalProperties": false
+    },
+    "rendererAssignment": {
+      "type": "object",
+      "required": ["protocolMajor", "type", "requestId", "zoneId", "rendererId", "expectedRevision", "idempotencyKey"],
+      "properties": {
+        "protocolMajor": {"const": 3},
+        "type": {"const": "renderer.assignment"},
+        "requestId": {"$ref": "#/$defs/id"},
+        "zoneId": {"$ref": "#/$defs/id"},
+        "rendererId": {"type": ["string", "null"]},
+        "expectedRevision": {"$ref": "#/$defs/revision"},
+        "idempotencyKey": {"$ref": "#/$defs/id"}
+      },
+      "additionalProperties": false
+    },
+    "eventTicket": {
+      "type": "object",
+      "required": ["protocolMajor", "type", "requestId", "ticket", "expiresAt"],
+      "properties": {
+        "protocolMajor": {"const": 3},
+        "type": {"const": "event.ticket"},
+        "requestId": {"$ref": "#/$defs/id"},
+        "ticket": {"type": "string", "minLength": 43},
+        "expiresAt": {"type": "string", "format": "date-time"}
+      },
+      "additionalProperties": false
+    },
+    "invalidation": {
+      "type": "object",
+      "required": ["protocolMajor", "type", "requestId", "serverEpoch", "sequence", "resource", "resourceId", "revision"],
+      "properties": {
+        "protocolMajor": {"const": 3},
+        "type": {"type": "string", "minLength": 1},
+        "requestId": {"$ref": "#/$defs/id"},
+        "serverEpoch": {"$ref": "#/$defs/id"},
+        "sequence": {"type": "integer", "minimum": 1},
+        "resource": {"type": "string", "minLength": 1},
+        "resourceId": {"$ref": "#/$defs/id"},
+        "revision": {"$ref": "#/$defs/revision"}
+      },
+      "additionalProperties": false
+    },
+    "error": {
+      "type": "object",
+      "required": ["protocolMajor", "type", "requestId", "code", "message", "retryable"],
+      "properties": {
+        "protocolMajor": {"const": 3},
+        "type": {"const": "error"},
+        "requestId": {"$ref": "#/$defs/id"},
+        "code": {"enum": ["INVALID_REQUEST", "UNAUTHORIZED", "TOKEN_REVOKED", "FORBIDDEN", "NOT_FOUND", "UNSUPPORTED_PROTOCOL_MAJOR", "REVISION_REQUIRED", "STALE_REVISION", "IDEMPOTENCY_KEY_REQUIRED", "IDEMPOTENCY_CONFLICT", "CATALOG_REVISION_CHANGED", "ZONE_ACTIVE", "RENDERER_OFFLINE", "RENDERER_REQUIRED", "UNSUPPORTED_COMMAND", "UNSUPPORTED_CAPABILITY", "INVALID_STATE", "QUEUE_ENTRY_ACTIVE", "QUEUE_EMPTY", "TRACK_UNAVAILABLE", "EVENT_TICKET_INVALID", "EVENT_TICKET_EXPIRED", "EVENT_TICKET_USED", "RESYNC_REQUIRED", "INTERNAL"]},
+        "message": {"type": "string", "minLength": 1},
+        "retryable": {"type": "boolean"},
+        "details": {"type": "object"}
+      },
+      "additionalProperties": false
+    }
+  }
+}

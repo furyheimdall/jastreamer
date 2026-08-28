@@ -1,0 +1,9 @@
+{
+  "id": "control-old",
+  "component": "control",
+  "version": "2.0.0",
+  "supportedMajors": [2],
+  "capabilities": ["control-api"],
+  "adapter": "fixture:control-v2",
+  "sentinel": "control-v2-adapter"
+}

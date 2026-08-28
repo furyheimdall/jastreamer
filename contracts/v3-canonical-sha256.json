@@ -1,0 +1,5 @@
+{
+  "control-api/v3/schema.json": "ccfff28952a54c6b7d7a53fae7e4c20104e4b0548fa0c51e155bbf751faa86a8",
+  "control-api/v3/http-api.json": "9707d3d4d63cd6ee66c0727c5c5caf4637e594c815e3a9eeb64240494135212f",
+  "renderer-protocol/v3/schema.json": "08d382d2ab047ef1e73ff4a97e53bba5c23b4c1c084700dd1a6897b008ca5ba8"
+}

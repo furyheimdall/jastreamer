@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { expect, test } from "bun:test";
+import { expect, setDefaultTimeout, test } from "bun:test";
 import {
   existsSync,
   mkdirSync,
@@ -16,6 +16,8 @@ import {
 } from "./parser";
 import type { Matrix } from "./parser";
 import { removeTemporaryWorkspace } from "./adapter-process";
+
+setDefaultTimeout(600_000);
 
 const sourceRoot = "tooling/fixtures/compatibility";
 
@@ -112,6 +114,24 @@ test("reports unexpected fixture read failures without masking the cause", () =>
     expect(result.stderr.toString()).toContain(missing);
   }));
 
+test("negotiates v3 peers at three and v2 peers at two without v3 claims", () =>
+  withWorkspace((root) => {
+    const fixture = copyFixture(root);
+
+    expect(run(fixture.path, root)).toBe(0);
+    const report = JSON.parse(readFileSync(join(root, "result.json"), "utf8")) as {
+      readonly protocol: { readonly current: number; readonly previous: number };
+      readonly results: readonly {
+        readonly peerVersions: { readonly peer: string };
+        readonly negotiatedMajor: number;
+        readonly capabilities: readonly string[];
+      }[];
+    };
+    expect(report.protocol).toEqual({ current: 3, previous: 2 });
+    expect(report.results.filter((result) => result.peerVersions.peer === "3.0.0").every((result) => result.negotiatedMajor === 3)).toBe(true);
+    expect(report.results.filter((result) => result.peerVersions.peer === "2.0.0").every((result) => result.negotiatedMajor === 2 && !result.capabilities.includes("catalog-browse") && !result.capabilities.includes("renderer-session"))).toBe(true);
+  }));
+
 test("rejects mutated peer digest before candidate builds", () =>
   withWorkspace((root) => {
     const fixture = copyFixture(root);
@@ -193,6 +213,26 @@ test("rejects a breaking required-field fixture with a valid new digest", () =>
     expect(run(fixture.path, root)).toBe(65);
   }));
 
+test("rejects conflicting Renderer payloads that reuse one command ID", () =>
+  withWorkspace((root) => {
+    const fixture = copyFixture(root);
+    const reference = fixture.matrix.wirePayloads.find(
+      (wire) => wire.id === "renderer-v3",
+    );
+    if (!reference) throw new Error("renderer-v3 wire is absent");
+    const wirePath = join(root, "tooling/fixtures/compatibility", reference.file);
+    const original = readFileSync(wirePath, "utf8");
+    const conflicting = original.replace("golden-renderer-v3", "golden-renderer-v2");
+    if (conflicting === original) throw new Error("command ID mutation did not apply");
+    writeFileSync(wirePath, conflicting);
+    const wirePayloads = fixture.matrix.wirePayloads.map((wire) =>
+      wire.id === reference.id ? { ...wire, sha256: sha(conflicting) } : wire,
+    );
+    writeMatrix(fixture.path, { ...fixture.matrix, wirePayloads });
+
+    expect(run(fixture.path, root)).toBe(65);
+  }));
+
 test("rejects released artifacts that point back to a build command", () =>
   withWorkspace((root) => {
     const fixture = copyFixture(root);
@@ -207,7 +247,7 @@ test("rejects released artifacts that point back to a build command", () =>
     );
     const original = readFileSync(artifactPath, "utf8");
     const rebuilt = original.replace(
-      "fixture:control-v1",
+      "fixture:control-v2",
       "build:workspace-HEAD",
     );
     if (rebuilt === original)

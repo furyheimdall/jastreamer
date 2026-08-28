@@ -1,0 +1,162 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://jastreamer.dev/contracts/renderer-protocol/v3",
+  "title": "jastreamer Renderer protocol major 3",
+  "description": "Reliable at-least-once Renderer sessions. Unknown commands receive UNSUPPORTED_COMMAND; unknown response and event values are preserved.",
+  "oneOf": [
+    {"$ref": "#/$defs/hello"},
+    {"$ref": "#/$defs/welcome"},
+    {"$ref": "#/$defs/command"},
+    {"$ref": "#/$defs/commandAck"},
+    {"$ref": "#/$defs/commandResult"},
+    {"$ref": "#/$defs/resultAck"},
+    {"$ref": "#/$defs/playbackEvent"},
+    {"$ref": "#/$defs/error"}
+  ],
+  "$defs": {
+    "id": {"type": "string", "minLength": 1, "maxLength": 256},
+    "capability": {"type": "string", "minLength": 1},
+    "mediaRepresentation": {
+      "type": "object",
+      "required": ["representationId", "kind", "uri", "mimeType", "seekable", "authorization"],
+      "properties": {
+        "representationId": {"$ref": "#/$defs/id"},
+        "kind": {"enum": ["original", "l16"]},
+        "uri": {"type": "string", "format": "uri", "pattern": "^https?://"},
+        "mimeType": {"type": "string", "minLength": 1},
+        "codec": {"type": ["string", "null"]},
+        "sizeBytes": {"type": ["integer", "null"], "minimum": 0},
+        "sampleRateHz": {"type": ["integer", "null"], "minimum": 1},
+        "channels": {"type": ["integer", "null"], "minimum": 1},
+        "bitsPerSample": {"type": ["integer", "null"], "minimum": 1},
+        "seekable": {"type": "boolean"},
+        "authorization": {"enum": ["bearer", "capability_url"]}
+      },
+      "additionalProperties": false
+    },
+    "rendererCapabilities": {
+      "type": "object",
+      "required": ["commands", "mediaTypes", "supportsRange", "maxChannels", "maxSampleRateHz"],
+      "properties": {
+        "commands": {"type": "array", "items": {"type": "string", "minLength": 1}, "uniqueItems": true},
+        "mediaTypes": {"type": "array", "items": {"type": "string", "minLength": 1}, "uniqueItems": true},
+        "supportsRange": {"type": "boolean"},
+        "maxChannels": {"type": "integer", "minimum": 1},
+        "maxSampleRateHz": {"type": "integer", "minimum": 1}
+      },
+      "additionalProperties": false
+    },
+    "hello": {
+      "type": "object",
+      "required": ["protocolMajor", "type", "rendererId", "supportedMajors", "capabilities", "lastServerSequence", "pendingResults"],
+      "properties": {
+        "protocolMajor": {"const": 3},
+        "type": {"const": "hello"},
+        "rendererId": {"$ref": "#/$defs/id"},
+        "supportedMajors": {"const": [3, 2]},
+        "capabilities": {"$ref": "#/$defs/rendererCapabilities"},
+        "lastServerSequence": {"type": "integer", "minimum": 0},
+        "pendingResults": {"type": "array", "items": {"$ref": "#/$defs/commandResult"}}
+      },
+      "additionalProperties": false
+    },
+    "welcome": {
+      "type": "object",
+      "required": ["protocolMajor", "type", "selectedMajor", "sessionEpoch", "nextSequence", "capabilities"],
+      "properties": {
+        "protocolMajor": {"const": 3},
+        "type": {"const": "welcome"},
+        "selectedMajor": {"enum": [2, 3]},
+        "sessionEpoch": {"$ref": "#/$defs/id"},
+        "nextSequence": {"type": "integer", "minimum": 1},
+        "capabilities": {"type": "array", "items": {"$ref": "#/$defs/capability"}, "uniqueItems": true}
+      },
+      "additionalProperties": false
+    },
+    "command": {
+      "type": "object",
+      "required": ["protocolMajor", "type", "commandId", "sequence", "sessionEpoch", "zoneId", "kind", "deadline"],
+      "properties": {
+        "protocolMajor": {"const": 3},
+        "type": {"const": "command"},
+        "commandId": {"$ref": "#/$defs/id"},
+        "sequence": {"type": "integer", "minimum": 1},
+        "sessionEpoch": {"$ref": "#/$defs/id"},
+        "zoneId": {"$ref": "#/$defs/id"},
+        "playId": {"type": ["string", "null"]},
+        "kind": {"type": "string", "minLength": 1},
+        "deadline": {"type": "string", "format": "date-time"},
+        "positionMs": {"type": "integer", "minimum": 0},
+        "media": {"oneOf": [{"$ref": "#/$defs/mediaRepresentation"}, {"type": "null"}]}
+      },
+      "additionalProperties": false
+    },
+    "commandAck": {
+      "type": "object",
+      "required": ["protocolMajor", "type", "commandId", "sequence", "status"],
+      "properties": {
+        "protocolMajor": {"const": 3},
+        "type": {"const": "command.ack"},
+        "commandId": {"$ref": "#/$defs/id"},
+        "sequence": {"type": "integer", "minimum": 1},
+        "status": {"enum": ["received", "duplicate", "rejected"]},
+        "error": {"oneOf": [{"$ref": "#/$defs/error"}, {"type": "null"}]}
+      },
+      "additionalProperties": false
+    },
+    "commandResult": {
+      "type": "object",
+      "required": ["protocolMajor", "type", "commandId", "resultId", "status"],
+      "properties": {
+        "protocolMajor": {"const": 3},
+        "type": {"const": "command.result"},
+        "commandId": {"$ref": "#/$defs/id"},
+        "resultId": {"$ref": "#/$defs/id"},
+        "status": {"type": "string", "minLength": 1},
+        "observedState": {"type": ["string", "null"]},
+        "positionMs": {"type": ["integer", "null"], "minimum": 0},
+        "error": {"oneOf": [{"$ref": "#/$defs/error"}, {"type": "null"}]}
+      },
+      "additionalProperties": false
+    },
+    "resultAck": {
+      "type": "object",
+      "required": ["protocolMajor", "type", "resultId"],
+      "properties": {
+        "protocolMajor": {"const": 3},
+        "type": {"const": "result.ack"},
+        "resultId": {"$ref": "#/$defs/id"}
+      },
+      "additionalProperties": false
+    },
+    "playbackEvent": {
+      "type": "object",
+      "required": ["protocolMajor", "type", "eventId", "sessionEpoch", "playId", "kind", "observedAt"],
+      "properties": {
+        "protocolMajor": {"const": 3},
+        "type": {"const": "playback.event"},
+        "eventId": {"$ref": "#/$defs/id"},
+        "sessionEpoch": {"$ref": "#/$defs/id"},
+        "playId": {"$ref": "#/$defs/id"},
+        "kind": {"type": "string", "minLength": 1},
+        "positionMs": {"type": ["integer", "null"], "minimum": 0},
+        "observedAt": {"type": "string", "format": "date-time"}
+      },
+      "additionalProperties": false
+    },
+    "error": {
+      "type": "object",
+      "required": ["protocolMajor", "type", "code", "message", "retryable"],
+      "properties": {
+        "protocolMajor": {"const": 3},
+        "type": {"const": "error"},
+        "commandId": {"type": ["string", "null"]},
+        "code": {"enum": ["INVALID_MESSAGE", "UNAUTHORIZED", "TOKEN_REVOKED", "UNSUPPORTED_PROTOCOL_MAJOR", "UNSUPPORTED_COMMAND", "UNSUPPORTED_MEDIA", "UNSUPPORTED_CAPABILITY", "STALE_SESSION_EPOCH", "COMMAND_SEQUENCE_GAP", "COMMAND_ID_CONFLICT", "COMMAND_EXPIRED", "MEDIA_AUTH_FAILED", "MEDIA_CHANGED", "OUTPUT_UNAVAILABLE", "PLAYBACK_FAILED", "INTERNAL"]},
+        "message": {"type": "string", "minLength": 1},
+        "retryable": {"type": "boolean"},
+        "details": {"type": "object"}
+      },
+      "additionalProperties": false
+    }
+  }
+}

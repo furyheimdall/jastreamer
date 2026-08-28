@@ -1,4 +1,17 @@
-const controlSupportedProtocolMajors = <int>[2, 1];
+const controlSupportedProtocolMajors = <int>[3, 2];
+const supportedProtocolMajorsHeader = 'X-Jake-Supported-Protocol-Majors';
+const selectedProtocolMajorHeader = 'X-Jake-Selected-Protocol-Major';
+
+const _controlV2Capabilities = <String>['control-api'];
+const _controlV3Capabilities = <String>[
+  'control-api',
+  'catalog-browse',
+  'queue-mutation',
+  'transport',
+  'zones',
+  'renderer-assignment',
+  'event-invalidations',
+];
 
 final class UnsupportedProtocolMajor implements Exception {
   const UnsupportedProtocolMajor({
@@ -8,21 +21,41 @@ final class UnsupportedProtocolMajor implements Exception {
 
   final List<int> controlMajors;
   final List<int> serverMajors;
+  int get httpStatus => 426;
   String get code => 'UNSUPPORTED_PROTOCOL_MAJOR';
 
   @override
   String toString() => '$code: control=$controlMajors server=$serverMajors';
 }
 
-int selectProtocolMajor(List<int> serverMajors) {
+final class ControlProtocolSession {
+  const ControlProtocolSession({
+    required this.selectedMajor,
+    required this.capabilities,
+  });
+
+  final int selectedMajor;
+  final List<String> capabilities;
+}
+
+ControlProtocolSession negotiateControlProtocol(List<int> serverMajors) {
   for (final major in controlSupportedProtocolMajors) {
-    if (serverMajors.contains(major)) return major;
+    if (serverMajors.contains(major)) {
+      return ControlProtocolSession(
+        selectedMajor: major,
+        capabilities:
+            major == 3 ? _controlV3Capabilities : _controlV2Capabilities,
+      );
+    }
   }
   throw UnsupportedProtocolMajor(
     controlMajors: controlSupportedProtocolMajors,
     serverMajors: List<int>.unmodifiable(serverMajors),
   );
 }
+
+int selectProtocolMajor(List<int> serverMajors) =>
+    negotiateControlProtocol(serverMajors).selectedMajor;
 
 final class CompatibilityFixture {
   const CompatibilityFixture({
@@ -38,7 +71,7 @@ final class CompatibilityFixture {
     if (protocolMajor is! int) {
       throw const FormatException('protocolMajor must be an integer');
     }
-    if (capabilities is! List<Object?> ||
+    if (capabilities is! List ||
         capabilities.any((capability) => capability is! String)) {
       throw const FormatException('capabilities must be a string array');
     }

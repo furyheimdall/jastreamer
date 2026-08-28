@@ -3,11 +3,12 @@
   "component": "renderer",
   "version": "0.1.0",
   "supportedMajors": [
-    2,
-    1
+    3,
+    2
   ],
   "capabilities": [
     "render",
+    "renderer-session",
     "future-capability"
   ],
   "adapter": "candidate:renderer",

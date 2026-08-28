@@ -2,33 +2,33 @@
   "peers": [
     {
       "id": "server-old",
-      "artifact": "server-old.json",
-      "sha256": "f8abb40de905f6a8d2f41bba17b3cf36261f0e56bc345b4d7206bc144032d8d9"
+      "artifact": "server-v2.json",
+      "sha256": "dd26e17d363c26d37698af243285f2f2693bbb60815753077a322ad8f2c83357"
     },
     {
       "id": "server-new",
       "artifact": "server-new.json",
-      "sha256": "6530a09a295d99430c671b5b50dc3084f70791f606da756bfd419c0a1cf7e810"
+      "sha256": "88c896b4c1dfdd095764b96494f78b56032c1ac13d8b7a69504cfb04557c5614"
     },
     {
       "id": "renderer-old",
-      "artifact": "renderer-old.json",
-      "sha256": "bace93bf4df0ee49eb25bd1131361ddee199d33a6b6d4a84a8c042e41e049be1"
+      "artifact": "renderer-v2-peer.json",
+      "sha256": "c609447f8d33f6765c277732a1ab02fc20f66ff2ae6a07d69d6456bc85b16a60"
     },
     {
       "id": "renderer-candidate",
       "artifact": "renderer-candidate.json",
-      "sha256": "5d25e4a775eeac72a8614ec82025796da052fd31071890809499e2d5c625495a"
+      "sha256": "8f4fc8cbe496f5fe58827ab2336d4e548e3433da368b3862d3dc905d06d1883d"
     },
     {
       "id": "control-old",
-      "artifact": "control-old.json",
-      "sha256": "68a853f44e3c0ccc6b0d77925835b94a55b37edb10eec70c03a4e504d0ed7fee"
+      "artifact": "control-v2-peer.json",
+      "sha256": "409fb1b1d3087ca0e89ca5268f541e1bfd7aa79d62d38b22664b356adebdd488"
     },
     {
       "id": "control-current",
       "artifact": "control-current.json",
-      "sha256": "9a1469f392c1926239e9e2a45236ea7f35e93e69e35465139ba4528f5d95f15f"
+      "sha256": "5217270e22b767862df2413d02acd9e5db776d9e705163e8eeff44d1be848746"
     }
   ],
   "cells": [
@@ -37,7 +37,7 @@
       "subject": "control-current",
       "peer": "server-old",
       "order": "old-first",
-      "wirePayload": "control-v1",
+      "wirePayload": "control-v2",
       "requiredCapability": "control-api"
     },
     {
@@ -45,7 +45,7 @@
       "subject": "control-current",
       "peer": "server-new",
       "order": "old-first",
-      "wirePayload": "control-v2",
+      "wirePayload": "control-v3",
       "requiredCapability": "control-api"
     },
     {
@@ -53,7 +53,7 @@
       "subject": "renderer-candidate",
       "peer": "server-old",
       "order": "old-first",
-      "wirePayload": "renderer-v1",
+      "wirePayload": "renderer-v2",
       "requiredCapability": "render"
     },
     {
@@ -61,7 +61,7 @@
       "subject": "renderer-candidate",
       "peer": "server-new",
       "order": "old-first",
-      "wirePayload": "renderer-v2",
+      "wirePayload": "renderer-v3",
       "requiredCapability": "render"
     },
     {
@@ -69,7 +69,7 @@
       "subject": "server-new",
       "peer": "control-old",
       "order": "old-first",
-      "wirePayload": "control-v1",
+      "wirePayload": "control-v2",
       "requiredCapability": "control-api"
     },
     {
@@ -77,7 +77,7 @@
       "subject": "server-new",
       "peer": "control-current",
       "order": "old-first",
-      "wirePayload": "control-v2",
+      "wirePayload": "control-v3",
       "requiredCapability": "control-api"
     },
     {
@@ -85,7 +85,7 @@
       "subject": "server-new",
       "peer": "renderer-old",
       "order": "old-first",
-      "wirePayload": "renderer-v1",
+      "wirePayload": "renderer-v2",
       "requiredCapability": "render"
     },
     {
@@ -93,7 +93,7 @@
       "subject": "server-new",
       "peer": "renderer-candidate",
       "order": "old-first",
-      "wirePayload": "renderer-v2",
+      "wirePayload": "renderer-v3",
       "requiredCapability": "render"
     },
     {
@@ -101,7 +101,7 @@
       "subject": "control-current",
       "peer": "server-old",
       "order": "new-first",
-      "wirePayload": "control-v1",
+      "wirePayload": "control-v2",
       "requiredCapability": "control-api"
     },
     {
@@ -109,7 +109,7 @@
       "subject": "control-current",
       "peer": "server-new",
       "order": "new-first",
-      "wirePayload": "control-v2",
+      "wirePayload": "control-v3",
       "requiredCapability": "control-api"
     },
     {
@@ -117,7 +117,7 @@
       "subject": "renderer-candidate",
       "peer": "server-old",
       "order": "new-first",
-      "wirePayload": "renderer-v1",
+      "wirePayload": "renderer-v2",
       "requiredCapability": "render"
     },
     {
@@ -125,7 +125,7 @@
       "subject": "renderer-candidate",
       "peer": "server-new",
       "order": "new-first",
-      "wirePayload": "renderer-v2",
+      "wirePayload": "renderer-v3",
       "requiredCapability": "render"
     },
     {
@@ -133,7 +133,7 @@
       "subject": "server-new",
       "peer": "control-old",
       "order": "new-first",
-      "wirePayload": "control-v1",
+      "wirePayload": "control-v2",
       "requiredCapability": "control-api"
     },
     {
@@ -141,7 +141,7 @@
       "subject": "server-new",
       "peer": "control-current",
       "order": "new-first",
-      "wirePayload": "control-v2",
+      "wirePayload": "control-v3",
       "requiredCapability": "control-api"
     },
     {
@@ -149,7 +149,7 @@
       "subject": "server-new",
       "peer": "renderer-old",
       "order": "new-first",
-      "wirePayload": "renderer-v1",
+      "wirePayload": "renderer-v2",
       "requiredCapability": "render"
     },
     {
@@ -157,7 +157,7 @@
       "subject": "server-new",
       "peer": "renderer-candidate",
       "order": "new-first",
-      "wirePayload": "renderer-v2",
+      "wirePayload": "renderer-v3",
       "requiredCapability": "render"
     }
   ],
@@ -194,6 +194,20 @@
       "major": 2,
       "file": "renderer-v2.json",
       "sha256": "bc9c859e34e321c9c51c984be600d95699e49d14702e74aa57457d694c942275",
+      "consumer": "renderer"
+    },
+    {
+      "id": "control-v3",
+      "major": 3,
+      "file": "control-v3.json",
+      "sha256": "e1b42fea8642ce0eb7da1ddd62f3ff5f040c5721ece0f31e92efce05b877d33f",
+      "consumer": "control"
+    },
+    {
+      "id": "renderer-v3",
+      "major": 3,
+      "file": "renderer-v3.json",
+      "sha256": "15ae48232607180fe5d11bb71e4ac15b2b601979550649d533de08d18c94cb8f",
       "consumer": "renderer"
     }
   ]

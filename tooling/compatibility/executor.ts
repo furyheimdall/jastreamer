@@ -10,6 +10,7 @@ import type {
   Matrix,
   Result,
 } from "./parser";
+import { selectProtocolMajor } from "./protocol";
 import { decodeWire } from "./wire";
 
 const requiredPeerComponents = new Map<
@@ -53,10 +54,10 @@ const loadArtifacts = (
 const selectedMajor = (
   subject: Artifact,
   peer: Artifact,
-): number | undefined =>
-  subject.supportedMajors
-    .filter((major) => peer.supportedMajors.includes(major))
-    .sort((left, right) => right - left)[0];
+): number | undefined => {
+  const selection = selectProtocolMajor(subject.supportedMajors, peer.supportedMajors);
+  return selection.kind === "selected" ? selection.major : undefined;
+};
 
 const resultFor = (
   cell: Cell,
@@ -116,6 +117,14 @@ export const runMatrix = (
       },
     ]),
   );
+  const identities = new Map<string, string>();
+  for (const wire of wires.values()) {
+    const key = `${wire.reference.consumer}:${wire.decoded.identity}`;
+    const existingHash = identities.get(key);
+    if (existingHash !== undefined && existingHash !== wire.decoded.semanticHash)
+      throw new CompatibilityError(`semantic conflict for ${key}`);
+    identities.set(key, wire.decoded.semanticHash);
+  }
   const runtime = AdapterRuntime.prepare(workspaceRoot, fixtureRoot);
   try {
     return matrix.cells.map((cell) => {
