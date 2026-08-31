@@ -200,6 +200,57 @@ func TestCoordinatorReconcileRoots_preserves_authoritative_ids_across_restart(t 
 	}
 }
 
+func TestCoordinatorReconcileRoots_cancelsActiveScanBeforeReplacingSet(t *testing.T) {
+	// Given
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	base := t.TempDir()
+	left := filepath.Join(base, "left")
+	right := filepath.Join(base, "right")
+	for _, path := range []string{left, right} {
+		if err := os.Mkdir(path, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	started := make(chan struct{})
+	scan := func(scanCtx context.Context, _ Root, previous Snapshot) (ScanResult, error) {
+		close(started)
+		<-scanCtx.Done()
+		return ScanResult{Snapshot: previous, Complete: false}, scanCtx.Err()
+	}
+	coordinator, err := OpenCoordinator(ctx, CoordinatorConfig{
+		StatePath: filepath.Join(t.TempDir(), "state.json"), AllowedBases: []string{base},
+		Now: fixedCatalogTime, Scan: scan,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = coordinator.Close() })
+	if err := coordinator.ReconcileRoots(ctx, []DesiredRoot{{ID: "left", DisplayName: "Left", Path: left}}); err != nil {
+		t.Fatal(err)
+	}
+	job, err := coordinator.StartScan(ctx, "left")
+	if err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-ctx.Done():
+		t.Fatal(ctx.Err())
+	case <-started:
+	}
+
+	// When
+	reconcileErr := coordinator.ReconcileRoots(ctx, []DesiredRoot{{ID: "right", DisplayName: "Right", Path: right}})
+	cancelled, waitErr := coordinator.Wait(ctx, job.ID)
+
+	// Then
+	roots := coordinator.Roots()
+	if reconcileErr != nil || waitErr != nil || cancelled.Status != ScanCancelled ||
+		len(roots) != 1 || roots[0].ID != "right" {
+		t.Fatalf("reconcile=%v wait=%v job=%+v roots=%+v", reconcileErr, waitErr, cancelled, roots)
+	}
+}
+
 func TestCoordinatorStartsFromLastCompleteSnapshot_whenStateDoesNotExist(t *testing.T) {
 	// Given
 	initial := EmptySnapshot()
