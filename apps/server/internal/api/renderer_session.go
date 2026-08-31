@@ -42,12 +42,13 @@ func (session *rendererSocketSession) serve(parent context.Context) {
 	done := make(chan struct{})
 	defer func() {
 		if session.epoch != "" {
-			closeErr := session.handler.store.CloseRendererSession(context.WithoutCancel(parent), playback.RendererSessionClose{
+			closed, closeErr := session.handler.store.CloseRendererSessionResult(context.WithoutCancel(parent), playback.RendererSessionClose{
 				RendererID: session.rendererID, Epoch: session.epoch, DisconnectedAt: time.Now().UTC(),
 			})
-			if closeErr != nil && !errors.Is(closeErr, playback.ErrClosed) &&
-				!errors.Is(closeErr, playback.ErrStaleRendererEpoch) {
+			if closeErr != nil {
 				session.writeProtocolFailure(closeErr)
+			} else if closed.Changed && session.handler.onChanged != nil {
+				session.handler.onChanged("renderers", closed.Renderer.Revision)
 			}
 		}
 		cancel()

@@ -106,7 +106,7 @@
         "callerRunAttempt": { "type": "integer", "minimum": 1 },
         "callerRef": { "type": "string", "pattern": "^refs/heads/[A-Za-z0-9._/-]{1,200}$" },
         "callerSha": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
-        "calledWorkflowPath": { "enum": [".github/workflows/server-release.yml", ".github/workflows/control-release.yml"] },
+        "calledWorkflowPath": { "enum": [".github/workflows/server-qualification-staging.yml", ".github/workflows/control-qualification-staging.yml"] },
         "calledJob": { "enum": ["server", "control"] },
         "calledJobResult": { "const": "success" },
         "runId": { "type": "string", "pattern": "^[1-9][0-9]*$" },

@@ -4,8 +4,13 @@ import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } f
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { parseArgs } from "../tooling/args";
-import { distributables } from "../tooling/finalize";
+import { distributables, sourceArtifact } from "../tooling/finalize";
 import { sourceIdentity } from "../tooling/identity";
+
+const qualificationWorkflow = (section: "staging" | "platforms" | "windows" | "stage"): string => readFileSync(
+  new URL(`../../../.github/workflows/server-qualification-${section}.yml`, import.meta.url),
+  "utf8",
+);
 
 describe("Server release contract", () => {
   test("prints release rehearsal help without building", async () => {
@@ -33,13 +38,16 @@ describe("Server release contract", () => {
     expect(override).toContain("read_only: true");
     expect(image).not.toMatch(/apk add[^\n]*ffmpeg|COPY[^\n]*ffmpeg/i);
   });
-  test("allowlists real native package formats and one OCI archive", () => {
+  test("publishes only native package formats and one OCI archive", () => {
     expect(distributables("1.2.3")).toEqual([
       "jastreamer-server_1.2.3_windows_amd64.exe", "jastreamer-server_1.2.3_windows_amd64.msi",
       "jastreamer-server_1.2.3_linux_amd64.deb", "jastreamer-server_1.2.3_linux_amd64.rpm",
       "jastreamer-server_1.2.3_linux_arm64.deb", "jastreamer-server_1.2.3_linux_arm64.rpm",
       "jastreamer-server_1.2.3_linux_amd64-arm64.oci",
     ]);
+    expect(sourceArtifact("1.2.3")).toBe(
+      "jastreamer-server_1.2.3_source.tar.gz",
+    );
   });
   test("consumed music fixture mutation changes an isolated source identity", () => {
     const repository = resolve(new URL("../../..", import.meta.url).pathname);
@@ -100,6 +108,18 @@ describe("Server release contract", () => {
     expect(certificate.keyUsage).toContain("1.3.6.1.5.5.7.3.3");
     expect(fingerprint).toBe(`SHA256: ${certificate.fingerprint256}`);
   });
+  test("Server release extracts the trust thumbprint from the shipped PEM certificate", () => {
+    // Given: the certificate bytes and the release command that consumes them.
+    const certificate = readFileSync(new URL("../cert/server.cer", import.meta.url), "utf8");
+    const release = readFileSync(new URL("../release.sh", import.meta.url), "utf8");
+    const extraction = release.split("\n").find((line) => line.startsWith("cert_trust_id="));
+
+    // When: the certificate encoding is compared with the OpenSSL invocation.
+    // Then: the release command does not force the incompatible DER decoder.
+    expect(certificate.startsWith("-----BEGIN CERTIFICATE-----")).toBe(true);
+    expect(extraction).toBeDefined();
+    expect(extraction).not.toContain("-inform DER");
+  });
   test("Windows PFX loading and cleanup are noninteractive, ephemeral, and fail-safe", () => {
     const signing = readFileSync(new URL("../sign-windows.ps1", import.meta.url), "utf8");
     expect(signing).not.toContain("Get-PfxCertificate $pfx");
@@ -109,7 +129,7 @@ describe("Server release contract", () => {
     expect(signing).toContain("CertificateSha256 $publishedCertificate");
     expect(signing).toContain("X509Certificate2"); expect(signing).toContain("WINDOWS_SIGNING_PFX_PASSWORD"); expect(signing).toContain("EphemeralKeySet");
     expect(signing.indexOf("Remove-Item $pfx -Force")).toBeLessThan(signing.lastIndexOf("AggregateException"));
-    const workflow = readFileSync(new URL("../../../.github/workflows/server-release.yml", import.meta.url), "utf8");
+    const workflow = qualificationWorkflow("windows");
     const cleanupStep = workflow.slice(workflow.indexOf("Prove no signing material remains"), workflow.indexOf("actions/upload-artifact", workflow.indexOf("Prove no signing material remains")));
     expect(cleanupStep).toContain("if: always()"); expect(cleanupStep).toContain("TrustedPeople"); expect(cleanupStep).toContain("JASTREAMER_SETUP_SECRET");
     expect(cleanupStep).toContain("if (Test-Path dist)");
@@ -134,7 +154,7 @@ describe("Server release contract", () => {
   });
   test("Windows PFX loading and cleanup are unattended and fail-safe", () => {
     const signing = readFileSync(new URL("../sign-windows.ps1", import.meta.url), "utf8");
-    const workflow = readFileSync(new URL("../../../.github/workflows/server-release.yml", import.meta.url), "utf8");
+    const workflow = qualificationWorkflow("windows");
     expect(signing).toContain("X509Certificate2");
     expect(signing).toContain("EphemeralKeySet");
     expect(signing).not.toContain("Get-PfxCertificate $pfx");
@@ -142,7 +162,7 @@ describe("Server release contract", () => {
     expect(workflow).toContain("if: always()");
   });
   test("workflow installs exact release tools instead of minimum-only assertions", () => {
-    const workflow = readFileSync(new URL("../../../.github/workflows/server-release.yml", import.meta.url), "utf8");
+    const workflow = `${qualificationWorkflow("windows")}\n${qualificationWorkflow("platforms")}`;
     const installer = readFileSync(new URL("../install-linux-tools.sh", import.meta.url), "utf8");
     expect(workflow).toContain("actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9");
     expect(workflow).toContain("docker/setup-docker-action@b60f85385d03ac8acfca6d9996982511d8620a19");
@@ -164,8 +184,8 @@ describe("Server release contract", () => {
     });
   });
   test("uses a Buildx container driver that supports OCI attestations", () => {
-    const workflow = readFileSync(new URL("../../../.github/workflows/server-release.yml", import.meta.url), "utf8");
-    const oci = workflow.slice(workflow.indexOf("  oci:"), workflow.indexOf("  stage:"));
+    const workflow = qualificationWorkflow("platforms");
+    const oci = workflow.slice(workflow.indexOf("  oci:"));
     expect(oci).toContain("docker/setup-qemu-action@96fe6ef7f33517b61c61be40b68a1882f3264fb8");
     expect(oci).toContain("docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e");
     expect(oci.indexOf("docker/setup-qemu-action@")).toBeLessThan(oci.indexOf("docker/setup-buildx-action@"));
@@ -173,44 +193,47 @@ describe("Server release contract", () => {
   });
   test("workflow publishes only exact prequalified Server bytes behind Todo 22", () => {
     // Given: the complete Server candidate and publication workflow.
+    const staging = `${qualificationWorkflow("staging")}\n${qualificationWorkflow("stage")}`;
     const workflow = readFileSync(new URL("../../../.github/workflows/server-release.yml", import.meta.url), "utf8");
 
     // When: candidate and final-job permission surfaces are isolated.
     const publishAt = workflow.indexOf("  publish-qualified:");
-    const candidate = workflow.slice(0, publishAt);
     const publish = workflow.slice(publishAt);
 
     // Then: staging stays read-only and the protected final job uses the typed exact-byte driver.
-    expect(candidate).not.toContain("contents: write");
-    expect(candidate).not.toContain("packages: write");
+    expect(staging).not.toContain("contents: write");
+    expect(staging).not.toContain("packages: write");
     expect(publish).toContain("contents: write");
     expect(publish).toContain("packages: write");
     expect(publish).toContain("environment: product-promotion");
     expect(publish).toContain("publication-cli.ts");
     expect(publish).toContain("artifact-ids:");
-    expect(workflow).toContain("server-publication-stage");
-    expect(workflow).toContain("candidate.json");
-    expect(workflow).toContain("promotionReady:false");
+    expect(staging).toContain("server-publication-stage");
+    expect(staging).toContain("candidate.json");
+    expect(staging).toContain("promotionReady:false");
   });
   test("workflow dispatch and protected tags share the exact candidate pipeline", () => {
     // Given: the Server candidate workflow.
-    const workflow = readFileSync(new URL("../../../.github/workflows/server-release.yml", import.meta.url), "utf8");
+    const release = readFileSync(new URL("../../../.github/workflows/server-release.yml", import.meta.url), "utf8");
+    const staging = qualificationWorkflow("staging");
 
     // When: trigger and staged identity handling are inspected.
-    const stage = workflow.slice(workflow.indexOf("  stage:"));
+    const stage = qualificationWorkflow("stage");
 
     // Then: dispatch supplies only a version and stage records exact digests with no writes.
-    expect(workflow).toContain("workflow_dispatch:");
-    expect(workflow).toContain("workflow_call:");
-    expect(workflow).toContain("candidate_tag=\"server-v$CANDIDATE_VERSION\"");
+    expect(release).toContain("workflow_dispatch:");
+    expect(staging).toContain("workflow_call:");
+    expect(staging).toContain("candidate_tag=\"server-v$CANDIDATE_VERSION\"");
     expect(stage).toContain("manifest_sha256");
     expect(stage).toContain("artifact_set_sha256");
+    expect(stage).toContain("source_input_sha256");
+    expect(stage).toContain("resolvedDependencies");
     expect(stage).toContain("external_writes:[]");
   });
   test("binds the complete K17 emulator matrix to the staged manifest", () => {
-    const workflow = readFileSync(new URL("../../../.github/workflows/server-release.yml", import.meta.url), "utf8");
-    const validate = workflow.slice(workflow.indexOf("  validate:"), workflow.indexOf("  linux:"));
-    const stage = workflow.slice(workflow.indexOf("  stage:"), workflow.indexOf("  k17-physical:"));
+    const workflow = qualificationWorkflow("staging");
+    const validate = workflow.slice(workflow.indexOf("  validate:"), workflow.indexOf("  platforms:"));
+    const stage = qualificationWorkflow("stage");
 
     expect(validate).not.toContain("k17-emulator-matrix.json");
     expect(stage).toContain("actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16");
@@ -220,7 +243,8 @@ describe("Server release contract", () => {
     expect(stage.indexOf("manifest.json")).toBeLessThan(stage.indexOf("Run manifest-bound deterministic K17 emulator matrix"));
   });
   test("workflow is canonical, protected, pinned, and has no OIDC", () => {
-    const workflow = readFileSync(new URL("../../../.github/workflows/server-release.yml", import.meta.url), "utf8");
+    const release = readFileSync(new URL("../../../.github/workflows/server-release.yml", import.meta.url), "utf8");
+    const workflow = `${release}\n${qualificationWorkflow("staging")}\n${qualificationWorkflow("platforms")}\n${qualificationWorkflow("windows")}\n${qualificationWorkflow("stage")}`;
     expect(workflow).toContain("furyheimdall/jastreamer");
     expect(workflow).not.toContain("id-token:");
     expect(workflow).not.toContain("sort -V");

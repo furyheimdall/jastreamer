@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
-import { basename, join } from "node:path";
+import { basename, join, resolve } from "node:path";
+import { verifyControlFont } from "./font-contract";
 import { readFileSync, readdirSync, writeFileSync } from "node:fs";
 
 const records = [
@@ -24,14 +25,14 @@ export function distributables(version: string): readonly string[] {
 }
 
 export function finalize(directory: string, version: string, tag: string, revision: string): void {
-  const assets = distributables(version);
+  const assets = distributables(version); const font = verifyControlFont(resolve(import.meta.dirname, "../../../apps/control"));
   const subjects = assets.map((name) => ({ name, digest: { sha256: digest(join(directory, name)) } }));
   writeFileSync(join(directory, "SBOM.spdx.json"), `${JSON.stringify({
     spdxVersion: "SPDX-2.3",
     dataLicense: "CC0-1.0",
     SPDXID: "SPDXRef-DOCUMENT",
     name: "jastreamer Control release",
-    packages: subjects.map((subject, index) => ({
+    packages: [...subjects.map((subject, index) => ({
       name: subject.name,
       SPDXID: `SPDXRef-Package-${index + 1}`,
       downloadLocation: "NOASSERTION",
@@ -39,7 +40,7 @@ export function finalize(directory: string, version: string, tag: string, revisi
       licenseConcluded: "Apache-2.0",
       licenseDeclared: "Apache-2.0",
       checksums: [{ algorithm: "SHA256", checksumValue: subject.digest.sha256 }],
-    })),
+    })), { name: font.family, SPDXID: "SPDXRef-Package-Noto-Sans-KR", downloadLocation: "NOASSERTION", filesAnalyzed: true, licenseConcluded: "OFL-1.1", licenseDeclared: "OFL-1.1", checksums: [{ algorithm: "SHA256", checksumValue: font.fontSha256 }] }],
   }, null, 2)}\n`);
   writeFileSync(join(directory, "PROVENANCE.intoto.json"), `${JSON.stringify({
     _type: "https://in-toto.io/Statement/v1",
@@ -49,6 +50,7 @@ export function finalize(directory: string, version: string, tag: string, revisi
       buildDefinition: {
         buildType: "https://github.com/furyheimdall/jastreamer/control-release@v1",
         externalParameters: { tag, publish: false },
+        resolvedDependencies: [{ uri: "git+https://github.com/google/fonts", digest: { gitCommit: "4efc2774c63917927efe769ca845def6bd6debae", sha256: font.fontSha256 } }],
       },
       runDetails: {
         builder: { id: "local:componentctl/control-release" },
@@ -69,6 +71,7 @@ export function finalize(directory: string, version: string, tag: string, revisi
     tag,
     sourceRevision: revision,
     license: "Apache-2.0",
+    bundledFonts: [{ family: font.family, license: "OFL-1.1", sha256: font.fontSha256, sourceCommit: "4efc2774c63917927efe769ca845def6bd6debae" }],
     publicArtifacts: assets,
     ciOnlyArtifacts: [`jastreamer-control_${version}_android.aab`],
     publishReachable: false,

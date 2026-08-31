@@ -25,6 +25,8 @@ type serverConfig struct {
 	certificateIPs        []net.IP
 	pairingTTL            time.Duration
 	allowedOrigins        []string
+	tlsCertificatePath    string
+	tlsPrivateKeyPath     string
 }
 
 type fileConfig struct {
@@ -38,9 +40,15 @@ type fileConfig struct {
 	CertificateIPs        []string `json:"certificate_ips"`
 	AllowedOrigins        []string `json:"allowed_origins"`
 	PairingTTL            string   `json:"pairing_ttl"`
+	TLSCertificatePath    string   `json:"tls_certificate_path"`
+	TLSPrivateKeyPath     string   `json:"tls_private_key_path"`
 }
 
 func loadConfig(args []string) (serverConfig, error) {
+	options, err := parseStartupOptions(args)
+	if err != nil {
+		return serverConfig{}, err
+	}
 	configured := fileConfig{
 		Address: ":8443", DataDirectory: "./data", PairingTTL: "5m",
 		CatalogMigrationPath:  "migrations/001_catalog.sql",
@@ -48,11 +56,8 @@ func loadConfig(args []string) (serverConfig, error) {
 		PlaybackExpansionPath: "migrations/003_todo12.sql",
 		CertificateDNS:        []string{"localhost"}, CertificateIPs: []string{"127.0.0.1", "::1"},
 	}
-	if len(args) != 0 {
-		if len(args) != 2 || args[0] != "--config" || strings.TrimSpace(args[1]) == "" {
-			return serverConfig{}, fmt.Errorf("usage: jastreamer-server [--config <path>]")
-		}
-		file, err := os.Open(args[1])
+	if options.configPath != "" {
+		file, err := os.Open(options.configPath)
 		if err != nil {
 			return serverConfig{}, fmt.Errorf("open config: %w", err)
 		}
@@ -86,6 +91,11 @@ func loadConfig(args []string) (serverConfig, error) {
 		if !bootstrapped {
 			return serverConfig{}, fmt.Errorf("JASTREAMER_SETUP_SECRET is required until first administrator bootstrap completes")
 		}
+	}
+	tlsCertificatePath := firstConfigured(options.tlsCertificatePath, os.Getenv("JASTREAMER_TLS_CERTIFICATE_PATH"), configured.TLSCertificatePath)
+	tlsPrivateKeyPath := firstConfigured(options.tlsPrivateKeyPath, os.Getenv("JASTREAMER_TLS_PRIVATE_KEY_PATH"), configured.TLSPrivateKeyPath)
+	if (tlsCertificatePath == "") != (tlsPrivateKeyPath == "") {
+		return serverConfig{}, fmt.Errorf("TLS certificate and private key paths must be configured together")
 	}
 	pairingTTL, err := time.ParseDuration(envOr("JASTREAMER_PAIRING_TTL", configured.PairingTTL))
 	if err != nil || pairingTTL <= 0 {
@@ -122,8 +132,51 @@ func loadConfig(args []string) (serverConfig, error) {
 		playbackMigrationPath: envOr("JASTREAMER_PLAYBACK_MIGRATION", configured.PlaybackMigrationPath),
 		playbackExpansionPath: envOr("JASTREAMER_PLAYBACK_EXPANSION", configured.PlaybackExpansionPath),
 		setupSecret:           setupSecret, certificateDNS: dnsNames, certificateIPs: certificateIPs, pairingTTL: pairingTTL,
-		allowedOrigins: allowedOrigins,
+		allowedOrigins: allowedOrigins, tlsCertificatePath: tlsCertificatePath, tlsPrivateKeyPath: tlsPrivateKeyPath,
 	}, nil
+}
+
+type startupOptions struct {
+	configPath, tlsCertificatePath, tlsPrivateKeyPath string
+}
+
+func parseStartupOptions(args []string) (startupOptions, error) {
+	options := startupOptions{}
+	for index := 0; index < len(args); index += 2 {
+		if index+1 >= len(args) || strings.TrimSpace(args[index+1]) == "" {
+			return startupOptions{}, fmt.Errorf("usage: jastreamer-server [--config <path>] [--tls-certificate <path> --tls-private-key <path>]")
+		}
+		value := strings.TrimSpace(args[index+1])
+		switch args[index] {
+		case "--config":
+			if options.configPath != "" {
+				return startupOptions{}, fmt.Errorf("--config may be specified once")
+			}
+			options.configPath = value
+		case "--tls-certificate":
+			if options.tlsCertificatePath != "" {
+				return startupOptions{}, fmt.Errorf("--tls-certificate may be specified once")
+			}
+			options.tlsCertificatePath = value
+		case "--tls-private-key":
+			if options.tlsPrivateKeyPath != "" {
+				return startupOptions{}, fmt.Errorf("--tls-private-key may be specified once")
+			}
+			options.tlsPrivateKeyPath = value
+		default:
+			return startupOptions{}, fmt.Errorf("usage: jastreamer-server [--config <path>] [--tls-certificate <path> --tls-private-key <path>]")
+		}
+	}
+	return options, nil
+}
+
+func firstConfigured(values ...string) string {
+	for _, value := range values {
+		if trimmed := strings.TrimSpace(value); trimmed != "" {
+			return trimmed
+		}
+	}
+	return ""
 }
 
 func envOr(name, fallback string) string {

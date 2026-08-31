@@ -1,15 +1,21 @@
-import { execSync } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
 import { resolve } from 'node:path';
+import { isGitStatusClean } from './scope-audit-status.mjs';
 
 const root = resolve(import.meta.dirname, '..', '..');
 
 let ok = true;
 
 try {
-  execSync('git status --short', { cwd: root, stdio: 'pipe' });
-  console.log('Git status: clean');
+  const status = execFileSync('git', ['status', '--short'], {
+    cwd: root,
+    encoding: 'utf8',
+  });
+  ok = isGitStatusClean(status);
+  if (ok) console.log('Git status: clean');
+  else console.error('Git status: dirty (uncommitted changes)');
 } catch (e) {
-  console.error('Git status: dirty (uncommitted changes)');
+  console.error('Git status: unavailable');
   ok = false;
 }
 

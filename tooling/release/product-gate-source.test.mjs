@@ -29,7 +29,8 @@ const fixture = () => {
 describe("canonical source inclusion policy", () => {
   test("covers the complete current repository inventory with zero unexplained omissions", () => {
     const repository = resolve(import.meta.dirname, "../.."); const result = verifyCanonicalSource({ root: repository, policyRoot: repository }, { sourceRoot: ".", sourcePolicyPath: "tooling/release/product-gate-source-policy-v1.json" }, { stableRead, denied, sha256 });
-    const expected = execFileSync("git", ["-C", repository, "ls-files", "--cached", "--others", "--exclude-standard"]).toString().split("\n").filter(Boolean).filter((path) => !path.startsWith(".omo/") && !path.startsWith("tooling/qa/node_modules/"));
+    const deleted = new Set(execFileSync("git", ["-C", repository, "ls-files", "--deleted"]).toString().split("\n").filter(Boolean));
+    const expected = execFileSync("git", ["-C", repository, "ls-files", "--cached", "--others", "--exclude-standard"]).toString().split("\n").filter((path) => path !== "" && !deleted.has(path) && !path.startsWith(".omo/") && !path.startsWith("tooling/qa/node_modules/"));
     expect(result.ok).not.toBe(false); expect(result.files).toHaveLength(expected.length);
   });
   test("enumerates every relevant cached and nonignored file and observes formerly omitted production mutations", () => {

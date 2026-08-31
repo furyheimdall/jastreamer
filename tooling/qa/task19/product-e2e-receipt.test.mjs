@@ -1,30 +1,22 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { createHash, generateKeyPairSync, sign } from "node:crypto";
 import { execFileSync } from "node:child_process";
-import { mkdir, mkdtemp, readFile, rm, symlink, utimes, writeFile } from "node:fs/promises";
+import { cp, mkdir, mkdtemp, readFile, rm, symlink, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { createSyntheticBundle } from "../synthetic-bundle.mjs";
 import { validateProductBundle } from "../product-receipt.mjs";
 import { findUnsafeEvidence } from "../receipt-redaction.mjs";
 import { compileReceiptSchemas, validateInstalledProductReceipt, validatePackageStructure } from "./product-e2e-receipt.mjs";
+import { signExecutionEvidence } from "./evidence-signer.mjs";
+import { materializeScenarioContract, TASK19_SCENARIO_IDS, task19Scenario } from "./scenario-contract.mjs";
 
 const NOW = "2026-08-26T12:00:00.000Z";
 const BUILD_AT = "2026-08-26T11:50:00.000Z";
 const OBSERVED_AT = "2026-08-26T11:59:30.000Z";
 const CAPTURE_AT = "2026-08-26T11:58:00.000Z";
 const PACKAGE_AT = "2026-08-26T11:49:00.000Z";
-const REQUIRED_SCENARIOS = [
-  ["pair", 200, "PAIRED"], ["admin", 200, "AUTHENTICATED"], ["settings-restart", 200, "REVISION_PERSISTED"],
-  ["multi-root-scan", 200, "COMPLETE"], ["browse-search", 200, "CATALOG_AUTHORITATIVE"], ["secure-token-restart", 200, "TOKEN_RESTORED"],
-  ["queue-add", 201, "QUEUED"], ["queue-reorder", 200, "QUEUED"], ["queue-remove", 200, "QUEUED"], ["queue-clear", 200, "QUEUED"],
-  ["queue-retry", 200, "QUEUED"], ["queue-skip", 200, "QUEUED"], ["transport-start", 202, "PLAYING"], ["transport-pause", 202, "PAUSED"],
-  ["transport-resume", 202, "PLAYING"], ["transport-stop", 202, "IDLE"], ["transport-skip", 202, "SUSPENDED"], ["transport-seek", 202, "PLAYING"],
-  ["transport-next", 202, "SUSPENDED"], ["transport-previous", 202, "PLAYING"], ["policy", 200, "SERVER_AUTHORITY"], ["event-gap-resync", 200, "RESYNCED"],
-  ["renderer-assignment-status", 200, "CONNECTED"], ["revocation", 401, "TOKEN_REVOKED"], ["invalid-config", 422, "CONFIG_VALIDATION_FAILED"],
-  ["stale-revision", 412, "STALE_REVISION"], ["certificate-change", 495, "CERTIFICATE_MISMATCH"], ["unavailable-explicit-head", 409, "BLOCKED_EXPLICIT_HEAD"],
-  ["offline-renderer", 409, "RENDERER_OFFLINE"], ["interrupted-restart", 200, "PRIOR_STATE_PRESERVED"],
-];
+const REQUIRED_SCENARIOS = TASK19_SCENARIO_IDS.map((id) => { const contract = task19Scenario(id); return [id, contract.expected.status, contract.expected.code]; });
 const REQUIRED_PROBES = ["malformed-input", "stale-state", "dirty-worktree", "hung-command", "flaky-test", "misleading-output", "repeated-interruption"];
 const PLATFORMS = ["web", "windows", "android"];
 const ORDERS = ["server_first", "control_first"];
@@ -64,7 +56,7 @@ const makeFixture = async () => {
     ["renderer", "bound/jastreamer-renderer_1.2.3_windows_amd64.msi"],
   ]);
   await createDeb(root, packages.get("server"));
-  await createZip(root, packages.get("control-web"), [["index.html", "<html>Jake Streamer</html>"], ["assets/main.js", "console.log('control')"], ["manifest.json", "{\"name\":\"Jake Streamer\"}"]]);
+  await createZip(root, packages.get("control-web"), [["index.html", "<html>Jake Streamer</html>"], ["main.dart.js", "console.log('flutter control')"], ["flutter_bootstrap.js", "console.log('bootstrap')"], ["flutter.js", "console.log('loader')"], ["manifest.json", "{\"name\":\"Jake Streamer\"}"], ["assets/AssetManifest.bin", "manifest"]]);
   await createZip(root, packages.get("control-windows"), [["AppxManifest.xml", "<Package><Identity Name=\"JakeStreamer\"/></Package>"], ["AppxBlockMap.xml", "<BlockMap/ >"], ["AppxSignature.p7x", Buffer.concat([Buffer.from("PKCX"), Buffer.alloc(252, 7)])], ["control.exe", Buffer.alloc(512, 8)]]);
   await createZip(root, packages.get("control-android"), [["AndroidManifest.xml", Buffer.alloc(256, 1)], ["classes.dex", Buffer.alloc(512, 2)], ["META-INF/MANIFEST.MF", "Manifest-Version: 1.0\nName: classes.dex\nSHA-256-Digest: fixture"], ["META-INF/CERT.SF", "Signature-Version: 1.0\nSHA-256-Digest-Manifest: fixture"], ["META-INF/CERT.RSA", Buffer.concat([Buffer.from([0x30, 0x82, 0x00, 0xfc]), Buffer.alloc(252, 3)])]]);
   const msi = Buffer.alloc(1024); Buffer.from([0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1]).copy(msi); msi.writeUInt16LE(9, 30); msi.writeUInt32LE(1, 44); Buffer.from("Property ProductName JakeStreamer ProductVersion 1.2.3").copy(msi, 512); await writeFile(join(root, packages.get("renderer")), msi);
@@ -90,11 +82,11 @@ const makeFixture = async () => {
   const signedReference = async (path, value) => { await json(join(root, path), value); await touch(join(root, path), OBSERVED_AT); const content = await readFile(join(root, path)); return { path, sha256: sha(content), keyId, signature: sign(null, content, privateKey).toString("base64") }; };
   const captured = async (path, value, capturedAt = CAPTURE_AT) => { await json(join(root, path), { ...value, capturedAt }); await touch(join(root, path), capturedAt); return { path, sha256: await shaFile(join(root, path)) }; };
   const launch = {
-    server: { installCommand: ["dpkg", "-i"], launchCommand: ["jastreamer-server", "serve"] },
-    "control-web": { installCommand: ["unzip"], launchCommand: ["chromium", "app-mode"] },
-    "control-windows": { installCommand: ["Add-AppxPackage"], launchCommand: ["jastreamer-control"] },
-    "control-android": { installCommand: ["adb", "install"], launchCommand: ["adb", "shell", "am", "start"] },
-    renderer: { installCommand: ["msiexec", "/i"], launchCommand: ["jastreamer-renderer"] },
+    server: { installCommand: ["wsl.exe", "--exec", "sudo", "dpkg", "-i"], packageArgumentIndex: 5, launchCommand: ["wsl.exe", "--exec", "systemctl", "start", "jastreamer-server.service"] },
+    "control-web": { installCommand: ["unzip"], packageArgumentIndex: 1, launchCommand: ["chromium", "app-mode"] },
+    "control-windows": { installCommand: ["Add-AppxPackage"], packageArgumentIndex: 1, launchCommand: ["jastreamer-control"] },
+    "control-android": { installCommand: ["adb", "install"], packageArgumentIndex: 2, launchCommand: ["adb", "shell", "am", "start"] },
+    renderer: { installCommand: ["msiexec", "/i"], packageArgumentIndex: 2, launchCommand: ["jastreamer-renderer"] },
   };
   const runs = []; let nextPid = 2000;
   await mkdir(join(root, "bound/capture"));
@@ -104,24 +96,26 @@ const makeFixture = async () => {
     const scenarios = [];
     for (const [index, [id, status, code]] of REQUIRED_SCENARIOS.entries()) {
       const prefix = `bound/capture/${runId}-${id}`;
-      const before = await captured(`${prefix}-before.json`, { scenarioId: id, phase: "before", revision: index * 2 + 1, authority: "server", state: { queueRevision: index * 2 + 1 } }, "2026-08-26T11:57:50.000Z");
-      const requestBody = await captured(`${prefix}-request.json`, { scenarioId: id, operation: id, sequence: index + 1 }, "2026-08-26T11:57:55.000Z");
-      const responseBody = await captured(`${prefix}-response.json`, { scenarioId: id, status, code, revision: index * 2 + 2 }, "2026-08-26T11:58:00.000Z");
-      const eventBody = await captured(`${prefix}-event.json`, { scenarioId: id, type: "authoritative_state", revision: index * 2 + 2 }, "2026-08-26T11:58:01.000Z");
-      const after = await captured(`${prefix}-after.json`, { scenarioId: id, phase: "after", revision: index * 2 + 2, authority: "server", state: { queueRevision: index * 2 + 2 } }, "2026-08-26T11:58:02.000Z");
-      scenarios.push({ id, request: { processId: `${runId}-control`, sequence: index + 1, method: "POST", target: `qa/${id}`, body: requestBody }, response: { status, code, body: responseBody }, event: { sequence: index + 1, type: "authoritative_state", stateRevision: index * 2 + 2, body: eventBody }, before: { revision: index * 2 + 1, snapshot: before }, after: { revision: index * 2 + 2, snapshot: after } });
+      const contract = materializeScenarioContract(task19Scenario(id), { zoneId: "zone-live", rendererId: "renderer-live", controllerId: "controller-live", catalogRoot: "catalog-live", trackId: "track-live", unavailableTrackId: "track-unavailable", entryId: "entry-live" }); const observedMethod = contract.expected.surface === "control" ? "CONTROL" : contract.surface.request.method; const observedTarget = contract.expected.surface === "control" ? "control-certificate-binding" : contract.surface.request.route; const observedBody = contract.expected.surface === "control" ? null : contract.surface.request.body; const beforeRevision = index * 2 + 1; const unchangedScenario = contract.expected.failure || contract.expected.eventRequired === false; const afterRevision = unchangedScenario ? beforeRevision : beforeRevision + 1;
+      const before = await captured(`${prefix}-before.json`, { scenarioId: id, phase: "before", revision: beforeRevision, authority: "server", state: { named: contract.state.namedDelta, revision: beforeRevision } }, "2026-08-26T11:57:50.000Z");
+      const requestBody = await captured(`${prefix}-request.json`, { scenarioId: id, method: observedMethod, target: observedTarget, headers: Object.fromEntries(contract.surface.request.requiredHeaders.map((name) => [name, `${name}-observed`])), body: observedBody }, "2026-08-26T11:57:55.000Z");
+      const responseBody = await captured(`${prefix}-response.json`, { scenarioId: id, status, code, raw: { status, body: { semantic: contract.expected.semantic }, semantic: contract.expected.semantic }, revision: afterRevision }, "2026-08-26T11:58:00.000Z");
+      const rawEvent = unchangedScenario ? { absent: true } : { type: contract.event.kind, resource: contract.event.resource, revision: afterRevision };
+      const eventBody = await captured(`${prefix}-event.json`, { scenarioId: id, initialEvent: { type: "snapshot", stateRevision: beforeRevision }, rawEvent }, "2026-08-26T11:58:01.000Z");
+      const after = await captured(`${prefix}-after.json`, { scenarioId: id, phase: "after", revision: afterRevision, authority: "server", state: { named: contract.state.namedDelta, revision: afterRevision } }, "2026-08-26T11:58:02.000Z");
+      scenarios.push({ id, material: { zoneId: "zone-live", rendererId: "renderer-live", controllerId: "controller-live", catalogRoot: "catalog-live", trackId: "track-live", unavailableTrackId: "track-unavailable", entryId: "entry-live" }, request: { processId: `${runId}-control`, sequence: unchangedScenario ? 0 : index + 1, method: observedMethod, target: observedTarget, body: requestBody }, response: { status, code, body: responseBody }, event: { sequence: unchangedScenario ? 0 : index + 1, type: unchangedScenario ? "none" : contract.event.kind, stateRevision: unchangedScenario ? 0 : afterRevision, body: eventBody }, before: { revision: beforeRevision, snapshot: before }, after: { revision: afterRevision, snapshot: after } });
     }
     const startSequence = startupOrder === "server_first" ? ["server", "renderer", controlRole] : [controlRole, "server", "renderer"];
-    const processes = processRoles.map((role, index) => { const artifact = artifacts.find((item) => item.role === role); const orderIndex = startSequence.indexOf(role); return { id: index === 1 ? `${runId}-control` : `${runId}-${role}`, role, packagePath: artifact.path, packageSha256: artifact.sha256, installCommand: [...launch[role].installCommand, artifact.path], launchCommand: launch[role].launchCommand, pid: nextPid++, startedAt: `2026-08-26T11:55:0${orderIndex}.000Z`, endedAt: "2026-08-26T11:59:00.000Z", exitCode: 0 }; });
-    const allocated = [...processes.map(({ id, pid }) => ({ type: "process", id, pid, observedBy: "os-enumerator" })), ...["container", "browser", "emulator", "temporary_directory", "port"].map((type, index) => ({ type, id: `${runId}-${type.replaceAll("_", "-")}-${index}`, observedBy: "os-enumerator" }))];
-    const transcript = { schemaVersion: 2, kind: "installed_product_run_transcript", recordedAt: OBSERVED_AT, runId, platform, startupOrder, artifactSetSha256, processes,
+    const processes = processRoles.map((role, index) => { const artifact = artifacts.find((item) => item.role === role); const orderIndex = startSequence.indexOf(role); const tlsBinding = role === "server" ? { kind: "capture-origin", host: "loopback_dns", port: 9555, certificateSha256: "c".repeat(64), spkiSha256: "d".repeat(64), browserTrust: "exact-spki" } : role === "control-web" ? { kind: "web-origin", host: "loopback_ipv4", port: 9443, certificateSha256: "c".repeat(64), spkiSha256: "d".repeat(64), browserTrust: "exact-spki" } : undefined; return { id: index === 1 ? `${runId}-control` : `${runId}-${role}`, role, packagePath: artifact.path, packageSha256: artifact.sha256, installCommand: [...launch[role].installCommand, artifact.path], packageArgumentIndex: launch[role].packageArgumentIndex, launchCommand: launch[role].launchCommand, pid: nextPid++, startedAt: `2026-08-26T11:55:0${orderIndex}.000Z`, endedAt: "2026-08-26T11:59:00.000Z", exitCode: 0, ...(tlsBinding === undefined ? {} : { tlsBinding }) }; });
+    const allocated = [...processes.map(({ id, pid }) => ({ type: "process", id, pid, observedBy: "windows-cim-process" })), ...["container", "browser", "emulator", "temporary_directory", "port"].map((type, index) => ({ type, id: `${runId}-${type.replaceAll("_", "-")}-${index}`, observedBy: `${type}-enumerator` }))];
+    const transcript = { schemaVersion: 2, kind: "installed_product_run_transcript", recordedAt: OBSERVED_AT, runId, platform, startupOrder, artifactSetSha256, tlsPlan: { capture: processes.find((process) => process.role === "server").tlsBinding, web: processes.find((process) => process.role === "control-web")?.tlsBinding }, processes,
       inventories: { before: [], allocated, after: [] }, scenarios };
     runs.push({ runId, platform, startupOrder, ...(await signedReference(`bound/${runId}.transcript.json`, transcript)) });
   }
   const performanceValue = { schemaVersion: 2, kind: "installed_product_performance_transcript", recordedAt: OBSERVED_AT, artifactSetSha256, runIds: runs.map(({ runId }) => runId), tracks: 100000, zones: Array.from({ length: 8 }, (_, i) => ({ id: `zone-${i + 1}`, queueEntries: 10000 })), browseObservations: [["first", 0, "track-000000"], ["middle", 50000, "track-050000"], ["last", 99999, "track-099999"]].map(([page, offset, trackId]) => ({ page, offset, trackId })), mutationLatenciesMs: Array.from({ length: 160 }, (_, i) => 300 + i % 100) };
   const performance = await signedReference("bound/performance.transcript.json", performanceValue);
   const probeRecords = [];
-  for (const [index, id] of REQUIRED_PROBES.entries()) { const stdout = await captured(`bound/probe-${id}-stdout.json`, { line: id === "misleading-output" ? "qualification succeeded" : "rejected" }); const stderr = await captured(`bound/probe-${id}-stderr.json`, { code: id === "misleading-output" ? "MISLEADING_SUCCESS_REJECTED" : "INPUT_REJECTED" }); probeRecords.push({ id, runId: runs[index % runs.length].runId, command: ["receipt-validator", id], startedAt: "2026-08-26T11:57:30.000Z", endedAt: "2026-08-26T11:59:00.000Z", exitCode: 1, stdout, stderr }); }
+  for (const [index, id] of REQUIRED_PROBES.entries()) { const stdout = await captured(`bound/probe-${id}-stdout.json`, { line: id === "misleading-output" ? "qualification succeeded" : "rejected" }, "2026-08-26T11:58:00.000Z"); const stderr = await captured(`bound/probe-${id}-stderr.json`, { code: id === "misleading-output" ? "MISLEADING_SUCCESS_REJECTED" : "INPUT_REJECTED" }, "2026-08-26T11:58:01.000Z"); probeRecords.push({ id, runId: runs[index % runs.length].runId, command: ["receipt-validator", id], startedAt: "2026-08-26T11:57:30.000Z", endedAt: "2026-08-26T11:59:00.000Z", exitCode: 1, stdout, stderr }); }
   const probesValue = { schemaVersion: 2, kind: "installed_product_probe_transcript", recordedAt: OBSERVED_AT, artifactSetSha256, records: probeRecords };
   const probes = await signedReference("bound/probes.transcript.json", probesValue);
   const sourceFiles = [".gitignore", "source.txt"]; const sourceSha256 = shaJson(await Promise.all(sourceFiles.sort().map(async (path) => ({ path, sha256: await shaFile(join(root, path)) }))));
@@ -136,6 +130,22 @@ const resign = async (fixture, reference, value) => { await json(join(fixture.ro
 
 describe("Todo 19 trusted installed-product qualification", () => {
   test("accepts a real-manifest-shaped candidate-bound authenticated receipt", async () => { const fixture = await makeFixture(); expect(validate(fixture)).toEqual({ ok: true, computedMutationP95Ms: 391 }); });
+  test("accepts the shipped Flutter web inventory and rejects the legacy main.js layout", async () => {
+    // Given: an exact Control Web candidate with Flutter's shipped entrypoint.
+    const root = await mkdtemp(join(tmpdir(), "task19-flutter-web-")); roots.push(root);
+    await createZip(root, "flutter.zip", [["index.html", "<html>Jake Streamer</html>"], ["main.dart.js", "console.log('flutter control')"], ["flutter_bootstrap.js", "console.log('bootstrap')"], ["flutter.js", "console.log('loader')"], ["manifest.json", "{\"name\":\"Jake Streamer\"}"], ["assets/AssetManifest.bin", "manifest"]]);
+    await createZip(root, "legacy.zip", [["index.html", "<html>Jake Streamer</html>"], ["assets/main.js", "console.log('legacy control')"], ["manifest.json", "{\"name\":\"Jake Streamer\"}"]]);
+    // When / Then: only the candidate-compatible Flutter shape is accepted.
+    expect(validatePackageStructure("control-web", "flutter.zip", await readFile(join(root, "flutter.zip")))).toBe(true);
+    expect(validatePackageStructure("control-web", "legacy.zip", await readFile(join(root, "legacy.zip")))).toBe(false);
+  });
+  test("signs and validates the complete uploaded workflow layout from one explicit evidence root", async () => {
+    const fixture = await makeFixture(); const transfer = await mkdtemp(join(tmpdir(), "task19-workflow-layout-")); roots.push(transfer); const downloadedRoot = join(transfer, "signed-boundary/task19-output"); await mkdir(dirname(downloadedRoot), { recursive: true }); await cp(fixture.root, downloadedRoot, { recursive: true, preserveTimestamps: true });
+    const execution = { schemaVersion: 1, kind: "task19_protected_execution", evidenceRoot: ".", productCommandsExecuted: 18, installedProductReceipt: structuredClone(fixture.receipt) }; for (const reference of [...execution.installedProductReceipt.runs, execution.installedProductReceipt.performance, execution.installedProductReceipt.probes]) { delete reference.keyId; delete reference.signature; }
+    const { privateKey: signerKey } = generateKeyPairSync("ed25519"); const keyPath = join(transfer, "isolated-signing-key.pem"); const executionPath = join(downloadedRoot, "execution-result.json"); const signedPath = join(downloadedRoot, "execution-result.signed.json"); await writeFile(keyPath, signerKey.export({ type: "pkcs8", format: "pem" })); await json(executionPath, execution);
+    const signed = await signExecutionEvidence({ executionPath, keyPath, outputPath: signedPath }); const value = JSON.parse(await readFile(signedPath)); await Promise.all([executionPath, signedPath].map((path) => rm(path))); const options = { ...fixture.options, root: downloadedRoot, harnessTrust: { keyId: signed.keyId, publicKey: signed.publicKey } };
+    expect(validateInstalledProductReceipt(value.installedProductReceipt, options)).toEqual({ ok: true, computedMutationP95Ms: 391 });
+  });
   test("rejects the old fabricated positive receipt without trusted candidates or harness trust", async () => { const fixture = await makeFixture(); expect(validateInstalledProductReceipt(fixture.receipt, { now: NOW, root: fixture.root })).toEqual(expect.objectContaining({ ok: false, code: "TRUST_REQUIRED" })); });
   test("rejects self-authored candidate manifest trust", async () => { const fixture = await makeFixture(); fixture.options.trustedCandidates = undefined; reject(fixture, "TRUST_REQUIRED"); });
   test("rejects candidate A plus receipt B", async () => { const fixture = await makeFixture(); fixture.options.expectedBindings.artifactSetSha256 = "a".repeat(64); reject(fixture, "EXPECTED_BINDING_MISMATCH"); });
@@ -191,7 +201,29 @@ describe("Todo 19 trusted installed-product qualification", () => {
   test.each([["captured response body", "response"], ["captured event body", "event"]])("rejects direct %s mutation", async (_name, kind) => { const fixture = await makeFixture(); const run = fixture.receipt.runs[0]; const transcript = JSON.parse(await readFile(join(fixture.root, run.path))); const ref = transcript.scenarios[0][kind].body; await writeFixtureAt(join(fixture.root, ref.path), "mutated", CAPTURE_AT); reject(fixture, "DIGEST_MISMATCH"); });
   test("rejects duplicate run identities", async () => { const fixture = await makeFixture(); fixture.receipt.runs[1].runId = fixture.receipt.runs[0].runId; reject(fixture, "RUN_ID_INVALID"); });
   test("rejects header-only crafted package placeholders", async () => { const fixture = await makeFixture(); const server = fixture.receipt.artifacts.find(({ role }) => role === "server"); await writeFixtureAt(join(fixture.root, server.path), "!<arch>\n", PACKAGE_AT); reject(fixture, "CANDIDATE_ARTIFACT_MISMATCH"); });
+  test("rejects timestamp-only capture changes with unchanged authoritative state and revision", async () => {
+    // Given: a success scenario whose after capture differs only by its timestamp.
+    const fixture = await makeFixture(); const run = fixture.receipt.runs[0]; const transcript = JSON.parse(await readFile(join(fixture.root, run.path))); const scenario = transcript.scenarios[0]; const before = JSON.parse(await readFile(join(fixture.root, scenario.before.snapshot.path))); const after = { ...before, capturedAt: "2026-08-26T11:58:02.000Z" }; await json(join(fixture.root, scenario.after.snapshot.path), after); await touch(join(fixture.root, scenario.after.snapshot.path), after.capturedAt); scenario.after.snapshot.sha256 = await shaFile(join(fixture.root, scenario.after.snapshot.path)); scenario.after.revision = scenario.before.revision; scenario.event.stateRevision = scenario.before.revision;
+    const eventCapture = JSON.parse(await readFile(join(fixture.root, scenario.event.body.path))); eventCapture.rawEvent.revision = scenario.before.revision; await json(join(fixture.root, scenario.event.body.path), eventCapture); await touch(join(fixture.root, scenario.event.body.path), eventCapture.capturedAt); scenario.event.body.sha256 = await shaFile(join(fixture.root, scenario.event.body.path)); await resign(fixture, run, transcript);
+    // When / Then: timestamp entropy cannot stand in for a state delta.
+    reject(fixture, "AUTHORITY_NOT_PRESERVED");
+  });
+  test("rejects the initial snapshot relabeled as a post-action correlated event", async () => {
+    // Given: the event capture reuses the separately recorded initial snapshot.
+    const fixture = await makeFixture(); const run = fixture.receipt.runs[0]; const transcript = JSON.parse(await readFile(join(fixture.root, run.path))); const scenario = transcript.scenarios[0]; const eventCapture = JSON.parse(await readFile(join(fixture.root, scenario.event.body.path))); eventCapture.rawEvent = { type: "snapshot", resource: "devices", revision: scenario.before.revision }; await json(join(fixture.root, scenario.event.body.path), eventCapture); await touch(join(fixture.root, scenario.event.body.path), eventCapture.capturedAt); scenario.event.body.sha256 = await shaFile(join(fixture.root, scenario.event.body.path)); scenario.event.type = "snapshot"; scenario.event.stateRevision = scenario.before.revision; await resign(fixture, run, transcript);
+    // When / Then: an initial/equal-revision event is never mutation evidence.
+    reject(fixture, "AUTHORITY_NOT_PRESERVED");
+  });
+  test("rejects generic success codes even when captures and signatures are otherwise valid", async () => {
+    // Given: a signed transcript replaces exact product semantics with OBSERVED.
+    const fixture = await makeFixture(); const run = fixture.receipt.runs[0]; const transcript = JSON.parse(await readFile(join(fixture.root, run.path))); transcript.scenarios[0].response.code = "OBSERVED"; await resign(fixture, run, transcript);
+    // When / Then: generic observation cannot satisfy the immutable scenario contract.
+    reject(fixture, "SCENARIO_MISMATCH");
+  });
   test.each([
+    ["TLS certificate mismatch", (value) => { value.processes.find(({ role }) => role === "server").tlsBinding.certificateSha256 = "e".repeat(64); }, "TLS_ORIGIN_BINDING_INVALID"],
+    ["TLS origin host drift", (value) => { value.processes.find(({ role }) => role === "server").tlsBinding.host = "loopback-ipv6"; }, "TLS_ORIGIN_BINDING_INVALID"],
+    ["TLS origin port drift", (value) => { value.processes.find(({ role }) => role === "server").tlsBinding.port += 1; }, "TLS_ORIGIN_BINDING_INVALID"],
     ["duplicate process id", (value) => { value.processes[1].id = value.processes[0].id; }, "PROCESS_IDENTITY_INVALID"],
     ["duplicate pid", (value) => { value.processes[1].pid = value.processes[0].pid; }, "PROCESS_IDENTITY_INVALID"],
     ["wrong startup order", (value) => { value.processes.find(({ role }) => role === "server").startedAt = "2026-08-26T11:58:00.000Z"; }, "STARTUP_ORDER_INVALID"],
@@ -229,4 +261,10 @@ describe("receipt redaction value scanning", () => {
     ["raw device identity", "device-id=renderer-living-room", "LAN_IDENTITY_PRESENT"],
     ["unlabeled raw device", "raw-device-42", "LAN_IDENTITY_PRESENT"], ["prose-prefixed raw device", "device raw-device-42", "LAN_IDENTITY_PRESENT"],
   ])("rejects %s", (_name, value, code) => expect(findUnsafeEvidence({ value })).toEqual(expect.objectContaining({ code })));
+  test.each([
+    "/api/v1/events?ticket=abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQ",
+    "/api/v1/pairings?pairing_code=123456",
+    "/api/v1/bootstrap?secret=hunter2",
+  ])("rejects secret-bearing product route %s", (target) => expect(findUnsafeEvidence({ target })).toEqual(expect.objectContaining({ code: "SECRET_PRESENT" })));
+  test("allows exact product API routes while still rejecting filesystem paths", () => { expect(findUnsafeEvidence({ target: "/api/v1/zones/main/playback-state" })).toBeUndefined(); expect(findUnsafeEvidence({ target: "/api/v1/zones/:zoneId/queue" })).toBeUndefined(); expect(findUnsafeEvidence({ target: "/usr/bin/ffmpeg" })).toEqual(expect.objectContaining({ code: "ABSOLUTE_PATH_PRESENT" })); });
 });

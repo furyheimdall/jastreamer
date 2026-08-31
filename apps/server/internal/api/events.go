@@ -22,6 +22,7 @@ const (
 
 type resourceRevision struct {
 	Resource string `json:"resource"`
+	ZoneID   string `json:"zone_id,omitempty"`
 	Revision uint64 `json:"revision"`
 }
 
@@ -30,6 +31,7 @@ type eventEnvelope struct {
 	Epoch     uint64             `json:"server_epoch"`
 	Sequence  uint64             `json:"sequence"`
 	Resource  string             `json:"resource,omitempty"`
+	ZoneID    string             `json:"zone_id,omitempty"`
 	Revision  uint64             `json:"revision,omitempty"`
 	Resources []resourceRevision `json:"resources,omitempty"`
 }
@@ -47,6 +49,14 @@ func (service *server) publishState(resource string, revision any) {
 		return
 	}
 	service.eventHub.publishInvalidation(resource, value)
+}
+
+func (service *server) publishZoneState(resource, zoneID string, revision any) {
+	value, err := strconv.ParseUint(fmt.Sprint(revision), 10, 64)
+	if err != nil {
+		return
+	}
+	service.eventHub.publishScopedInvalidation(resource, zoneID, value)
 }
 
 func (service *server) events(writer http.ResponseWriter, request *http.Request) {

@@ -78,7 +78,7 @@ extension _ControlAppActions on _ControlHomeState {
     await liveUpdates?.cancel();
     await liveEvents?.cancel();
     await liveSession?.close();
-    gateway?.close();
+    await gateway?.close();
     gateway = null;
     liveSession = null;
     if (!mounted || state.servers.length != 1) return;

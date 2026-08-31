@@ -15,4 +15,4 @@ fi
 mkdir -p "$output"
 output=$(realpath "$output")
 cd "$root/tooling/qa"
-ADMIN_RESTART_OUTPUT=$output bunx --no-install playwright test admin-restart.spec.mjs --browser chromium --workers 1 --reporter line
+ADMIN_RESTART_OUTPUT=$output bunx --no-install playwright test admin-restart.playwright.mjs --browser chromium --workers 1 --reporter line

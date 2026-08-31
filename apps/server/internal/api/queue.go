@@ -80,7 +80,7 @@ func (service *server) enqueue(writer http.ResponseWriter, request *http.Request
 	}
 	writeJSON(writer, status, map[string]any{"revision": result.Revision, "entry_ids": result.EntryIDs})
 	if !result.Replayed {
-		service.publishState("queue", result.Revision)
+		service.eventHub.publishScopedInvalidation("queue", request.PathValue("zoneID"), uint64(result.Revision))
 	}
 }
 

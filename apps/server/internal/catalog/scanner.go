@@ -56,6 +56,7 @@ func (s *Scanner) Scan(ctx context.Context, previous Snapshot) (ScanResult, erro
 	tracks := cloneTracks(previous.Tracks)
 	result := ScanResult{Snapshot: Snapshot{Generation: generation, Revision: previous.Revision, Tracks: tracks}, Complete: true}
 	seen, targets := make(map[TrackID]bool), make(map[string]bool)
+	previousByPath, previousByFingerprint := indexPreviousTracks(previous.Tracks)
 	changed := false
 	walkErr := filepath.WalkDir(s.root, func(path string, entry os.DirEntry, walkError error) error {
 		if err := ctx.Err(); err != nil {
@@ -88,7 +89,7 @@ func (s *Scanner) Scan(ctx context.Context, previous Snapshot) (ScanResult, erro
 			return nil
 		}
 		targets[resolved] = true
-		prior, hasPrior := findByPath(previous.Tracks, relative)
+		prior, hasPrior := previousByPath[filepathSlash(relative)]
 		if hasPrior {
 			seen[prior.TrackID] = true
 		}
@@ -127,7 +128,8 @@ func (s *Scanner) Scan(ctx context.Context, previous Snapshot) (ScanResult, erro
 			return nil
 		}
 		if !hasPrior {
-			prior, hasPrior = findUniqueFingerprint(previous.Tracks, media.ContentFingerprint)
+			indexed := previousByFingerprint[media.ContentFingerprint]
+			prior, hasPrior = indexed.track, indexed.count == 1
 		}
 		ids := identities(relative, media.ContentFingerprint, media.AudioFingerprint, media.Metadata)
 		if hasPrior {
@@ -184,26 +186,21 @@ func cloneTracks(source map[TrackID]Track) map[TrackID]Track {
 	return result
 }
 
-func findByPath(tracks map[TrackID]Track, path string) (Track, bool) {
-	normalized := filepathSlash(path)
-	for _, track := range tracks {
-		if track.RelativePath == normalized {
-			return track, true
-		}
-	}
-	return Track{}, false
+type fingerprintTracks struct {
+	track Track
+	count int
 }
 
-func findUniqueFingerprint(tracks map[TrackID]Track, fingerprint string) (Track, bool) {
-	var found Track
-	count := 0
+func indexPreviousTracks(tracks map[TrackID]Track) (map[string]Track, map[string]fingerprintTracks) {
+	byPath := make(map[string]Track, len(tracks))
+	byFingerprint := make(map[string]fingerprintTracks, len(tracks))
 	for _, track := range tracks {
-		if track.Fingerprint == fingerprint {
-			found = track
-			count++
-		}
+		byPath[track.RelativePath] = track
+		indexed := byFingerprint[track.Fingerprint]
+		indexed.track, indexed.count = track, indexed.count+1
+		byFingerprint[track.Fingerprint] = indexed
 	}
-	return found, count == 1
+	return byPath, byFingerprint
 }
 
 func equivalentTrack(left, right Track) bool {

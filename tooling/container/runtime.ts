@@ -1,9 +1,14 @@
 import { createHash, randomBytes } from "node:crypto";
-import { chmodSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { containerJSON, run, waitForDockerEvent } from "./process";
-import type { CleanupFact, Platform, RuntimeFact } from "./types";
+import type { CleanupFact, ComposeReplacementInput, ImportedImage, OwnedDockerResources, Platform, RuntimeFact } from "./types";
+
+export const composeLoopbackEnvironment = Object.freeze({
+  JASTREAMER_LAN_INTERFACE: "lo",
+  JASTREAMER_ADVERTISED_ADDRESS: "127.0.0.1",
+});
 
 const sha256 = (path: string): string => createHash("sha256").update(readFileSync(path)).digest("hex");
 const containerSha256 = (container: string, path: string): string => {
@@ -31,7 +36,16 @@ async function apiFacts(container: string, token: string): Promise<Pick<RuntimeF
   const health = containerJSON(container, "/healthz");
   const portalResponse = containerJSON(container, "/pair/");
   const discovery = containerJSON(container, "/api/v1/discovery", token);
-  if (health.status !== 200 || health.body.status !== "ready" || portalResponse.status !== 200 || !/content-type:\s*text\/html/i.test(portalResponse.headers) || discovery.status !== 200) throw new Error("RUNTIME_HTTP_CONTRACT_FAILED");
+  const portalIsHTML = /content-type:\s*text\/html/i.test(portalResponse.headers);
+  if (health.status !== 200 || health.body.status !== "ready" || portalResponse.status !== 200 || !portalIsHTML || discovery.status !== 200) {
+    throw new Error(`RUNTIME_HTTP_CONTRACT_FAILED ${JSON.stringify({
+      healthStatus: health.status,
+      healthState: health.body.status,
+      portalStatus: portalResponse.status,
+      portalIsHTML,
+      discoveryStatus: discovery.status,
+    })}`);
+  }
   return { health: String(health.body.status), portal: true, productVersion: String(discovery.body.product_version),
     sourceRevision: String(discovery.body.source_revision), contractRevision: String(discovery.body.contract_revision), catalogRevision: Number(discovery.body.catalog_revision) };
 }
@@ -43,41 +57,65 @@ async function bootstrapAndPair(container: string, secret: string): Promise<{ ad
   if (generated.status !== 201 || paired.status !== 201) throw new Error("PAIRING_FAILED");
   return { admin, controller: String(paired.body.token) };
 }
-export async function runPlatform(platform: Platform, tag: string, workspace: string, names: Set<string>): Promise<RuntimeFact> {
-  const suffix = `${process.pid}-${platform.split("/")[1]}`; const name = `jastreamer-task17-${suffix}`; names.add(name);
-  const directory = join(workspace, suffix); const configDir = join(directory, "config"); const dataDir = join(directory, "data");
-  config(configDir); mkdirSync(dataDir, { recursive: true }); chmodSync(dataDir, 0o777); const secret = randomBytes(24).toString("hex");
-  const args = ["run", "-d", "--name", name, "--platform", platform, "--network", "host", "--read-only", "--tmpfs", "/tmp:rw,noexec,nosuid,size=64m",
+export async function runPlatform(image: ImportedImage, workspace: string, resources: OwnedDockerResources): Promise<RuntimeFact> {
+  const suffix = `${process.pid}-${image.platform.split("/")[1]}`; const name = `jastreamer-task17-${suffix}`; resources.names.add(name);
+  const directory = join(workspace, suffix); const configDir = join(directory, "config"); const volume = `jastreamer-task17-data-${suffix}`;
+  config(configDir); createDataVolume(volume, resources.volumes); const secret = randomBytes(24).toString("hex");
+  const args = ["run", "-d", "--name", name, "--platform", image.platform, "--network", "host", "--read-only", "--tmpfs", "/tmp:rw,noexec,nosuid,size=64m",
     "--cap-drop", "ALL", "--security-opt", "no-new-privileges:true", "-e", `JASTREAMER_SETUP_SECRET=${secret}`,
-    "-v", `${configDir}:/etc/jastreamer:ro`, "-v", `${dataDir}:/var/lib/jastreamer`, tag, "--config", "/etc/jastreamer/server.json"];
+    "-v", `${configDir}:/etc/jastreamer:ro`, "--mount", `type=volume,src=${volume},dst=/var/lib/jastreamer,volume-nocopy`, image.tag, "--config", "/etc/jastreamer/server.json"];
   try {
     await waitForDockerEvent([`container=${name}`, "event=health_status: healthy"], () => { run("docker", args, { quiet: true }); });
   } catch (error) {
     const state = run("docker", ["inspect", "--format", "{{json .State}}", name], { quiet: true });
-    throw new Error(`RUNTIME_HEALTH_FAILED ${platform}: ${error instanceof Error ? error.message : "unknown error"}; state=${state}`);
+    const logs = run("docker", ["logs", name], { quiet: true, includeStderr: true });
+    throw new Error(`RUNTIME_HEALTH_FAILED ${image.platform}: ${error instanceof Error ? error.message : "unknown error"}; state=${state}; logs=${logs}`);
   }
   const hostArch = run("uname", ["-m"], { quiet: true }); const containerArch = run("docker", ["exec", name, "uname", "-m"], { quiet: true });
   const uid = run("docker", ["exec", name, "id", "-u"], { quiet: true }); const gid = run("docker", ["exec", name, "id", "-g"], { quiet: true });
-  if (containerArch !== archName(platform) || uid !== "10001" || gid !== "10001") throw new Error(`RUNTIME_IDENTITY_FAILED ${platform}`);
+  if (containerArch !== archName(image.platform) || uid !== "10001" || gid !== "10001") throw new Error(`RUNTIME_IDENTITY_FAILED ${image.platform}`);
   const hostCanonical = canonicalArch(hostArch); const containerCanonical = canonicalArch(containerArch);
   if (hostCanonical !== "arm64" || containerCanonical === "unknown") throw new Error(`HOST_ARCHITECTURE_UNSUPPORTED ${hostArch}`);
   const classification = hostCanonical === containerCanonical ? "native" : "qemu-emulated";
-  if ((platform === "linux/arm64" && classification !== "native") || (platform === "linux/amd64" && classification !== "qemu-emulated")) throw new Error(`EXECUTION_CLASSIFICATION_INVALID ${platform}`);
+  if ((image.platform === "linux/arm64" && classification !== "native") || (image.platform === "linux/amd64" && classification !== "qemu-emulated")) throw new Error(`EXECUTION_CLASSIFICATION_INVALID ${image.platform}`);
   const tokens = await bootstrapAndPair(name, secret); const facts = await apiFacts(name, tokens.controller);
   run("docker", ["rm", "-f", name], { quiet: true });
-  return { platform, classification, hostArch, containerArch, uid, gid, ...facts };
+  return { platform: image.platform, classification, hostArch, containerArch, uid, gid, ...facts };
 }
 
-export async function runComposeReplacement(compose: string, image: string, workspace: string, projects: Set<string>): Promise<Record<string, unknown>> {
-  const project = `jastreamert17${process.pid}`; projects.add(project); const base = join(workspace, "compose"); const configDir = join(base, "config"); const dataDir = join(base, "data");
-  const configPath = config(configDir); const catalogDir = join(dataDir, "catalog");
-  mkdirSync(catalogDir, { recursive: true });
-  const fixture = resolve(dirname(fileURLToPath(import.meta.url)), "../fixtures/music/real.wav.b64");
-  writeFileSync(join(catalogDir, "container-qa.wav"), Buffer.from(readFileSync(fixture, "utf8").trim(), "base64"));
-  chmodSync(dataDir, 0o777); const secret = randomBytes(24).toString("hex");
-  const env = { ...process.env, JASTREAMER_SERVER_IMAGE: image, JASTREAMER_CONFIG_PATH: configDir, JASTREAMER_DATA_PATH: dataDir, JASTREAMER_SETUP_SECRET: secret };
-  const composeArgs = ["compose", "-p", project, "-f", compose];
-  await waitForDockerEvent([`label=com.docker.compose.project=${project}`, "event=health_status: healthy"], () => { run("docker", [...composeArgs, "up", "-d"], { env, quiet: true }); });
+const PREPARATION_IMAGE = "alpine:3.22@sha256:14358309a308569c32bdc37e2e0e9694be33a9d99e68afb0f5ff33cc1f695dce";
+export function dataVolumeCreateArgs(volume: string): readonly string[] {
+  return ["volume", "create", "--label", "io.jastreamer.qa=task17", volume];
+}
+export function createDataVolume(volume: string, volumes: Set<string>, fixture?: string): void {
+  volumes.add(volume);
+  run("docker", dataVolumeCreateArgs(volume), { quiet: true });
+  const fixtureCommand = fixture === undefined
+    ? "mkdir -p /data && chown 10001:10001 /data && chmod 0750 /data"
+    : `mkdir -p /data/catalog && printf %s ${JSON.stringify(fixture)} | base64 -d > /data/catalog/container-qa.wav && chown -R 10001:10001 /data && chmod -R u=rwX,g=rX,o= /data`;
+  run("docker", ["run", "--rm", "--mount", `type=volume,src=${volume},dst=/data`, PREPARATION_IMAGE, "sh", "-ec", fixtureCommand], { quiet: true });
+}
+
+export async function runComposeReplacement(input: ComposeReplacementInput, resources: OwnedDockerResources): Promise<Record<string, unknown>> {
+  const project = `jastreamert17${process.pid}`; resources.projects.add(project); const base = join(input.workspace, "compose"); const configDir = join(base, "config");
+  const configPath = config(configDir); const volume = `jastreamer-task17-compose-data-${process.pid}`;
+  const fixture = readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), "../fixtures/music/real.wav.b64"), "utf8").trim();
+  createDataVolume(volume, resources.volumes, fixture); const secret = randomBytes(24).toString("hex");
+  const override = join(base, "volume-override.yaml");
+  writeFileSync(override, `services:\n  jastreamer-server:\n    volumes:\n      - type: volume\n        source: qa-data\n        target: /var/lib/jastreamer\n        volume:\n          nocopy: true\nvolumes:\n  qa-data:\n    external: true\n    name: ${volume}\n`);
+  const env = { ...process.env, ...composeLoopbackEnvironment, JASTREAMER_SERVER_IMAGE: input.image, JASTREAMER_CONFIG_PATH: configDir, JASTREAMER_SETUP_SECRET: secret };
+  const composeArgs = ["compose", "-p", project, "-f", input.compose, "-f", override];
+  const composeServiceState = (): string => {
+    const serviceID = run("docker", [...composeArgs, "ps", "--all", "--quiet", "jastreamer-server"], { env, quiet: true });
+    return serviceID
+      ? run("docker", ["inspect", "--format", "{{json .State}}", serviceID], { quiet: true })
+      : "missing";
+  };
+  try {
+    await waitForDockerEvent([`label=com.docker.compose.project=${project}`, "event=health_status: healthy"], () => { run("docker", [...composeArgs, "up", "-d"], { env, quiet: true }); });
+  } catch (error) {
+    throw new Error(`COMPOSE_INITIAL_HEALTH_FAILED ${composeServiceState()}`, { cause: error });
+  }
   const firstID = run("docker", [...composeArgs, "ps", "-q", "jastreamer-server"], { env, quiet: true });
   const tokens = await bootstrapAndPair(firstID, secret);
   const scan = containerJSON(firstID, "/api/v1/catalog/scans", tokens.admin, "POST", {});
@@ -86,7 +124,11 @@ export async function runComposeReplacement(compose: string, image: string, work
   const beforeCatalog = containerJSON(firstID, "/api/v1/catalog/status", tokens.controller);
   const stateDigest = containerSha256(firstID, "/var/lib/jastreamer/security/state.json");
   const configDigest = sha256(configPath);
-  await waitForDockerEvent([`label=com.docker.compose.project=${project}`, "event=health_status: healthy"], () => { run("docker", [...composeArgs, "up", "-d", "--force-recreate"], { env, quiet: true }); });
+  try {
+    await waitForDockerEvent([`label=com.docker.compose.project=${project}`, "event=health_status: healthy"], () => { run("docker", [...composeArgs, "up", "-d", "--force-recreate"], { env, quiet: true }); });
+  } catch (error) {
+    throw new Error(`COMPOSE_REPLACEMENT_HEALTH_FAILED ${composeServiceState()}`, { cause: error });
+  }
   const secondID = run("docker", [...composeArgs, "ps", "-q", "jastreamer-server"], { env, quiet: true }); const after = await apiFacts(secondID, tokens.controller);
   const afterCatalog = containerJSON(secondID, "/api/v1/catalog/status", tokens.controller);
   const hostArch = run("uname", ["-m"], { quiet: true }); const containerArch = run("docker", ["exec", secondID, "uname", "-m"], { quiet: true });
@@ -129,30 +171,42 @@ export function cleanupTargets(names: ReadonlySet<string>, projects: ReadonlySet
   commands.push(...[...projects].map((project) => ["compose", "-p", project, "-f", compose, "down", "--remove-orphans"]));
   return commands;
 }
-export function cleanup(names: Set<string>, projects: Set<string>, compose: string): CleanupFact {
+export function cleanup(resources: OwnedDockerResources, compose: string): CleanupFact {
   const failures: Error[] = [];
-  for (const name of names) {
+  for (const name of resources.names) {
     const ids = run("docker", ["ps", "-aq", "--filter", `name=^/${name}$`], { quiet: true }).split("\n").filter(Boolean);
-    if (ids.length) try { run("docker", ["rm", "-f", ...ids], { quiet: true }); } catch (error) { failures.push(error as Error); }
+    if (ids.length) try { run("docker", ["rm", "-f", ...ids], { quiet: true }); } catch (error) {
+      failures.push(error instanceof Error ? error : new Error(String(error)));
+    }
   }
-  const env = { ...process.env, JASTREAMER_SETUP_SECRET: "cleanup-only", JASTREAMER_CONFIG_PATH: "/tmp/jastreamer-cleanup-config", JASTREAMER_DATA_PATH: "/tmp/jastreamer-cleanup-data" };
-  for (const project of projects) {
+  const env = { ...process.env, ...composeLoopbackEnvironment, JASTREAMER_SETUP_SECRET: "cleanup-only", JASTREAMER_CONFIG_PATH: "/tmp/jastreamer-cleanup-config", JASTREAMER_DATA_PATH: "/tmp/jastreamer-cleanup-data" };
+  for (const project of resources.projects) {
     const ids = run("docker", ["ps", "-aq", "--filter", `label=com.docker.compose.project=${project}`], { quiet: true }).split("\n").filter(Boolean);
-    if (ids.length) try { run("docker", ["rm", "-f", ...ids], { quiet: true }); } catch (error) { failures.push(error as Error); }
-    try { run("docker", ["compose", "-p", project, "-f", compose, "down", "--remove-orphans"], { env, quiet: true }); } catch (error) { failures.push(error as Error); }
+    if (ids.length) try { run("docker", ["rm", "-f", ...ids], { quiet: true }); } catch (error) {
+      failures.push(error instanceof Error ? error : new Error(String(error)));
+    }
+    try { run("docker", ["compose", "-p", project, "-f", compose, "down", "--remove-orphans"], { env, quiet: true }); } catch (error) {
+      failures.push(error instanceof Error ? error : new Error(String(error)));
+    }
   }
-  const taskContainersRemoved = [...names].every((name) =>
+  const taskContainersRemoved = [...resources.names].every((name) =>
     !run("docker", ["ps", "-aq", "--filter", `name=^/${name}$`], { quiet: true }));
   const projectResources = (kind: "ps" | "network" | "volume", project: string): string => {
     const command = kind === "ps" ? ["ps", "-aq"] : [kind, "ls", "-q"];
     return run("docker", [...command, "--filter", `label=com.docker.compose.project=${project}`], { quiet: true });
   };
-  const composeContainersRemoved = [...projects].every((project) => !projectResources("ps", project));
-  const composeNetworksRemoved = [...projects].every((project) => !projectResources("network", project));
-  const composeVolumesRemoved = [...projects].every((project) => !projectResources("volume", project));
-  if (!taskContainersRemoved || !composeContainersRemoved || !composeNetworksRemoved || !composeVolumesRemoved) {
+  const composeContainersRemoved = [...resources.projects].every((project) => !projectResources("ps", project));
+  const composeNetworksRemoved = [...resources.projects].every((project) => !projectResources("network", project));
+  const composeVolumesRemoved = [...resources.projects].every((project) => !projectResources("volume", project));
+  for (const volume of resources.volumes) {
+    if (!run("docker", ["volume", "ls", "-q", "--filter", `name=^${volume}$`], { quiet: true })) continue;
+    try { run("docker", ["volume", "rm", "-f", volume], { quiet: true }); } catch (error) { failures.push(error instanceof Error ? error : new Error(String(error))); }
+  }
+  const taskVolumesRemoved = [...resources.volumes].every((volume) =>
+    !run("docker", ["volume", "ls", "-q", "--filter", `name=^${volume}$`], { quiet: true }));
+  if (!taskContainersRemoved || !composeContainersRemoved || !composeNetworksRemoved || !composeVolumesRemoved || !taskVolumesRemoved) {
     failures.push(new Error("OWNED_DOCKER_RESOURCES_REMAIN"));
   }
   if (failures.length) throw new AggregateError(failures, "CONTAINER_CLEANUP_FAILED");
-  return { taskContainersRemoved, composeContainersRemoved, composeNetworksRemoved, composeVolumesRemoved };
+  return { taskContainersRemoved, composeContainersRemoved, composeNetworksRemoved, composeVolumesRemoved, taskVolumesRemoved };
 }

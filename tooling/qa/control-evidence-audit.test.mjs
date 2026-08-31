@@ -81,3 +81,37 @@ test("rejects undeclared duplicate screenshots", async () => {
   await expect(audit).rejects.toThrow("SCREENSHOT_ALIAS_UNDECLARED");
   await rm(root, { recursive: true });
 });
+
+test("accepts a fully declared multi-file screenshot alias group", async () => {
+  // Given
+  const root = await mkdtemp(join(tmpdir(), "control-evidence-audit-"));
+  const browser = join(root, "browser");
+  const failure = join(root, "browser-failure");
+  await Promise.all([mkdir(browser), mkdir(failure)]);
+  await Promise.all([
+    writeFile(join(browser, "one.png"), pngHeader(390, 844)),
+    writeFile(join(failure, "two.png"), pngHeader(390, 844)),
+    writeFile(join(failure, "three.png"), pngHeader(390, 844)),
+  ]);
+
+  try {
+    // When
+    const manifest = await auditControlEvidence({
+      root,
+      sourceDigest: "c".repeat(64),
+      sourcePaths: [],
+      expectedCount: 3,
+      allowedAliases: [
+        ["browser/one.png", "browser-failure/two.png"],
+        ["browser/one.png", "browser-failure/three.png"],
+        ["browser-failure/two.png", "browser-failure/three.png"],
+      ],
+    });
+
+    // Then
+    expect(manifest.capture_count).toBe(3);
+    expect(manifest.unique_capture_count).toBe(1);
+  } finally {
+    await rm(root, { recursive: true });
+  }
+});

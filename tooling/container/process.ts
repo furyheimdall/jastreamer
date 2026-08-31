@@ -1,9 +1,9 @@
 import { spawn, spawnSync } from "node:child_process";
 
-export function run(command: string, args: readonly string[], options: { cwd?: string; env?: NodeJS.ProcessEnv; quiet?: boolean } = {}): string {
-  const result = spawnSync(command, args, { cwd: options.cwd, env: options.env, encoding: "utf8", stdio: options.quiet ? "pipe" : ["ignore", "pipe", "inherit"] });
+export function run(command: string, args: readonly string[], options: { cwd?: string; env?: NodeJS.ProcessEnv; quiet?: boolean; timeoutMs?: number; includeStderr?: boolean } = {}): string {
+  const result = spawnSync(command, args, { cwd: options.cwd, env: options.env, encoding: "utf8", timeout: options.timeoutMs ?? 120_000, stdio: options.quiet ? "pipe" : ["ignore", "pipe", "inherit"] });
   if (result.status !== 0) throw new Error(`${command} failed (${result.status ?? "signal"}): ${(result.stderr || result.stdout || "").trim()}`);
-  return result.stdout.trim();
+  return `${result.stdout}${options.includeStderr ? result.stderr : ""}`.trim();
 }
 
 export const dockerEventArguments = (
@@ -56,18 +56,22 @@ export const containerRequestArguments = (
   return args;
 };
 
+const parseJSONBody = (text: string): Record<string, unknown> => {
+  try {
+    const value: unknown = JSON.parse(text);
+    return typeof value === "object" && value !== null && !Array.isArray(value) ? Object.fromEntries(Object.entries(value)) : {};
+  } catch (error) {
+    if (error instanceof SyntaxError) return {};
+    throw error;
+  }
+};
+
 export const parseWgetResponse = (stdout: string, stderr: string): ContainerResponse => {
   const statuses = [...stderr.matchAll(/HTTP\/\d(?:\.\d)?\s+(\d{3})/g)];
   const statusValue = statuses.at(-1)?.[1];
   if (statusValue === undefined) throw new Error(`CONTAINER_HTTP_STATUS_MISSING ${stderr.trim()}`);
   const text = stdout.trim();
-  let body: Record<string, unknown> = {};
-  try {
-    body = JSON.parse(text) as Record<string, unknown>;
-  } catch {
-    // Non-JSON surfaces such as the pairing portal are validated by the caller.
-  }
-  return { status: Number(statusValue), body, text, headers: stderr };
+  return { status: Number(statusValue), body: parseJSONBody(text), text, headers: stderr };
 };
 
 export const containerJSON = (
@@ -106,6 +110,5 @@ export async function httpsJSON(url: string, token = "", method = "GET", body?: 
   const init = { method, headers, body: body === undefined ? undefined : JSON.stringify(body), tls: { rejectUnauthorized: false } } as RequestInit & { tls: { rejectUnauthorized: boolean } };
   const response = await fetch(url, init);
   const text = await response.text();
-  let parsed: Record<string, unknown> = {}; try { parsed = JSON.parse(text) as Record<string, unknown>; } catch { /* caller validates status/text */ }
-  return { status: response.status, body: parsed, text };
+  return { status: response.status, body: parseJSONBody(text), text };
 }

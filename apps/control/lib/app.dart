@@ -63,6 +63,7 @@ final class _ControlHomeState extends State<ControlHome> {
   ZonesSnapshot? inventory;
   PlaybackState? playback;
   ControlLiveSession? liveSession;
+  ControlLiveSession? recoveringEventSession;
   StreamSubscription<LiveResourceUpdate>? liveUpdates;
   StreamSubscription<ControlEvent>? liveEvents;
   ZoneId selectedZone = const ZoneId('main');
@@ -82,15 +83,29 @@ final class _ControlHomeState extends State<ControlHome> {
 
   void _update(VoidCallback callback) => setState(callback);
 
+  Future<void> _disposeOwnedResources() async {
+    await liveUpdates?.cancel();
+    await liveEvents?.cancel();
+    await gateway?.close();
+    if (ownsPlatform) await platform.dispose();
+  }
+
   @override
   void dispose() {
     origin.dispose();
     fingerprint.dispose();
-    unawaited(liveUpdates?.cancel());
-    unawaited(liveEvents?.cancel());
-    unawaited(liveSession?.close());
-    gateway?.close();
-    if (ownsPlatform) platform.dispose();
+    unawaited(
+      _disposeOwnedResources().catchError((Object error, StackTrace stack) {
+        FlutterError.reportError(
+          FlutterErrorDetails(
+            exception: error,
+            stack: stack,
+            library: 'jastreamer control',
+            context: ErrorDescription('while closing the Control gateway'),
+          ),
+        );
+      }),
+    );
     super.dispose();
   }
 

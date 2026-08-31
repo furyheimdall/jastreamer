@@ -1,0 +1,199 @@
+name: server-qualification-stage
+
+on:
+  workflow_call:
+    inputs:
+      version: { required: true, type: string }
+      candidate_tag: { required: true, type: string }
+      k17_authorized: { required: true, type: string }
+      caller_run_id: { required: true, type: string }
+      caller_run_attempt: { required: true, type: string }
+      caller_ref: { required: true, type: string }
+      caller_sha: { required: true, type: string }
+    outputs:
+      caller_run_id: { value: '${{ jobs.stage.outputs.caller_run_id }}' }
+      caller_run_attempt: { value: '${{ jobs.stage.outputs.caller_run_attempt }}' }
+      caller_ref: { value: '${{ jobs.stage.outputs.caller_ref }}' }
+      caller_sha: { value: '${{ jobs.stage.outputs.caller_sha }}' }
+      called_workflow_path: { value: '${{ jobs.stage.outputs.called_workflow_path }}' }
+      called_job: { value: '${{ jobs.stage.outputs.called_job }}' }
+      called_output_identity: { value: '${{ jobs.stage.outputs.called_output_identity }}' }
+      artifact_id: { value: '${{ jobs.stage.outputs.artifact_id }}' }
+      artifact_digest: { value: '${{ jobs.stage.outputs.artifact_digest }}' }
+      artifact_name: { value: '${{ jobs.stage.outputs.artifact_name }}' }
+      staging_binding_artifact_id: { value: '${{ jobs.stage.outputs.staging_binding_artifact_id }}' }
+      staging_binding_artifact_digest: { value: '${{ jobs.stage.outputs.staging_binding_artifact_digest }}' }
+      staging_binding_artifact_name: { value: '${{ jobs.stage.outputs.staging_binding_artifact_name }}' }
+      staging_binding_sha256: { value: '${{ jobs.stage.outputs.staging_binding_sha256 }}' }
+
+permissions:
+  contents: read
+
+env:
+  IMAGE: ghcr.io/furyheimdall/jastreamer-server
+
+jobs:
+  stage:
+    runs-on: ubuntu-24.04
+    permissions: { contents: read }
+    outputs:
+      caller_run_id: ${{ steps.metadata.outputs.caller_run_id }}
+      caller_run_attempt: ${{ steps.metadata.outputs.caller_run_attempt }}
+      caller_ref: ${{ steps.metadata.outputs.caller_ref }}
+      caller_sha: ${{ steps.metadata.outputs.caller_sha }}
+      called_workflow_path: .github/workflows/server-qualification-staging.yml
+      called_job: server
+      called_output_identity: jobs.stage.outputs
+      artifact_id: ${{ steps.publication-stage.outputs.artifact-id }}
+      artifact_digest: ${{ steps.publication-stage.outputs.artifact-digest }}
+      artifact_name: server-publication-stage-${{ github.run_id }}-${{ github.run_attempt }}
+      staging_binding_artifact_id: ${{ steps.staging-binding.outputs.artifact-id }}
+      staging_binding_artifact_digest: ${{ steps.staging-binding.outputs.artifact-digest }}
+      staging_binding_artifact_name: server-publication-staging-binding-${{ github.run_id }}-${{ github.run_attempt }}
+      staging_binding_sha256: ${{ steps.metadata.outputs.staging_binding_sha256 }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with: { persist-credentials: false }
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16
+        with: { go-version: '1.25.6', check-latest: false, cache: false }
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
+        with: { bun-version: '1.3.14' }
+      - name: Install exact jq
+        run: |
+          ./packaging/server/install-linux-tools.sh amd64 "$RUNNER_TEMP/server-release-tools"
+          echo "$RUNNER_TEMP/server-release-tools" >> "$GITHUB_PATH"
+      - uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16
+        with: { pattern: server-*, path: incoming }
+      - name: Digest-address and enforce Server-only allowlist
+        env:
+          VERSION: ${{ inputs.version }}
+          CANDIDATE_TAG: ${{ inputs.candidate_tag }}
+        run: |
+          set -euo pipefail
+          mkdir -p stage
+          find incoming/server-linux-* -type f \( -name '*.deb' -o -name '*.rpm' -o -name 'linux-*-inspection.json' -o -name 'tools-linux-*.json' \) -exec cp {} stage/ \;
+          cp incoming/server-windows-amd64/jastreamer-server_${VERSION}_windows_amd64.{exe,msi} stage/
+          cp incoming/server-windows-amd64/windows-{msi,signature}-inspection.json stage/
+          cp incoming/server-windows-amd64/windows-tool-receipt.json stage/
+          cp incoming/server-oci/tools-oci.json stage/
+          cp incoming/server-compatibility/validation-tools.json stage/
+          cp incoming/server-oci/server.oci stage/jastreamer-server_${VERSION}_linux_amd64-arm64.oci
+          cp incoming/server-oci/oci-inspection.json stage/
+          cp LICENSE stage/Apache-2.0.txt; cp packaging/container/THIRD_PARTY_NOTICES stage/
+          cp packaging/server/cert/{server.cer,fingerprint.txt} stage/; cp packaging/server/{trust,remove-trust}.md stage/
+          ! find stage -type f | grep -Ei '(control|renderer|\.pfx$|\.p12$|\.key$)'
+          curl -fsSL https://github.com/anchore/syft/releases/download/v1.30.0/syft_1.30.0_linux_amd64.tar.gz -o syft.tgz
+          echo 'f0cdcba0b6ce4c7a87050d524f732ba9fa2e711835f993a4ef108cfbf928ec13  syft.tgz' | sha256sum -c --status
+          tar -xzf syft.tgz syft; rm syft.tgz
+          mapfile -t distributables < <(find stage -maxdepth 1 -type f \( -name '*.exe' -o -name '*.msi' -o -name '*.deb' -o -name '*.rpm' -o -name '*.oci' \) -printf '%f\n' | sort)
+          [[ ${#distributables[@]} -eq 7 ]]
+          for name in "${distributables[@]}"; do
+            if [[ $name == *.oci ]]; then
+              sha=$(sha256sum "stage/$name" | cut -d' ' -f1)
+              jq -n --arg name "$name" --arg sha "$sha" --arg created "$(git show -s --format=%cI "$GITHUB_SHA" | sed 's/+00:00/Z/')" '{spdxVersion:"SPDX-2.3",dataLicense:"CC0-1.0",SPDXID:"SPDXRef-DOCUMENT",name:($name+" artifact SBOM"),documentNamespace:("https://github.com/furyheimdall/jastreamer/sbom/"+$sha),creationInfo:{created:$created,creators:["Tool: jastreamer-artifact-SPDX/1","Tool: BuildKit-Syft-scanner/stable-1"]},packages:[{name:$name,SPDXID:"SPDXRef-Package-OCI-Index",downloadLocation:"NOASSERTION",filesAnalyzed:false,licenseConcluded:"Apache-2.0",licenseDeclared:"Apache-2.0",copyrightText:"NOASSERTION",checksums:[{algorithm:"SHA256",checksumValue:$sha}]}],relationships:[{spdxElementId:"SPDXRef-DOCUMENT",relationshipType:"DESCRIBES",relatedSpdxElement:"SPDXRef-Package-OCI-Index"}]}' > "stage/$name.spdx.json"
+            else
+              ./syft scan "file:stage/$name" -o "spdx-json=stage/$name.spdx.json"
+            fi
+          done
+          subjects=$(for name in "${distributables[@]}"; do sha=$(sha256sum "stage/$name" | cut -d' ' -f1); jq -n --arg name "$name" --arg sha "$sha" '{name:$name,digest:{sha256:$sha}}'; done | jq -s .)
+          source_input_identity=$(bun -e 'import { sourceIdentity } from "./packaging/server/tooling/identity"; console.log(sourceIdentity(process.cwd()))')
+          [[ $source_input_identity =~ ^sha256:[0-9a-f]{64}$ ]]
+          source_input_sha256=${source_input_identity#sha256:}
+          jq -n --argjson subjects "$subjects" --arg tag "$CANDIDATE_TAG" --arg revision "$GITHUB_SHA" --arg source_input_sha256 "$source_input_sha256" '{_type:"https://in-toto.io/Statement/v1",subject:$subjects,predicateType:"https://slsa.dev/provenance/v1",predicate:{buildDefinition:{buildType:"https://github.com/furyheimdall/jastreamer/server-candidate@v1",externalParameters:{candidateTag:$tag,publish:false},resolvedDependencies:[{uri:"git+https://github.com/furyheimdall/jastreamer",digest:{gitCommit:$revision}},{uri:"https://github.com/furyheimdall/jastreamer/server-source-input@v1",digest:{sha256:$source_input_sha256}}]},runDetails:{builder:{id:"github-actions:server-release"}}}}' > stage/PROVENANCE.intoto.json
+          jq -n '{publication:false,draftRelease:false,ghcrPromotion:false,promotionReachable:false,externalWrites:[]}' > stage/promotion-ledger.json
+          records=$(for name in "${distributables[@]}"; do sha=$(sha256sum "stage/$name" | cut -d' ' -f1); jq -n --arg name "$name" --arg sha "$sha" '{name:$name,sha256:$sha}'; done | jq -s .)
+          jq -n --arg tag "$CANDIDATE_TAG" --arg image "$IMAGE:${VERSION}" --arg revision "$GITHUB_SHA" --arg source_input_sha256 "$source_input_sha256" --argjson artifacts "$records" '{schema:1,component:"server",tag:$tag,image:$image,source_revision:$revision,source_input_sha256:$source_input_sha256,floatingTags:false,promotionReady:false,artifacts:$artifacts}' > stage/manifest.json
+          jq -e --arg revision "$GITHUB_SHA" '.source_revision==$revision' stage/manifest.json >/dev/null || { echo MANIFEST_GIT_REVISION_MISMATCH >&2; exit 65; }
+          jq -e --arg source_input_sha256 "$source_input_sha256" '.source_input_sha256==$source_input_sha256' stage/manifest.json >/dev/null || { echo MANIFEST_SOURCE_INPUT_MISMATCH >&2; exit 65; }
+          jq -e --arg revision "$GITHUB_SHA" '.predicate.buildDefinition.resolvedDependencies[0].digest.gitCommit==$revision' stage/PROVENANCE.intoto.json >/dev/null || { echo PROVENANCE_GIT_REVISION_MISMATCH >&2; exit 65; }
+          jq -e --arg source_input_sha256 "$source_input_sha256" '.predicate.buildDefinition.resolvedDependencies[1].digest.sha256==$source_input_sha256' stage/PROVENANCE.intoto.json >/dev/null || { echo PROVENANCE_SOURCE_INPUT_MISMATCH >&2; exit 65; }
+          {
+            printf '%s\n' "${distributables[@]}"
+            printf '%s.spdx.json\n' "${distributables[@]}"
+            printf '%s\n' Apache-2.0.txt THIRD_PARTY_NOTICES server.cer fingerprint.txt trust.md remove-trust.md \
+              linux-amd64-inspection.json linux-arm64-inspection.json windows-msi-inspection.json windows-signature-inspection.json oci-inspection.json \
+              tools-linux-amd64.json tools-linux-arm64.json windows-tool-receipt.json tools-oci.json validation-tools.json \
+              PROVENANCE.intoto.json promotion-ledger.json manifest.json
+          } | sort > expected-assets.txt
+          find stage -maxdepth 1 -type f -printf '%f\n' | sort > actual-assets.txt
+          diff -u expected-assets.txt actual-assets.txt
+          (cd stage && sha256sum * | sort -k2 > SHA256SUMS)
+          printf '%s\n' SHA256SUMS >> expected-assets.txt; sort -o expected-assets.txt expected-assets.txt
+          find stage -maxdepth 1 -type f -printf '%f\n' | sort > actual-assets.txt
+          diff -u expected-assets.txt actual-assets.txt
+          manifest_sha256=$(sha256sum stage/manifest.json | cut -d' ' -f1)
+          artifact_set_sha256=$(sha256sum stage/SHA256SUMS | cut -d' ' -f1)
+          jq -n --arg manifest_sha256 "$manifest_sha256" --arg artifact_set_sha256 "$artifact_set_sha256" --arg revision "$GITHUB_SHA" --arg source_input_sha256 "$source_input_sha256" '{schema:1,candidate:{status:"staged",component:"server",manifest_sha256:$manifest_sha256,artifact_set_sha256:$artifact_set_sha256,source_revision:$revision,source_input_sha256:$source_input_sha256},external_writes:[]}' > stage/candidate.json
+          mkdir publication-stage
+          for name in "${distributables[@]}"; do cp -- "stage/$name" "publication-stage/$name"; done
+          test "$(find publication-stage -maxdepth 1 -type f | wc -l)" -eq 7
+          rm -f syft expected-assets.txt actual-assets.txt
+      - name: Run manifest-bound deterministic K17 emulator matrix
+        run: |
+          test "$(go version)" = 'go version go1.25.6 linux/amd64'
+          candidate_sha256=$(sha256sum stage/manifest.json | cut -d' ' -f1)
+          bun tooling/qa/k17/cli.mjs emulator --candidate-sha256 "$candidate_sha256" --output k17-emulator-matrix.json
+      - name: Emit the no-network K17 pending receipt
+        if: inputs.k17_authorized != 'true'
+        run: bun tooling/qa/k17/cli.mjs gate --matrix deploy/synology/support-matrix.yaml --candidate-manifest stage/manifest.json --output k17-qualification.json
+      - uses: actions/upload-artifact@50769540e7f4bd5e21e526ee35c689e35e0d6874
+        with: { name: server-candidate-ci, path: stage, if-no-files-found: error }
+      - name: Embed authoritative reusable-workflow metadata
+        env:
+          CALLER_RUN_ID: ${{ inputs.caller_run_id || github.run_id }}
+          CALLER_RUN_ATTEMPT: ${{ inputs.caller_run_attempt || github.run_attempt }}
+          CALLER_REF: ${{ inputs.caller_ref || github.ref }}
+          CALLER_SHA: ${{ inputs.caller_sha || github.sha }}
+        run: |
+          set -euo pipefail
+          mkdir qualification
+          cp stage/manifest.json qualification/content-manifest.json
+          content_manifest_sha256=$(sha256sum qualification/content-manifest.json | cut -d' ' -f1)
+          contract_sha256=$(sha256sum tooling/release/qualification-artifact.schema.json | cut -d' ' -f1)
+          jq -n --arg component server --arg callerRunId "$CALLER_RUN_ID" --argjson callerRunAttempt "$CALLER_RUN_ATTEMPT" --arg callerRef "$CALLER_REF" --arg callerSha "$CALLER_SHA" \
+            --arg calledWorkflowPath '.github/workflows/server-qualification-staging.yml' --arg calledJob server --arg runId "$GITHUB_RUN_ID" --argjson runAttempt "$GITHUB_RUN_ATTEMPT" --arg sourceSha "$GITHUB_SHA" \
+            --arg contentManifestSha256 "$content_manifest_sha256" --arg contractSha256 "$contract_sha256" \
+            '{schemaVersion:2,component:$component,callerRunId:$callerRunId,callerRunAttempt:$callerRunAttempt,callerRef:$callerRef,callerSha:$callerSha,calledWorkflowPath:$calledWorkflowPath,calledJob:$calledJob,runId:$runId,runAttempt:$runAttempt,sourceSha:$sourceSha,contentManifestSha256:$contentManifestSha256,contractSha256:$contractSha256}' > qualification/candidate-binding.json
+      - id: publication-stage
+        uses: actions/upload-artifact@50769540e7f4bd5e21e526ee35c689e35e0d6874
+        with:
+          name: server-publication-stage-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            publication-stage
+            qualification
+          if-no-files-found: error
+      - id: metadata
+        name: Bind the exact provider-observed publication-stage artifact
+        env:
+          ARTIFACT_ID: ${{ steps.publication-stage.outputs.artifact-id }}
+          ARTIFACT_DIGEST: ${{ steps.publication-stage.outputs.artifact-digest }}
+          RELEASE_TAG: ${{ inputs.candidate_tag }}
+          CALLER_RUN_ID: ${{ inputs.caller_run_id || github.run_id }}
+          CALLER_RUN_ATTEMPT: ${{ inputs.caller_run_attempt || github.run_attempt }}
+          CALLER_REF: ${{ inputs.caller_ref || github.ref }}
+          CALLER_SHA: ${{ inputs.caller_sha || github.sha }}
+          PARENT_WORKFLOW_PATH: ${{ inputs.caller_run_id && '.github/workflows/product-qualification-dispatch.yml' || '.github/workflows/server-release.yml' }}
+          PARENT_EVENT_NAME: ${{ inputs.caller_run_id && 'workflow_dispatch' || github.event_name }}
+        run: |
+          artifact_name="server-publication-stage-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          jq -n --arg repository "$GITHUB_REPOSITORY" --arg workflowPath "$PARENT_WORKFLOW_PATH" \
+            --arg eventName "$PARENT_EVENT_NAME" --arg headSha "$GITHUB_SHA" --arg runId "$GITHUB_RUN_ID" \
+            --argjson runAttempt "$GITHUB_RUN_ATTEMPT" --arg artifactId "$ARTIFACT_ID" --arg artifactName "$artifact_name" \
+            --arg artifactDigest "${ARTIFACT_DIGEST#sha256:}" --arg releaseTag "$RELEASE_TAG" \
+            --arg callerRunId "$CALLER_RUN_ID" --argjson callerRunAttempt "$CALLER_RUN_ATTEMPT" --arg callerRef "$CALLER_REF" --arg callerSha "$CALLER_SHA" \
+            --arg calledWorkflowPath '.github/workflows/server-qualification-staging.yml' --arg calledJob server \
+            --arg artifactAttemptProvenance 'caller-run+upload-output+embedded-manifest' --arg artifactManifestSha256 "$(sha256sum qualification/candidate-binding.json | cut -d' ' -f1)" --arg artifactContentManifestSha256 "$(sha256sum qualification/content-manifest.json | cut -d' ' -f1)" \
+            '{repository:$repository,workflowPath:$workflowPath,eventName:$eventName,headSha:$headSha,runId:$runId,runAttempt:$runAttempt,artifactId:$artifactId,artifactName:$artifactName,artifactDigest:$artifactDigest,artifactAttemptProvenance:$artifactAttemptProvenance,artifactManifestSha256:$artifactManifestSha256,artifactContentManifestSha256:$artifactContentManifestSha256,callerRunId:$callerRunId,callerRunAttempt:$callerRunAttempt,callerRef:$callerRef,callerSha:$callerSha,calledWorkflowPath:$calledWorkflowPath,calledJob:$calledJob,releaseTag:$releaseTag}' > server-publication-staging.json
+          printf 'caller_run_id=%s\n' "$CALLER_RUN_ID" >> "$GITHUB_OUTPUT"
+          printf 'caller_run_attempt=%s\n' "$CALLER_RUN_ATTEMPT" >> "$GITHUB_OUTPUT"
+          printf 'caller_ref=%s\n' "$CALLER_REF" >> "$GITHUB_OUTPUT"
+          printf 'caller_sha=%s\n' "$CALLER_SHA" >> "$GITHUB_OUTPUT"
+          printf 'staging_binding_sha256=%s\n' "$(sha256sum server-publication-staging.json | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+      - id: staging-binding
+        uses: actions/upload-artifact@50769540e7f4bd5e21e526ee35c689e35e0d6874
+        with: { name: 'server-publication-staging-binding-${{ github.run_id }}-${{ github.run_attempt }}', path: server-publication-staging.json, if-no-files-found: error }
+      - uses: actions/upload-artifact@50769540e7f4bd5e21e526ee35c689e35e0d6874
+        with: { name: k17-emulator-matrix, path: k17-emulator-matrix.json, if-no-files-found: error }
+      - uses: actions/upload-artifact@50769540e7f4bd5e21e526ee35c689e35e0d6874
+        if: inputs.k17_authorized != 'true'
+        with: { name: k17-qualification, path: k17-qualification.json, if-no-files-found: error }

@@ -20,6 +20,14 @@ fi
 fixture=$(realpath "$fixture")
 mkdir -p "$screenshots"
 screenshots=$(realpath "$screenshots")
+playwright_output=$screenshots/playwright
+mkdir -p "$playwright_output"
+if [ "${CONTROL_QA_BROWSER_ONLY:-0}" = 1 ]; then
+  cd "$root/tooling/qa"
+  CONTROL_FIXTURE=$fixture CONTROL_OUTPUT=$screenshots \
+    exec bunx --no-install playwright test --config playwright.config.mjs control.playwright.mjs --browser chromium \
+      --workers 1 --reporter line --output "$playwright_output"
+fi
 image=ghcr.io/cirruslabs/flutter:3.35.0@sha256:114f14a7cf973b08e4607d3e2fb4a3b2dc977c08877e651743f8cbed0e971046
 owner_uid=$(id -u)
 owner_gid=$(id -g)
@@ -46,7 +54,7 @@ node "$root/tooling/qa/check-control-contract.mjs"
 docker run --rm -v "$root/apps/control:/workspace" alpine:3.22 \
   chown -R "$owner_uid:$owner_gid" /workspace
 rm -rf "$root/apps/control/.dart_tool" "$root/apps/control/build"
-docker run --rm -v "$root/apps/control:/workspace" -w /workspace "$image" sh -lc \
+docker run --rm -v "$root:/repo" -w /repo/apps/control "$image" sh -lc \
   'flutter pub get && dart format --output=none --set-exit-if-changed lib test integration_test && flutter analyze && flutter test && flutter build web --release'
 docker run --rm -v "$root/apps/control:/workspace" alpine:3.22 \
   chown -R "$owner_uid:$owner_gid" /workspace
@@ -80,4 +88,5 @@ test -f "$root/apps/control/windows/CMakeLists.txt"
 grep -q 'identity_name: io.jastreamer.control' "$root/apps/control/pubspec.yaml"
 cd "$root/tooling/qa"
 CONTROL_FIXTURE=$fixture CONTROL_OUTPUT=$screenshots \
-  bunx --no-install playwright test control.spec.mjs --browser chromium --workers 1 --reporter line
+  bunx --no-install playwright test --config playwright.config.mjs control.playwright.mjs --browser chromium --workers 1 \
+    --reporter line --output "$playwright_output"

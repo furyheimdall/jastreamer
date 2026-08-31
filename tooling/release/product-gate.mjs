@@ -17,7 +17,7 @@ const SERVER_KINDS = [
 ];
 const CONTROL_KINDS = ["control-web", "control-windows", "control-android"];
 const RENDERER_KINDS = ["renderer-ci-peer"];
-const PUBLICATION_WORKFLOWS = { server: ".github/workflows/server-release.yml", control: ".github/workflows/control-release.yml" };
+const PUBLICATION_WORKFLOWS = { server: ".github/workflows/server-qualification-staging.yml", control: ".github/workflows/control-qualification-staging.yml" };
 const MAX_AGE_MS = 24 * 60 * 60 * 1000;
 const MAX_FUTURE_MS = 5 * 60 * 1000;
 const sha256 = (value) => createHash("sha256").update(value).digest("hex");

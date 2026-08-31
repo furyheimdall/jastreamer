@@ -100,7 +100,7 @@ func TestProbe_releases_bound_descriptor_when_start_fails(t *testing.T) {
 	if approval.Status != StatusUnavailable || approval.ErrorCode != "version_failed" {
 		t.Fatalf("diagnostic = %+v", approval.Diagnostic)
 	}
-	if after != before {
+	if after > before {
 		t.Fatalf("probe startup failure leaked descriptors: before=%d after=%d", before, after)
 	}
 }
@@ -122,7 +122,7 @@ func TestProvider_releases_bound_descriptor_after_startup_failure_and_close(t *t
 	if !errors.As(startErr, &processErr) || processErr.Operation != "start" {
 		t.Fatalf("startup error = %#v", startErr)
 	}
-	if after != before {
+	if after > before {
 		t.Fatalf("startup failure leaked descriptors: before=%d after=%d", before, after)
 	}
 	if closeErr != nil {

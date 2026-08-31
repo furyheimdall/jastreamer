@@ -1,4 +1,11 @@
 export type Platform = "linux/amd64" | "linux/arm64";
+export type OwnedDockerResources = Readonly<{
+  names: Set<string>;
+  projects: Set<string>;
+  volumes: Set<string>;
+}>;
+export type ImportedImage = Readonly<{ platform: Platform; tag: string }>;
+export type ComposeReplacementInput = Readonly<{ compose: string; image: string; workspace: string }>;
 export type Options = Readonly<{
   compose: string; layout: string; output: string; scenario: "replacement-persistence";
   fixture?: string; version: string; revision: string; created: string;
@@ -34,4 +41,5 @@ export type CleanupFact = Readonly<{
   composeContainersRemoved: boolean;
   composeNetworksRemoved: boolean;
   composeVolumesRemoved: boolean;
+  taskVolumesRemoved: boolean;
 }>;

@@ -9,6 +9,8 @@ services:
     restart: unless-stopped
     environment:
       JASTREAMER_SETUP_SECRET: "${JASTREAMER_SETUP_SECRET:?JASTREAMER_SETUP_SECRET must be injected at runtime}"
+      JASTREAMER_LAN_INTERFACE: "${JASTREAMER_LAN_INTERFACE:?JASTREAMER_LAN_INTERFACE must be injected at runtime}"
+      JASTREAMER_ADVERTISED_ADDRESS: "${JASTREAMER_ADVERTISED_ADDRESS:?JASTREAMER_ADVERTISED_ADDRESS must be injected at runtime}"
       JASTREAMER_DATA_DIR: /var/lib/jastreamer
     volumes:
       - type: bind

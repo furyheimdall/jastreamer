@@ -21,6 +21,15 @@
       "license_file": "tooling/policy/licenses/flutter-BSD-3-Clause.txt"
     },
     {
+      "name": "Noto Sans KR",
+      "version": "google-fonts@4efc2774c63917927efe769ca845def6bd6debae",
+      "license": "OFL-1.1",
+      "paid": false,
+      "packaged": true,
+      "source": "https://github.com/google/fonts/tree/4efc2774c63917927efe769ca845def6bd6debae/ofl/notosanskr",
+      "license_file": "tooling/policy/licenses/google-fonts-Noto-Sans-KR-OFL-1.1.txt"
+    },
+    {
       "name": "github.com/dhowden/tag",
       "version": "v0.0.0-20240417053706-3d75831295e8",
       "license": "BSD-2-Clause",

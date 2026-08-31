@@ -13,8 +13,8 @@ const artifactKinds = {
 } as const;
 
 const expectedWorkflow = {
-  server: ".github/workflows/server-release.yml",
-  control: ".github/workflows/control-release.yml",
+  server: ".github/workflows/server-qualification-staging.yml",
+  control: ".github/workflows/control-qualification-staging.yml",
 } as const;
 
 const expectedNames = (component: PublicComponent, version: string): readonly string[] => {

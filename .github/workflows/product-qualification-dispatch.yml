@@ -1,3 +1,4 @@
+# allow: SIZE_OK - one atomic protected qualification DAG preserves scheduler and materialization dominance.
 name: product-qualification-dispatch
 run-name: product-qualification:${{ inputs.version }}:${{ github.run_id }}
 
@@ -6,6 +7,66 @@ on:
     inputs:
       version:
         description: Exact Server and Control candidate version
+        required: true
+        type: string
+      renderer_provider_run_id:
+        description: Exact successful renderer-release provider run bound to this revision
+        required: true
+        type: string
+      renderer_provider_run_attempt:
+        description: Exact renderer-release provider run attempt
+        required: true
+        type: number
+      k17_provider_repository:
+        description: Exact completed K17 provider repository
+        required: true
+        type: string
+      k17_provider_workflow:
+        description: Exact completed K17 provider workflow path
+        required: true
+        type: string
+      k17_provider_event:
+        description: Exact completed K17 provider event
+        required: true
+        type: string
+      k17_provider_run_id:
+        description: Exact completed K17 provider run ID
+        required: true
+        type: string
+      k17_provider_run_attempt:
+        description: Exact completed K17 provider run attempt
+        required: true
+        type: number
+      k17_provider_current_sha:
+        description: Current protected revision bound to the K17 provider
+        required: true
+        type: string
+      k17_provider_conclusion:
+        description: Terminal K17 provider conclusion
+        required: true
+        type: string
+      k17_provider_artifact_id:
+        description: Exact K17 provider artifact ID
+        required: true
+        type: string
+      k17_provider_artifact_name:
+        description: Exact K17 provider artifact name
+        required: true
+        type: string
+      k17_provider_artifact_digest:
+        description: Exact K17 provider artifact SHA-256
+        required: true
+        type: string
+      k17_provider_artifact_size:
+        description: Exact K17 provider artifact size
+        required: true
+        type: number
+      k17_provider_artifact_created_at:
+        description: Exact K17 provider artifact creation instant
+        required: true
+        type: string
+      k17_provider_artifact_expires_at:
+        description: Exact K17 provider artifact expiry instant
         required: true
         type: string
 
@@ -29,17 +90,43 @@ jobs:
           CALLER_SHA: ${{ github.sha }}
           DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
           REF_PROTECTED: ${{ github.ref_protected }}
+          K17_PROVIDER_REPOSITORY: ${{ inputs.k17_provider_repository }}
+          K17_PROVIDER_WORKFLOW: ${{ inputs.k17_provider_workflow }}
+          K17_PROVIDER_EVENT: ${{ inputs.k17_provider_event }}
+          K17_PROVIDER_RUN_ID: ${{ inputs.k17_provider_run_id }}
+          K17_PROVIDER_RUN_ATTEMPT: ${{ inputs.k17_provider_run_attempt }}
+          K17_PROVIDER_CURRENT_SHA: ${{ inputs.k17_provider_current_sha }}
+          K17_PROVIDER_CONCLUSION: ${{ inputs.k17_provider_conclusion }}
+          K17_PROVIDER_ARTIFACT_ID: ${{ inputs.k17_provider_artifact_id }}
+          K17_PROVIDER_ARTIFACT_NAME: ${{ inputs.k17_provider_artifact_name }}
+          K17_PROVIDER_ARTIFACT_DIGEST: ${{ inputs.k17_provider_artifact_digest }}
+          K17_PROVIDER_ARTIFACT_SIZE: ${{ inputs.k17_provider_artifact_size }}
+          K17_PROVIDER_ARTIFACT_CREATED_AT: ${{ inputs.k17_provider_artifact_created_at }}
+          K17_PROVIDER_ARTIFACT_EXPIRES_AT: ${{ inputs.k17_provider_artifact_expires_at }}
         run: |
           set -euo pipefail
           [[ "$CANDIDATE_VERSION" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]
           test "$REF_PROTECTED" = true
           test "$CALLER_REF" = "refs/heads/$DEFAULT_BRANCH"
           [[ "$CALLER_SHA" =~ ^[0-9a-f]{40}$ ]]
+          test "$K17_PROVIDER_REPOSITORY" = "$GITHUB_REPOSITORY"
+          test "$K17_PROVIDER_WORKFLOW" = '.github/workflows/server-release.yml'
+          test "$K17_PROVIDER_EVENT" = workflow_dispatch
+          test "$K17_PROVIDER_RUN_ID" != "$GITHUB_RUN_ID"
+          [[ "$K17_PROVIDER_RUN_ID" =~ ^[1-9][0-9]*$ && "$K17_PROVIDER_RUN_ATTEMPT" =~ ^[1-9][0-9]*$ ]]
+          test "$K17_PROVIDER_CURRENT_SHA" = "$CALLER_SHA"
+          test "$K17_PROVIDER_CONCLUSION" = success
+          [[ "$K17_PROVIDER_ARTIFACT_ID" =~ ^[1-9][0-9]*$ ]]
+          test "$K17_PROVIDER_ARTIFACT_NAME" = k17-qualification
+          [[ "${K17_PROVIDER_ARTIFACT_DIGEST#sha256:}" =~ ^[0-9a-f]{64}$ ]]
+          [[ "$K17_PROVIDER_ARTIFACT_SIZE" =~ ^[1-9][0-9]*$ ]]
+          test -n "$K17_PROVIDER_ARTIFACT_CREATED_AT"
+          test -n "$K17_PROVIDER_ARTIFACT_EXPIRES_AT"
 
   server:
     needs: authorize
     if: needs.authorize.result == 'success'
-    uses: ./.github/workflows/server-release.yml
+    uses: ./.github/workflows/server-qualification-staging.yml
     with:
       version: ${{ inputs.version }}
       invocation_mode: authoritative
@@ -52,7 +139,7 @@ jobs:
   control:
     needs: authorize
     if: needs.authorize.result == 'success'
-    uses: ./.github/workflows/control-release.yml
+    uses: ./.github/workflows/control-qualification-staging.yml
     with:
       version: ${{ inputs.version }}
       invocation_mode: authoritative
@@ -101,6 +188,97 @@ jobs:
       - name: Reduce only scheduler results and verified child bytes
         if: always()
         run: bun tooling/release/qualification-authoritative-reducer-cli.ts --input reducer-input.json --root . --output authoritative-qualification.json
+      - id: task19-renderer-provider
+        name: Observe exact revision-bound Renderer and WASAPI provider inputs
+        if: needs.server.result == 'success' && needs.control.result == 'success'
+        continue-on-error: true
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          RENDERER_PROVIDER_RUN_ID: ${{ inputs.renderer_provider_run_id }}
+          RENDERER_PROVIDER_RUN_ATTEMPT: ${{ inputs.renderer_provider_run_attempt }}
+          PROVIDER_INPUT_ROOT: ${{ runner.temp }}/task19-provider-inputs-${{ github.run_id }}-${{ github.run_attempt }}
+        run: |
+          jq -n --arg repository "$GITHUB_REPOSITORY" --arg runId "$RENDERER_PROVIDER_RUN_ID" --argjson runAttempt "$RENDERER_PROVIDER_RUN_ATTEMPT" --arg headSha "$GITHUB_SHA" '{repository:$repository,runId:$runId,runAttempt:$runAttempt,headSha:$headSha}' > task19-renderer-provider-context.json
+          bun tooling/release/task19-physical-provider-cli.ts --context task19-renderer-provider-context.json --output-root "$PROVIDER_INPUT_ROOT/renderer" --status task19-physical-provider-status.json
+      - id: task19-k17-provider
+        name: Authenticate the exact completed upstream K17 provider input
+        if: needs.server.result == 'success' && needs.control.result == 'success'
+        continue-on-error: true
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          K17_PROVIDER_REPOSITORY: ${{ inputs.k17_provider_repository }}
+          K17_PROVIDER_WORKFLOW: ${{ inputs.k17_provider_workflow }}
+          K17_PROVIDER_EVENT: ${{ inputs.k17_provider_event }}
+          K17_PROVIDER_RUN_ID: ${{ inputs.k17_provider_run_id }}
+          K17_PROVIDER_RUN_ATTEMPT: ${{ inputs.k17_provider_run_attempt }}
+          K17_PROVIDER_CURRENT_SHA: ${{ inputs.k17_provider_current_sha }}
+          K17_PROVIDER_CONCLUSION: ${{ inputs.k17_provider_conclusion }}
+          K17_PROVIDER_ARTIFACT_ID: ${{ inputs.k17_provider_artifact_id }}
+          K17_PROVIDER_ARTIFACT_NAME: ${{ inputs.k17_provider_artifact_name }}
+          K17_PROVIDER_ARTIFACT_DIGEST: ${{ inputs.k17_provider_artifact_digest }}
+          K17_PROVIDER_ARTIFACT_SIZE: ${{ inputs.k17_provider_artifact_size }}
+          K17_PROVIDER_ARTIFACT_CREATED_AT: ${{ inputs.k17_provider_artifact_created_at }}
+          K17_PROVIDER_ARTIFACT_EXPIRES_AT: ${{ inputs.k17_provider_artifact_expires_at }}
+          PROVIDER_INPUT_ROOT: ${{ runner.temp }}/task19-provider-inputs-${{ github.run_id }}-${{ github.run_attempt }}
+        run: |
+          jq -n --arg repository "$K17_PROVIDER_REPOSITORY" --arg workflowPath "$K17_PROVIDER_WORKFLOW" --arg eventName "$K17_PROVIDER_EVENT" \
+            --arg runId "$K17_PROVIDER_RUN_ID" --argjson runAttempt "$K17_PROVIDER_RUN_ATTEMPT" --arg currentSha "$K17_PROVIDER_CURRENT_SHA" \
+            --arg conclusion "$K17_PROVIDER_CONCLUSION" --arg artifactId "$K17_PROVIDER_ARTIFACT_ID" --arg artifactName "$K17_PROVIDER_ARTIFACT_NAME" \
+            --arg artifactDigest "${K17_PROVIDER_ARTIFACT_DIGEST#sha256:}" --argjson artifactSize "$K17_PROVIDER_ARTIFACT_SIZE" \
+            --arg artifactCreatedAt "$K17_PROVIDER_ARTIFACT_CREATED_AT" --arg artifactExpiresAt "$K17_PROVIDER_ARTIFACT_EXPIRES_AT" --arg qualificationRunId "$GITHUB_RUN_ID" --arg qualificationCurrentSha "$GITHUB_SHA" \
+            '{repository:$repository,workflowPath:$workflowPath,eventName:$eventName,runId:$runId,runAttempt:$runAttempt,currentSha:$currentSha,conclusion:$conclusion,artifactId:$artifactId,artifactName:$artifactName,artifactDigest:$artifactDigest,artifactSize:$artifactSize,artifactCreatedAt:$artifactCreatedAt,artifactExpiresAt:$artifactExpiresAt,qualificationRunId:$qualificationRunId,qualificationCurrentSha:$qualificationCurrentSha}' > task19-k17-provider-context.json
+          bun tooling/release/task19-k17-provider-cli.ts --context task19-k17-provider-context.json --output-root "$PROVIDER_INPUT_ROOT/k17" --status task19-k17-provider-status.json
+      - id: task19-materialize
+        name: Materialize the complete private physical provider closure
+        if: steps.task19-renderer-provider.outcome == 'success' && steps.task19-k17-provider.outcome == 'success'
+        continue-on-error: true
+        env:
+          PROVIDER_INPUT_ROOT: ${{ runner.temp }}/task19-provider-inputs-${{ github.run_id }}-${{ github.run_attempt }}
+        run: >-
+          bun tooling/release/task19-provider-materialize-cli.ts
+          --renderer-input-root "$PROVIDER_INPUT_ROOT/renderer"
+          --k17-input "$PROVIDER_INPUT_ROOT/k17/k17-qualification.json"
+          --output-root task19-physical
+      - id: task19-producer
+        name: Produce one immutable Task19 closure only when independently observed physical inputs exist
+        if: needs.server.result == 'success' && needs.control.result == 'success'
+        continue-on-error: true
+        run: >-
+          node tooling/qa/task19/task19-candidate-producer.mjs
+          --root . --reducer authoritative-qualification.json
+          --server provider-bytes/server/publication-stage/publication-stage/jastreamer-server_${{ inputs.version }}_linux_amd64.deb
+          --server-manifest provider-bytes/server/publication-stage/qualification/content-manifest.json
+          --control-manifest provider-bytes/control/publication-stage/qualification/content-manifest.json
+          --web provider-bytes/control/publication-stage/publication-stage/jastreamer-control_${{ inputs.version }}_web.zip
+          --windows provider-bytes/control/publication-stage/publication-stage/jastreamer-control_${{ inputs.version }}_windows.msix
+          --android provider-bytes/control/publication-stage/publication-stage/jastreamer-control_${{ inputs.version }}_android_universal.apk
+          --renderer task19-physical/jastreamer-renderer_${{ inputs.version }}_windows_amd64.msi
+          --renderer-manifest task19-physical/manifest.json
+          --k17 task19-physical/k17-qualification.json
+          --wasapi task19-physical/windows-audio-qualification.json
+          --candidate-sha256 "$(sha256sum authoritative-qualification.json | cut -d' ' -f1)"
+          --output-root task19-exact-candidates --status task19-candidate-producer-status.json
+      - id: task19-cleanup
+        name: Remove transient provider inputs and physical roots
+        if: always()
+        env:
+          PROVIDER_INPUT_ROOT: ${{ runner.temp }}/task19-provider-inputs-${{ github.run_id }}-${{ github.run_attempt }}
+          PRODUCER_OUTCOME: ${{ steps.task19-producer.outcome }}
+        run: |
+          rm -rf -- "$PROVIDER_INPUT_ROOT" task19-physical
+          if test "$PRODUCER_OUTCOME" != success; then rm -rf -- task19-exact-candidates; fi
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: task19-candidate-producer-status-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            task19-candidate-producer-status.json
+            task19-k17-provider-status.json
+            task19-physical-provider-status.json
+          if-no-files-found: error
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: steps.task19-producer.outcome == 'success'
+        with: { name: 'task19-exact-candidates-${{ github.run_id }}-${{ github.run_attempt }}', path: task19-exact-candidates, if-no-files-found: error }
       - id: reducer-artifact
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02

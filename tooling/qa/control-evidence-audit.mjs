@@ -76,9 +76,13 @@ export const auditControlEvidence = async ({
   const digestGroups = Map.groupBy(captures, (capture) => capture.sha256);
   for (const group of digestGroups.values()) {
     if (group.length === 1) continue;
-    if (group.length !== 2 ||
-        !aliases.has(normalizedPair(group.map(({ alias_path }) => alias_path)))) {
-      throw new Error("SCREENSHOT_ALIAS_UNDECLARED");
+    const paths = group.map(({ alias_path }) => alias_path);
+    for (let left = 0; left < paths.length; left++) {
+      for (let right = left + 1; right < paths.length; right++) {
+        if (!aliases.has(normalizedPair([paths[left], paths[right]]))) {
+          throw new Error("SCREENSHOT_ALIAS_UNDECLARED");
+        }
+      }
     }
   }
 

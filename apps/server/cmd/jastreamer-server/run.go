@@ -20,14 +20,28 @@ import (
 	"github.com/jastreamer/jastreamer-server/web/pairing"
 )
 
+func loadServerTLSIdentity(config serverConfig, durable security.Identity) (security.Identity, error) {
+	if config.tlsCertificatePath == "" {
+		return durable, nil
+	}
+	return security.LoadExternalIdentity(security.ExternalIdentityConfig{
+		CertificatePath: config.tlsCertificatePath, PrivateKeyPath: config.tlsPrivateKeyPath,
+		DNSNames: config.certificateDNS, IPAddresses: config.certificateIPs,
+	})
+}
+
 func run(ctx context.Context, config serverConfig) (err error) {
 	if err := os.MkdirAll(config.catalogRoot, 0o750); err != nil {
 		return fmt.Errorf("create catalog root: %w", err)
 	}
-	identity, err := security.LoadOrCreateIdentity(security.IdentityConfig{
+	durableIdentity, err := security.LoadOrCreateIdentity(security.IdentityConfig{
 		Directory: filepath.Join(config.dataDirectory, "identity"), DNSNames: config.certificateDNS,
 		IPAddresses: config.certificateIPs,
 	})
+	if err != nil {
+		return err
+	}
+	identity, err := loadServerTLSIdentity(config, durableIdentity)
 	if err != nil {
 		return err
 	}
@@ -118,7 +132,7 @@ func run(ctx context.Context, config serverConfig) (err error) {
 		return fmt.Errorf("reconcile catalog roots: %w", err)
 	}
 	mediaService, err := configureMediaService(ctx, mediaRuntimeConfig{
-		certificate: identity.Certificate, fingerprint: identity.Fingerprint,
+		certificate: durableIdentity.Certificate, fingerprint: durableIdentity.Fingerprint,
 		queue: queue, catalog: coordinator, transformer: transformer,
 	})
 	if err != nil {

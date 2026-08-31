@@ -1,0 +1,43 @@
+{
+  "schemaVersion": 1,
+  "kind": "task19_production_trust",
+  "status": "pending_external_roots",
+  "repository": "furyheimdall/jastreamer",
+  "providerWorkflowPath": ".github/workflows/product-qualification-dispatch.yml",
+  "providerEvent": "workflow_dispatch",
+  "candidateArtifactPrefix": "task19-exact-candidates-",
+  "authorization": {
+    "environment": "task19-qualification",
+    "publicKeyPath": "tooling/qa/task19/fixtures/synthetic-authorization-public.pem",
+    "keyId": "c7afcff16b4ae06845c932657fabe02d686d4bc1f7b0d9535e1d1b736880803d",
+    "algorithm": "Ed25519",
+    "maxAgeSeconds": 900,
+    "physicalAuthorizationSha256": "e9ae1400988c2da39f60ea1fea7e6722a76623bceada376ae5558b71427360d1"
+  },
+  "driver": {
+    "path": "tooling/qa/task19/scenario-driver.ps1",
+    "sha256": "f604c3cb4cfcf4f9be41bbbea5c64655c85db52cef7312ebf2da82c35e75bf29",
+    "contract": "task19-installed-scenario-driver-v1",
+    "runtimeSha256": "f1e4169f4a8dcad8b586e70b4cd3714b76e92f1fa2b598116b4a343b332cd30c"
+  },
+  "identities": {
+    "androidApplicationId": "io.jastreamer.control",
+    "windowsPackageName": "io.jastreamer.control",
+    "serverUpgradeCode": "67C753EA-8D02-4F04-B37B-B96682B40F53",
+    "rendererUpgradeCode": "7A1C1C18-2E7D-4D2A-9B1D-0AB5F1D2E901",
+    "msixCertificateSha256": null,
+    "apkLineageSha256": null
+  },
+  "qualification": {
+    "ready": false,
+    "k17": null,
+    "wasapi": null,
+    "harness": null,
+    "runtime": {
+      "harnessPath": "tooling/qa/task19/installed-product-harness.mjs",
+      "harnessSha256": "c72d50c69382c0328ca19f5d7e8863e0a6eda48ad0c65998fc66e9f879d36f25",
+      "operationCommands": null,
+      "receiptTemplate": null
+    }
+  }
+}

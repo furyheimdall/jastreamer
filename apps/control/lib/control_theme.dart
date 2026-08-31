@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
 
+const controlFontFamily = 'Noto Sans KR';
+const controlKoreanFontProbeText = '안녕하세요 재생 목록';
+
 abstract final class ControlColors {
   static const surfacePrimary = Color(0xFF121315);
   static const surfaceSecondary = Color(0xFF1B1D20);
@@ -17,6 +20,7 @@ abstract final class ControlColors {
 
 ThemeData controlTheme() => ThemeData(
       brightness: Brightness.dark,
+      fontFamily: controlFontFamily,
       useMaterial3: true,
       scaffoldBackgroundColor: ControlColors.surfacePrimary,
       colorScheme: const ColorScheme.dark(

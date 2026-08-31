@@ -94,7 +94,7 @@ func (service *server) patchPolicy(writer http.ResponseWriter, request *http.Req
 	value := policyFromPlayback(persisted)
 	writer.Header().Set("ETag", strconv.Quote(strconv.FormatInt(value.Revision, 10)))
 	writeJSON(writer, http.StatusOK, value)
-	service.publishState("continuation-policy", value.Revision)
+	service.publishZoneState("continuation-policy", string(zoneID), value.Revision)
 }
 
 func policyFromPlayback(value playback.ContinuationPolicy) policy {

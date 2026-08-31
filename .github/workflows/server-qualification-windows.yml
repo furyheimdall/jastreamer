@@ -1,0 +1,66 @@
+name: server-qualification-windows
+
+on:
+  workflow_call:
+    inputs:
+      version: { required: true, type: string }
+    secrets:
+      SERVER_WINDOWS_SIGNING_PFX_B64: { required: false }
+      SERVER_WINDOWS_SIGNING_PFX_PASSWORD: { required: false }
+
+permissions:
+  contents: read
+
+jobs:
+  windows:
+    runs-on: windows-2025
+    environment: server-signing
+    env: { VERSION: '${{ inputs.version }}' }
+    permissions: { contents: read }
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with: { persist-credentials: false }
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16
+        with: { go-version: '1.25.6', check-latest: false, cache: false }
+      - name: Run native Windows security tests
+        working-directory: apps/server
+        run: go test ./internal/security
+      - uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9
+        with: { dotnet-version: '8.0.419', cache: false }
+      - name: Install exact Windows SDK SignTool
+        shell: pwsh
+        run: |
+          $directory = Join-Path $env:RUNNER_TEMP 'Microsoft.Windows.SDK.BuildTools.10.0.26100.3916'
+          nuget install Microsoft.Windows.SDK.BuildTools -Version 10.0.26100.3916 -OutputDirectory $env:RUNNER_TEMP -DirectDownload -NonInteractive
+          $signTool = Get-ChildItem $directory -Recurse -Filter signtool.exe |
+            Where-Object FullName -Match '\\x64\\signtool\.exe$' |
+            Select-Object -First 1
+          if (!$signTool) { throw 'pinned SignTool not found' }
+          "JASTREAMER_SIGNTOOL=$($signTool.FullName)" >> $env:GITHUB_ENV
+      - name: Build unsigned amd64 SCM host and runnable Server core inputs
+        shell: pwsh
+        run: ./packaging/server/build-windows.ps1 -Version $env:VERSION -Output dist
+      - name: Sign input EXEs, build MSI from signed inputs, sign MSI, and run native trust/service QA
+        shell: pwsh
+        env:
+          WINDOWS_SIGNING_PFX_B64: ${{ secrets.SERVER_WINDOWS_SIGNING_PFX_B64 }}
+          WINDOWS_SIGNING_PFX_PASSWORD: ${{ secrets.SERVER_WINDOWS_SIGNING_PFX_PASSWORD }}
+        run: ./packaging/server/sign-windows.ps1 -Version $env:VERSION -Directory dist -Cer packaging/server/cert/server.cer
+      - name: Prove no signing material remains
+        if: always()
+        shell: pwsh
+        run: |
+          if (Test-Path "$env:RUNNER_TEMP/jastreamer-server-signing.pfx") { throw 'PFX cleanup failed' }
+          if (Test-Path dist) {
+            if (Get-ChildItem dist -Recurse -Include *.pfx,*.p12,*.key) { throw 'private signing material in artifact' }
+          }
+          $thumbprint = (Get-PfxCertificate packaging/server/cert/server.cer).Thumbprint
+          if (Test-Path "Cert:\LocalMachine\TrustedPeople\$thumbprint") { throw 'TrustedPeople certificate cleanup failed' }
+          if (Test-Path 'HKLM:\SYSTEM\CurrentControlSet\Services\jastreamer-server') {
+            $environment = Get-ItemProperty 'HKLM:\SYSTEM\CurrentControlSet\Services\jastreamer-server' -Name Environment -ErrorAction SilentlyContinue
+            if ($environment.Environment -match '^JASTREAMER_SETUP_SECRET=') { throw 'service secret environment cleanup failed' }
+          }
+          if (Get-Service jastreamer-server -ErrorAction SilentlyContinue) { throw 'service cleanup failed' }
+          if ($env:WINDOWS_SIGNING_PFX_B64 -or $env:WINDOWS_SIGNING_PFX_PASSWORD) { throw 'signing environment cleanup failed' }
+      - uses: actions/upload-artifact@50769540e7f4bd5e21e526ee35c689e35e0d6874
+        with: { name: server-windows-amd64, path: dist, if-no-files-found: error }

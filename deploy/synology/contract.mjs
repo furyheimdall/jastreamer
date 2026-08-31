@@ -12,6 +12,10 @@ const requiredFixtureFields = [
 ];
 
 const secretKey = /(password|credential|private.?key|token|secret)/i;
+const hasEmbeddedSecret = (source) => source.split(/\r?\n/).some((line) => {
+  const match = /^\s*[A-Z0-9_]*(?:PASSWORD|CREDENTIAL|PRIVATE_KEY|TOKEN|SECRET)[A-Z0-9_]*:\s*(.+)$/i.exec(line);
+  return match !== null && !/^["']?\$\{/.test(match[1].trim());
+});
 const ipv4Address = /\b(?:\d{1,3}\.){3}\d{1,3}\b/;
 
 const values = (input) => {
@@ -59,7 +63,7 @@ export const validateCompose = (source) => {
   if (/privileged:\s*true/i.test(source)) findings.push("PRIVILEGED_CONTAINER");
   if (/^\s*platform:/m.test(source)) findings.push("ARCHITECTURE_PIN");
   if (/^\s*ports:/m.test(source) || /network_mode:\s*bridge/.test(source)) findings.push("BRIDGE_NETWORK_REQUIREMENT");
-  if (secretKey.test(source)) findings.push("EMBEDDED_SECRET");
+  if (hasEmbeddedSecret(source)) findings.push("EMBEDDED_SECRET");
   if (ipv4Address.test(source)) findings.push("RETAINED_LAN_ADDRESS");
   if (/image:.*(?::latest|-(?:amd64|arm64)\b)/.test(source)) findings.push("UNSAFE_IMAGE_REFERENCE");
   return findings;

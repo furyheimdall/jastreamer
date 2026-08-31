@@ -30,8 +30,20 @@ extension _ControlAppLive on _ControlHomeState {
       });
 
   Future<void> _listenToLiveUpdates(ControlLiveSession session) async {
-    await liveUpdates?.cancel();
-    await liveEvents?.cancel();
+    final previousUpdates = liveUpdates;
+    final previousEvents = liveEvents;
+    liveUpdates = null;
+    liveEvents = null;
+    unawaited(() async {
+      try {
+        await previousUpdates?.cancel();
+        await previousEvents?.cancel();
+      } on Object catch (failure) {
+        if (mounted) {
+          _update(() => workflowFailure = _asControlFailure(failure));
+        }
+      }
+    }());
     liveUpdates = session.updates.listen(
       (update) {
         if (!mounted) return;
@@ -57,24 +69,35 @@ extension _ControlAppLive on _ControlHomeState {
       },
     );
     var observedFullResyncs = session.fullResyncCount;
-    liveEvents = session.events.listen((event) {
-      if (session.fullResyncCount > observedFullResyncs) {
-        observedFullResyncs = session.fullResyncCount;
-        if (mounted) {
-          _update(() {
-            syncNotice =
-                'Event gap recovered · full Server state resynchronized';
-          });
+    liveEvents = session.events.listen(
+      (event) {
+        if (session.fullResyncCount > observedFullResyncs) {
+          observedFullResyncs = session.fullResyncCount;
+          if (mounted) {
+            _update(() {
+              syncNotice =
+                  'Event gap recovered · full Server state resynchronized';
+            });
+          }
         }
-      }
-      if (event is ControlResyncRequiredEvent) {
+      },
+      onError: (Object failure) {
+        if (mounted) {
+          _update(() => workflowFailure = _asControlFailure(failure));
+        }
         unawaited(_recoverEventStream(session));
-      }
-    });
+      },
+      onDone: () => unawaited(_recoverEventStream(session)),
+    );
   }
 
   Future<void> _recoverEventStream(ControlLiveSession staleSession) async {
-    if (liveSession != staleSession || gateway == null) return;
+    if (liveSession != staleSession ||
+        recoveringEventSession == staleSession ||
+        gateway == null) {
+      return;
+    }
+    recoveringEventSession = staleSession;
     if (mounted) {
       _update(() {
         syncNotice = 'Event gap detected · resynchronizing from Server truth';
@@ -84,19 +107,53 @@ extension _ControlAppLive on _ControlHomeState {
       final replacement = await gateway!.subscribe(
         watchedZones: {selectedZone},
       );
-      await staleSession.close();
-      if (!mounted) {
+      if (!mounted || liveSession != staleSession) {
         await replacement.close();
         return;
       }
       _update(() {
         liveSession = replacement;
-        syncNotice = 'Event gap recovered · full Server state resynchronized';
+        syncNotice = 'Event stream replaced · reloading Server truth';
       });
       await _listenToLiveUpdates(replacement);
+      unawaited(() async {
+        try {
+          await staleSession.close();
+        } on Object catch (failure) {
+          if (mounted) {
+            _update(() => workflowFailure = _asControlFailure(failure));
+          }
+        }
+      }());
+
+      final loadedCatalog = await gateway!.catalog();
+      final loadedInventory = await gateway!.zones();
+      if (loadedInventory.zones.isEmpty) {
+        throw const FormatException('Server has no playback zones.');
+      }
+      final loadedZone =
+          loadedInventory.zones.any((zone) => zone.id == selectedZone)
+              ? selectedZone
+              : loadedInventory.zones.first.id;
+      replacement.watchZones({loadedZone});
+      final loadedPlayback = await gateway!.playbackState(loadedZone);
+      final loadedPolicy = await gateway!.policy(loadedZone);
+      if (!mounted || liveSession != replacement) return;
+      _update(() {
+        catalog = loadedCatalog;
+        inventory = loadedInventory;
+        playback = loadedPlayback;
+        state = applyPolicyView(state, loadedPolicy);
+        selectedZone = loadedZone;
+        syncNotice = 'Event gap recovered · full Server state resynchronized';
+      });
     } on Object catch (failure) {
       if (mounted) {
         _update(() => workflowFailure = _asControlFailure(failure));
+      }
+    } finally {
+      if (recoveringEventSession == staleSession) {
+        recoveringEventSession = null;
       }
     }
   }

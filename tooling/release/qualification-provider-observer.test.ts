@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { deflateRawSync } from "node:zlib";
 import { describe, expect, test } from "bun:test";
-import { DEFAULT_ZIP_LIMITS, expectedProviderArtifactName, inspectProviderZip, observeProviderArtifacts, type ProviderApiArtifact, type ProviderRunContext } from "./qualification-provider-observer";
+import { authenticateTask19ProviderArtifact, DEFAULT_ZIP_LIMITS, expectedProviderArtifactName, expectedTask19ArtifactName, inspectProviderZip, observeProviderArtifacts, observeTask19ProviderArtifact, type ProviderApiArtifact, type ProviderRunContext, type Task19ProviderContext } from "./qualification-provider-observer";
 
 const sha = (bytes: Uint8Array): string => createHash("sha256").update(bytes).digest("hex");
 const crcTable = Array.from({ length: 256 }, (_, index) => { let value = index; for (let bit = 0; bit < 8; bit += 1) value = (value & 1) === 1 ? 0xedb88320 ^ (value >>> 1) : value >>> 1; return value >>> 0; });
@@ -28,4 +28,47 @@ describe("read-only complete provider artifact observation", () => {
   test("rejects local-central header flag method name CRC and size mismatches", () => { const original = zip([{ name: "entry.bin", bytes: Buffer.from("content") }]); const central = centralOffset(original); const mutations: Array<(bytes: Buffer) => void> = [(bytes) => bytes.writeUInt16LE(8, central + 10), (bytes) => bytes.writeUInt16LE(8, central + 8), (bytes) => { bytes[30] = 0x78; }, (bytes) => bytes.writeUInt32LE(0, 14), (bytes) => bytes.writeUInt32LE(1, 18), (bytes) => bytes.writeUInt32LE(1, 22), (bytes) => bytes.writeUInt32LE(0, central + 16)]; for (const mutate of mutations) { const forged = Buffer.from(original); mutate(forged); expect(() => inspectProviderZip(forged)).toThrow("ARTIFACT_ARCHIVE_INVALID"); } });
   test("rejects descriptor tricks encryption ZIP64 overlap truncation and trailing records", () => { const descriptor = Buffer.from(descriptorZip("entry.bin", Buffer.from("content"))); descriptor.writeUInt32LE(0, centralOffset(descriptor) - 12); expect(() => inspectProviderZip(descriptor)).toThrow("ARTIFACT_ARCHIVE_INVALID"); const unsupported = Buffer.from(zip([{ name: "entry.bin", bytes: Buffer.from("x") }])); unsupported.writeUInt16LE(99, 8); unsupported.writeUInt16LE(99, centralOffset(unsupported) + 10); expect(() => inspectProviderZip(unsupported)).toThrow("ARTIFACT_ARCHIVE_INVALID"); const nonUtf8 = zip([{ name: "é.bin", bytes: Buffer.from("x") }]); expect(() => inspectProviderZip(nonUtf8)).toThrow("ARTIFACT_ARCHIVE_ENTRY_INVALID"); const encrypted = Buffer.from(zip([{ name: "entry.bin", bytes: Buffer.from("x") }])); encrypted.writeUInt16LE(1, 6); encrypted.writeUInt16LE(1, centralOffset(encrypted) + 8); expect(() => inspectProviderZip(encrypted)).toThrow("ARTIFACT_ARCHIVE_INVALID"); const zip64 = Buffer.from(zip([{ name: "entry.bin", bytes: Buffer.from("x") }])); zip64.writeUInt32LE(0xffffffff, centralOffset(zip64) + 20); expect(() => inspectProviderZip(zip64)).toThrow("ARTIFACT_ARCHIVE_INVALID"); const overlap = Buffer.from(zip([{ name: "one", bytes: Buffer.from("1") }, { name: "two", bytes: Buffer.from("2") }])); const secondCentral = centralOffset(overlap) + 46 + Buffer.byteLength("one"); overlap.writeUInt32LE(0, secondCentral + 42); expect(() => inspectProviderZip(overlap)).toThrow("ARTIFACT_ARCHIVE_INVALID"); const honest = zip([{ name: "entry.bin", bytes: Buffer.from("x") }]); expect(() => inspectProviderZip(honest.slice(0, -1))).toThrow("ARTIFACT_ARCHIVE_INVALID"); expect(() => inspectProviderZip(Uint8Array.from([...honest, 0]))).toThrow("ARTIFACT_ARCHIVE_INVALID"); });
   test("rejects incomplete pagination", () => { const value = fixture(); expect(() => observeProviderArtifacts(context, [[], value.records], value.archives)).toThrow("PROVIDER_PAGINATION_INCOMPLETE"); });
+});
+
+const task19Context: Task19ProviderContext = { repository: "furyheimdall/jastreamer", workflowPath: ".github/workflows/product-qualification-dispatch.yml", eventName: "workflow_dispatch", runId: "1001", runAttempt: 2, headSha: "a".repeat(40), observedAt: "2026-08-26T12:00:00Z" };
+const task19Fixture = (): Readonly<{ archive: Uint8Array; record: ProviderApiArtifact }> => {
+  const payload = Buffer.from("candidate");
+  const closure = Buffer.from(`${JSON.stringify({ schemaVersion: 2, kind: "task19_candidate_closure", source: { revision: task19Context.headSha }, files: { server: { path: "files/server", sha256: sha(payload), size: payload.length } }, receipts: {}, stagedManifest: { path: "files/staged", sha256: sha(payload), size: payload.length } })}\n`);
+  const archive = zip([{ name: "task19-candidate-closure.json", bytes: closure }, { name: "files/server", bytes: payload }, { name: "files/staged", bytes: payload }]);
+  return { archive, record: { id: "3001", name: expectedTask19ArtifactName(task19Context.runId, task19Context.runAttempt), digest: `sha256:${sha(archive)}`, size_in_bytes: archive.length, created_at: "2026-08-26T11:00:00Z", expires_at: "2026-08-27T12:00:00Z", expired: false, workflow_run: { id: task19Context.runId, run_attempt: task19Context.runAttempt, head_sha: task19Context.headSha, repository: task19Context.repository, conclusion: "success" } } };
+};
+
+describe("Task19 protected artifact provider observation", () => {
+  test("authenticates metadata before archive bytes are downloaded", () => {
+    const value = task19Fixture();
+    expect(authenticateTask19ProviderArtifact(task19Context, [value.record])).toMatchObject({ artifactId: "3001", artifactName: expectedTask19ArtifactName("1001", 2), headSha: task19Context.headSha });
+  });
+
+  test("accepts only the exact current protected provider run identity and preserves authenticated size", () => {
+    const value = task19Fixture();
+    expect(observeTask19ProviderArtifact(task19Context, [value.record], value.archive).provider).toMatchObject({ headSha: task19Context.headSha, size: value.archive.byteLength });
+  });
+
+  test("rejects a provider run that has not concluded successfully before candidate acceptance", () => {
+    const value = task19Fixture();
+    const workflowRun = { id: task19Context.runId, run_attempt: task19Context.runAttempt, head_sha: task19Context.headSha, repository: task19Context.repository, conclusion: "failure" };
+    expect(() => authenticateTask19ProviderArtifact(task19Context, [{ ...value.record, workflow_run: workflowRun }])).toThrow("PROVIDER_RUN_UNSUCCESSFUL");
+  });
+
+  test("rejects artifact size mismatch independently of digest mismatch", () => {
+    const value = task19Fixture();
+    const record = { ...value.record, size_in_bytes: value.archive.byteLength + 1 };
+    expect(() => observeTask19ProviderArtifact(task19Context, [record], value.archive)).toThrow("PROVIDER_ARCHIVE_SIZE_MISMATCH");
+  });
+
+  test.each([
+    ["repository", { repository: "evil/repo" }],
+    ["run", { id: "999" }],
+    ["attempt", { run_attempt: 9 }],
+    ["current head SHA", { head_sha: "b".repeat(40) }],
+  ])("rejects wrong artifact workflow-run %s", (_name, patch) => {
+    const value = task19Fixture();
+    const workflowRun = { id: task19Context.runId, run_attempt: task19Context.runAttempt, head_sha: task19Context.headSha, repository: task19Context.repository, conclusion: "success", ...patch };
+    expect(() => observeTask19ProviderArtifact(task19Context, [{ ...value.record, workflow_run: workflowRun }], value.archive)).toThrow("PROVIDER_ARTIFACT_INVALID");
+  });
 });

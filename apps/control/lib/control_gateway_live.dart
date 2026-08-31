@@ -14,7 +14,13 @@ final class ControlLiveSession {
     required int maxFullResyncs,
   })  : _gateway = gateway,
         _socket = socket,
-        _watchedZones = Set.unmodifiable(watchedZones) {
+        _watchedZones = {...watchedZones} {
+    _events = StreamController<ControlEvent>.broadcast(
+      onListen: _flushPendingEvents,
+    );
+    _updates = StreamController<LiveResourceUpdate>.broadcast(
+      onListen: _flushPendingUpdates,
+    );
     _coordinator = EventSyncCoordinator(
       refetchInvalidated: _refetchInvalidated,
       fullResync: _fullResync,
@@ -33,16 +39,61 @@ final class ControlLiveSession {
   late final EventSyncCoordinator _coordinator;
   late final StreamSubscription<Object?> _subscription;
   final _ready = Completer<void>();
-  final _events = StreamController<ControlEvent>.broadcast();
-  final _updates = StreamController<LiveResourceUpdate>.broadcast();
+  late final StreamController<ControlEvent> _events;
+  late final StreamController<LiveResourceUpdate> _updates;
+  final _pendingEvents = <ControlEvent>[];
+  final _pendingEventErrors = <(Object, StackTrace?)>[];
+  final _pendingUpdates = <LiveResourceUpdate>[];
   Future<void> _eventTail = Future<void>.value();
   bool _active = true;
+  bool _closed = false;
 
   Future<void> get ready => _ready.future;
   bool get isActive => _active;
   int get fullResyncCount => _coordinator.fullResyncCount;
+  String? get serverEpoch => _coordinator.serverEpoch;
   Stream<ControlEvent> get events => _events.stream;
   Stream<LiveResourceUpdate> get updates => _updates.stream;
+
+  void watchZones(Set<ZoneId> zones) {
+    _watchedZones
+      ..clear()
+      ..addAll(zones);
+  }
+
+  void _emitEvent(ControlEvent event) {
+    if (_events.hasListener) {
+      _events.add(event);
+    } else {
+      _pendingEvents.add(event);
+    }
+  }
+
+  void _emitUpdate(LiveResourceUpdate update) {
+    if (_updates.hasListener) {
+      _updates.add(update);
+    } else {
+      _pendingUpdates.add(update);
+    }
+  }
+
+  void _flushPendingEvents() {
+    for (final event in _pendingEvents) {
+      _events.add(event);
+    }
+    _pendingEvents.clear();
+    for (final (error, stack) in _pendingEventErrors) {
+      _events.addError(error, stack);
+    }
+    _pendingEventErrors.clear();
+  }
+
+  void _flushPendingUpdates() {
+    for (final update in _pendingUpdates) {
+      _updates.add(update);
+    }
+    _pendingUpdates.clear();
+  }
 
   void _enqueue(Object? payload) {
     _eventTail = _eventTail.then((_) => _accept(payload));
@@ -56,14 +107,14 @@ final class ControlLiveSession {
       if (!_events.isClosed) {
         if (_coordinator.fullResyncCount > resyncsBefore &&
             event is! ControlResyncRequiredEvent) {
-          _events.add(
+          _emitEvent(
             ControlResyncRequiredEvent(
               serverEpoch: event.serverEpoch,
               sequence: event.sequence,
             ),
           );
         }
-        _events.add(event);
+        _emitEvent(event);
       }
       if (!_ready.isCompleted) {
         if (event is! ControlSnapshotEvent) {
@@ -77,16 +128,19 @@ final class ControlLiveSession {
   }
 
   Future<void> _refetchInvalidated(ControlInvalidationEvent event) async {
+    final scopedZones = event.resourceId == null
+        ? _watchedZones
+        : _watchedZones.where((zone) => zone.value == event.resourceId);
     switch (event.resource.known) {
       case ResourceKind.catalog:
-        _updates.add(
+        _emitUpdate(
           LiveResourceUpdate(
             resource: ResourceKind.catalog,
             value: await _gateway.catalog(),
           ),
         );
       case ResourceKind.zones:
-        _updates.add(
+        _emitUpdate(
           LiveResourceUpdate(
             resource: ResourceKind.zones,
             value: await _gateway.zones(),
@@ -94,8 +148,8 @@ final class ControlLiveSession {
         );
       case ResourceKind.queue:
       case ResourceKind.transport:
-        for (final zone in _watchedZones) {
-          _updates.add(
+        for (final zone in scopedZones) {
+          _emitUpdate(
             LiveResourceUpdate(
               resource: event.resource.known!,
               value: await _gateway.playbackState(zone),
@@ -103,8 +157,8 @@ final class ControlLiveSession {
           );
         }
       case ResourceKind.continuationPolicy:
-        for (final zone in _watchedZones) {
-          _updates.add(
+        for (final zone in scopedZones) {
+          _emitUpdate(
             LiveResourceUpdate(
               resource: ResourceKind.continuationPolicy,
               value: await _gateway.policy(zone),
@@ -117,26 +171,26 @@ final class ControlLiveSession {
   }
 
   Future<void> _fullResync() async {
-    _updates.add(
+    _emitUpdate(
       LiveResourceUpdate(
         resource: ResourceKind.catalog,
         value: await _gateway.catalog(),
       ),
     );
-    _updates.add(
+    _emitUpdate(
       LiveResourceUpdate(
         resource: ResourceKind.zones,
         value: await _gateway.zones(),
       ),
     );
     for (final zone in _watchedZones) {
-      _updates.add(
+      _emitUpdate(
         LiveResourceUpdate(
           resource: ResourceKind.queue,
           value: await _gateway.playbackState(zone),
         ),
       );
-      _updates.add(
+      _emitUpdate(
         LiveResourceUpdate(
           resource: ResourceKind.continuationPolicy,
           value: await _gateway.policy(zone),
@@ -147,7 +201,12 @@ final class ControlLiveSession {
 
   void _fail(Object error, [StackTrace? stack]) {
     if (!_ready.isCompleted) _ready.completeError(error, stack);
-    if (!_events.isClosed) _events.addError(error, stack);
+    if (_events.isClosed) return;
+    if (_events.hasListener) {
+      _events.addError(error, stack);
+    } else {
+      _pendingEventErrors.add((error, stack));
+    }
   }
 
   void _done() {
@@ -157,23 +216,32 @@ final class ControlLiveSession {
   Future<void> _finishAfterEvents() async {
     await _eventTail;
     _active = false;
-    _gateway._subscriptions.remove(this);
     if (!_ready.isCompleted) {
       _ready.completeError(
         const ServerOfflineFailure(
           message: 'Event stream closed before its snapshot.',
         ),
       );
+    } else {
+      _fail(
+        const ServerOfflineFailure(
+          message: 'Established event stream closed.',
+        ),
+      );
     }
   }
 
   Future<void> close() async {
-    if (!_active) return;
+    if (_closed) return;
+    _closed = true;
     _active = false;
     _gateway._subscriptions.remove(this);
     await _subscription.cancel();
     await _eventTail;
     await _socket.close();
+    _pendingEvents.clear();
+    _pendingEventErrors.clear();
+    _pendingUpdates.clear();
     await _events.close();
     await _updates.close();
   }

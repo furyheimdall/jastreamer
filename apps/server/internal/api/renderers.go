@@ -20,6 +20,8 @@ type RendererZoneAPI struct {
 	resources        rendererResources
 	sessions         *rendererSessionRegistry
 	onChanged        func(string, playback.Revision)
+	onZoneChanged    func(playback.ZoneID, playback.Revision)
+	onZoneDeleted    func(playback.ZoneID, playback.Revision)
 	operationMu      sync.Mutex
 	recoveryComplete bool
 	recoveryErr      error
@@ -74,7 +76,7 @@ func (handler *RendererZoneAPI) CreateZone(writer http.ResponseWriter, request *
 		return
 	}
 	if handler.onChanged != nil {
-		handler.onChanged("zones", zone.Revision)
+		handler.onZoneChanged(zone.ID, zone.Revision)
 	}
 	writeJSON(writer, http.StatusCreated, zoneResponse(zone))
 }
@@ -99,6 +101,47 @@ type rendererPayload struct {
 type zonesPayload struct {
 	Zones     []zonePayload     `json:"zones"`
 	Renderers []rendererPayload `json:"renderers"`
+}
+
+func (handler *RendererZoneAPI) DeleteZone(writer http.ResponseWriter, request *http.Request) {
+	if _, ok := handler.authenticateRole(writer, request, security.RoleAdmin); !ok {
+		return
+	}
+	key := request.Header.Get("Idempotency-Key")
+	if key == "" {
+		invalid(writer, "IDEMPOTENCY_KEY_REQUIRED", "Idempotency-Key header is required", http.StatusPreconditionRequired)
+		return
+	}
+	if key != strings.TrimSpace(key) || len(key) > 128 {
+		invalid(writer, "INVALID_IDEMPOTENCY_KEY", "Idempotency-Key must be exact and at most 128 characters", http.StatusBadRequest)
+		return
+	}
+	expected, ok := revisionHeader(writer, request)
+	if !ok {
+		return
+	}
+	result, err := handler.store.DeleteZone(request.Context(), playback.DeleteZoneRequest{
+		ZoneID: playback.ZoneID(request.PathValue("zoneID")), IdempotencyKey: key,
+		ExpectedRevision: playback.Revision(expected),
+	})
+	if err != nil {
+		writeError(writer, err)
+		return
+	}
+	writer.Header().Set("ETag", `"`+revisionString(result.Revision)+`"`)
+	writeJSON(writer, http.StatusOK, struct {
+		ZoneID   playback.ZoneID   `json:"zone_id"`
+		Revision playback.Revision `json:"revision"`
+	}{ZoneID: result.ZoneID, Revision: result.Revision})
+	if !result.Replayed {
+		if handler.onZoneDeleted != nil {
+			handler.onZoneDeleted(result.ZoneID, result.Revision)
+		} else if handler.onZoneChanged != nil {
+			handler.onZoneChanged(result.ZoneID, result.Revision)
+		} else if handler.onChanged != nil {
+			handler.onChanged("zones", result.Revision)
+		}
+	}
 }
 
 func (handler *RendererZoneAPI) ListZones(writer http.ResponseWriter, request *http.Request) {
@@ -175,7 +218,7 @@ func (handler *RendererZoneAPI) AssignRenderer(writer http.ResponseWriter, reque
 		return
 	}
 	if handler.onChanged != nil {
-		handler.onChanged("zones", result.Revision)
+		handler.onZoneChanged(result.ZoneID, result.Revision)
 	}
 	writer.Header().Set("ETag", `"`+revisionString(result.Revision)+`"`)
 	writeJSON(writer, http.StatusOK, struct {

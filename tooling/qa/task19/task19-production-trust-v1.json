@@ -1,0 +1,79 @@
+{
+  "schemaVersion": 1,
+  "kind": "task19_production_trust",
+  "status": "pending_external_roots",
+  "repository": "furyheimdall/jastreamer",
+  "providerWorkflowPath": ".github/workflows/product-qualification-dispatch.yml",
+  "providerEvent": "workflow_dispatch",
+  "candidateArtifactPrefix": "task19-exact-candidates-",
+  "authorization": {
+    "environment": "task19-qualification",
+    "publicKeyPath": "tooling/qa/task19/task19-authorization-public.pem",
+    "keyId": "1c40242e8970879b959a92bedd7d99dbeb156c5bf4300ffd7cb5b9d9333b5e3d",
+    "algorithm": "Ed25519",
+    "maxAgeSeconds": 900,
+    "physicalAuthorizationSha256": null
+  },
+  "driver": {
+    "path": "tooling/qa/task19/scenario-driver.ps1",
+    "sha256": "f604c3cb4cfcf4f9be41bbbea5c64655c85db52cef7312ebf2da82c35e75bf29",
+    "contract": "task19-installed-scenario-driver-v1",
+    "runtimeSha256": "e7092658735e2c539350d08af45031d09fbd5cf7e4ac317182ff150475e4dcb1"
+  },
+  "androidTools": {
+    "platformTools": {
+      "version": "37.0.1",
+      "url": "https://dl.google.com/android/repository/platform-tools_r37.0.1-win.zip",
+      "size": 8044989,
+      "sha256": "45f4d63113e895ebde0c90f194099a4676b6ac653bd28d54314a9e022bbc1a99"
+    },
+    "buildTools": {
+      "version": "35.0.0",
+      "url": "https://dl.google.com/android/repository/build-tools_r35_windows.zip",
+      "size": 59878107,
+      "sha256": "5753c679a1b90bcf6fbc9945a2ce39dfb9e74f1df0831a1e1866ae5b594326f0"
+    }
+  },
+  "identities": {
+    "androidApplicationId": "io.jastreamer.control",
+    "windowsPackageName": "io.jastreamer.control",
+    "serverUpgradeCode": "67C753EA-8D02-4F04-B37B-B96682B40F53",
+    "rendererUpgradeCode": "7A1C1C18-2E7D-4D2A-9B1D-0AB5F1D2E901",
+    "msixCertificateSha256": null,
+    "apkLineageSha256": null
+  },
+  "qualification": {
+    "ready": false,
+    "k17": null,
+    "wasapi": null,
+    "harness": null,
+    "runtime": {
+      "harnessPath": "tooling/qa/task19/installed-product-harness.mjs",
+      "harnessSha256": "d8a96496d074752fa3c5d119ffa2a8ee6be99de09b8318543e9f25a845814f79",
+      "scenarioContractPath": "tooling/qa/task19/scenario-contract.mjs",
+      "scenarioContractSha256": "0f3bded0dc68b0b00d34541b0f77bae3346f8ccef41ae849b0d7ba04376abebe",
+      "scenarioProvisionerPath": "tooling/qa/task19/task19-scenario-provisioner.mjs",
+      "nativeCapturePath": "tooling/qa/task19/task19-native-capture.mjs",
+      "nativeCaptureSha256": "b9c80dc848c9bdeefe4d5bf95fb214f1b8bf0deadc14b5c6eec1021274c1a311",
+      "scenarioProvisionerSha256": "3ea767cace12679d9df6fd6d80c7ad3aa0c12d1316bc13454b34bc3db9980b2c",
+      "webOriginPath": "tooling/qa/task19/task19-web-origin.mjs",
+      "webOriginSha256": "56f63eb70badcb56e13b3cb68cfb742de99e31ce8e6557bf7b2db544d69d6db4",
+      "tlsIdentityGeneratorPath": "tooling/qa/task19/task19-tls-identity.mjs",
+      "tlsIdentityGeneratorSha256": "ff8ab6ed16a7d1bfaa9b0f914a66c2aa30329c670aa176a3d5cd9cc97bb2f82d",
+      "tlsConstraints": {
+        "kind": "task19-run-ephemeral-tls",
+        "originHost": "loopback_dns",
+        "originPort": "ephemeral",
+        "minimumTlsVersion": "TLSv1.3",
+        "privateKeyPersistence": "protected-run-only",
+        "browserTrust": "exact-spki"
+      },
+      "operationAdapterPath": "tooling/qa/task19/task19-operation-adapter.mjs",
+      "operationAdapterSha256": "4a7d7cecaafa407da6b762d82941320489a9905232380a9432a299380ae48119",
+      "inventoryAdapterPath": "tooling/qa/task19/task19-inventory-adapter.mjs",
+      "inventoryAdapterSha256": "50a41e91df77649471f2d484ae3027efce0594628e1836098215880100d7a707",
+      "processAdapterPath": "tooling/qa/task19/task19-process-adapter.mjs",
+      "processAdapterSha256": "6c0bf1c89ffd34647f6d841b149317d67e23f1704f9d4e51cac7c2c5564960b8"
+    }
+  }
+}

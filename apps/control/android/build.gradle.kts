@@ -3,6 +3,16 @@ allprojects {
         google()
         mavenCentral()
     }
+    configurations.configureEach {
+        resolutionStrategy.eachDependency {
+            if (requested.version?.endsWith("+") != true) return@eachDependency
+            when ("${requested.group}:${requested.name}") {
+                "androidx.test.espresso:espresso-core" -> useVersion("3.2.0")
+                "androidx.test:runner" -> useVersion("1.2.0")
+                "androidx.test:rules" -> useVersion("1.2.0")
+            }
+        }
+    }
 }
 
 val newBuildDir: Directory =

@@ -23,12 +23,23 @@ import (
 )
 
 type liveServer struct {
-	url    string
-	client *http.Client
-	stop   func() error
+	url         string
+	fingerprint string
+	client      *http.Client
+	stop        func() error
 }
 
 func startLiveServer(t *testing.T, directory string) liveServer {
+	t.Helper()
+	return startLiveServerConfig(t, serverConfig{
+		address: "127.0.0.1:0", dataDirectory: directory, catalogRoot: filepath.Join(directory, "media"),
+		catalogMigrationPath: "../../migrations/001_catalog.sql", playbackMigrationPath: "../../migrations/002_playback.sql",
+		playbackExpansionPath: "../../migrations/003_todo12.sql", setupSecret: "integration-setup",
+		certificateDNS: []string{"localhost"}, certificateIPs: []net.IP{net.ParseIP("127.0.0.1")}, pairingTTL: 5 * time.Minute,
+	})
+}
+
+func startLiveServerConfig(t *testing.T, config serverConfig) liveServer {
 	t.Helper()
 	ctx, cancel := context.WithCancel(t.Context())
 	reader, writer, err := os.Pipe()
@@ -40,12 +51,7 @@ func startLiveServer(t *testing.T, directory string) liveServer {
 	defer func() { os.Stdout = stdout }()
 	done := make(chan error, 1)
 	go func() {
-		done <- run(ctx, serverConfig{
-			address: "127.0.0.1:0", dataDirectory: directory, catalogRoot: filepath.Join(directory, "media"),
-			catalogMigrationPath: "../../migrations/001_catalog.sql", playbackMigrationPath: "../../migrations/002_playback.sql",
-			playbackExpansionPath: "../../migrations/003_todo12.sql", setupSecret: "integration-setup",
-			certificateDNS: []string{"localhost"}, certificateIPs: []net.IP{net.ParseIP("127.0.0.1")}, pairingTTL: 5 * time.Minute,
-		})
+		done <- run(ctx, config)
 	}()
 	lineReady := make(chan string, 1)
 	readError := make(chan error, 1)
@@ -60,6 +66,9 @@ func startLiveServer(t *testing.T, directory string) liveServer {
 	var line string
 	select {
 	case line = <-lineReady:
+	case runErr := <-done:
+		cancel()
+		t.Fatalf("server exited before readiness: %v", runErr)
 	case readErr := <-readError:
 		cancel()
 		t.Fatalf("read readiness: %v", readErr)
@@ -90,7 +99,7 @@ func startLiveServer(t *testing.T, directory string) liveServer {
 		})
 		return stopErr
 	}
-	server := liveServer{url: fields[1], client: &http.Client{Transport: transport, Timeout: 5 * time.Second}, stop: stop}
+	server := liveServer{url: fields[1], fingerprint: strings.TrimPrefix(fields[2], "fingerprint="), client: &http.Client{Transport: transport, Timeout: 5 * time.Second}, stop: stop}
 	t.Cleanup(func() {
 		if runErr := server.stop(); runErr != nil {
 			t.Errorf("run shutdown: %v", runErr)

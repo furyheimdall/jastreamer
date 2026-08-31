@@ -10,6 +10,33 @@ import 'package:jastreamer_control/control_theme.dart';
 import 'package:jastreamer_control/credential_vault.dart';
 
 void main() {
+  testWidgets('discovery closes its short-lived identity client', (
+    tester,
+  ) async {
+    final clients = <_CloseTrackingClient>[];
+    final platform = ControlPlatform(
+      clientFactory: (_) {
+        final client = _CloseTrackingClient();
+        clients.add(client);
+        return client;
+      },
+      vault: SerializedCredentialVault(MemoryCredentialVaultStorage()),
+      launcher: const _FixtureLauncher(),
+    );
+    await tester.pumpWidget(
+      ControlApp(
+        platform: platform,
+        initialServer: Uri.parse('https://living.local:8443'),
+      ),
+    );
+
+    await tester.tap(find.text('Discover Server'));
+    await tester.pumpAndSettle();
+
+    expect(clients, hasLength(1));
+    expect(clients.single.closeCount, 1);
+  });
+
   testWidgets('Given startup When rendered Then discovery is the first task', (
     tester,
   ) async {
@@ -291,4 +318,27 @@ final class _FixtureLauncher implements ExternalLauncher {
   @override
   Future<bool> open(Uri uri) async =>
       uri == Uri.parse('https://living.local:8443/pair/');
+}
+
+final class _CloseTrackingClient extends http.BaseClient {
+  int closeCount = 0;
+
+  @override
+  Future<http.StreamedResponse> send(http.BaseRequest request) async {
+    final body = jsonEncode({
+      'common_name': 'jastreamer Server',
+      'sha256_fingerprint': 'AABB',
+      'pairing_url': '/pair/',
+    });
+    return http.StreamedResponse(
+      Stream.value(utf8.encode(body)),
+      200,
+      headers: {'content-type': 'application/json'},
+    );
+  }
+
+  @override
+  void close() {
+    closeCount++;
+  }
 }

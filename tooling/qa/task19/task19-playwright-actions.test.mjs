@@ -1,0 +1,7 @@
+import { describe, expect, test } from "bun:test";
+import { activateTask19Flutter, replaceTask19FlutterText } from "./task19-playwright-actions.mjs";
+const locator = ({ value = "", visible = true, enabled = true, bounds = {}, focused = true } = {}) => ({ isVisible: async () => visible, isEnabled: async () => enabled, boundingBox: async () => bounds, focus: async () => {}, inputValue: async () => value, pressSequentially: async (next) => { value += next; }, evaluate: async (read) => read({ value, getAttribute: (name) => name === "role" ? "textbox" : null }) || focused, click: async ({ trial } = {}) => { if (trial && (!visible || !enabled)) throw new Error("not actionable"); } });
+describe("Task19 real Flutter semantic actions", () => {
+  test("activates the CanvasKit text input before keyboard input and verifies the resulting value", async () => { const keys = []; let clicks = 0; const field = locator(); field.click = async ({ trial } = {}) => { if (!trial) clicks++; }; field.evaluate = async () => true; const page = { keyboard: { press: async (key) => keys.push(key) } }; expect((await replaceTask19FlutterText(page, field, "https://127.0.0.1:8443")).value).toBeUndefined(); expect(clicks).toBe(1); expect(keys).toEqual([]); });
+  test("rejects a stale or disabled semantic action before activation", async () => { const page = { keyboard: { press: async () => {} } }; await expect(activateTask19Flutter(page, locator({ enabled: false }))).rejects.toThrow("TASK19_FLUTTER_ACTION_NOT_ACTIONABLE"); });
+});

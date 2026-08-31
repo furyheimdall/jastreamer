@@ -56,10 +56,12 @@ final class ServerIdentity {
 }
 
 final class ControlEndpoint {
-  const ControlEndpoint({
+  ControlEndpoint({
     required this.client,
     required this.origin,
     this.certificateSha256 = '',
+    this.eventSocketFactory,
+    this.closeClient,
   });
   factory ControlEndpoint.certificateBound({
     required Uri origin,
@@ -74,7 +76,16 @@ final class ControlEndpoint {
   final http.Client client;
   final Uri origin;
   final String certificateSha256;
-  void close() => client.close();
+  final EventSocketFactory? eventSocketFactory;
+  final void Function()? closeClient;
+  void close() {
+    final release = closeClient;
+    if (release == null) {
+      client.close();
+    } else {
+      release();
+    }
+  }
 
   Future<ServerIdentity> identity() async {
     try {
@@ -101,8 +112,9 @@ final class ControlEndpoint {
         origin: origin,
         token: token,
         certificateSha256: certificateSha256 ?? this.certificateSha256,
-        eventSocketFactory: eventSocketFactory,
+        eventSocketFactory: eventSocketFactory ?? this.eventSocketFactory,
         onCredentialInvalidated: onCredentialInvalidated,
+        closeClient: closeClient,
       );
 }
 
@@ -123,8 +135,10 @@ final class HttpControlGateway {
     this.certificateSha256 = '',
     EventSocketFactory? eventSocketFactory,
     FutureOr<void> Function()? onCredentialInvalidated,
+    void Function()? closeClient,
   })  : _eventSocketFactory = eventSocketFactory ?? createEventSocketFactory(),
-        _onCredentialInvalidated = onCredentialInvalidated;
+        _onCredentialInvalidated = onCredentialInvalidated,
+        _closeClient = closeClient;
 
   final http.Client client;
   final Uri origin;
@@ -132,8 +146,11 @@ final class HttpControlGateway {
   final String certificateSha256;
   final EventSocketFactory _eventSocketFactory;
   final FutureOr<void> Function()? _onCredentialInvalidated;
+  final void Function()? _closeClient;
   int? _protocolMajor;
   bool _credentialInvalidated = false;
+  bool _closed = false;
+  Future<void>? _closing;
   final Set<ControlLiveSession> _subscriptions = {};
 
   int? get negotiatedProtocolMajor => _protocolMajor;
@@ -147,10 +164,29 @@ final class HttpControlGateway {
         if (_protocolMajor case final major?) 'x-jake-protocol-major': '$major',
       };
 
-  void close() {
-    for (final subscription in _subscriptions.toList(growable: false)) {
-      unawaited(subscription.close());
+  Future<void> close() {
+    if (_closed) return Future<void>.value();
+    final activeClose = _closing;
+    if (activeClose != null) return activeClose;
+    final closing = _close();
+    _closing = closing;
+    return closing.whenComplete(() {
+      if (identical(_closing, closing)) _closing = null;
+    });
+  }
+
+  Future<void> _close() async {
+    await Future.wait(
+      _subscriptions
+          .toList(growable: false)
+          .map((subscription) => subscription.close()),
+    );
+    final release = _closeClient;
+    if (release == null) {
+      client.close();
+    } else {
+      release();
     }
-    client.close();
+    _closed = true;
   }
 }

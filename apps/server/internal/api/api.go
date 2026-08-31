@@ -89,6 +89,12 @@ func New(config Config) http.Handler {
 			service.publishState(resource, revision)
 		})
 		service.rendererRoutes.media = config.Media
+		service.rendererRoutes.onZoneChanged = func(zoneID playback.ZoneID, revision playback.Revision) {
+			service.eventHub.publishScopedInvalidation("zones", string(zoneID), uint64(revision))
+		}
+		service.rendererRoutes.onZoneDeleted = func(zoneID playback.ZoneID, revision playback.Revision) {
+			service.eventHub.publishZoneDeletion(string(zoneID), uint64(revision))
+		}
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", service.health)
@@ -129,6 +135,7 @@ func New(config Config) http.Handler {
 	if service.rendererRoutes != nil {
 		mux.HandleFunc("POST /api/v1/zones", service.rendererRoutes.CreateZone)
 		mux.HandleFunc("GET /api/v1/zones", service.rendererRoutes.ListZones)
+		mux.HandleFunc("DELETE /api/v1/zones/{zoneID}", service.rendererRoutes.DeleteZone)
 		mux.HandleFunc("PUT /api/v1/zones/{zoneID}/renderer", service.rendererRoutes.AssignRenderer)
 		mux.HandleFunc("GET /api/v1/renderers/{rendererID}/session", service.rendererRoutes.AuthorizeRendererSession)
 		mux.HandleFunc("GET /api/v1/renderers/{rendererID}/media", service.rendererRoutes.AuthorizeRendererMedia)

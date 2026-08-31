@@ -19,9 +19,15 @@ extension _ControlAppPairing on _ControlHomeState {
         certificateSha256: advertisedFingerprint,
         pairing: PairingStatus.available,
       );
-      final identity = advertisedFingerprint.isEmpty
-          ? await platform.probe(serverOrigin).identity()
-          : await platform.endpoint(candidate).identity();
+      final identityEndpoint = advertisedFingerprint.isEmpty
+          ? platform.probe(serverOrigin)
+          : platform.endpoint(candidate);
+      late final ServerIdentity identity;
+      try {
+        identity = await identityEndpoint.identity();
+      } finally {
+        identityEndpoint.close();
+      }
       if (advertisedFingerprint.isNotEmpty &&
           !advertisedFingerprintsEqual(
             identity.certificateSha256,
@@ -132,21 +138,22 @@ extension _ControlAppPairing on _ControlHomeState {
       ControlLiveSession? loadedSession;
       ZoneId loadedZone = selectedZone;
       if ((connected.negotiatedProtocolMajor ?? 0) >= 3) {
+        loadedSession = await connected.subscribe();
         loadedInventory = await connected.zones();
         if (loadedInventory.zones.isEmpty) {
           throw const FormatException('Server has no playback zones.');
         }
         loadedZone = loadedInventory.zones.first.id;
+        loadedSession.watchZones({loadedZone});
         loadedPlayback = await connected.playbackState(loadedZone);
         loadedPage = await connected.browseCatalog(limit: 100);
-        loadedSession = await connected.subscribe(watchedZones: {loadedZone});
       }
       if (persist) await platform.vault.save(credential);
       if (!mounted) {
         await loadedSession?.close();
         return;
       }
-      gateway?.close();
+      await gateway?.close();
       _update(() {
         gateway = connected;
         catalog = loadedCatalog;
@@ -166,7 +173,7 @@ extension _ControlAppPairing on _ControlHomeState {
       });
       if (loadedSession != null) await _listenToLiveUpdates(loadedSession);
     } on Object catch (failure, stack) {
-      connected.close();
+      await connected.close();
       try {
         await platform.vault.delete();
       } on Object {

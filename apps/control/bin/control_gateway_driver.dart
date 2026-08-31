@@ -58,7 +58,7 @@ Future<void> main(List<String> arguments) async {
         throw FormatException('Unknown driver mode: $mode');
     }
   } finally {
-    gateway.close();
+    await gateway.close();
   }
 }
 

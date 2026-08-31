@@ -9,6 +9,18 @@ import (
 	"testing"
 )
 
+func TestIndexPreviousTracks_preserves_path_and_unique_fingerprint_semantics(t *testing.T) {
+	tracks := map[TrackID]Track{
+		"one":   {TrackID: "one", RelativePath: "one.wav", Fingerprint: "shared"},
+		"two":   {TrackID: "two", RelativePath: "two.wav", Fingerprint: "shared"},
+		"three": {TrackID: "three", RelativePath: "three.wav", Fingerprint: "unique"},
+	}
+	byPath, byFingerprint := indexPreviousTracks(tracks)
+	if len(byPath) != 3 || byPath["two.wav"].TrackID != "two" || byFingerprint["shared"].count != 2 || byFingerprint["unique"].count != 1 || byFingerprint["unique"].track.TrackID != "three" {
+		t.Fatalf("indexes = paths:%+v fingerprints:%+v", byPath, byFingerprint)
+	}
+}
+
 func TestIncrementalIndexStable_when_files_are_unchanged(t *testing.T) {
 	// Given
 	root := copyFixtureTree(t)

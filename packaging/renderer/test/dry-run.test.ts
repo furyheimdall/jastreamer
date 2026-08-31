@@ -31,6 +31,24 @@ const run = async (
 };
 
 describe("Renderer release dry-run", () => {
+  test("keeps package protocol metadata aligned with the runtime hello", () => {
+    const config = JSON.parse(
+      readFileSync(join(root, "packaging/renderer/config.json"), "utf8"),
+    );
+    const cli = readFileSync(
+      join(root, "packaging/renderer/tooling/cli.ts"),
+      "utf8",
+    );
+    const runtime = readFileSync(
+      join(root, "apps/renderer/src/session_messages.rs"),
+      "utf8",
+    );
+
+    expect(config.protocol.supportedMajors).toEqual([3, 2]);
+    expect(cli).toContain("new Set([3, 2])");
+    expect(runtime).toContain("supported_majors: [3, 2]");
+  });
+
   test("rejects an unsupported protocol major atomically", async () => withTemporaryDirectory(async (directory) => {
     const output = join(directory, "release");
     writeFileSync(output, "immutable");

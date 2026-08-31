@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
-import { readFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { existsSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { validateInstalledProductReceipt } from "../qa/task19/product-e2e-receipt.mjs";
 import { validateQualificationReceipt } from "../qa/k17/receipt.mjs";
@@ -11,13 +12,25 @@ const repository = resolve(import.meta.dirname, "../..");
 const evidence = resolve(process.argv[2] ?? ".omo/evidence/functional-jastreamer-products/task-22/current-verifier");
 const root = join(evidence, "authenticated-gate");
 const staged = join(repository, ".omo/evidence/functional-jastreamer-products/task-19/staged");
-const manifestBytes = readFileSync(join(staged, "artifact-set-manifest.json")); const manifest = JSON.parse(manifestBytes);
-for (const item of manifest.artifacts) if (sha256(readFileSync(join(staged, item.name))) !== item.sha256) throw new Error(`CURRENT_ARTIFACT_DIGEST_MISMATCH:${item.name}`);
-const receipt = JSON.parse(readFileSync(join(root, "product-gate.json"))); const scan = JSON.parse(readFileSync(join(root, receipt.currentAudit.path)));
-if (scan.task19ManifestSha256 !== sha256(manifestBytes) || scan.artifacts.length !== manifest.artifacts.length) throw new Error("CURRENT_AUDIT_STALE");
-const now = new Date().toISOString(); const k17 = JSON.parse(readFileSync(join(repository, ".omo/evidence/functional-jastreamer-products/task-20/receipt.json"))); const wasapi = JSON.parse(readFileSync(join(repository, ".omo/evidence/functional-jastreamer-products/task-21/status.json")));
-const adapters = { todo19: validateInstalledProductReceipt(manifest, { now, root: staged }), k17: validateQualificationReceipt(k17, { now, candidateSha256: k17.candidate_sha256, runnerLabel: "" }), wasapi: validateWindowsAudioReceipt(wasapi, { now, expectedBinding: {} }) };
-if (JSON.stringify(adapters) !== JSON.stringify(scan.adapters)) throw new Error("CURRENT_ADAPTER_RESULT_DRIFT");
-const denial = verifyProductGate(join(root, "product-gate.json"), { root, now, profile: "current-audit", repositoryRoot: repository, trustConfigPath: "tooling/release/product-gate-current-audit-trust-v1.json", mutationLedgerPath: join(root, "evidence/cleanup/external-mutation-ledger.jsonl") });
-if (denial.code !== "CURRENT_AUDIT_NON_PROMOTABLE" || denial.externalMutations !== 0) throw new Error("CURRENT_AUDIT_NOT_DENIED");
-console.log(JSON.stringify({ denied: denial.code, exactArtifacts: scan.availableCount, publicCandidates: scan.publicCandidateCount, adapters, externalMutations: denial.externalMutations }));
+const candidatePath = join(repository, ".omo/evidence/functional-jastreamer-products/final/stage-exact-server-control-candidates.json");
+
+if (!existsSync(join(root, "product-gate.json"))) {
+  const receiptPath = join(repository, ".omo/evidence/functional-jastreamer-products/final/task19-installed-qualification-execution-receipt.json");
+  const receipt = JSON.parse(readFileSync(receiptPath)); const candidateSha256 = sha256(readFileSync(candidatePath)); const recorded = receipt.currentRevalidation;
+  if (receipt.kind !== "task19_installed_qualification_execution_receipt" || receipt.status !== "awaiting_external_authorization" || receipt.releaseQualificationPending !== true || receipt.nativeQualificationClaimed !== false || recorded?.candidateRecord?.sha256 !== candidateSha256 || recorded?.officialGenerator?.code !== "SIGNED_MSIX_REQUIRED") throw new Error("AUTHORITATIVE_PENDING_RECEIPT_INVALID");
+  const observed = spawnSync(process.execPath, ["tooling/qa/task19/installed-runner.mjs", "--candidates", ".omo/evidence/functional-jastreamer-products/final/stage-exact-server-control-candidates.json", "--dry-run"], { cwd: repository, encoding: "utf8" });
+  const denial = JSON.parse(observed.stdout);
+  if (observed.status !== 77 || denial.code !== "SIGNED_MSIX_REQUIRED" || denial.productCommandsExecuted !== 0 || denial.externalWrites !== 0 || denial.cleanupComplete !== true) throw new Error("CURRENT_CANDIDATE_NOT_DENIED");
+  console.log(JSON.stringify({ denied: denial.code, authority: "pending-gate-receipt", candidateSha256, productCommandsExecuted: denial.productCommandsExecuted, externalMutations: denial.externalWrites, nativeQualificationClaimed: false }));
+} else {
+  const manifestBytes = readFileSync(join(staged, "artifact-set-manifest.json")); const manifest = JSON.parse(manifestBytes);
+  for (const item of manifest.artifacts) if (sha256(readFileSync(join(staged, item.name))) !== item.sha256) throw new Error(`CURRENT_ARTIFACT_DIGEST_MISMATCH:${item.name}`);
+  const receipt = JSON.parse(readFileSync(join(root, "product-gate.json"))); const scan = JSON.parse(readFileSync(join(root, receipt.currentAudit.path)));
+  if (scan.task19ManifestSha256 !== sha256(manifestBytes) || scan.artifacts.length !== manifest.artifacts.length) throw new Error("CURRENT_AUDIT_STALE");
+  const now = new Date().toISOString(); const k17 = JSON.parse(readFileSync(join(repository, ".omo/evidence/functional-jastreamer-products/task-20/receipt.json"))); const wasapi = JSON.parse(readFileSync(join(repository, ".omo/evidence/functional-jastreamer-products/task-21/status.json")));
+  const adapters = { todo19: validateInstalledProductReceipt(manifest, { now, root: staged }), k17: validateQualificationReceipt(k17, { now, candidateSha256: k17.candidate_sha256, runnerLabel: "" }), wasapi: validateWindowsAudioReceipt(wasapi, { now, expectedBinding: {} }) };
+  if (JSON.stringify(adapters) !== JSON.stringify(scan.adapters)) throw new Error("CURRENT_ADAPTER_RESULT_DRIFT");
+  const denial = verifyProductGate(join(root, "product-gate.json"), { root, now, profile: "current-audit", repositoryRoot: repository, trustConfigPath: "tooling/release/product-gate-current-audit-trust-v1.json", mutationLedgerPath: join(root, "evidence/cleanup/external-mutation-ledger.jsonl") });
+  if (denial.code !== "CURRENT_AUDIT_NON_PROMOTABLE" || denial.externalMutations !== 0) throw new Error("CURRENT_AUDIT_NOT_DENIED");
+  console.log(JSON.stringify({ denied: denial.code, exactArtifacts: scan.availableCount, publicCandidates: scan.publicCandidateCount, adapters, externalMutations: denial.externalMutations }));
+}

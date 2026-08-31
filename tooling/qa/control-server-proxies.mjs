@@ -12,7 +12,11 @@ export const startEventGapProxySidecar = async (todo13, controlOrigin) => {
     todo13.directory,
     todo13.fingerprint,
     controlOrigin ?? '',
-  ], { stdio: ['pipe', 'pipe', 'pipe'] });
+  ], {
+    detached: process.platform !== 'win32',
+    stdio: ['pipe', 'pipe', 'pipe'],
+  });
+  child.controlQaProcessGroup = process.platform !== 'win32';
   let stderr = '';
   let stdout = '';
   const records = [];
@@ -65,6 +69,7 @@ export const startEventGapProxySidecar = async (todo13, controlOrigin) => {
   return {
     origin: ready.origin,
     fingerprint: todo13.fingerprint,
+    spkiPinBase64: todo13.spkiPinBase64,
     close: () => stopChild(child),
     dropped,
     dropNextInvalidation: () => {
@@ -233,6 +238,7 @@ export const startEventGapProxy = async (todo13, controlOrigin) => {
     server,
     origin: `https://127.0.0.1:${address.port}`,
     fingerprint: todo13.fingerprint,
+    spkiPinBase64: todo13.spkiPinBase64,
     close: connections.close,
     dropped,
     dropNextInvalidation: () => new Promise((resolve) => {

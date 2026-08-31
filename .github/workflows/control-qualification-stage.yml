@@ -1,0 +1,148 @@
+name: control-qualification-stage
+
+on:
+  workflow_call:
+    inputs:
+      version: { required: true, type: string }
+      candidate_tag: { required: true, type: string }
+      caller_run_id: { required: true, type: string }
+      caller_run_attempt: { required: true, type: string }
+      caller_ref: { required: true, type: string }
+      caller_sha: { required: true, type: string }
+    outputs:
+      caller_run_id: { value: '${{ jobs.stage.outputs.caller_run_id }}' }
+      caller_run_attempt: { value: '${{ jobs.stage.outputs.caller_run_attempt }}' }
+      caller_ref: { value: '${{ jobs.stage.outputs.caller_ref }}' }
+      caller_sha: { value: '${{ jobs.stage.outputs.caller_sha }}' }
+      called_workflow_path: { value: '${{ jobs.stage.outputs.called_workflow_path }}' }
+      called_job: { value: '${{ jobs.stage.outputs.called_job }}' }
+      called_output_identity: { value: '${{ jobs.stage.outputs.called_output_identity }}' }
+      artifact_id: { value: '${{ jobs.stage.outputs.artifact_id }}' }
+      artifact_digest: { value: '${{ jobs.stage.outputs.artifact_digest }}' }
+      artifact_name: { value: '${{ jobs.stage.outputs.artifact_name }}' }
+      staging_binding_artifact_id: { value: '${{ jobs.stage.outputs.staging_binding_artifact_id }}' }
+      staging_binding_artifact_digest: { value: '${{ jobs.stage.outputs.staging_binding_artifact_digest }}' }
+      staging_binding_artifact_name: { value: '${{ jobs.stage.outputs.staging_binding_artifact_name }}' }
+      staging_binding_sha256: { value: '${{ jobs.stage.outputs.staging_binding_sha256 }}' }
+
+permissions:
+  contents: read
+
+jobs:
+  stage:
+    if: github.repository == 'furyheimdall/jastreamer'
+    runs-on: ubuntu-24.04
+    outputs:
+      caller_run_id: ${{ steps.metadata.outputs.caller_run_id }}
+      caller_run_attempt: ${{ steps.metadata.outputs.caller_run_attempt }}
+      caller_ref: ${{ steps.metadata.outputs.caller_ref }}
+      caller_sha: ${{ steps.metadata.outputs.caller_sha }}
+      called_workflow_path: .github/workflows/control-qualification-staging.yml
+      called_job: control
+      called_output_identity: jobs.stage.outputs
+      artifact_id: ${{ steps.publication-stage.outputs.artifact-id }}
+      artifact_digest: ${{ steps.publication-stage.outputs.artifact-digest }}
+      artifact_name: control-publication-stage-${{ github.run_id }}-${{ github.run_attempt }}
+      staging_binding_artifact_id: ${{ steps.staging-binding.outputs.artifact-id }}
+      staging_binding_artifact_digest: ${{ steps.staging-binding.outputs.artifact-digest }}
+      staging_binding_artifact_name: control-publication-staging-binding-${{ github.run_id }}-${{ github.run_attempt }}
+      staging_binding_sha256: ${{ steps.metadata.outputs.staging_binding_sha256 }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with: { persist-credentials: false }
+      - name: Install exact jq
+        run: |
+          ./packaging/control/install-linux-tools.sh "$RUNNER_TEMP/control-release-tools"
+          echo "$RUNNER_TEMP/control-release-tools" >> "$GITHUB_PATH"
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with: { name: control-web-candidate-ci, path: incoming }
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with: { name: control-android-candidate-ci, path: incoming }
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with: { name: control-windows-candidate-ci, path: incoming }
+      - name: Enforce public allowlist and generate release records
+        env:
+          VERSION: ${{ inputs.version }}
+          CANDIDATE_TAG: ${{ inputs.candidate_tag }}
+        run: |
+          set -euo pipefail
+          mkdir stage
+          find incoming -type f -exec cp {} stage/ \;
+          cp LICENSE stage/Apache-2.0.txt
+          cp tooling/policy/THIRD_PARTY_NOTICES.generated stage/THIRD_PARTY_NOTICES
+          mapfile -t public < <(find stage -maxdepth 1 -type f \( -name '*.zip' -o -name '*.msix' -o -name '*.apk' \) -printf '%f\n' | sort)
+          expected=("jastreamer-control_${VERSION}_android_universal.apk" "jastreamer-control_${VERSION}_web.zip" "jastreamer-control_${VERSION}_windows.msix")
+          test "${public[*]}" = "${expected[*]}"
+          ! find stage -type f \( -name '*.aab' -o -name '*.jks' -o -name '*.keystore' -o -name '*.pfx' -o -name '*.p12' -o -name '*.key' \) | grep -q .
+          for name in "${public[@]}"; do sha256sum "stage/$name"; done > stage/SHA256SUMS
+          subjects=$(for name in "${public[@]}"; do jq -n --arg name "$name" --arg sha "$(sha256sum "stage/$name" | cut -d' ' -f1)" '{name:$name,digest:{sha256:$sha}}'; done | jq -s .)
+          jq -n --argjson subjects "$subjects" '{spdxVersion:"SPDX-2.3",dataLicense:"CC0-1.0",SPDXID:"SPDXRef-DOCUMENT",name:"jastreamer Control release",packages:[$subjects[]|{name:.name,SPDXID:("SPDXRef-"+.digest.sha256),downloadLocation:"NOASSERTION",filesAnalyzed:false,licenseConcluded:"Apache-2.0",licenseDeclared:"Apache-2.0",checksums:[{algorithm:"SHA256",checksumValue:.digest.sha256}]}]}' > stage/SBOM.spdx.json
+          jq -n --argjson subject "$subjects" --arg revision "$GITHUB_SHA" --arg tag "$CANDIDATE_TAG" '{_type:"https://in-toto.io/Statement/v1",subject:$subject,predicateType:"https://slsa.dev/provenance/v1",predicate:{buildDefinition:{buildType:"https://github.com/furyheimdall/jastreamer/control-candidate@v1",externalParameters:{candidateTag:$tag,publish:false}},runDetails:{builder:{id:"github-actions:control-release"},metadata:{sourceRevision:$revision}}}}' > stage/PROVENANCE.intoto.json
+          records=$(for name in "${public[@]}"; do jq -n --arg name "$name" --arg sha "$(sha256sum "stage/$name" | cut -d' ' -f1)" '{name:$name,sha256:$sha}'; done | jq -s .)
+          jq -n --arg tag "$CANDIDATE_TAG" --arg revision "$GITHUB_SHA" --argjson artifacts "$records" '{schema:1,component:"control",tag:$tag,source_revision:$revision,promotionReady:false,artifacts:$artifacts}' > stage/manifest.json
+          (cd stage && sha256sum * | sort -k2 > SHA256SUMS)
+          manifest_sha256=$(sha256sum stage/manifest.json | cut -d' ' -f1)
+          artifact_set_sha256=$(sha256sum stage/SHA256SUMS | cut -d' ' -f1)
+          jq -n --arg manifest_sha256 "$manifest_sha256" --arg artifact_set_sha256 "$artifact_set_sha256" --arg revision "$GITHUB_SHA" '{schema:1,candidate:{status:"staged",component:"control",manifest_sha256:$manifest_sha256,artifact_set_sha256:$artifact_set_sha256,source_revision:$revision},external_writes:[]}' > stage/candidate.json
+          mkdir publication-stage
+          for name in "${public[@]}"; do cp -- "stage/$name" "publication-stage/$name"; done
+          test "$(find publication-stage -maxdepth 1 -type f | wc -l)" -eq 3
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: control-candidate-ci
+          path: stage
+          if-no-files-found: error
+      - name: Embed authoritative reusable-workflow metadata
+        env:
+          CALLER_RUN_ID: ${{ inputs.caller_run_id || github.run_id }}
+          CALLER_RUN_ATTEMPT: ${{ inputs.caller_run_attempt || github.run_attempt }}
+          CALLER_REF: ${{ inputs.caller_ref || github.ref }}
+          CALLER_SHA: ${{ inputs.caller_sha || github.sha }}
+        run: |
+          set -euo pipefail
+          mkdir qualification
+          cp stage/manifest.json qualification/content-manifest.json
+          content_manifest_sha256=$(sha256sum qualification/content-manifest.json | cut -d' ' -f1)
+          contract_sha256=$(sha256sum tooling/release/qualification-artifact.schema.json | cut -d' ' -f1)
+          jq -n --arg component control --arg callerRunId "$CALLER_RUN_ID" --argjson callerRunAttempt "$CALLER_RUN_ATTEMPT" --arg callerRef "$CALLER_REF" --arg callerSha "$CALLER_SHA" \
+            --arg calledWorkflowPath '.github/workflows/control-qualification-staging.yml' --arg calledJob control --arg runId "$GITHUB_RUN_ID" --argjson runAttempt "$GITHUB_RUN_ATTEMPT" --arg sourceSha "$GITHUB_SHA" \
+            --arg contentManifestSha256 "$content_manifest_sha256" --arg contractSha256 "$contract_sha256" \
+            '{schemaVersion:2,component:$component,callerRunId:$callerRunId,callerRunAttempt:$callerRunAttempt,callerRef:$callerRef,callerSha:$callerSha,calledWorkflowPath:$calledWorkflowPath,calledJob:$calledJob,runId:$runId,runAttempt:$runAttempt,sourceSha:$sourceSha,contentManifestSha256:$contentManifestSha256,contractSha256:$contractSha256}' > qualification/candidate-binding.json
+      - id: publication-stage
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: control-publication-stage-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            publication-stage
+            qualification
+          if-no-files-found: error
+      - id: metadata
+        name: Bind the exact provider-observed publication-stage artifact
+        env:
+          ARTIFACT_ID: ${{ steps.publication-stage.outputs.artifact-id }}
+          ARTIFACT_DIGEST: ${{ steps.publication-stage.outputs.artifact-digest }}
+          RELEASE_TAG: ${{ inputs.candidate_tag }}
+          CALLER_RUN_ID: ${{ inputs.caller_run_id || github.run_id }}
+          CALLER_RUN_ATTEMPT: ${{ inputs.caller_run_attempt || github.run_attempt }}
+          CALLER_REF: ${{ inputs.caller_ref || github.ref }}
+          CALLER_SHA: ${{ inputs.caller_sha || github.sha }}
+          PARENT_WORKFLOW_PATH: ${{ inputs.caller_run_id && '.github/workflows/product-qualification-dispatch.yml' || '.github/workflows/control-release.yml' }}
+          PARENT_EVENT_NAME: ${{ inputs.caller_run_id && 'workflow_dispatch' || github.event_name }}
+        run: |
+          artifact_name="control-publication-stage-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          jq -n --arg repository "$GITHUB_REPOSITORY" --arg workflowPath "$PARENT_WORKFLOW_PATH" \
+            --arg eventName "$PARENT_EVENT_NAME" --arg headSha "$GITHUB_SHA" --arg runId "$GITHUB_RUN_ID" \
+            --argjson runAttempt "$GITHUB_RUN_ATTEMPT" --arg artifactId "$ARTIFACT_ID" --arg artifactName "$artifact_name" \
+            --arg artifactDigest "${ARTIFACT_DIGEST#sha256:}" --arg releaseTag "$RELEASE_TAG" \
+            --arg callerRunId "$CALLER_RUN_ID" --argjson callerRunAttempt "$CALLER_RUN_ATTEMPT" --arg callerRef "$CALLER_REF" --arg callerSha "$CALLER_SHA" \
+            --arg calledWorkflowPath '.github/workflows/control-qualification-staging.yml' --arg calledJob control \
+            --arg artifactAttemptProvenance 'caller-run+upload-output+embedded-manifest' --arg artifactManifestSha256 "$(sha256sum qualification/candidate-binding.json | cut -d' ' -f1)" --arg artifactContentManifestSha256 "$(sha256sum qualification/content-manifest.json | cut -d' ' -f1)" \
+            '{repository:$repository,workflowPath:$workflowPath,eventName:$eventName,headSha:$headSha,runId:$runId,runAttempt:$runAttempt,artifactId:$artifactId,artifactName:$artifactName,artifactDigest:$artifactDigest,artifactAttemptProvenance:$artifactAttemptProvenance,artifactManifestSha256:$artifactManifestSha256,artifactContentManifestSha256:$artifactContentManifestSha256,callerRunId:$callerRunId,callerRunAttempt:$callerRunAttempt,callerRef:$callerRef,callerSha:$callerSha,calledWorkflowPath:$calledWorkflowPath,calledJob:$calledJob,releaseTag:$releaseTag}' > control-publication-staging.json
+          printf 'caller_run_id=%s\n' "$CALLER_RUN_ID" >> "$GITHUB_OUTPUT"
+          printf 'caller_run_attempt=%s\n' "$CALLER_RUN_ATTEMPT" >> "$GITHUB_OUTPUT"
+          printf 'caller_ref=%s\n' "$CALLER_REF" >> "$GITHUB_OUTPUT"
+          printf 'caller_sha=%s\n' "$CALLER_SHA" >> "$GITHUB_OUTPUT"
+          printf 'staging_binding_sha256=%s\n' "$(sha256sum control-publication-staging.json | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+      - id: staging-binding
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with: { name: 'control-publication-staging-binding-${{ github.run_id }}-${{ github.run_attempt }}', path: control-publication-staging.json, if-no-files-found: error }

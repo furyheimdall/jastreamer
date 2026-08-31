@@ -72,7 +72,7 @@ func (service *server) mutateTransport(writer http.ResponseWriter, request *http
 		Status    playback.TransportMutationStatus `json:"status"`
 	}{Revision: result.Revision, CommandID: result.CommandID, Status: result.Status})
 	if !result.Replayed {
-		service.publishState("transport", publishedRevision)
+		service.publishZoneState("transport", request.PathValue("zoneID"), publishedRevision)
 	}
 }
 

@@ -163,6 +163,66 @@ func Test_RendererResult_and_natural_end_advance_once_with_separate_truth(t *tes
 	}
 }
 
+func TestCloseRendererSessionResult_reports_only_committed_state_transition(t *testing.T) {
+	fixture := newRendererDeliveryFixture(t)
+	session := fixture.openSession(t, 0)
+
+	closed, err := fixture.store.CloseRendererSessionResult(t.Context(), RendererSessionClose{
+		RendererID: fixture.rendererID, Epoch: session.Epoch, DisconnectedAt: fixture.now.Add(time.Second),
+	})
+	if err != nil || !closed.Changed || closed.Renderer.State != RendererAvailable {
+		t.Fatalf("first close = %+v, %v", closed, err)
+	}
+	committed, err := fixture.store.Renderer(t.Context(), fixture.rendererID)
+	if err != nil || committed.Revision != closed.Renderer.Revision || committed.State != RendererAvailable {
+		t.Fatalf("committed renderer = %+v, %v; close = %+v", committed, err, closed)
+	}
+	duplicate, err := fixture.store.CloseRendererSessionResult(t.Context(), RendererSessionClose{
+		RendererID: fixture.rendererID, Epoch: session.Epoch, DisconnectedAt: fixture.now.Add(2 * time.Second),
+	})
+	afterDuplicate, readErr := fixture.store.Renderer(t.Context(), fixture.rendererID)
+	if err != nil || readErr != nil || duplicate.Changed || afterDuplicate.Revision != committed.Revision {
+		t.Fatalf("duplicate close = %+v/%v, renderer = %+v/%v", duplicate, err, afterDuplicate, readErr)
+	}
+	stale, err := fixture.store.CloseRendererSessionResult(t.Context(), RendererSessionClose{
+		RendererID: fixture.rendererID, Epoch: "stale-epoch", DisconnectedAt: fixture.now.Add(3 * time.Second),
+	})
+	if err != nil || stale.Changed {
+		t.Fatalf("stale close = %+v, %v", stale, err)
+	}
+}
+
+func TestCloseRendererSessionResult_suppresses_revocation_overlap_and_failed_close(t *testing.T) {
+	fixture := newRendererDeliveryFixture(t)
+	session := fixture.openSession(t, 0)
+	if err := fixture.store.RevokeRenderer(t.Context(), fixture.rendererID); err != nil {
+		t.Fatalf("revoke renderer: %v", err)
+	}
+	revoked, err := fixture.store.Renderer(t.Context(), fixture.rendererID)
+	if err != nil {
+		t.Fatalf("read revoked renderer: %v", err)
+	}
+	overlap, err := fixture.store.CloseRendererSessionResult(t.Context(), RendererSessionClose{
+		RendererID: fixture.rendererID, Epoch: session.Epoch, DisconnectedAt: fixture.now.Add(time.Second),
+	})
+	afterOverlap, readErr := fixture.store.Renderer(t.Context(), fixture.rendererID)
+	if err != nil || readErr != nil || overlap.Changed || afterOverlap.State != RendererRevoked || afterOverlap.Revision != revoked.Revision {
+		t.Fatalf("revocation overlap = %+v/%v, renderer = %+v/%v", overlap, err, afterOverlap, readErr)
+	}
+
+	closedFixture := newRendererDeliveryFixture(t)
+	closedSession := closedFixture.openSession(t, 0)
+	if err := closedFixture.store.Close(); err != nil {
+		t.Fatalf("close store: %v", err)
+	}
+	failed, err := closedFixture.store.CloseRendererSessionResult(t.Context(), RendererSessionClose{
+		RendererID: closedFixture.rendererID, Epoch: closedSession.Epoch, DisconnectedAt: closedFixture.now.Add(time.Second),
+	})
+	if err == nil || failed.Changed {
+		t.Fatalf("failed close = %+v, %v", failed, err)
+	}
+}
+
 func Test_RendererSession_disconnect_suspends_ambiguous_start_without_consuming_queue(t *testing.T) {
 	// Given
 	fixture := newRendererDeliveryFixture(t)

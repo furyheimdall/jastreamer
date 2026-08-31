@@ -15,11 +15,13 @@ void main() {
     final requests = <_RecordedRequest>[];
     var queueRevision = 4;
     var revoked = false;
+    var validZones = false;
 
     setUp(() async {
       requests.clear();
       queueRevision = 4;
       revoked = false;
+      validZones = false;
       server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
       unawaited(
         server.forEach((request) async {
@@ -76,6 +78,29 @@ void main() {
                 ],
               }),
             );
+          } else if (request.uri.path == '/api/v1/catalog/status') {
+            request.response.write(
+              jsonEncode({
+                'scan_status': 'ready',
+                'catalog_revision': 7,
+                'track_count': 1,
+                'analysis_complete': 1,
+                'analysis_queued': 0,
+                'analysis_failed': 0,
+                'analysis_coverage': 100,
+                'analysis_revision': 1,
+              }),
+            );
+          } else if (request.uri.path.endsWith('/continuation-policy')) {
+            request.response.write(
+              jsonEncode({
+                'mode': 'stop',
+                'artist_gap': 4,
+                'album_gap': 10,
+                'session_override': '',
+                'revision': 7,
+              }),
+            );
           } else if (request.uri.path == '/api/v1/zones') {
             request.response.write(
               jsonEncode({
@@ -85,15 +110,15 @@ void main() {
                     'name': 'Main',
                     'revision': 2,
                     'renderer_id': 'r1',
-                    'transport': 'future-logical',
+                    'transport': validZones ? 'idle' : 'future-logical',
                   },
                 ],
                 'renderers': [
                   {
                     'renderer_id': 'r1',
                     'name': 'Renderer',
-                    'kind': 'future-kind',
-                    'status': 'future-status',
+                    'kind': validZones ? 'k17' : 'future-kind',
+                    'status': validZones ? 'available' : 'future-status',
                     'capabilities': ['seek'],
                     'last_seen_at': '2026-08-26T00:00:00Z',
                   },
@@ -186,7 +211,7 @@ void main() {
     });
 
     tearDown(() async {
-      gateway.close();
+      await gateway.close();
       await server.close(force: true);
     });
 
@@ -213,6 +238,90 @@ void main() {
         await expectLater(gateway.zones(), throwsFormatException);
       },
     );
+
+    test('buffers events emitted before the caller attaches its listener',
+        () async {
+      await gateway.close();
+      validZones = true;
+      final sockets = _PreReadyEventSocketFactory();
+      gateway = HttpControlGateway(
+        client: IOClient(),
+        origin: Uri.parse('http://${server.address.address}:${server.port}'),
+        token: const SessionToken('secret'),
+        eventSocketFactory: sockets,
+      );
+      final session = await gateway.subscribe();
+
+      final events = await session.events.take(2).toList().timeout(
+            const Duration(seconds: 1),
+          );
+
+      expect(events, [
+        isA<ControlSnapshotEvent>(),
+        isA<ControlInvalidationEvent>(),
+      ]);
+      await session.close();
+    });
+
+    test('closes the event socket when initial readiness fails', () async {
+      await gateway.close();
+      final sockets = _MalformedSocketFactory();
+      gateway = HttpControlGateway(
+        client: IOClient(),
+        origin: Uri.parse('http://${server.address.address}:${server.port}'),
+        token: const SessionToken('secret'),
+        eventSocketFactory: sockets,
+      );
+
+      await expectLater(gateway.subscribe(), throwsFormatException);
+
+      expect(sockets.socket.closed, isTrue);
+    });
+
+    test('surfaces an established event stream close for recovery', () async {
+      await gateway.close();
+      final sockets = _ClosingSocketFactory();
+      gateway = HttpControlGateway(
+        client: IOClient(),
+        origin: Uri.parse('http://${server.address.address}:${server.port}'),
+        token: const SessionToken('secret'),
+        eventSocketFactory: sockets,
+      );
+      final session = await gateway.subscribe();
+      final failure = expectLater(
+        session.events,
+        emitsInOrder([
+          isA<ControlSnapshotEvent>(),
+          emitsError(isA<ServerOfflineFailure>()),
+        ]),
+      );
+
+      await sockets.socket.closeFromServer();
+
+      await failure.timeout(const Duration(seconds: 1));
+    });
+
+    test('gateway close awaits every event subscription shutdown', () async {
+      await gateway.close();
+      final sockets = _DelayedCloseSocketFactory();
+      gateway = HttpControlGateway(
+        client: IOClient(),
+        origin: Uri.parse('http://${server.address.address}:${server.port}'),
+        token: const SessionToken('secret'),
+        eventSocketFactory: sockets,
+      );
+      await gateway.subscribe();
+
+      final closing = gateway.close();
+      await sockets.socket.closeStarted.future.timeout(
+        const Duration(seconds: 1),
+      );
+      expect(sockets.socket.closed, isFalse);
+      sockets.socket.allowClose.complete();
+      await closing.timeout(const Duration(seconds: 1));
+
+      expect(sockets.socket.closed, isTrue);
+    });
 
     test(
       'requires a live subscription and emits exact revision/idempotency JSON',
@@ -413,7 +522,7 @@ void main() {
     });
 
     test('revoked token clears the credential exactly once', () async {
-      gateway.close();
+      await gateway.close();
       var credentialClears = 0;
       gateway = HttpControlGateway(
         client: IOClient(),
@@ -437,6 +546,163 @@ void main() {
       }
       expect(credentialClears, 1);
     });
+  });
+
+  test('duplicate and stale sequences are ignored without recovery', () async {
+    var exact = 0;
+    var full = 0;
+    final coordinator = EventSyncCoordinator(
+      refetchInvalidated: (_) async => exact++,
+      fullResync: () async => full++,
+    );
+    await coordinator.accept(
+      const ControlSnapshotEvent(
+        serverEpoch: 'one',
+        sequence: 4,
+        resources: [],
+      ),
+    );
+    await coordinator.accept(
+      const ControlInvalidationEvent(
+        serverEpoch: 'one',
+        sequence: 4,
+        resource: WireResource.queue,
+        revision: 1,
+      ),
+    );
+    await coordinator.accept(
+      const ControlInvalidationEvent(
+        serverEpoch: 'one',
+        sequence: 3,
+        resource: WireResource.queue,
+        revision: 1,
+      ),
+    );
+    expect(exact, 0);
+    expect(full, 0);
+    expect(coordinator.fullResyncCount, 0);
+    await coordinator.accept(
+      const ControlInvalidationEvent(
+        serverEpoch: 'one',
+        sequence: 5,
+        resource: WireResource.queue,
+        revision: 2,
+      ),
+    );
+    expect(exact, 1);
+    expect(full, 0);
+  });
+
+  test('real gaps epoch changes and explicit resync each recover once',
+      () async {
+    var exact = 0;
+    var full = 0;
+    final coordinator = EventSyncCoordinator(
+      refetchInvalidated: (_) async => exact++,
+      fullResync: () async => full++,
+      maxFullResyncs: 4,
+    );
+    await coordinator.accept(
+      const ControlSnapshotEvent(
+        serverEpoch: 'one',
+        sequence: 4,
+        resources: [],
+      ),
+    );
+    await coordinator.accept(
+      const ControlInvalidationEvent(
+        serverEpoch: 'one',
+        sequence: 5,
+        resource: WireResource.queue,
+        revision: 1,
+      ),
+    );
+    expect(exact, 1);
+    expect(full, 0);
+    await coordinator.accept(
+      const ControlInvalidationEvent(
+        serverEpoch: 'one',
+        sequence: 7,
+        resource: WireResource.queue,
+        revision: 2,
+      ),
+    );
+    expect(full, 1);
+    await coordinator.accept(
+      const ControlInvalidationEvent(
+        serverEpoch: 'two',
+        sequence: 1,
+        resource: WireResource.queue,
+        revision: 3,
+      ),
+    );
+    expect(full, 2);
+    await coordinator.accept(
+      const ControlResyncRequiredEvent(serverEpoch: 'two', sequence: 2),
+    );
+    expect(full, 3);
+    expect(coordinator.fullResyncCount, 3);
+  });
+
+  test('initial non-snapshot event performs one bounded recovery', () async {
+    var full = 0;
+    final coordinator = EventSyncCoordinator(
+      refetchInvalidated: (_) async {},
+      fullResync: () async => full++,
+    );
+    await coordinator.accept(
+      const ControlInvalidationEvent(
+        serverEpoch: 'one',
+        sequence: 1,
+        resource: WireResource.queue,
+        revision: 1,
+      ),
+    );
+    expect(full, 1);
+    expect(coordinator.fullResyncCount, 1);
+  });
+
+  test('wire parser rejects integers outside JavaScript safe range', () {
+    expect(
+      () => parseControlEvent({
+        'type': 'invalidation',
+        'server_epoch': 'one',
+        'sequence': 9007199254740992,
+        'resource': 'queue',
+        'revision': 1,
+      }),
+      throwsFormatException,
+    );
+    expect(
+      () => parseControlEvent({
+        'type': 'invalidation',
+        'server_epoch': 'one',
+        'sequence': 1,
+        'resource': 'queue',
+        'revision': 9007199254740992,
+      }),
+      throwsFormatException,
+    );
+  });
+
+  test('wire parser preserves the Server zone_id invalidation scope', () {
+    final event = parseControlEvent({
+      'type': 'invalidation',
+      'server_epoch': 'one',
+      'sequence': 1,
+      'resource': 'queue',
+      'zone_id': 'living',
+      'revision': 4,
+    });
+
+    expect(
+      event,
+      isA<ControlInvalidationEvent>().having(
+        (value) => value.resourceId,
+        'resourceId',
+        'living',
+      ),
+    );
   });
 
   test('gap and epoch changes trigger bounded full resync', () async {
@@ -522,6 +788,103 @@ final class _SnapshotSocket implements EventSocket {
 
   @override
   Future<void> close() => _controller.close();
+}
+
+final class _PreReadyEventSocketFactory implements EventSocketFactory {
+  final socket = _ControlledSocket();
+
+  @override
+  Future<EventSocket> connect({
+    required Uri uri,
+    required String certificateSha256,
+  }) async {
+    scheduleMicrotask(() {
+      socket.addSnapshot();
+      socket.add(jsonEncode({
+        'type': 'invalidation',
+        'server_epoch': 1,
+        'sequence': 1,
+        'resource': 'future-resource',
+        'revision': 1,
+      }));
+    });
+    return socket;
+  }
+}
+
+final class _MalformedSocketFactory implements EventSocketFactory {
+  final socket = _ControlledSocket();
+
+  @override
+  Future<EventSocket> connect({
+    required Uri uri,
+    required String certificateSha256,
+  }) async {
+    scheduleMicrotask(() => socket.add('{malformed'));
+    return socket;
+  }
+}
+
+final class _ClosingSocketFactory implements EventSocketFactory {
+  final socket = _ControlledSocket();
+
+  @override
+  Future<EventSocket> connect({
+    required Uri uri,
+    required String certificateSha256,
+  }) async {
+    scheduleMicrotask(socket.addSnapshot);
+    return socket;
+  }
+}
+
+final class _DelayedCloseSocketFactory implements EventSocketFactory {
+  final socket = _DelayedCloseSocket();
+
+  @override
+  Future<EventSocket> connect({
+    required Uri uri,
+    required String certificateSha256,
+  }) async {
+    scheduleMicrotask(socket.addSnapshot);
+    return socket;
+  }
+}
+
+final class _DelayedCloseSocket extends _ControlledSocket {
+  final closeStarted = Completer<void>();
+  final allowClose = Completer<void>();
+
+  @override
+  Future<void> close() async {
+    closeStarted.complete();
+    await allowClose.future;
+    await super.close();
+  }
+}
+
+base class _ControlledSocket implements EventSocket {
+  final _controller = StreamController<Object?>();
+  bool closed = false;
+
+  void add(Object? value) => _controller.add(value);
+  void addSnapshot() => add(jsonEncode({
+        'type': 'snapshot',
+        'server_epoch': 1,
+        'sequence': 0,
+        'resources': <Object?>[],
+      }));
+
+  Future<void> closeFromServer() => _controller.close();
+
+  @override
+  Stream<Object?> get messages => _controller.stream;
+
+  @override
+  Future<void> close() async {
+    closed = true;
+    await _controller.close();
+  }
 }
 
 final class _RecordedRequest {

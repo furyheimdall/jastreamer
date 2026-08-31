@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, renameSync, rmSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { GateError, UsageError, parseArgs } from "./args";
-import { finalize } from "./finalize";
+import { finalize, releaseIdentity } from "./finalize";
 import { sourceIdentity } from "./identity";
 import { run } from "./process";
 
@@ -28,9 +28,11 @@ async function main(): Promise<void> {
   const backup = `${output}.previous-${process.pid}`;
   try {
     mkdirSync(staging, { recursive: true });
-    const revision = sourceIdentity(root);
-    await run(["bash", "packaging/server/release.sh", options.version, staging], root, { JASTREAMER_RELEASE_TAG: options.tag, JASTREAMER_SOURCE_REVISION: revision, SOURCE_DATE_EPOCH: "0" });
-    finalize(staging, options.version, options.tag, revision);
+    const sourceInputSha256 = sourceIdentity(root);
+    const gitRevision = (await run(["git", "rev-parse", "HEAD"], root)).trim();
+    const identity = releaseIdentity(gitRevision, sourceInputSha256);
+    await run(["bash", "packaging/server/release.sh", options.version, staging], root, { JASTREAMER_RELEASE_TAG: options.tag, JASTREAMER_SOURCE_REVISION: identity.gitRevision, JASTREAMER_SOURCE_INPUT_SHA256: identity.sourceInputSha256, SOURCE_DATE_EPOCH: "0" });
+    finalize(staging, { version: options.version, tag: options.tag }, identity);
     if (existsSync(output)) renameSync(output, backup);
     renameSync(staging, output);
     rmSync(backup, { recursive: true, force: true });

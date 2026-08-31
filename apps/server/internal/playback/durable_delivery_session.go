@@ -62,22 +62,33 @@ func (store *Store) OpenRendererSession(ctx context.Context, request RendererSes
 	return result, err
 }
 
+type RendererSessionCloseResult struct {
+	Changed  bool
+	Renderer RendererInventory
+}
+
 func (store *Store) CloseRendererSession(ctx context.Context, closing RendererSessionClose) error {
+	_, err := store.CloseRendererSessionResult(ctx, closing)
+	return err
+}
+
+func (store *Store) CloseRendererSessionResult(ctx context.Context, closing RendererSessionClose) (RendererSessionCloseResult, error) {
 	if closing.RendererID == "" || closing.Epoch == "" || closing.DisconnectedAt.IsZero() {
-		return ErrInvalidRequest
+		return RendererSessionCloseResult{}, ErrInvalidRequest
 	}
-	return store.transaction(ctx, func(db *sqliteDB) error {
-		current, err := currentRendererEpoch(db, closing.RendererID)
+	result := RendererSessionCloseResult{}
+	err := store.transaction(ctx, func(db *sqliteDB) error {
+		current, connectionState, err := currentRendererSession(db, closing.RendererID)
 		if err != nil {
 			return err
 		}
-		if current != closing.Epoch {
+		if current != closing.Epoch || connectionState != "connected" {
 			return nil
 		}
 		disconnectedAt := closing.DisconnectedAt.UTC().Format(time.RFC3339Nano)
 		if err := execBound(db, `UPDATE renderer_session_state
 			SET connection_state='disconnected',disconnected_at=?
-			WHERE renderer_id=? AND connection_state<>'revoked'`, func(stmt *sqliteStmt) error {
+			WHERE renderer_id=? AND connection_state='connected'`, func(stmt *sqliteStmt) error {
 			if err := stmt.bindText(1, disconnectedAt); err != nil {
 				return err
 			}
@@ -90,8 +101,20 @@ func (store *Store) CloseRendererSession(ctx context.Context, closing RendererSe
 		}); err != nil {
 			return err
 		}
-		return suspendAssignedRenderer(db, closing.RendererID)
+		if err := suspendAssignedRenderer(db, closing.RendererID); err != nil {
+			return err
+		}
+		renderer, found, err := loadRenderer(db, closing.RendererID)
+		if err != nil {
+			return err
+		}
+		if !found {
+			return ErrRendererNotFound
+		}
+		result = RendererSessionCloseResult{Changed: true, Renderer: renderer}
+		return nil
 	})
+	return result, err
 }
 
 func (store *Store) RendererSessionTruth(ctx context.Context, rendererID RendererID) (RendererSessionTruth, error) {
@@ -154,23 +177,23 @@ func assertRendererEpoch(db *sqliteDB, rendererID RendererID, epoch SessionEpoch
 	return nil
 }
 
-func currentRendererEpoch(db *sqliteDB, rendererID RendererID) (SessionEpoch, error) {
-	stmt, err := db.prepare("SELECT current_epoch FROM renderer_session_state WHERE renderer_id=?")
+func currentRendererSession(db *sqliteDB, rendererID RendererID) (SessionEpoch, string, error) {
+	stmt, err := db.prepare("SELECT current_epoch,connection_state FROM renderer_session_state WHERE renderer_id=?")
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 	defer stmt.close()
 	if err := stmt.bindText(1, string(rendererID)); err != nil {
-		return "", err
+		return "", "", err
 	}
 	row, err := stmt.step()
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 	if !row {
-		return "", ErrRendererNotFound
+		return "", "", ErrRendererNotFound
 	}
-	return SessionEpoch(stmt.text(0)), nil
+	return SessionEpoch(stmt.text(0)), stmt.text(1), nil
 }
 
 func suspendAssignedRenderer(db *sqliteDB, rendererID RendererID) error {

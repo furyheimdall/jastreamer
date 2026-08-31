@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { execFileSync } from "node:child_process";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -93,7 +94,8 @@ describe("immutable product promotion gate", () => {
     ["provenance digest", (f) => { f.receipt.supplyChain.provenance[0].sha256 = "0".repeat(64); resign(f); }, "DIGEST_MISMATCH"],
     ["DSSE signature", (f) => { f.mutateSupply("provenance", 0, (value) => { value.signatures[0].sig = "AAAA"; }); }, "ATTESTATION_SIGNATURE_INVALID"],
     ["SLSA predicate", (f) => { f.mutateDsse("provenance", 0, (value) => { value.predicateType = "https://example.invalid/fake"; }); }, "ATTESTATION_SEMANTICS_INVALID"],
-    ["SLSA source material drift", (f) => { f.mutateDsse("provenance", 0, (value) => { value.predicate.buildDefinition.resolvedDependencies[0].digest.gitCommit = "0".repeat(40); }); }, "SLSA_INVALID"],
+    ["SLSA Git revision drift while source identity remains stable", (f) => { f.mutateDsse("provenance", 0, (value) => { value.predicate.buildDefinition.resolvedDependencies[0].digest.gitCommit = "0".repeat(40); }); }, "SLSA_INVALID"],
+    ["SLSA source identity drift while Git revision remains stable", (f) => { f.mutateDsse("provenance", 0, (value) => { value.predicate.buildDefinition.resolvedDependencies[1].digest.sha256 = "0".repeat(64); }); }, "SLSA_INVALID"],
     ["SLSA extra dependency", (f) => { f.mutateDsse("provenance", 0, (value) => { value.predicate.buildDefinition.resolvedDependencies.push({ uri: "extra", digest: { gitCommit: "0".repeat(40) } }); }); }, "SLSA_INVALID"],
     ["SLSA arbitrary builder", (f) => { f.mutateDsse("provenance", 0, (value) => { value.predicate.runDetails.builder.id = "arbitrary"; }); }, "SLSA_INVALID"],
     ["SLSA subject drift", (f) => { f.mutateDsse("provenance", 0, (value) => { value.subject[0].name = "other"; }); }, "ATTESTATION_SEMANTICS_INVALID"],
@@ -113,7 +115,7 @@ describe("immutable product promotion gate", () => {
     ["publication environment", (f) => { f.receipt.publication.environment = "unprotected"; resign(f); }, "SCHEMA_INVALID"],
     ["publication receipt key", (f) => { f.receipt.publication.receiptKeyId = "0".repeat(64); resign(f); }, "PUBLICATION_BINDING_MISMATCH"],
     ["candidate staging event", (f) => { f.receipt.candidates.server.staging.eventName = "push"; resign(f); }, "SCHEMA_INVALID"],
-    ["candidate staging workflow", (f) => { f.receipt.candidates.control.staging.calledWorkflowPath = ".github/workflows/server-release.yml"; resign(f); }, "AUTHORITATIVE_REDUCER_INVALID"],
+    ["candidate staging workflow", (f) => { f.receipt.candidates.control.staging.calledWorkflowPath = ".github/workflows/server-qualification-staging.yml"; resign(f); }, "AUTHORITATIVE_REDUCER_INVALID"],
     ["candidate staging revision", (f) => { f.receipt.candidates.server.staging.headSha = "0".repeat(40); resign(f); }, "PUBLICATION_STAGE_INVALID"],
     ["candidate caller identity removal", (f) => { delete f.receipt.candidates.server.staging.callerRunId; resign(f); }, "SCHEMA_INVALID"],
     ["candidate called job drift", (f) => { f.receipt.candidates.control.staging.calledJob = "server"; resign(f); }, "AUTHORITATIVE_REDUCER_INVALID"],
@@ -152,7 +154,7 @@ describe("immutable product promotion gate", () => {
 
   test("current repository production trust is typed default-deny when qualification/signing trust is incomplete", async () => {
     const root = mkdtempSync(join(tmpdir(), "product-gate-production-incomplete-"));
-    try { const fixture = await createPromotionFixture(root, NOW); const result = verifyProductGate(fixture.receiptPath, { root, now: NOW, profile: "production", repositoryRoot: process.cwd(), trustConfigPath: "tooling/release/product-gate-production-trust-v1.json", mutationLedgerPath: fixture.mutationLedgerPath }); expect(result).toEqual(expect.objectContaining({ ok: false, code: "PRODUCTION_TRUST_INCOMPLETE" })); } finally { rmSync(root, { recursive: true, force: true }); }
+    try { const trust = JSON.parse(readFileSync("tooling/release/product-gate-production-trust-v1.json", "utf8")); expect(trust.canonical.sourceRevision).toBe(execFileSync("git", ["rev-parse", "HEAD"], { encoding: "utf8" }).trim()); expect(trust.artifactSigning.keyIds).toEqual([]); const fixture = await createPromotionFixture(root, NOW); const result = verifyProductGate(fixture.receiptPath, { root, now: NOW, profile: "production", repositoryRoot: process.cwd(), trustConfigPath: "tooling/release/product-gate-production-trust-v1.json", mutationLedgerPath: fixture.mutationLedgerPath }); expect(result).toEqual(expect.objectContaining({ ok: false, code: "PRODUCTION_TRUST_INCOMPLETE" })); } finally { rmSync(root, { recursive: true, force: true }); }
   });
 
   test("production mode rejects a caller-selected fixture trust root", async () => {

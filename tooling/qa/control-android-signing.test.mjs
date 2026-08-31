@@ -76,6 +76,7 @@ test('QA harness provisions four build-scoped inputs from a read-only ephemeral 
   }
   assert.match(source, /cleanup_control_android_qa_signing[\s\S]*trap cleanup EXIT INT TERM/);
   assert.match(source, /find "\$screenshots"[\s\S]*'\*\.jks'/);
+  assert.match(source, /-v "\$root:\/repo" -w \/repo\/apps\/control "\$image"[\s\S]*flutter test/);
 });
 
 test('QA harness reclaims prior container artifacts before deleting build state', async () => {

@@ -43,7 +43,8 @@ describe("isolation boundaries", () => {
     const manifest = parseScopeManifest("tooling/scope-manifest.yaml");
     expect(manifest.components.server.paths).toEqual([
       "apps/server", "contracts/control-api", "contracts/renderer-protocol", "contracts/locks/server.json",
-      "tooling/fixtures/e2e/local.yaml", "tooling/fixtures/music", "tooling/isolation", "tooling/fixtures/isolation", "tooling/scope-manifest.yaml",
+      "tooling/fixtures/e2e/local.yaml", "tooling/fixtures/music", "tooling/qa/task19/task19-media-fixture.py",
+      "tooling/isolation", "tooling/fixtures/isolation", "tooling/scope-manifest.yaml",
     ]);
     expect(manifest.components.control.paths).toEqual([
       "apps/control", "contracts/control-api", "contracts/locks/control.json",

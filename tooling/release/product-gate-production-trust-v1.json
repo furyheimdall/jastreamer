@@ -12,7 +12,7 @@
   },
   "canonical": {
     "sourceRoot": ".",
-    "sourceRevision": "3e9a90888a0efb21d101b6ed7f6c1962503e2414",
+    "sourceRevision": "17622f03039d078d790e048a555a1537b422ba2f",
     "contracts": [
       {
         "component": "control",

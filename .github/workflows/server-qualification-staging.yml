@@ -1,0 +1,202 @@
+name: server-qualification-staging
+run-name: server-qualification-staging:${{ inputs.version || github.ref_name }}:${{ github.run_id }}
+
+on:
+  workflow_call:
+    inputs:
+      version: { required: true, type: string }
+      invocation_mode: { required: true, type: string }
+      caller_run_id: { required: true, type: string }
+      caller_run_attempt: { required: true, type: string }
+      caller_ref: { required: true, type: string }
+      caller_sha: { required: true, type: string }
+      caller_workflow_path: { required: true, type: string }
+    secrets:
+      SERVER_WINDOWS_SIGNING_PFX_B64: { required: false }
+      SERVER_WINDOWS_SIGNING_PFX_PASSWORD: { required: false }
+    outputs:
+      caller_run_id: { value: '${{ jobs.stage.outputs.caller_run_id }}' }
+      caller_run_attempt: { value: '${{ jobs.stage.outputs.caller_run_attempt }}' }
+      caller_ref: { value: '${{ jobs.stage.outputs.caller_ref }}' }
+      caller_sha: { value: '${{ jobs.stage.outputs.caller_sha }}' }
+      called_workflow_path: { value: '${{ jobs.stage.outputs.called_workflow_path }}' }
+      called_job: { value: '${{ jobs.stage.outputs.called_job }}' }
+      called_output_identity: { value: '${{ jobs.stage.outputs.called_output_identity }}' }
+      artifact_id: { value: '${{ jobs.stage.outputs.artifact_id }}' }
+      artifact_digest: { value: '${{ jobs.stage.outputs.artifact_digest }}' }
+      artifact_name: { value: '${{ jobs.stage.outputs.artifact_name }}' }
+      staging_binding_artifact_id: { value: '${{ jobs.stage.outputs.staging_binding_artifact_id }}' }
+      staging_binding_artifact_digest: { value: '${{ jobs.stage.outputs.staging_binding_artifact_digest }}' }
+      staging_binding_artifact_name: { value: '${{ jobs.stage.outputs.staging_binding_artifact_name }}' }
+      staging_binding_sha256: { value: '${{ jobs.stage.outputs.staging_binding_sha256 }}' }
+      version: { value: '${{ jobs.validate.outputs.version }}' }
+      candidate_tag: { value: '${{ jobs.validate.outputs.candidate_tag }}' }
+      k17_result: { value: '${{ jobs.qualification-result.outputs.k17_result }}' }
+
+permissions:
+  contents: read
+
+concurrency:
+  group: server-qualification-staging-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  invocation-authorization:
+    if: github.repository == 'furyheimdall/jastreamer'
+    runs-on: ubuntu-24.04
+    permissions: {}
+    steps:
+      - name: Authorize invocation before repository code
+        env:
+          INVOCATION_MODE: ${{ inputs.invocation_mode }}
+          CALLER_RUN_ID: ${{ inputs.caller_run_id }}
+          CALLER_RUN_ATTEMPT: ${{ inputs.caller_run_attempt }}
+          CALLER_REF: ${{ inputs.caller_ref }}
+          CALLER_SHA: ${{ inputs.caller_sha }}
+          CALLER_WORKFLOW_PATH: ${{ inputs.caller_workflow_path }}
+          ACTUAL_WORKFLOW_REF: ${{ github.workflow_ref }}
+          REF_PROTECTED: ${{ github.ref_protected }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          set -euo pipefail
+          if [[ "$INVOCATION_MODE" == authoritative ]]; then
+            test "$REF_PROTECTED" = true
+            test "$GITHUB_REF" = "refs/heads/$DEFAULT_BRANCH"
+            test "$CALLER_RUN_ID" = "$GITHUB_RUN_ID"
+            test "$CALLER_RUN_ATTEMPT" = "$GITHUB_RUN_ATTEMPT"
+            test "$CALLER_REF" = "$GITHUB_REF"
+            test "$CALLER_SHA" = "$GITHUB_SHA"
+            test "$CALLER_WORKFLOW_PATH" = '.github/workflows/product-qualification-dispatch.yml'
+            test "$ACTUAL_WORKFLOW_REF" = "$GITHUB_REPOSITORY/$CALLER_WORKFLOW_PATH@$GITHUB_REF"
+          elif [[ "$INVOCATION_MODE" == standalone-staging ]]; then
+            test "$REF_PROTECTED" = true
+            test "$GITHUB_REF" = "refs/heads/$DEFAULT_BRANCH"
+            test "$ACTUAL_WORKFLOW_REF" = "$GITHUB_REPOSITORY/.github/workflows/server-release.yml@$GITHUB_REF"
+            test -z "$CALLER_RUN_ID$CALLER_RUN_ATTEMPT$CALLER_REF$CALLER_SHA$CALLER_WORKFLOW_PATH"
+          elif [[ "$INVOCATION_MODE" == tag && "$GITHUB_EVENT_NAME" == push && "$GITHUB_REF" == refs/tags/server-v* ]]; then
+            test "$ACTUAL_WORKFLOW_REF" = "$GITHUB_REPOSITORY/.github/workflows/server-release.yml@$GITHUB_REF"
+            test -z "$CALLER_RUN_ID$CALLER_RUN_ATTEMPT$CALLER_REF$CALLER_SHA$CALLER_WORKFLOW_PATH"
+          else
+            exit 64
+          fi
+
+  validate:
+    needs: invocation-authorization
+    if: needs.invocation-authorization.result == 'success' && github.repository == 'furyheimdall/jastreamer'
+    runs-on: ubuntu-24.04
+    permissions: { contents: read }
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      candidate_tag: ${{ steps.version.outputs.candidate_tag }}
+      k17_authorized: ${{ steps.k17-authorization.outputs.authorized }}
+      k17_runner_label: ${{ steps.k17-authorization.outputs.runner_label }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with: { persist-credentials: false }
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16
+        with: { go-version: '1.25.6', check-latest: false, cache: false }
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
+        with: { bun-version: '1.3.14' }
+      - name: Install exact jq
+        run: |
+          ./packaging/server/install-linux-tools.sh amd64 "$RUNNER_TEMP/server-release-tools"
+          echo "$RUNNER_TEMP/server-release-tools" >> "$GITHUB_PATH"
+      - id: k17-authorization
+        name: Parse the K17 physical-runner authorization contract
+        run: bun tooling/qa/k17/cli.mjs authorization --matrix deploy/synology/support-matrix.yaml --output k17-authorization.json --github-output "$GITHUB_OUTPUT"
+      - id: version
+        env:
+          CANDIDATE_VERSION: ${{ inputs.version }}
+          CALLER_RUN_ID: ${{ inputs.caller_run_id }}
+          CALLER_RUN_ATTEMPT: ${{ inputs.caller_run_attempt }}
+          CALLER_REF: ${{ inputs.caller_ref }}
+          CALLER_SHA: ${{ inputs.caller_sha }}
+          CALLER_WORKFLOW_PATH: ${{ inputs.caller_workflow_path }}
+          ACTUAL_CALLER_WORKFLOW_REF: ${{ github.workflow_ref }}
+        run: |
+          set -euo pipefail
+          if [[ $GITHUB_EVENT_NAME == push ]]; then candidate_tag=$GITHUB_REF_NAME; else candidate_tag="server-v$CANDIDATE_VERSION"; fi
+          if [[ -n "$CALLER_RUN_ID" ]]; then
+            [[ "$CALLER_RUN_ID" =~ ^[1-9][0-9]*$ && "$CALLER_RUN_ATTEMPT" =~ ^[1-9][0-9]*$ ]]
+            test "$CALLER_RUN_ID" = "$GITHUB_RUN_ID"
+            test "$CALLER_RUN_ATTEMPT" = "$GITHUB_RUN_ATTEMPT"
+            test "$CALLER_REF" = "$GITHUB_REF"
+            test "$CALLER_SHA" = "$GITHUB_SHA"
+            test "$CALLER_WORKFLOW_PATH" = '.github/workflows/product-qualification-dispatch.yml'
+            test "$ACTUAL_CALLER_WORKFLOW_REF" = "$GITHUB_REPOSITORY/$CALLER_WORKFLOW_PATH@$GITHUB_REF"
+          fi
+          GITHUB_REF_TYPE=tag ./packaging/server/validate-release.sh "$candidate_tag"
+          printf 'version=%s\n' "${candidate_tag#server-v}" >> "$GITHUB_OUTPUT"
+          printf 'candidate_tag=%s\n' "$candidate_tag" >> "$GITHUB_OUTPUT"
+      - name: Released-peer compatibility gate and pinned tool receipt
+        run: |
+          test "$(go version)" = 'go version go1.25.6 linux/amd64'
+          test "$(bun --version)" = '1.3.14'
+          jq_version=$(jq --version); test "$jq_version" = 'jq-1.7.1'
+          ./tooling/componentctl compatibility run --matrix tooling/fixtures/compatibility/released-peers.yaml --output compatibility.json
+          jq -n --arg go "$(go version)" --arg bun "$(bun --version)" --arg jq "$jq_version" '{go:$go,bun:$bun,jq:$jq}' > validation-tools.json
+      - uses: actions/upload-artifact@50769540e7f4bd5e21e526ee35c689e35e0d6874
+        with: { name: server-compatibility, path: "compatibility.json\nvalidation-tools.json", if-no-files-found: error }
+
+  platforms:
+    needs: validate
+    permissions: { contents: read }
+    uses: ./.github/workflows/server-qualification-platforms.yml
+    with:
+      version: ${{ needs.validate.outputs.version }}
+
+  windows:
+    needs: validate
+    permissions: { contents: read }
+    uses: ./.github/workflows/server-qualification-windows.yml
+    with:
+      version: ${{ needs.validate.outputs.version }}
+    secrets:
+      SERVER_WINDOWS_SIGNING_PFX_B64: ${{ secrets.SERVER_WINDOWS_SIGNING_PFX_B64 }}
+      SERVER_WINDOWS_SIGNING_PFX_PASSWORD: ${{ secrets.SERVER_WINDOWS_SIGNING_PFX_PASSWORD }}
+
+  stage:
+    needs: [validate, platforms, windows]
+    permissions: { contents: read }
+    uses: ./.github/workflows/server-qualification-stage.yml
+    with:
+      version: ${{ needs.validate.outputs.version }}
+      candidate_tag: ${{ needs.validate.outputs.candidate_tag }}
+      k17_authorized: ${{ needs.validate.outputs.k17_authorized }}
+      caller_run_id: ${{ inputs.caller_run_id || format('{0}', github.run_id) }}
+      caller_run_attempt: ${{ inputs.caller_run_attempt || format('{0}', github.run_attempt) }}
+      caller_ref: ${{ inputs.caller_ref || github.ref }}
+      caller_sha: ${{ inputs.caller_sha || github.sha }}
+
+  k17-physical:
+    needs: [validate, stage]
+    if: needs.validate.outputs.k17_authorized == 'true'
+    runs-on: [self-hosted, "${{ needs.validate.outputs.k17_runner_label }}"]
+    permissions: { contents: read }
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with: { persist-credentials: false }
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
+        with: { bun-version: '1.3.14' }
+      - uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16
+        with: { name: server-candidate-ci, path: stage }
+      - name: Run the authorized physical K17 qualification contract
+        env:
+          JASTREAMER_K17_RUNNER_LABEL: ${{ needs.validate.outputs.k17_runner_label }}
+        run: bun tooling/qa/k17/cli.mjs gate --matrix deploy/synology/support-matrix.yaml --candidate-manifest stage/manifest.json --runner-command /opt/jastreamer-qa/bin/k17-physical-runner --output k17-qualification.json
+      - uses: actions/upload-artifact@50769540e7f4bd5e21e526ee35c689e35e0d6874
+        with: { name: k17-qualification, path: k17-qualification.json, if-no-files-found: error }
+
+
+  qualification-result:
+    if: always()
+    needs: [stage, k17-physical]
+    runs-on: ubuntu-24.04
+    permissions: {}
+    outputs:
+      k17_result: ${{ steps.result.outputs.k17_result }}
+    steps:
+      - id: result
+        env:
+          K17_RESULT: ${{ needs.k17-physical.result }}
+        run: printf 'k17_result=%s\n' "$K17_RESULT" >> "$GITHUB_OUTPUT"

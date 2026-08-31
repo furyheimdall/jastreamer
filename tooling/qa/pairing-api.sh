@@ -21,4 +21,4 @@ fixture=$(realpath "$fixture")
 output=$(realpath "$output")
 cd "$root/tooling/qa"
 PAIRING_FIXTURE=$fixture PAIRING_OUTPUT=$output \
-  bunx --no-install playwright test pairing-api.spec.mjs --browser chromium --workers 1 --reporter line
+  bunx --no-install playwright test pairing-api.playwright.mjs --browser chromium --workers 1 --reporter line

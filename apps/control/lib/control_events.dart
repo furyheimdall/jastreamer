@@ -96,8 +96,8 @@ ControlEvent parseControlEvent(Object? payload) {
     throw const FormatException('server_epoch must be present');
   }
   final sequence = decoded['sequence'];
-  if (sequence is! int || sequence < 0) {
-    throw const FormatException('sequence must be a non-negative integer');
+  if (sequence is! int || sequence < 0 || sequence > 9007199254740991) {
+    throw const FormatException('sequence must be a safe non-negative integer');
   }
   return switch (type) {
     'snapshot' => ControlSnapshotEvent(
@@ -109,9 +109,8 @@ ControlEvent parseControlEvent(Object? payload) {
         serverEpoch: epoch,
         sequence: sequence,
         resource: WireResource.parse(_eventString(decoded, 'resource')),
-        resourceId: decoded['resource_id'] is String
-            ? decoded['resource_id'] as String
-            : null,
+        resourceId:
+            decoded['zone_id'] is String ? decoded['zone_id'] as String : null,
         revision: _eventInteger(decoded, 'revision'),
       ),
     'resync_required' => ControlResyncRequiredEvent(
@@ -136,8 +135,8 @@ String _eventString(Map<String, Object?> value, String key) {
 
 int _eventInteger(Map<String, Object?> value, String key) {
   final result = value[key];
-  if (result is! int || result < 0) {
-    throw FormatException('$key must be a non-negative integer');
+  if (result is! int || result < 0 || result > 9007199254740991) {
+    throw FormatException('$key must be a safe non-negative integer');
   }
   return result;
 }
@@ -176,6 +175,7 @@ final class EventSyncCoordinator {
   int _fullResyncs = 0;
 
   int get fullResyncCount => _fullResyncs;
+  String? get serverEpoch => _epoch;
 
   Future<void> accept(ControlEvent event) async {
     if (event is ControlSnapshotEvent) {
@@ -183,11 +183,19 @@ final class EventSyncCoordinator {
       _sequence = event.sequence;
       return;
     }
-    final hasGap = _epoch == null ||
+    final explicitResync = event is ControlResyncRequiredEvent;
+    final sameEpoch = _epoch != null && event.serverEpoch == _epoch;
+    if (!explicitResync &&
+        sameEpoch &&
+        _sequence != null &&
+        event.sequence <= _sequence!) {
+      return;
+    }
+    final hasGap = explicitResync ||
+        _epoch == null ||
         _sequence == null ||
-        event.serverEpoch != _epoch ||
-        event.sequence != _sequence! + 1 ||
-        event is ControlResyncRequiredEvent;
+        !sameEpoch ||
+        event.sequence > _sequence! + 1;
     _epoch = event.serverEpoch;
     _sequence = event.sequence;
     if (hasGap) {

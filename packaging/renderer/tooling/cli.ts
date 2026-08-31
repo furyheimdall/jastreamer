@@ -18,7 +18,7 @@ import {
 import { run } from "./process";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
-const supportedProtocolMajors = new Set([1, 2]);
+const supportedProtocolMajors = new Set([3, 2]);
 
 function fixtureProtocolMajor(path: string): number {
   const fixture: unknown = JSON.parse(readFileSync(path, "utf8"));

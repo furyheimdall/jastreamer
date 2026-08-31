@@ -76,12 +76,17 @@ void main() {
     expect(driver.queueReads, 1);
     expect(driver.policyReads, 1);
 
-    final resyncLimit = expectLater(
-      session.events,
-      emitsError(isA<ResyncLimitFailure>()),
+    final errorSignal = Completer<Object>();
+    final eventSubscription = session.events.listen(
+      (_) {},
+      onError: errorSignal.complete,
     );
+    addTearDown(eventSubscription.cancel);
     driver.sendInvalidation(sequence: 4, resource: 'transport', revision: 2);
-    await resyncLimit;
+    expect(
+      await errorSignal.future.timeout(const Duration(seconds: 5)),
+      isA<ResyncLimitFailure>(),
+    );
   });
 
   test('incompatible zone values fail closed at the real TLS boundary',

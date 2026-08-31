@@ -40,6 +40,7 @@ See `packaging/*/manifest.json` and `packaging/*/config.json` for exact names an
 
 ## Installation and Usage
 
+- [한국어 통합 사용자 매뉴얼](docs/user-manual.ko.md)
 - [Synology DSM Server](docs/synology.md)
 - [Server bootstrap and pairing](docs/server-pairing.md)
 - [Windows Control](docs/control-windows.md)
@@ -72,7 +73,7 @@ bun tooling/docs/verify.mjs --claims docs/claims.json --receipt-schema tooling/q
 - DB backup/restore: Use SQLite online backup before migrations.
 - First-admin bootstrap: `JASTREAMER_SETUP_SECRET` environment variable.
 - Discovery and pairing: HTTPS portal at advertised address.
-- Device revocation: Admin token required; token is single-use and expires.
+- Device revocation: Admin token required; pairing codes are single-use and expire.
 
 ## DSM / Synology
 

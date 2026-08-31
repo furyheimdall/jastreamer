@@ -9,7 +9,7 @@ import (
 	"syscall"
 )
 
-const serverUsage = "Usage: jastreamer-server [--config <path>]"
+const serverUsage = "Usage: jastreamer-server [--config <path>] [--tls-certificate <path> --tls-private-key <path>]"
 
 func main() {
 	os.Exit(mainExitCode(os.Args[1:], os.Stdout, os.Stderr))

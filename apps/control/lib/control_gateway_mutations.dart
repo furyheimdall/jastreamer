@@ -107,12 +107,13 @@ extension HttpControlGatewayMutations on HttpControlGateway {
       path: '/api/v1/events',
       queryParameters: {'ticket': ticket.value},
     );
+    ControlLiveSession? session;
     try {
       final socket = await _eventSocketFactory.connect(
         uri: eventUri,
         certificateSha256: certificateSha256,
       );
-      final session = ControlLiveSession._(
+      session = ControlLiveSession._(
         gateway: this,
         socket: socket,
         watchedZones: watchedZones,
@@ -122,6 +123,7 @@ extension HttpControlGatewayMutations on HttpControlGateway {
       await session.ready;
       return session;
     } catch (error) {
+      await session?.close();
       if (error is ControlFailure || error is FormatException) rethrow;
       throw _networkFailure(error);
     }

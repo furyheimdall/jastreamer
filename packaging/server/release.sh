@@ -5,6 +5,7 @@ root=$(cd "$(dirname "$0")/../.." && pwd)
 [[ $version =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo VERSION_INVALID >&2; exit 65; }
 [[ ${JASTREAMER_RELEASE_TAG:-} == "server-v$version" ]] || { echo TAG_VERSION_MISMATCH >&2; exit 65; }
 revision=${JASTREAMER_SOURCE_REVISION:?source revision required}
+source_input=${JASTREAMER_SOURCE_INPUT_SHA256:?source input identity required}
 work=$(mktemp -d); wix_image=; wix_container=; wix_builder=
 cleanup_release() {
   local status=$?; trap - EXIT; local cleanup_failed=false
@@ -56,7 +57,7 @@ cp "$root/apps/server/migrations/"*.sql "$work/source/"
 cp "$work/source/jastreamer-server-core.exe" "$out/jastreamer-server_${version}_windows_amd64.exe"
 
 cp "$root/packaging/server/server-local.wxs" "$work/server-local.wxs"
-cert_trust_id=$(openssl x509 -inform DER -in "$root/packaging/server/cert/server.cer" -noout -fingerprint -sha1 | cut -d= -f2 | tr -d ':')
+cert_trust_id=$(openssl x509 -in "$root/packaging/server/cert/server.cer" -noout -fingerprint -sha1 | cut -d= -f2 | tr -d ':')
 wix_image="jastreamer-wixl-task18-$$:0.101"
 wix_container="jastreamer-wixl-task18-$$"
 wix_builder="jastreamer-wixl-builder-task18-$$"
@@ -162,6 +163,15 @@ JASTREAMER_REVISION="$revision" SOURCE_DATE_EPOCH="${SOURCE_DATE_EPOCH:-$(git -C
 jq -e --arg version "$version" '.status=="passed" and .version==$version and .manifestCount==2 and ([.manifests[].platform]|sort)==["linux/amd64","linux/arm64"] and any(.runtime[]; .platform=="linux/arm64" and .classification=="native")' "$work/oci-results.json" >/dev/null || { echo TODO17_OCI_VERIFICATION_FAILED >&2; exit 65; }
 cp "$work/server.oci" "$out/jastreamer-server_${version}_linux_amd64-arm64.oci"
 cp "$work/oci-results.json" "$out/oci-inspection.json"
+
+source_archive="$out/jastreamer-server_${version}_source.tar.gz"
+SERVER_SOURCE_ROOT="$root" bun -e 'import { sourceInputFiles } from "./packaging/server/tooling/identity"; process.stdout.write(sourceInputFiles(process.env.SERVER_SOURCE_ROOT ?? "").map((path) => `${path}\0`).join(""));' >"$work/source-files"
+(cd "$root" && tar --sort=name --mtime="@${SOURCE_DATE_EPOCH:-0}" --owner=0 --group=0 --numeric-owner --mode='u+rwX,go+rX,go-w' --format=posix --pax-option=delete=atime,delete=ctime --verbatim-files-from --no-recursion --null -T "$work/source-files" -cf -) | gzip -n >"$source_archive"
+if tar -tzf "$source_archive" | grep -Eq '(^/|(^|/)\.\.(/|$)|\\)'; then echo SOURCE_ARCHIVE_PATH_UNSAFE >&2; exit 65; fi
+mkdir "$work/source-verify"
+tar -xzf "$source_archive" --no-same-owner --no-same-permissions -C "$work/source-verify"
+observed_source_input=$(SERVER_SOURCE_ROOT="$work/source-verify" bun -e 'import { sourceIdentity } from "./packaging/server/tooling/identity"; console.log(sourceIdentity(process.env.SERVER_SOURCE_ROOT ?? ""));')
+[[ $observed_source_input == "sha256:$source_input" ]] || { echo SOURCE_ARCHIVE_IDENTITY_MISMATCH >&2; exit 65; }
 
 cp "$root/LICENSE" "$out/Apache-2.0.txt"
 cp "$root/packaging/container/THIRD_PARTY_NOTICES" "$out/THIRD_PARTY_NOTICES"

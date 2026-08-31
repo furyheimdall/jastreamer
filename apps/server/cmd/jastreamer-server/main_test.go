@@ -93,6 +93,34 @@ func TestLoadConfig_rejects_unknown_machine_config_key(t *testing.T) {
 	}
 }
 
+func TestLoadConfig_requires_complete_external_TLS_pair_and_honors_precedence(t *testing.T) {
+	t.Setenv("JASTREAMER_SETUP_SECRET", "fixture-secret")
+	t.Setenv("JASTREAMER_TLS_CERTIFICATE_PATH", "/env/cert.pem")
+	t.Setenv("JASTREAMER_TLS_PRIVATE_KEY_PATH", "")
+	if _, err := loadConfig(nil); err == nil || !strings.Contains(err.Error(), "TLS certificate and private key paths must be configured together") {
+		t.Fatalf("missing environment key error = %v", err)
+	}
+	t.Setenv("JASTREAMER_TLS_PRIVATE_KEY_PATH", "/env/key.pem")
+	config, err := loadConfig([]string{"--tls-certificate", "/cli/cert.pem", "--tls-private-key", "/cli/key.pem"})
+	if err != nil {
+		t.Fatalf("load external TLS config: %v", err)
+	}
+	if config.tlsCertificatePath != "/cli/cert.pem" || config.tlsPrivateKeyPath != "/cli/key.pem" {
+		t.Fatalf("external TLS paths = %q/%q", config.tlsCertificatePath, config.tlsPrivateKeyPath)
+	}
+}
+
+func TestLoadConfig_reads_external_TLS_pair_from_machine_config(t *testing.T) {
+	t.Setenv("JASTREAMER_SETUP_SECRET", "fixture-secret")
+	path := filepath.Join(t.TempDir(), "server.json")
+	body := `{"address":"127.0.0.1:0","data_directory":"data","catalog_root":"media","catalog_migration":"catalog.sql","playback_migration":"playback.sql","playback_expansion":"expansion.sql","pairing_ttl":"5m","tls_certificate_path":"/operator/cert.pem","tls_private_key_path":"/operator/key.pem"}`
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil { t.Fatal(err) }
+	config, err := loadConfig([]string{"--config", path})
+	if err != nil || config.tlsCertificatePath != "/operator/cert.pem" || config.tlsPrivateKeyPath != "/operator/key.pem" {
+		t.Fatalf("machine TLS config = %#v, %v", config, err)
+	}
+}
+
 func TestLoadConfig_applies_pairing_TTL_override(t *testing.T) {
 	// Given
 	t.Setenv("JASTREAMER_SETUP_SECRET", "fixture-secret")

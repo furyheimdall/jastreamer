@@ -8,9 +8,21 @@ import (
 	"errors"
 	"io"
 	"testing"
+	"time"
 
 	"github.com/jastreamer/jastreamer-server/internal/security"
 )
+
+func requireBrokerEvent(t *testing.T, events <-chan eventEnvelope) eventEnvelope {
+	t.Helper()
+	select {
+	case event := <-events:
+		return event
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for broker event")
+		return eventEnvelope{}
+	}
+}
 
 func TestEventBroker_unsubscribe_removes_subscriber(t *testing.T) {
 	// Given
@@ -73,7 +85,7 @@ func TestEventBroker_publish_emits_one_ordered_invalidation_and_suppresses_dupli
 	broker.publishInvalidation("zone/main/queue", 4)
 
 	// Then
-	event := <-subscription.events
+	event := requireBrokerEvent(t, subscription.events)
 	if event.Type != eventTypeInvalidation || event.Epoch != subscription.snapshot.Epoch ||
 		event.Sequence != subscription.snapshot.Sequence+1 || event.Resource != "zone/main/queue" || event.Revision != 4 {
 		t.Fatalf("invalidation = %#v, snapshot = %#v", event, subscription.snapshot)
@@ -82,6 +94,28 @@ func TestEventBroker_publish_emits_one_ordered_invalidation_and_suppresses_dupli
 	case duplicate := <-subscription.events:
 		t.Fatalf("duplicate invalidation = %#v", duplicate)
 	default:
+	}
+}
+
+func TestServer_publishZoneState_preserves_equal_revisions_for_distinct_zones(t *testing.T) {
+	// Given
+	broker := newEventBroker()
+	service := &server{eventHub: broker}
+	subscription := broker.subscribe("device-1")
+	defer subscription.unsubscribe()
+
+	// When
+	service.publishZoneState("transport", "living", 4)
+	service.publishZoneState("transport", "office", 4)
+
+	// Then
+	first := requireBrokerEvent(t, subscription.events)
+	second := requireBrokerEvent(t, subscription.events)
+	if first.Resource != "transport" || first.ZoneID != "living" || first.Revision != 4 {
+		t.Fatalf("first invalidation = %#v", first)
+	}
+	if second.Resource != "transport" || second.ZoneID != "office" || second.Revision != 4 {
+		t.Fatalf("second invalidation = %#v", second)
 	}
 }
 
@@ -153,6 +187,32 @@ func TestValidateEventSequence_rejects_gap(t *testing.T) {
 	// Then
 	if err == nil {
 		t.Fatal("sequence gap was accepted")
+	}
+}
+
+func TestEventBroker_publishZoneDeletion_allows_every_scoped_resource_to_restart(t *testing.T) {
+	broker := newEventBroker()
+	subscription := broker.subscribe("device-1")
+	defer subscription.unsubscribe()
+
+	resources := []string{"zones", "queue", "transport", "continuation-policy"}
+	for index, resource := range resources {
+		broker.publishScopedInvalidation(resource, "main", uint64(index+6))
+		requireBrokerEvent(t, subscription.events)
+	}
+
+	broker.publishZoneDeletion("main", 10)
+	deleted := requireBrokerEvent(t, subscription.events)
+	if deleted.Resource != "zones" || deleted.ZoneID != "main" || deleted.Revision != 10 {
+		t.Fatalf("zone deletion event = %#v", deleted)
+	}
+
+	for _, resource := range resources {
+		broker.publishScopedInvalidation(resource, "main", 1)
+		recreated := requireBrokerEvent(t, subscription.events)
+		if recreated.Resource != resource || recreated.ZoneID != "main" || recreated.Revision != 1 {
+			t.Fatalf("recreated %s event = %#v", resource, recreated)
+		}
 	}
 }
 

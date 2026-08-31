@@ -15,4 +15,4 @@ fi
 mkdir -p "$output"
 output=$(realpath "$output")
 cd "$root/tooling/qa"
-ADMIN_OUTPUT=$output bunx --no-install playwright test admin.spec.mjs --browser chromium --workers 1 --reporter line
+ADMIN_OUTPUT=$output bunx --no-install playwright test admin.playwright.mjs --browser chromium --workers 1 --reporter line

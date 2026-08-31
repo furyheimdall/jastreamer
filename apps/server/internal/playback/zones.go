@@ -2,7 +2,10 @@ package playback
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
+	"strconv"
 	"time"
 )
 
@@ -29,12 +32,29 @@ type ZonesSnapshot struct {
 	Renderers []RendererInventory
 }
 
+type DeleteZoneRequest struct {
+	ZoneID           ZoneID
+	IdempotencyKey   string
+	ExpectedRevision Revision
+}
+
+type DeleteZoneResult struct {
+	ZoneID   ZoneID
+	Revision Revision
+	Replayed bool
+}
+
 func (store *Store) CreateZone(ctx context.Context, input ZoneDefinition) (Zone, error) {
 	if input.ID == "" || input.DisplayName == "" {
 		return Zone{}, ErrInvalidZone
 	}
 	result := Zone{}
 	err := store.transaction(ctx, func(db *sqliteDB) error {
+		if err := execBound(db, "DELETE FROM playback_idempotency WHERE zone_id=? AND operation='delete_zone'", func(stmt *sqliteStmt) error {
+			return stmt.bindText(1, string(input.ID))
+		}); err != nil {
+			return err
+		}
 		if err := ensureZone(db, input.ID); err != nil {
 			return err
 		}
@@ -61,6 +81,77 @@ func (store *Store) CreateZone(ctx context.Context, input ZoneDefinition) (Zone,
 		}
 		result = loaded
 		return nil
+	})
+	return result, err
+}
+
+// DeleteZone removes any zone, including the last remaining zone. Zones have no
+// distinguished default identity; callers preserve baselines by deleting only IDs they own.
+func (store *Store) DeleteZone(ctx context.Context, request DeleteZoneRequest) (DeleteZoneResult, error) {
+	if request.ZoneID == "" || request.IdempotencyKey == "" {
+		return DeleteZoneResult{}, ErrInvalidRequest
+	}
+	digest := sha256.Sum256([]byte(strconv.FormatInt(int64(request.ExpectedRevision), 10)))
+	hash := hex.EncodeToString(digest[:])
+	result := DeleteZoneResult{}
+	err := store.transaction(ctx, func(db *sqliteDB) error {
+		replayed, revision, err := loadMutationReplay(db, mutationReplayQuery{
+			zoneID: request.ZoneID, key: request.IdempotencyKey, operation: QueueCommand("delete_zone"), hash: hash,
+		})
+		if err != nil {
+			return err
+		}
+		if replayed {
+			result = DeleteZoneResult{ZoneID: request.ZoneID, Revision: revision, Replayed: true}
+			return nil
+		}
+		inventory, found, err := loadZoneInventory(db, request.ZoneID)
+		if err != nil {
+			return err
+		}
+		if !found {
+			return ErrZoneNotFound
+		}
+		zone, err := loadZone(db, request.ZoneID)
+		if err != nil {
+			return err
+		}
+		if zone.revision != request.ExpectedRevision {
+			return ErrRevisionConflict
+		}
+		result = DeleteZoneResult{ZoneID: request.ZoneID, Revision: max(zone.revision, inventory.Revision) + 1}
+		for _, table := range []string{"playback_album_state", "playback_session_recordings"} {
+			if err := execBound(db, "DELETE FROM "+table+" WHERE session_id IN (SELECT session_id FROM playback_sessions WHERE zone_id=?)", func(stmt *sqliteStmt) error {
+				return stmt.bindText(1, string(request.ZoneID))
+			}); err != nil {
+				return err
+			}
+		}
+		for _, table := range []string{
+			"playback_start_failures", "playback_previous_history", "playback_automatic_previews",
+			"playback_decision_attempts", "playback_decisions", "renderer_outbox", "playback_plays",
+			"playback_sessions", "playback_queue", "playback_continuation_policies", "playback_tombstones",
+			"renderer_assignments", "server_zones",
+		} {
+			if err := execBound(db, "DELETE FROM "+table+" WHERE zone_id=?", func(stmt *sqliteStmt) error {
+				return stmt.bindText(1, string(request.ZoneID))
+			}); err != nil {
+				return err
+			}
+		}
+		if err := execBound(db, "DELETE FROM playback_zones WHERE zone_id=?", func(stmt *sqliteStmt) error {
+			return stmt.bindText(1, string(request.ZoneID))
+		}); err != nil {
+			return err
+		}
+		if err := execBound(db, "DELETE FROM playback_idempotency WHERE zone_id=?", func(stmt *sqliteStmt) error {
+			return stmt.bindText(1, string(request.ZoneID))
+		}); err != nil {
+			return err
+		}
+		return recordQueueMutation(db, queueMutationRecord{request: QueueMutationRequest{
+			ZoneID: request.ZoneID, IdempotencyKey: request.IdempotencyKey, Command: QueueCommand("delete_zone"),
+		}, hash: hash, revision: result.Revision})
 	})
 	return result, err
 }

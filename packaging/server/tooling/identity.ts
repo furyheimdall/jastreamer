@@ -7,11 +7,16 @@ const generatedServerOutputs = new Set([
   "apps/server/jastreamer-server",
   "apps/server/jastreamer-server.exe",
 ]);
-const sourceInputs = [
+export const serverSourceInputs = [
   "apps/server", "packaging/server", "packaging/container", "deploy/docker/server",
-  "tooling/container", "tooling/fixtures/music", "tooling/componentctl", ".github/workflows/server-release.yml", "LICENSE",
+  "tooling/container", "tooling/fixtures/music", "tooling/componentctl", ".github/workflows/server-release.yml",
+  ".github/workflows/server-qualification-staging.yml",
+  ".github/workflows/server-qualification-platforms.yml",
+  ".github/workflows/server-qualification-windows.yml",
+  ".github/workflows/server-qualification-stage.yml",
+  "LICENSE",
 ] as const;
-export function sourceIdentity(root: string, inputs: readonly string[] = sourceInputs): string {
+export function sourceInputFiles(root: string, inputs: readonly string[] = serverSourceInputs): readonly string[] {
   const paths: string[] = [];
   const add = (path: string): void => {
     const sourcePath = relative(root, path).replaceAll("\\", "/");
@@ -21,7 +26,10 @@ export function sourceIdentity(root: string, inputs: readonly string[] = sourceI
     for (const name of readdirSync(path)) if (!excludedDirectories.has(name)) add(join(path, name));
   };
   for (const input of inputs) add(join(root, input));
+  return paths.sort();
+}
+export function sourceIdentity(root: string, inputs: readonly string[] = serverSourceInputs): string {
   const hash = createHash("sha256");
-  for (const path of paths.sort()) hash.update(path).update("\0").update(readFileSync(join(root, path))).update("\0");
+  for (const path of sourceInputFiles(root, inputs)) hash.update(path).update("\0").update(readFileSync(join(root, path))).update("\0");
   return `sha256:${hash.digest("hex")}`;
 }

@@ -7,7 +7,8 @@ export const verifyCanonicalSource = (context, canonical, tools) => {
   if (policyRead.issue) return policyRead.issue;
   const policy = JSON.parse(policyRead.bytes);
   if (policy.schemaVersion !== 1 || typeof policy.policyId !== "string" || !Array.isArray(policy.includeRoots) || !Array.isArray(policy.includeRootFiles) || !Array.isArray(policy.excludePrefixes)) return tools.denied("SOURCE_POLICY_INVALID", canonical.sourcePolicyPath);
-  const values = execFileSync("git", ["-C", sourceRoot, "ls-files", "--cached", "--others", "--exclude-standard", "-z"]).toString().split("\0").filter(Boolean).sort();
+  const deleted = new Set(execFileSync("git", ["-C", sourceRoot, "ls-files", "--deleted", "-z"]).toString().split("\0").filter(Boolean));
+  const values = execFileSync("git", ["-C", sourceRoot, "ls-files", "--cached", "--others", "--exclude-standard", "-z"]).toString().split("\0").filter((path) => path !== "" && !deleted.has(path)).sort();
   const included = [];
   const omitted = [];
   for (const path of values) {

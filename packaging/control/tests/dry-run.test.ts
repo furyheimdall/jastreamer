@@ -86,29 +86,46 @@ describe("Control release dry-run", () => {
     expect(readFileSync(output)).toEqual(before);
   }));
 
+  test("local candidate tests preserve repository-relative contract fixtures", () => {
+    // Given: the release container stages Control in an isolated workspace.
+    const release = readFileSync(join(root, "packaging/control/release.sh"), "utf8");
+
+    // When: Flutter tests resolve paths exactly as they do from apps/control.
+    // Then: the staged repository shape includes both apps/control and contracts.
+    expect(release).toContain("$cache/workspace/apps/control");
+    expect(release).toContain("cp -a /source/contracts /workspace/contracts");
+    expect(release).toContain("cd /workspace/apps/control");
+  });
+
   test("workflow builds exact candidates and gates the three-asset publication job", () => {
     // Given: the complete Control candidate workflow.
-    const workflow = readFileSync(join(root, ".github/workflows/control-release.yml"), "utf8");
+    const release = readFileSync(join(root, ".github/workflows/control-release.yml"), "utf8");
+    const staging = [
+      "control-qualification-staging.yml",
+      "control-qualification-platforms.yml",
+      "control-qualification-signed-platforms.yml",
+      "control-qualification-stage.yml",
+    ].map((name) => readFileSync(join(root, ".github/workflows", name), "utf8")).join("\n");
 
     // When: build and publication surfaces are inspected.
-    const stage = workflow.slice(workflow.indexOf("  stage:"));
+    const stage = readFileSync(join(root, ".github/workflows/control-qualification-stage.yml"), "utf8");
 
     // Then: real signed builds remain and only the protected typed driver can promote them.
-    expect(workflow).not.toContain("placeholder");
-    expect(workflow).toContain("github.repository == 'furyheimdall/jastreamer'");
-    expect(workflow).toContain("persist-credentials: false");
-    expect(workflow).toContain("flutter build web");
-    expect(workflow).toContain("flutter build apk");
-    expect(workflow).toContain("flutter build appbundle");
-    expect(workflow).toContain("MakeAppx");
-    expect(workflow).toContain("SignTool");
-    expect(workflow).toContain("if: always()");
-    expect(workflow).not.toContain("  promote:");
-    expect(workflow).not.toContain("gh release");
-    expect(workflow).toContain("  publish-qualified:");
-    expect(workflow).toContain("environment: product-promotion");
-    expect(workflow).toContain("publication-cli.ts");
-    expect(workflow).toContain("control-publication-stage");
+    expect(staging).not.toContain("placeholder");
+    expect(release).toContain("github.repository == 'furyheimdall/jastreamer'");
+    expect(staging).toContain("persist-credentials: false");
+    expect(staging).toContain("flutter build web");
+    expect(staging).toContain("flutter build apk");
+    expect(staging).toContain("flutter build appbundle");
+    expect(staging).toContain("MakeAppx");
+    expect(staging).toContain("SignTool");
+    expect(staging).toContain("if: always()");
+    expect(release).not.toContain("  promote:");
+    expect(release).not.toContain("gh release");
+    expect(release).toContain("  publish-qualified:");
+    expect(release).toContain("environment: product-promotion");
+    expect(release).toContain("publication-cli.ts");
+    expect(staging).toContain("control-publication-stage");
     expect(stage).not.toContain("CONTROL_ANDROID_");
     expect(stage).not.toContain("CONTROL_WINDOWS_");
     expect(stage).not.toContain("control-aab-validation");

@@ -126,6 +126,22 @@ func (store *Store) read(ctx context.Context, operation func(*sqliteDB) error) e
 }
 
 func ensureZone(db *sqliteDB, zoneID ZoneID) error {
+	stmt, err := db.prepare("SELECT 1 FROM playback_idempotency WHERE zone_id=? AND operation='delete_zone' LIMIT 1")
+	if err != nil {
+		return err
+	}
+	if err := stmt.bindText(1, string(zoneID)); err != nil {
+		stmt.close()
+		return err
+	}
+	deleted, err := stmt.step()
+	stmt.close()
+	if err != nil {
+		return err
+	}
+	if deleted {
+		return ErrZoneNotFound
+	}
 	if err := execBound(db, "INSERT OR IGNORE INTO playback_zones(zone_id) VALUES (?)", func(stmt *sqliteStmt) error {
 		return stmt.bindText(1, string(zoneID))
 	}); err != nil {

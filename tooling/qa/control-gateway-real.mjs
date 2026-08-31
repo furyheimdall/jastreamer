@@ -1,8 +1,8 @@
 import { randomBytes } from 'node:crypto';
 import { watch } from 'node:fs';
-import { copyFile, mkdir, readFile, rm } from 'node:fs/promises';
+import { copyFile, mkdir, readFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
-import { startEventGapProxy, startFixtureRenderer, startTodo13, stopChild } from './control-servers.mjs';
+import { releaseTodo13, startEventGapProxy, startFixtureRenderer, startTodo13, stopChild } from './control-servers.mjs';
 import { deadline, pairRole, requestJSON, requireStatus } from './control-gateway-http.mjs';
 import { startDriver } from './control-gateway-driver-process.mjs';
 import { startUnknownEnumProxy } from './control-gateway-proxy.mjs';
@@ -20,6 +20,7 @@ const initialScan = new Promise((resolveScan, rejectScan) => {
   initialScanReject = rejectScan;
 });
 let scanWatcher;
+let catalogDirectory;
 let server;
 let renderer;
 let gapProxy;
@@ -27,6 +28,15 @@ let unknownProxy;
 const driverChildren = new Set();
 const results = [];
 let stage = 'server-start';
+const observeInitialScan = async () => {
+  try {
+    const state = JSON.parse(await readFile(join(catalogDirectory, 'coordinator.json'), 'utf8'));
+    const completed = state.jobs?.find((job) => job.status === 'complete');
+    if (completed) initialScanResolve(completed);
+  } catch (error) {
+    if (!(error && error.code === 'ENOENT')) initialScanReject(error);
+  }
+};
 
 try {
   const setupSecret = randomBytes(24).toString('base64url');
@@ -34,19 +44,12 @@ try {
     seedMedia: false,
     setupSecret,
     beforeSpawn: async ({ directory }) => {
-      const catalogDirectory = join(directory, 'catalog');
+      catalogDirectory = join(directory, 'catalog');
       await mkdir(catalogDirectory, { recursive: true });
-      scanWatcher = watch(catalogDirectory, async () => {
-        try {
-          const state = JSON.parse(await readFile(join(catalogDirectory, 'coordinator.json'), 'utf8'));
-          const completed = state.jobs?.find((job) => job.status === 'complete');
-          if (completed) initialScanResolve(completed);
-        } catch (error) {
-          if (!(error && error.code === 'ENOENT')) initialScanReject(error);
-        }
-      });
+      scanWatcher = watch(catalogDirectory, () => { void observeInitialScan(); });
     },
   });
+  await observeInitialScan();
   await deadline(initialScan, 'initial empty catalog scan');
   scanWatcher.close();
   scanWatcher = undefined;
@@ -245,10 +248,7 @@ try {
   if (renderer) await stopChild(renderer).catch(() => {});
   if (gapProxy) await gapProxy.close();
   if (unknownProxy) await unknownProxy.close();
-  if (server) {
-    await stopChild(server.child).catch(() => {});
-    await rm(server.directory, { recursive: true, force: true });
-  }
+  if (server) await releaseTodo13(server);
 }
 
 writeControlGatewayResult(results);

@@ -15,7 +15,7 @@ func newEventBrokerContext(ctx context.Context) *eventBroker {
 		done = ctx.Done()
 	}
 	return &eventBroker{
-		done: done, epoch: 1, revisions: make(map[string]uint64), subscribers: make(map[uint64]*eventSubscriber),
+		done: done, epoch: 1, revisions: make(map[string]uint64), scopedRevisions: make(map[string]resourceRevision), subscribers: make(map[uint64]*eventSubscriber),
 		tickets: newDefaultEventTicketStore(),
 	}
 }
@@ -40,14 +40,15 @@ type eventSubscription struct {
 }
 
 type eventBroker struct {
-	mu          sync.Mutex
-	done        <-chan struct{}
-	epoch       uint64
-	sequence    uint64
-	nextID      uint64
-	revisions   map[string]uint64
-	subscribers map[uint64]*eventSubscriber
-	tickets     *eventTicketStore
+	mu              sync.Mutex
+	done            <-chan struct{}
+	epoch           uint64
+	sequence        uint64
+	nextID          uint64
+	revisions       map[string]uint64
+	scopedRevisions map[string]resourceRevision
+	subscribers     map[uint64]*eventSubscriber
+	tickets         *eventTicketStore
 }
 
 func (broker *eventBroker) subscribe(deviceID security.DeviceID) eventSubscription {
@@ -60,9 +61,12 @@ func (broker *eventBroker) subscribe(deviceID security.DeviceID) eventSubscripti
 		resync: make(chan eventEnvelope, 1), revoked: make(chan struct{}), active: true,
 	}
 	broker.subscribers[id] = subscriber
-	resources := make([]resourceRevision, 0, len(broker.revisions))
+	resources := make([]resourceRevision, 0, len(broker.revisions)+len(broker.scopedRevisions))
 	for resource, revision := range broker.revisions {
 		resources = append(resources, resourceRevision{Resource: resource, Revision: revision})
+	}
+	for _, scoped := range broker.scopedRevisions {
+		resources = append(resources, scoped)
 	}
 	var once sync.Once
 	return eventSubscription{
@@ -115,16 +119,49 @@ func (broker *eventBroker) revokeDevice(id security.DeviceID) {
 }
 
 func (broker *eventBroker) publishInvalidation(resource string, revision uint64) {
+	broker.publish(resource, "", revision)
+}
+
+func (broker *eventBroker) publishScopedInvalidation(resource, zoneID string, revision uint64) {
+	broker.publish(resource, zoneID, revision)
+}
+
+func (broker *eventBroker) publishZoneDeletion(zoneID string, revision uint64) {
 	broker.mu.Lock()
 	defer broker.mu.Unlock()
-	if current, exists := broker.revisions[resource]; exists && revision <= current {
+	if !broker.publishLocked("zones", zoneID, revision) {
 		return
 	}
-	broker.revisions[resource] = revision
+	for key, current := range broker.scopedRevisions {
+		if current.ZoneID == zoneID {
+			delete(broker.scopedRevisions, key)
+		}
+	}
+}
+
+func (broker *eventBroker) publish(resource, zoneID string, revision uint64) {
+	broker.mu.Lock()
+	defer broker.mu.Unlock()
+	broker.publishLocked(resource, zoneID, revision)
+}
+
+func (broker *eventBroker) publishLocked(resource, zoneID string, revision uint64) bool {
+	if zoneID == "" {
+		if current, exists := broker.revisions[resource]; exists && revision <= current {
+			return false
+		}
+		broker.revisions[resource] = revision
+	} else {
+		key := resource + "\x00" + zoneID
+		if current, exists := broker.scopedRevisions[key]; exists && revision <= current.Revision {
+			return false
+		}
+		broker.scopedRevisions[key] = resourceRevision{Resource: resource, ZoneID: zoneID, Revision: revision}
+	}
 	broker.sequence++
 	event := eventEnvelope{
 		Type: eventTypeInvalidation, Epoch: broker.epoch, Sequence: broker.sequence,
-		Resource: resource, Revision: revision,
+		Resource: resource, ZoneID: zoneID, Revision: revision,
 	}
 	for _, subscriber := range broker.subscribers {
 		subscriber.mu.Lock()
@@ -140,4 +177,5 @@ func (broker *eventBroker) publishInvalidation(resource string, revision uint64)
 		}
 		subscriber.mu.Unlock()
 	}
+	return true
 }
