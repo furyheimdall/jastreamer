@@ -18,6 +18,10 @@
             <File Id="CatalogMigration" Source="$(var.SourceDir)/001_catalog.sql"/>
             <File Id="PlaybackMigration" Source="$(var.SourceDir)/002_playback.sql"/>
             <File Id="PlaybackExpansion" Source="$(var.SourceDir)/003_todo12.sql"/>
+            <File Id="ServerStateMigration" Source="$(var.SourceDir)/004_server_state.sql"/>
+            <File Id="RendererSessionMigration" Source="$(var.SourceDir)/005_renderer_sessions.sql"/>
+            <File Id="TransportMutationMigration" Source="$(var.SourceDir)/006_transport_mutations.sql"/>
+            <File Id="PreviousHistoryMigration" Source="$(var.SourceDir)/007_previous_history.sql"/>
             <ServiceInstall Id="ServerService" Name="jastreamer-server" DisplayName="jastreamer Server" Description="Local-first jastreamer server" Start="auto" Type="ownProcess" ErrorControl="normal" Account="LocalSystem"/>
             <ServiceControl Id="ServerServiceControl" Name="jastreamer-server" Stop="both" Remove="uninstall" Wait="yes"/>
           </Component>

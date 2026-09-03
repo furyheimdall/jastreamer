@@ -77,6 +77,8 @@ test("container-local HTTP transport preserves JSON requests and response status
     "--header",
     "X-Jake-Protocol-Major: 2",
     "--header",
+    "X-Jake-Supported-Protocol-Majors: 3,2",
+    "--header",
     "Authorization: Bearer token",
     "--header",
     "Content-Type: application/json",

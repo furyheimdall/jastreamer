@@ -26,7 +26,7 @@ pub struct SessionConfig<'a> {
 #[derive(Debug, thiserror::Error)]
 pub enum SessionError {
     #[error("SESSION_FAILED: {0}")]
-    Transport(#[from] tokio_tungstenite::tungstenite::Error),
+    Transport(Box<tokio_tungstenite::tungstenite::Error>),
     #[error("SESSION_FAILED: {0}")]
     Protocol(#[from] crate::protocol::FrameError),
     #[error("SESSION_FAILED: {0}")]
@@ -37,6 +37,12 @@ pub enum SessionError {
     Journal(#[from] crate::harness::JournalError),
     #[error("SESSION_FAILED: {0}")]
     Invalid(String),
+}
+
+impl From<tokio_tungstenite::tungstenite::Error> for SessionError {
+    fn from(error: tokio_tungstenite::tungstenite::Error) -> Self {
+        Self::Transport(Box::new(error))
+    }
 }
 
 pub async fn run_foreground<B, M>(

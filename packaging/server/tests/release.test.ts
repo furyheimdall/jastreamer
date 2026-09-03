@@ -86,6 +86,10 @@ describe("Server release contract", () => {
     for (const source of ["server-local.wxs", "server.wxs"]) {
       const wix = readFileSync(new URL(`../${source}`, import.meta.url), "utf8");
       expect(wix).toContain("Installed OR TRUSTEDCERT"); expect(wix).toContain("TrustedPeople"); expect(wix).toContain("ServiceInstall");
+      expect(wix).toContain("004_server_state.sql");
+      expect(wix).toContain("005_renderer_sessions.sql");
+      expect(wix).toContain("006_transport_mutations.sql");
+      expect(wix).toContain("007_previous_history.sql");
     }
   });
   test("published Server certificate is a matching code-signing leaf", () => {

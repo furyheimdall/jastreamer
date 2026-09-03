@@ -43,6 +43,7 @@ Future<void> _eventGap(HttpControlGateway gateway, ZoneId zoneId) async {
     await events.close();
   }
 }
+
 Future<void> _unknownEnum(HttpControlGateway gateway) async {
   var rejected = false;
   try {

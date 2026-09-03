@@ -96,15 +96,53 @@ func (coordinator *Coordinator) PrepareRoot(path, displayName string) (Root, err
 	return coordinator.registry.prepare(path, displayName)
 }
 
-func (coordinator *Coordinator) ReconcileRoots(_ context.Context, desired []DesiredRoot) error {
+func (coordinator *Coordinator) ReconcileRoots(ctx context.Context, desired []DesiredRoot) error {
+	for {
+		if err := coordinator.cancelActiveScanAndWait(ctx); err != nil {
+			return err
+		}
+		coordinator.mu.Lock()
+		if coordinator.closed {
+			coordinator.mu.Unlock()
+			return ErrCoordinatorClosed
+		}
+		if coordinator.active != "" {
+			coordinator.mu.Unlock()
+			continue
+		}
+		err := coordinator.applyDesiredRootsLocked(desired)
+		coordinator.mu.Unlock()
+		return err
+	}
+}
+
+func (coordinator *Coordinator) cancelActiveScanAndWait(ctx context.Context) error {
 	coordinator.mu.Lock()
-	defer coordinator.mu.Unlock()
 	if coordinator.closed {
+		coordinator.mu.Unlock()
 		return ErrCoordinatorClosed
 	}
-	if coordinator.active != "" {
-		return ErrScanInProgress
+	if coordinator.active == "" {
+		coordinator.mu.Unlock()
+		return nil
 	}
+	done := coordinator.done[coordinator.active]
+	if coordinator.cancel != nil {
+		coordinator.cancel()
+	}
+	coordinator.mu.Unlock()
+	if done == nil {
+		return nil
+	}
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-done:
+		return nil
+	}
+}
+
+func (coordinator *Coordinator) applyDesiredRootsLocked(desired []DesiredRoot) error {
 	next, err := coordinator.registry.reconciled(desired)
 	if err != nil {
 		return err

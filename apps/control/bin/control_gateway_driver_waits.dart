@@ -35,6 +35,7 @@ Future<void> _waitCatalog(HttpControlGateway gateway) async {
     await events.close();
   }
 }
+
 Future<void> _waitRenderer(HttpControlGateway gateway) async {
   final rendererId = RendererId(_requiredEnvironment('JASTREAMER_RENDERER_ID'));
   final expectedStatus =

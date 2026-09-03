@@ -16,10 +16,10 @@ Future<void> _happy(HttpControlGateway gateway, ZoneId zoneId) async {
   final updates = _PlaybackUpdates(events);
   final transportSignals =
       Platform.environment['JASTREAMER_TRANSPORT_SIGNAL'] == 'stdin'
-      ? StreamIterator(
-          stdin.transform(utf8.decoder).transform(const LineSplitter()),
-        )
-      : null;
+          ? StreamIterator(
+              stdin.transform(utf8.decoder).transform(const LineSplitter()),
+            )
+          : null;
   try {
     final initial = await gateway.playbackState(zoneId);
     final appended = await gateway.mutateQueue(

@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/jastreamer/jastreamer-server/internal/catalog"
 	"github.com/jastreamer/jastreamer-server/internal/security"
 	"github.com/jastreamer/jastreamer-server/internal/settings"
 )
@@ -199,6 +200,8 @@ func writeConfigError(writer http.ResponseWriter, err error) {
 		writeJSON(writer, http.StatusConflict, map[string]any{"code": "CONFIG_FIELD_LOCKED", "message": "configuration field is locked", "field": locked.Field})
 	case errors.As(err, &validation):
 		writeJSON(writer, http.StatusBadRequest, map[string]any{"code": "CONFIG_VALIDATION_FAILED", "message": "configuration field is invalid", "field": validation.Field, "rule": validation.Rule})
+	case errors.Is(err, catalog.ErrScanInProgress):
+		invalid(writer, "CATALOG_SCAN_IN_PROGRESS", "a catalog scan is already active", http.StatusConflict)
 	default:
 		writeError(writer, err)
 	}
