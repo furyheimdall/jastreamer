@@ -92,8 +92,8 @@ Future<void> _happy(HttpControlGateway gateway, ZoneId zoneId) async {
         }),
       );
       if (!await transportSignals.moveNext().timeout(
-        const Duration(seconds: 30),
-      )) {
+            const Duration(seconds: 30),
+          )) {
         throw StateError('Play terminal signal stream closed.');
       }
       confirmed = await gateway.playbackState(zoneId);
@@ -123,8 +123,8 @@ Future<void> _happy(HttpControlGateway gateway, ZoneId zoneId) async {
         }),
       );
       if (!await transportSignals.moveNext().timeout(
-        const Duration(seconds: 30),
-      )) {
+            const Duration(seconds: 30),
+          )) {
         throw StateError('Pause terminal signal stream closed.');
       }
       confirmed = await gateway.playbackState(zoneId);
