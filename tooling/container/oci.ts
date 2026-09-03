@@ -98,7 +98,7 @@ function inspectFilesystem(
   platform: Platform,
   expected: Readonly<{ licenseSha256: string; noticesSha256: string }>,
 ): FilesystemFact {
-  const requiredPaths = ["usr/share/licenses/jastreamer/LICENSE", "usr/share/licenses/jastreamer/THIRD_PARTY_NOTICES", "app/migrations/001_catalog.sql", "app/migrations/002_playback.sql", "app/migrations/003_todo12.sql", "usr/local/lib/jastreamer-server"];
+  const requiredPaths = ["usr/share/licenses/jastreamer/LICENSE", "usr/share/licenses/jastreamer/THIRD_PARTY_NOTICES", "app/migrations/001_catalog.sql", "app/migrations/002_playback.sql", "app/migrations/003_todo12.sql", "app/migrations/004_server_state.sql", "app/migrations/005_renderer_sessions.sql", "app/migrations/006_transport_mutations.sql", "app/migrations/007_previous_history.sql", "usr/local/lib/jastreamer-server"];
   for (const required of requiredPaths) if (!existsSync(join(root, required))) throw new Error(`IMAGE_FILE_MISSING /${required}`);
   const forbidden = /(^|\/)(apps\/control|flutter_assets|AssetManifest\.json)|\.(apk|aab|msix)$/i;
   let scannedEntries = 0;

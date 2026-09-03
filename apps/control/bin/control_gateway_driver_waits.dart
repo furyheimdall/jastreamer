@@ -35,6 +35,7 @@ Future<void> _waitCatalog(HttpControlGateway gateway) async {
     await events.close();
   }
 }
+
 Future<void> _waitRenderer(HttpControlGateway gateway) async {
   final rendererId = RendererId(_requiredEnvironment('JASTREAMER_RENDERER_ID'));
   final expectedStatus =
@@ -53,19 +54,17 @@ Future<void> _waitRenderer(HttpControlGateway gateway) async {
           .timeout(const Duration(seconds: 90));
       inventory = await gateway.zones();
     } else {
-      final update = await events.updates
-          .firstWhere((update) {
-            if (update.resource != ResourceKind.zones ||
-                update.value is! ZonesSnapshot) {
-              return false;
-            }
-            return (update.value as ZonesSnapshot).renderers.any(
+      final update = await events.updates.firstWhere((update) {
+        if (update.resource != ResourceKind.zones ||
+            update.value is! ZonesSnapshot) {
+          return false;
+        }
+        return (update.value as ZonesSnapshot).renderers.any(
               (renderer) =>
                   renderer.id == rendererId &&
                   renderer.status.wireValue == expectedStatus,
             );
-          })
-          .timeout(const Duration(seconds: 30));
+      }).timeout(const Duration(seconds: 30));
       inventory = update.value as ZonesSnapshot;
     }
     final renderer = inventory.renderers.singleWhere(

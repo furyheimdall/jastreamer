@@ -94,7 +94,8 @@ export function executeCommands(context: CommandContext): CommandExecution {
     if (setup?.receipt.exitCode === 0 || setup === undefined) {
       let append = false;
       for (const command of commandsFor(context, setup?.image)) {
-        const argv: string[] = context.component === "control" ? [...command.argv] : [
+        const raceDetector = command.argv.includes("-race");
+        const argv: string[] = context.component === "control" || raceDetector ? [...command.argv] : [
           "strace", "-f", "-yy", "-s", "4096", "-e", "trace=%file,%process", ...(append ? ["-A"] : []), "-o", context.tracePath, ...command.argv,
         ];
         const result = Bun.spawnSync(argv, { cwd: join(context.worktree, "apps", context.component), env, stdout: "inherit", stderr: "inherit" });

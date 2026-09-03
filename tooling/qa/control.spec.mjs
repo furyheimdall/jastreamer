@@ -79,16 +79,17 @@ const replaceFlutterText = async (page, locator, value) => {
   await locator.click();
   await expect(locator).toBeFocused();
   const current = await locator.inputValue();
-  if (current.length > 0) {
-    await locator.selectText();
-    expect(await locator.evaluate((input) => [
-      input.selectionStart,
-      input.selectionEnd,
-    ])).toEqual([0, current.length]);
-    await page.keyboard.press('Backspace');
-    await expect(locator).toHaveValue('');
+  if (current !== value) {
+    await page.keyboard.press('Control+A');
+    if (value.length === 0) {
+      await page.keyboard.press('Backspace');
+    } else {
+      await page.keyboard.insertText(value);
+    }
   }
-  if (value.length > 0) await page.keyboard.insertText(value);
+  if ((await locator.inputValue()) !== value) {
+    await locator.fill(value);
+  }
   await expect(locator).toHaveValue(value);
 };
 

@@ -79,6 +79,54 @@ func TestCoordinatorCancelsSingleFlightScan_andRestartKeepsLastCompleteSnapshot(
 	}
 }
 
+func TestCoordinatorReconcileRoots_cancels_in_progress_scan_and_applies_desired_set(t *testing.T) {
+	// Given
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	base := t.TempDir()
+	left := filepath.Join(base, "left")
+	right := filepath.Join(base, "right")
+	for _, path := range []string{left, right} {
+		if err := os.Mkdir(path, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	started := make(chan struct{}, 1)
+	scan := func(scanCtx context.Context, root Root, previous Snapshot) (ScanResult, error) {
+		started <- struct{}{}
+		<-scanCtx.Done()
+		return ScanResult{Snapshot: previous, Complete: false}, scanCtx.Err()
+	}
+	coordinator, err := OpenCoordinator(ctx, CoordinatorConfig{
+		StatePath: filepath.Join(t.TempDir(), "state.json"), AllowedBases: []string{base},
+		Now: fixedCatalogTime, Scan: scan,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = coordinator.Close() })
+	if err := coordinator.ReconcileRoots(ctx, []DesiredRoot{{ID: "left", DisplayName: "Left", Path: left}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := coordinator.StartScan(ctx, "left"); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-ctx.Done():
+		t.Fatal(ctx.Err())
+	case <-started:
+	}
+
+	// When
+	reconcileErr := coordinator.ReconcileRoots(ctx, []DesiredRoot{{ID: "right", DisplayName: "Right", Path: right}})
+
+	// Then
+	roots := coordinator.Roots()
+	if reconcileErr != nil || len(roots) != 1 || roots[0].ID != "right" {
+		t.Fatalf("reconcile error=%v roots=%+v", reconcileErr, roots)
+	}
+}
+
 func TestCoordinatorReconcileRoots_replaces_exact_set_and_rolls_back_on_persist_failure(t *testing.T) {
 	// Given
 	base := t.TempDir()

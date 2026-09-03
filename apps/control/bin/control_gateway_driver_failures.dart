@@ -40,6 +40,7 @@ Future<void> _offline(HttpControlGateway gateway, ZoneId zoneId) async {
     await events.close();
   }
 }
+
 Future<void> _expectReadFailure<T extends ControlFailure>(
   HttpControlGateway gateway,
   String expectedCode, {
@@ -69,6 +70,7 @@ Future<void> _expectReadFailure<T extends ControlFailure>(
     }),
   );
 }
+
 final class _PlaybackUpdates {
   _PlaybackUpdates(ControlLiveSession events) {
     _subscription = events.updates.listen(_accept, onError: _fail);
@@ -133,6 +135,7 @@ final class _PlaybackUpdates {
 
   Future<void> close() => _subscription.cancel();
 }
+
 final class _PlaybackWaiter {
   _PlaybackWaiter(this.resource, this.minimumRevision, this.where);
   final ResourceKind resource;

@@ -1,9 +1,9 @@
 #include "credential_vault.h"
 
+#include <windows.h>
 #include <appmodel.h>
 #include <dpapi.h>
 #include <shlobj.h>
-#include <windows.h>
 
 #include <fstream>
 #include <iterator>

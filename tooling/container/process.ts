@@ -44,6 +44,8 @@ export const containerRequestArguments = (
     "10",
     "--header",
     "X-Jake-Protocol-Major: 2",
+    "--header",
+    "X-Jake-Supported-Protocol-Majors: 3,2",
   ];
   if (token) args.push("--header", `Authorization: Bearer ${token}`);
   if (body !== undefined) {
@@ -98,7 +100,7 @@ export async function waitForDockerEvent(filters: readonly string[], trigger: ()
 }
 
 export async function httpsJSON(url: string, token = "", method = "GET", body?: unknown): Promise<{ status: number; body: Record<string, unknown>; text: string }> {
-  const headers: Record<string, string> = { "X-Jake-Protocol-Major": "2" };
+  const headers: Record<string, string> = { "X-Jake-Protocol-Major": "2", "X-Jake-Supported-Protocol-Majors": "3,2" };
   if (token) headers.Authorization = `Bearer ${token}`;
   if (body !== undefined) headers["Content-Type"] = "application/json";
   const init = { method, headers, body: body === undefined ? undefined : JSON.stringify(body), tls: { rejectUnauthorized: false } } as RequestInit & { tls: { rejectUnauthorized: boolean } };
