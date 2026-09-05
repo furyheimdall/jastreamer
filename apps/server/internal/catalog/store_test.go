@@ -2,6 +2,8 @@ package catalog
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -59,5 +61,26 @@ func TestStorePersistsTombstone_when_catalog_reopens(t *testing.T) {
 	assertNoError(t, reopened.IntegrityCheck(ctx))
 	if reopened.SQLiteVersion() < 3_051_003 {
 		t.Fatalf("SQLite version = %d, want 3.51.3+", reopened.SQLiteVersion())
+	}
+}
+
+func TestOpenStore_reopensImmediatelyAfterClose(t *testing.T) {
+	ctx := context.Background()
+	schema, err := os.ReadFile(filepath.Join("..", "..", "migrations", "001_catalog.sql"))
+	assertNoError(t, err)
+	config := StoreConfig{Path: filepath.Join(t.TempDir(), "catalog.sqlite"), Root: t.TempDir(), Schema: string(schema), Now: time.Now}
+	for attempt := 0; attempt < 3; attempt++ {
+		store, openErr := OpenStore(ctx, config)
+		assertNoError(t, openErr)
+		assertNoError(t, store.Close())
+	}
+}
+
+func TestIsSQLiteBusy_detectsLockedErrors(t *testing.T) {
+	if isSQLiteBusy(nil) || isSQLiteBusy(errors.New("other")) {
+		t.Fatal("non-busy error accepted")
+	}
+	if !isSQLiteBusy(fmt.Errorf("configure catalog database: %w", errors.New("database is locked (5) (SQLITE_BUSY)"))) {
+		t.Fatal("locked error ignored")
 	}
 }

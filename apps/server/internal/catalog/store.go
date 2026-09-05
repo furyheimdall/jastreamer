@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	_ "modernc.org/sqlite"
+	modernsqlite "modernc.org/sqlite"
 )
 
 const minimumSQLiteVersion = 3_051_003
@@ -57,14 +57,47 @@ func OpenStore(ctx context.Context, config StoreConfig) (*Store, error) {
 	}
 	db.SetMaxOpenConns(1)
 	store := &Store{db: db, root: root, rootID: hashID("root", root), now: config.Now}
-	if err := store.initialize(ctx, config.Schema); err != nil {
+	if err := store.initializeWithRetry(ctx, config.Schema); err != nil {
 		return nil, errors.Join(err, db.Close())
 	}
 	return store, nil
 }
 
+func (store *Store) initializeWithRetry(ctx context.Context, schema string) error {
+	deadline := time.Now().Add(5 * time.Second)
+	var err error
+	for {
+		err = store.initialize(ctx, schema)
+		if err == nil || !isSQLiteBusy(err) {
+			return err
+		}
+		if !time.Now().Before(deadline) {
+			return err
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(50 * time.Millisecond):
+		}
+	}
+}
+
+func isSQLiteBusy(err error) bool {
+	if err == nil {
+		return false
+	}
+	var sqliteErr *modernsqlite.Error
+	if errors.As(err, &sqliteErr) && sqliteErr.Code() == 5 {
+		return true
+	}
+	return strings.Contains(err.Error(), "database is locked")
+}
+
 func (store *Store) initialize(ctx context.Context, schema string) error {
-	if _, err := store.db.ExecContext(ctx, "PRAGMA foreign_keys=ON; PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000;"); err != nil {
+	if _, err := store.db.ExecContext(ctx, "PRAGMA busy_timeout=5000"); err != nil {
+		return fmt.Errorf("configure catalog database: %w", err)
+	}
+	if _, err := store.db.ExecContext(ctx, "PRAGMA foreign_keys=ON; PRAGMA journal_mode=WAL"); err != nil {
 		return fmt.Errorf("configure catalog database: %w", err)
 	}
 	var version string
