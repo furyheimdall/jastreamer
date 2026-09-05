@@ -20,8 +20,7 @@ int main() {
       guid_text;
   const auto path = directory / L"credential.dpapi";
   const auto copied = directory / L"copied.dpapi";
-  const std::wstring runtime_wide(guid_text);
-  const std::string runtime_value(runtime_wide.begin(), runtime_wide.end());
+  const std::string runtime_value("test-credential-value");
 
   CredentialVault first(path, L"test-application-identity");
   first.Save(runtime_value);
