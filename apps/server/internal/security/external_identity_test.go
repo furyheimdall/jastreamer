@@ -128,11 +128,25 @@ func TestReadExternalIdentityFile_rejects_path_drift_after_open(t *testing.T) {
 		return
 	}
 	if hookErr != nil {
-		t.Fatalf("replace configured path: %v", hookErr)
+		if !windowsReplaceDenied(hookErr) {
+			t.Fatalf("replace configured path: %v", hookErr)
+		}
+		if err != nil {
+			t.Fatalf("Windows locked swap should keep the original readable: %v", err)
+		}
+		return
 	}
 	if err == nil || !strings.Contains(err.Error(), "changed while loading") {
 		t.Fatalf("path drift error = %v", err)
 	}
+}
+
+func windowsReplaceDenied(err error) bool {
+	if runtime.GOOS != "windows" {
+		return false
+	}
+	var link *os.LinkError
+	return errors.As(err, &link) && (errors.Is(link.Err, os.ErrPermission) || strings.Contains(strings.ToLower(link.Error()), "access is denied"))
 }
 
 func TestLoadExternalIdentity_rejects_missing_configured_SAN(t *testing.T) {
