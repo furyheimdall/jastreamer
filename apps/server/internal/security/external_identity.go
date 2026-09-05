@@ -66,7 +66,7 @@ func readExternalIdentityFile(path string, limit int64, privateKey bool, afterOp
 			return nil, err
 		}
 	}
-	file, err := os.Open(absolute)
+	file, err := openExternalIdentityFile(absolute)
 	if err != nil {
 		return nil, errors.New("open configured file")
 	}

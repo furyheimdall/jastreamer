@@ -121,18 +121,20 @@ func TestReadExternalIdentityFile_rejects_path_drift_after_open(t *testing.T) {
 	}
 	var hookErr error
 	content, err := readExternalIdentityFile(path, 1024, true, func() { hookErr = os.Rename(replacement, path) })
-	if runtime.GOOS == "windows" {
-		if !errors.Is(hookErr, os.ErrPermission) || err != nil || string(content) != "first" {
+	if hookErr != nil {
+		if runtime.GOOS != "windows" || !windowsReplaceDenied(hookErr) || err != nil || string(content) != "first" {
 			t.Fatalf("open-file replacement = %q, load=%v, replace=%v", content, err, hookErr)
 		}
 		return
 	}
-	if hookErr != nil {
-		t.Fatalf("replace configured path: %v", hookErr)
-	}
 	if err == nil || !strings.Contains(err.Error(), "changed while loading") {
 		t.Fatalf("path drift error = %v", err)
 	}
+}
+
+func windowsReplaceDenied(err error) bool {
+	var link *os.LinkError
+	return errors.As(err, &link) && (errors.Is(link.Err, os.ErrPermission) || strings.Contains(strings.ToLower(link.Error()), "access is denied"))
 }
 
 func TestLoadExternalIdentity_rejects_missing_configured_SAN(t *testing.T) {
@@ -194,6 +196,9 @@ func externalIdentityTestDirectory(t *testing.T) string {
 	t.Helper()
 	directory, err := filepath.EvalSymlinks(t.TempDir())
 	if err != nil {
+		t.Fatal(err)
+	}
+	if err := secureDirectory(directory); err != nil {
 		t.Fatal(err)
 	}
 	return directory

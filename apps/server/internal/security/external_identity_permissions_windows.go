@@ -19,9 +19,9 @@ func validatePrivateKeyOwnership(path string, info os.FileInfo) error {
 	if err != nil {
 		return errors.New("inspect external TLS private key owner")
 	}
-	user, err := windows.GetCurrentProcessToken().GetTokenUser()
+	ownerMatches, err := windowsPrivateKeyOwnedByServer(owner)
 	if err != nil {
-		return errors.New("inspect Server account identity")
+		return err
 	}
 	dacl, _, err := descriptor.DACL()
 	if err != nil || dacl == nil {
@@ -51,5 +51,34 @@ func validatePrivateKeyOwnership(path string, info os.FileInfo) error {
 			}
 		}
 	}
-	return externalPrivateKeyPermissionPolicy("windows", info.Mode(), owner != nil && owner.Equals(user.User.Sid), broadRead)
+	return externalPrivateKeyPermissionPolicy("windows", info.Mode(), ownerMatches, broadRead)
+}
+
+func windowsPrivateKeyOwnedByServer(owner *windows.SID) (bool, error) {
+	if owner == nil {
+		return false, nil
+	}
+	token := windows.GetCurrentProcessToken()
+	user, err := token.GetTokenUser()
+	if err != nil {
+		return errors.New("inspect Server account identity")
+	}
+	if owner.Equals(user.User.Sid) {
+		return true, nil
+	}
+	// Elevated Administrators and LocalSystem create files owned by
+	// BUILTIN\Administrators rather than the token user. That is the same
+	// Server security context, not a foreign account.
+	admins, err := windows.CreateWellKnownSid(windows.WinBuiltinAdministratorsSid)
+	if err != nil {
+		return false, errors.New("inspect Windows Administrators identity")
+	}
+	if !owner.Equals(admins) {
+		return false, nil
+	}
+	member, err := token.IsMember(admins)
+	if err != nil {
+		return false, errors.New("inspect Server Administrators membership")
+	}
+	return member, nil
 }
