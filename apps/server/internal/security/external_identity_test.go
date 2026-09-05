@@ -8,6 +8,7 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/pem"
+	"errors"
 	"math/big"
 	"net"
 	"os"
@@ -119,7 +120,13 @@ func TestReadExternalIdentityFile_rejects_path_drift_after_open(t *testing.T) {
 		t.Fatal(err)
 	}
 	var hookErr error
-	_, err := readExternalIdentityFile(path, 1024, true, func() { hookErr = os.Rename(replacement, path) })
+	content, err := readExternalIdentityFile(path, 1024, true, func() { hookErr = os.Rename(replacement, path) })
+	if runtime.GOOS == "windows" {
+		if !errors.Is(hookErr, os.ErrPermission) || err != nil || string(content) != "first" {
+			t.Fatalf("open-file replacement = %q, load=%v, replace=%v", content, err, hookErr)
+		}
+		return
+	}
 	if hookErr != nil {
 		t.Fatalf("replace configured path: %v", hookErr)
 	}
