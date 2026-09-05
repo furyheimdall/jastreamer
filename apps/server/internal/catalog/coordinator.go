@@ -192,7 +192,10 @@ func (coordinator *Coordinator) Snapshot() Snapshot {
 }
 
 func (coordinator *Coordinator) Roots() []Root {
-	return coordinator.registry.Roots()
+	coordinator.mu.RLock()
+	registry := coordinator.registry
+	coordinator.mu.RUnlock()
+	return registry.Roots()
 }
 
 func (coordinator *Coordinator) ObserveSnapshots(observer func(Snapshot)) {
