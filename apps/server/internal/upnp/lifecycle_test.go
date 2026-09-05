@@ -170,6 +170,10 @@ func TestLifecycle_expires_suspends_and_reconciles_without_adopting_external_URI
 	if got := awaitLifecycle(t, unavailable); got != device.ID {
 		t.Fatalf("expired renderer = %q", got)
 	}
+	pollTicker.channel <- clock.read()
+	if expired := awaitLifecycle(t, observed); !errors.Is(expired.Error, upnp.ErrIdentityRejected) {
+		t.Fatalf("post-expiry observation = %#v", expired.Error)
+	}
 	if _, err := service.PlaybackAdapter(device.ID, "living"); !errors.Is(err, upnp.ErrIdentityRejected) {
 		t.Fatalf("adapter remained available after expiry: %v", err)
 	}
