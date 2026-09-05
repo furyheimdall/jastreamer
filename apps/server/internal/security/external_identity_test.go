@@ -8,6 +8,7 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/pem"
+	"errors"
 	"math/big"
 	"net"
 	"os"
@@ -19,16 +20,17 @@ import (
 )
 
 func TestLoadExternalIdentity_accepts_secure_pair_without_mutating_local_identity(t *testing.T) {
-	localDirectory := t.TempDir()
+	localDirectory := externalIdentityTestDirectory(t)
 	local, err := LoadOrCreateIdentity(IdentityConfig{Directory: localDirectory, DNSNames: []string{"localhost"}, IPAddresses: []net.IP{net.ParseIP("127.0.0.1")}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	externalDirectory := t.TempDir()
+	externalDirectory := externalIdentityTestDirectory(t)
 	external, err := LoadOrCreateIdentity(IdentityConfig{Directory: externalDirectory, DNSNames: []string{"localhost"}, IPAddresses: []net.IP{net.ParseIP("127.0.0.1")}})
 	if err != nil {
 		t.Fatal(err)
 	}
+	protectExternalIdentityTestKey(t, filepath.Join(externalDirectory, "tls-key.pem"))
 	loaded, err := LoadExternalIdentity(ExternalIdentityConfig{CertificatePath: filepath.Join(externalDirectory, "tls-cert.pem"), PrivateKeyPath: filepath.Join(externalDirectory, "tls-key.pem"), DNSNames: []string{"localhost"}, IPAddresses: []net.IP{net.ParseIP("127.0.0.1")}, Now: time.Now()})
 	if err != nil || loaded.Fingerprint != external.Fingerprint || loaded.Fingerprint == local.Fingerprint {
 		t.Fatalf("external identity = %q, %v", loaded.Fingerprint, err)
@@ -40,8 +42,8 @@ func TestLoadExternalIdentity_accepts_secure_pair_without_mutating_local_identit
 }
 
 func TestLoadExternalIdentity_rejects_symlink_permissions_mismatch_and_malformed_without_key_leakage(t *testing.T) {
-	left := t.TempDir()
-	right := t.TempDir()
+	left := externalIdentityTestDirectory(t)
+	right := externalIdentityTestDirectory(t)
 	if _, err := LoadOrCreateIdentity(IdentityConfig{Directory: left, DNSNames: []string{"localhost"}}); err != nil {
 		t.Fatal(err)
 	}
@@ -49,21 +51,23 @@ func TestLoadExternalIdentity_rejects_symlink_permissions_mismatch_and_malformed
 		t.Fatal(err)
 	}
 	certificatePath, keyPath := filepath.Join(left, "tls-cert.pem"), filepath.Join(left, "tls-key.pem")
+	protectExternalIdentityTestKey(t, keyPath)
+	protectExternalIdentityTestKey(t, filepath.Join(right, "tls-key.pem"))
 	tests := []struct {
 		name    string
 		prepare func(*testing.T) (string, string)
 	}{
 		{name: "certificate symlink", prepare: func(t *testing.T) (string, string) {
-			path := filepath.Join(t.TempDir(), "cert.pem")
+			path := filepath.Join(externalIdentityTestDirectory(t), "cert.pem")
 			if err := os.Symlink(certificatePath, path); err != nil {
 				t.Fatal(err)
 			}
 			return path, keyPath
 		}},
-		{name: "special certificate path", prepare: func(t *testing.T) (string, string) { return t.TempDir(), keyPath }},
+		{name: "special certificate path", prepare: func(t *testing.T) (string, string) { return externalIdentityTestDirectory(t), keyPath }},
 		{name: "mismatched key", prepare: func(*testing.T) (string, string) { return certificatePath, filepath.Join(right, "tls-key.pem") }},
 		{name: "malformed certificate", prepare: func(t *testing.T) (string, string) {
-			path := filepath.Join(t.TempDir(), "cert.pem")
+			path := filepath.Join(externalIdentityTestDirectory(t), "cert.pem")
 			if err := os.WriteFile(path, []byte("not a certificate"), 0o600); err != nil {
 				t.Fatal(err)
 			}
@@ -75,7 +79,7 @@ func TestLoadExternalIdentity_rejects_symlink_permissions_mismatch_and_malformed
 			name    string
 			prepare func(*testing.T) (string, string)
 		}{name: "insecure key permissions", prepare: func(t *testing.T) (string, string) {
-			directory := t.TempDir()
+			directory := externalIdentityTestDirectory(t)
 			cert := filepath.Join(directory, "cert.pem")
 			key := filepath.Join(directory, "key.pem")
 			certBytes, _ := os.ReadFile(certificatePath)
@@ -105,17 +109,24 @@ func TestLoadExternalIdentity_rejects_symlink_permissions_mismatch_and_malformed
 }
 
 func TestReadExternalIdentityFile_rejects_path_drift_after_open(t *testing.T) {
-	directory := t.TempDir()
+	directory := externalIdentityTestDirectory(t)
 	path := filepath.Join(directory, "key.pem")
 	replacement := filepath.Join(directory, "replacement.pem")
 	if err := os.WriteFile(path, []byte("first"), 0o600); err != nil {
 		t.Fatal(err)
 	}
+	protectExternalIdentityTestKey(t, path)
 	if err := os.WriteFile(replacement, []byte("second"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	var hookErr error
-	_, err := readExternalIdentityFile(path, 1024, true, func() { hookErr = os.Rename(replacement, path) })
+	content, err := readExternalIdentityFile(path, 1024, true, func() { hookErr = os.Rename(replacement, path) })
+	if runtime.GOOS == "windows" {
+		if !errors.Is(hookErr, os.ErrPermission) || err != nil || string(content) != "first" {
+			t.Fatalf("open-file replacement = %q, load=%v, replace=%v", content, err, hookErr)
+		}
+		return
+	}
 	if hookErr != nil {
 		t.Fatalf("replace configured path: %v", hookErr)
 	}
@@ -125,10 +136,11 @@ func TestReadExternalIdentityFile_rejects_path_drift_after_open(t *testing.T) {
 }
 
 func TestLoadExternalIdentity_rejects_missing_configured_SAN(t *testing.T) {
-	directory := t.TempDir()
+	directory := externalIdentityTestDirectory(t)
 	if _, err := LoadOrCreateIdentity(IdentityConfig{Directory: directory, DNSNames: []string{"localhost"}}); err != nil {
 		t.Fatal(err)
 	}
+	protectExternalIdentityTestKey(t, filepath.Join(directory, "tls-key.pem"))
 	_, err := LoadExternalIdentity(ExternalIdentityConfig{CertificatePath: filepath.Join(directory, "tls-cert.pem"), PrivateKeyPath: filepath.Join(directory, "tls-key.pem"), DNSNames: []string{"other.invalid"}, Now: time.Now()})
 	if err == nil {
 		t.Fatal("certificate without configured SAN was accepted")
@@ -176,6 +188,15 @@ func TestPrivateKeyPermissionPolicy_modelsWindowsAndUnix(t *testing.T) {
 	if err := externalPrivateKeyPermissionPolicy("windows", 0o600, false, false); err == nil {
 		t.Fatal("foreign-owned Windows key accepted")
 	}
+}
+
+func externalIdentityTestDirectory(t *testing.T) string {
+	t.Helper()
+	directory, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	return directory
 }
 
 func externalTestPair(t *testing.T, before, after time.Time, weak bool, usages []x509.ExtKeyUsage) ([]byte, []byte) {

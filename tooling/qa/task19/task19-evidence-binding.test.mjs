@@ -1,17 +1,33 @@
-import { execFileSync } from "node:child_process";
-import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, test } from "bun:test";
 
-const repository = resolve(import.meta.dirname, "../../.."); const evidencePath = resolve(repository, ".omo/evidence/functional-jastreamer-products/final/task19-verifier-blocker-remediation.json"); const sha256 = (path) => createHash("sha256").update(readFileSync(resolve(repository, path))).digest("hex");
+const repository = resolve(import.meta.dirname, "../../..");
+const releaseInputs = [
+  ".github/workflows/server-release.yml",
+  ".github/workflows/control-release.yml",
+  ".github/workflows/product-qualification-dispatch.yml",
+  ".github/workflows/task19-installed-qualification.yml",
+  "tooling/release/product-gate-production-trust-v1.json",
+  "tooling/qa/task19/task19-production-trust-v1.json",
+  "tooling/qa/task19/installed-runner.mjs",
+];
 
 describe("Task19 remediation evidence byte bindings", () => {
-  test("binds current HEAD implementation prior evidence and candidate records", () => {
-    const evidence = JSON.parse(readFileSync(evidencePath, "utf8")); const manifest = evidence.hashManifest;
-    expect(manifest.algorithm).toBe("sha256"); expect(manifest.head).toBe(execFileSync("git", ["-C", repository, "rev-parse", "HEAD"], { encoding: "utf8" }).trim());
-    for (const key of ["implementationFiles", "priorEvidence", "candidateRecords"]) { expect(manifest[key].length).toBeGreaterThan(0); for (const item of manifest[key]) expect(sha256(item.path), item.path).toBe(item.sha256); }
-    expect(manifest.implementationFiles.map((item) => item.path)).toEqual(expect.arrayContaining(["tooling/release/task19-physical-provider-cli.ts", "tooling/qa/task19/protected-runner.ps1", "tooling/qa/task19/windows-snapshot-acl.mjs"]));
-    expect(manifest.priorEvidence.map((item) => item.path)).toContain(".omo/evidence/functional-jastreamer-products/final/task19-security-core-remediation.json"); expect(manifest.candidateRecords.map((item) => item.path)).toContain(".omo/evidence/functional-jastreamer-products/final/stage-exact-server-control-candidates.json");
+  test("never treats ignored local remediation records as release authorization", () => {
+    const inputs = releaseInputs.map(path => readFileSync(resolve(repository, path), "utf8")).join("\n");
+    const productTrust = JSON.parse(readFileSync(
+      resolve(repository, "tooling/release/product-gate-production-trust-v1.json"),
+      "utf8",
+    ));
+    const task19Trust = JSON.parse(readFileSync(
+      resolve(repository, "tooling/qa/task19/task19-production-trust-v1.json"),
+      "utf8",
+    ));
+
+    expect(inputs).not.toContain(".omo/evidence");
+    expect(readFileSync(resolve(repository, ".gitignore"), "utf8")).toContain(".omo/evidence/");
+    expect(productTrust.artifactSigning.keyIds).toEqual([]);
+    expect(task19Trust.qualification.ready).toBe(false);
   });
 });

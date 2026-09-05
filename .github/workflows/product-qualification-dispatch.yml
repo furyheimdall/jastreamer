@@ -127,6 +127,9 @@ jobs:
     needs: authorize
     if: needs.authorize.result == 'success'
     uses: ./.github/workflows/server-qualification-staging.yml
+    secrets:
+      SERVER_WINDOWS_SIGNING_PFX_B64: ${{ secrets.SERVER_WINDOWS_SIGNING_PFX_B64 }}
+      SERVER_WINDOWS_SIGNING_PFX_PASSWORD: ${{ secrets.SERVER_WINDOWS_SIGNING_PFX_PASSWORD }}
     with:
       version: ${{ inputs.version }}
       invocation_mode: authoritative
@@ -140,6 +143,14 @@ jobs:
     needs: authorize
     if: needs.authorize.result == 'success'
     uses: ./.github/workflows/control-qualification-staging.yml
+    secrets:
+      CONTROL_ANDROID_JKS_B64: ${{ secrets.CONTROL_ANDROID_JKS_B64 }}
+      CONTROL_ANDROID_STORE_PASSWORD: ${{ secrets.CONTROL_ANDROID_STORE_PASSWORD }}
+      CONTROL_ANDROID_KEY_ALIAS: ${{ secrets.CONTROL_ANDROID_KEY_ALIAS }}
+      CONTROL_ANDROID_KEY_PASSWORD: ${{ secrets.CONTROL_ANDROID_KEY_PASSWORD }}
+      CONTROL_ANDROID_CERT_SHA256: ${{ secrets.CONTROL_ANDROID_CERT_SHA256 }}
+      CONTROL_WINDOWS_PFX_B64: ${{ secrets.CONTROL_WINDOWS_PFX_B64 }}
+      CONTROL_WINDOWS_PFX_PASSWORD: ${{ secrets.CONTROL_WINDOWS_PFX_PASSWORD }}
     with:
       version: ${{ inputs.version }}
       invocation_mode: authoritative

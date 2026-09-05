@@ -6,7 +6,7 @@ import type { CommandReceipt, ComponentName } from "./types.ts";
 
 const FLUTTER_IMAGE = "ghcr.io/cirruslabs/flutter:3.35.0@sha256:114f14a7cf973b08e4607d3e2fb4a3b2dc977c08877e651743f8cbed0e971046";
 type Command = { readonly argv: readonly string[]; readonly display: string };
-type CommandContext = {
+export type CommandContext = {
   readonly component: ComponentName;
   readonly worktree: string;
   readonly namespaceRoot: string;
@@ -52,11 +52,14 @@ const dockerCommand = (context: CommandContext, image: string, operation: readon
   return { argv, display: operation.join(" ") };
 };
 
-const commandsFor = (context: CommandContext, controlImage?: string): readonly Command[] => {
+export const commandsFor = (context: CommandContext, controlImage?: string): readonly Command[] => {
   switch (context.component) {
     case "server":
       return [
-        { argv: ["go", "test", "./..."], display: "CGO_ENABLED=0 go test ./..." },
+        {
+          argv: ["go", "test", "-skip", "^TestTask19LiveServerScansExactly100000ValidMediaPaths$", "./..."],
+          display: "CGO_ENABLED=0 go test -skip <large-scan-covered-by-race-suite> ./...",
+        },
         { argv: ["env", "CGO_ENABLED=1", "go", "test", "-race", "./..."], display: "CGO_ENABLED=1 go test -race ./..." },
         { argv: ["go", "vet", "./..."], display: "CGO_ENABLED=0 go vet ./..." },
         { argv: ["go", "build", "-o", join(context.artifactRoot, "jastreamer-server"), "./cmd/jastreamer-server"], display: "CGO_ENABLED=0 go build -o <artifact>/jastreamer-server ./cmd/jastreamer-server" },
