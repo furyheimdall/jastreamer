@@ -50,9 +50,9 @@ func readExternalIdentityFile(path string, limit int64, privateKey bool, afterOp
 	if err != nil {
 		return nil, errors.New("resolve configured path")
 	}
-	resolved, err := filepath.EvalSymlinks(absolute)
-	if err != nil || resolved != filepath.Clean(absolute) {
-		return nil, errors.New("configured path must be canonical and contain no symlinks")
+	resolved, err := canonicalConfiguredPath(absolute)
+	if err != nil {
+		return nil, err
 	}
 	before, err := os.Lstat(absolute)
 	if err != nil {
@@ -84,7 +84,7 @@ func readExternalIdentityFile(path string, limit int64, privateKey bool, afterOp
 	}
 	afterResolved, resolveErr := filepath.EvalSymlinks(absolute)
 	after, err := os.Lstat(absolute)
-	if resolveErr != nil || afterResolved != resolved || err != nil || after.Mode()&os.ModeSymlink != 0 || !os.SameFile(opened, after) {
+	if resolveErr != nil || !canonicalFilePathsEqual(afterResolved, resolved) || err != nil || after.Mode()&os.ModeSymlink != 0 || !os.SameFile(opened, after) {
 		return nil, errors.New("configured file changed while loading")
 	}
 	return content, nil

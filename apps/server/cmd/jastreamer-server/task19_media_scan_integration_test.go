@@ -250,6 +250,9 @@ func browseTask19Catalog(t *testing.T, server liveServer, token string) (int, ta
 }
 
 func TestTask19LiveServerScansExactly100000ValidMediaPaths(t *testing.T) {
+	if raceDetectorEnabled {
+		t.Skip("100000-path catalog scan is not runnable under the race detector")
+	}
 	deadline, cancel := context.WithTimeout(t.Context(), 12*time.Minute)
 	defer cancel()
 	directory := t.TempDir()

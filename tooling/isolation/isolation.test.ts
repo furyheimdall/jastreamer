@@ -7,7 +7,7 @@ import { installInjection } from "./injection.ts";
 import { atomicWriteJson, filteredEnvironment } from "./io.ts";
 import { createNamespaces, verifyCanary } from "./namespaces.ts";
 import { parseArguments, parseFixture, parseScopeManifest } from "./parse.ts";
-import { normalizeTrace, outsideAllowlist } from "./trace.ts";
+import { normalizeTrace, normalizeTraceFile, outsideAllowlist } from "./trace.ts";
 import { createWorktree, removeWorktree } from "./worktree.ts";
 
 const temporaryDirectories: string[] = [];
@@ -84,6 +84,9 @@ describe("trace policy", () => {
       "apps/control/lib/main.dart", "apps/renderer/Cargo.toml", "apps/server/go.mod", "contracts/control-api/schema.json",
     ]);
     expect(result.missingPaths).toEqual(["apps/control/lib/main.dart", "apps/renderer/Cargo.toml"]);
+    const path = join(temporaryDirectory(), "trace.strace");
+    writeFileSync(path, trace);
+    expect(normalizeTraceFile(path, { repositoryRoot: root, worktree, initialDirectory: "/tmp/tree/apps/server", namespaceRoot: "/tmp/run/namespaces", aliases: [] })).toEqual(result);
   });
 
   test("suppresses missing ancestor metadata but rejects successful nested git access", () => {

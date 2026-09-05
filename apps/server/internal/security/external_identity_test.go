@@ -104,6 +104,18 @@ func TestLoadExternalIdentity_rejects_symlink_permissions_mismatch_and_malformed
 	}
 }
 
+func TestCanonicalFilePathsEqual_accepts_identical_cleaned_paths(t *testing.T) {
+	directory := t.TempDir()
+	path := filepath.Join(directory, "key.pem")
+	if err := os.WriteFile(path, []byte("first"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	resolved, err := canonicalConfiguredPath(path)
+	if err != nil || resolved == "" {
+		t.Fatalf("canonical path = %q, %v", resolved, err)
+	}
+}
+
 func TestReadExternalIdentityFile_rejects_path_drift_after_open(t *testing.T) {
 	directory := t.TempDir()
 	path := filepath.Join(directory, "key.pem")

@@ -151,9 +151,6 @@ jobs:
     uses: ./.github/workflows/server-qualification-windows.yml
     with:
       version: ${{ needs.validate.outputs.version }}
-    secrets:
-      SERVER_WINDOWS_SIGNING_PFX_B64: ${{ secrets.SERVER_WINDOWS_SIGNING_PFX_B64 }}
-      SERVER_WINDOWS_SIGNING_PFX_PASSWORD: ${{ secrets.SERVER_WINDOWS_SIGNING_PFX_PASSWORD }}
 
   stage:
     needs: [validate, platforms, windows]
