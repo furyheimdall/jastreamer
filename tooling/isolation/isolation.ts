@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, readFileSync } from "node:fs";
+import { existsSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { collectPackageReceipt } from "./artifacts.ts";
@@ -6,7 +6,7 @@ import { executeCommands } from "./commands.ts";
 import { installInjection } from "./injection.ts";
 import { createNamespaces, verifyCanary } from "./namespaces.ts";
 import { parseScopeManifest } from "./parse.ts";
-import { normalizeTrace, outsideAllowlist } from "./trace.ts";
+import { normalizeTraceFile, outsideAllowlist } from "./trace.ts";
 import type { CleanupReceipt, ComponentName, ComponentResult, IsolationInput, IsolationResult, WorktreeProof } from "./types.ts";
 import { createWorktree, removeWorktree, worktreeList } from "./worktree.ts";
 
@@ -63,7 +63,7 @@ function runComponent(component: ComponentName, context: RunContext): ComponentR
     commands = execution.commands;
     derivedImageCleanup = execution.derivedImageCleanup;
     if (commands.some((receipt) => receipt.exitCode === 127)) throw new RuntimeInfrastructureError("required executable is unavailable");
-    const normalized = normalizeTrace(readFileSync(tracePath, "utf8"), {
+    const normalized = normalizeTraceFile(tracePath, {
       repositoryRoot: context.repository, worktree, initialDirectory: join(worktree, "apps", component), namespaceRoot: join(context.runRoot, "namespaces"),
       aliases: component === "control" ? [
         { traceRoot: "/workspace", hostRoot: worktree },

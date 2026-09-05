@@ -77,7 +77,8 @@ describe("Task 23 evidence isolation", () => {
     expect(todo22ChangedFiles).toHaveLength(41); expect(todo22ChangedFiles.filter((path) => !covered.has(path))).toEqual([]);
     const dirtyPaths = execFileSync("git", ["-C", root, "status", "--porcelain=v1", "-z", "--untracked-files=all"]).toString().split("\0").filter(Boolean).map((entry) => entry.slice(3)).sort();
     expect(currentDeliveryScope.map(({ path }) => path)).toEqual(dirtyPaths);
-    expect(currentDeliveryScope.find(({ path }) => path === ".github/workflows/task19-runner-preflight.yml")).toEqual(expect.objectContaining({ state: "deleted", present: false, sha256: null }));
+    await expect(lstat(join(root, ".github/workflows/task19-runner-preflight.yml"))).rejects.toMatchObject({ code: "ENOENT" });
+    expect((await lstat(join(root, ".github/workflows/task19-installed-qualification.yml"))).isFile()).toBe(true);
     expect(currentDeliveryScope.filter(({ classification }) => classification !== "delivery_source")).toEqual([]);
     expect(generatedArtifactCategories.map(({ classification }) => classification)).toEqual(["candidate_binary", "screenshot", "generated_evidence"]);
     const generatedBefore = await generatedArtifactInventory(sourceRoot); const privateParent = join(sourceRoot, ".omo/evidence/functional-jastreamer-products");

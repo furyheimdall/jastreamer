@@ -175,6 +175,12 @@ func (coordinator *Coordinator) AddRoot(_ context.Context, path, displayName str
 	return root, nil
 }
 
+func (coordinator *Coordinator) Revision() uint64 {
+	coordinator.mu.RLock()
+	defer coordinator.mu.RUnlock()
+	return coordinator.snapshot.Revision
+}
+
 func (coordinator *Coordinator) Snapshot() Snapshot {
 	coordinator.mu.RLock()
 	defer coordinator.mu.RUnlock()
@@ -186,7 +192,10 @@ func (coordinator *Coordinator) Snapshot() Snapshot {
 }
 
 func (coordinator *Coordinator) Roots() []Root {
-	return coordinator.registry.Roots()
+	coordinator.mu.RLock()
+	registry := coordinator.registry
+	coordinator.mu.RUnlock()
+	return registry.Roots()
 }
 
 func (coordinator *Coordinator) ObserveSnapshots(observer func(Snapshot)) {

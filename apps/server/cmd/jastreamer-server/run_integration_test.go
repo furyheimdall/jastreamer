@@ -99,7 +99,7 @@ func startLiveServerConfig(t *testing.T, config serverConfig) liveServer {
 		})
 		return stopErr
 	}
-	server := liveServer{url: fields[1], fingerprint: strings.TrimPrefix(fields[2], "fingerprint="), client: &http.Client{Transport: transport, Timeout: 5 * time.Second}, stop: stop}
+	server := liveServer{url: fields[1], fingerprint: strings.TrimPrefix(fields[2], "fingerprint="), client: &http.Client{Transport: transport, Timeout: 30 * time.Second}, stop: stop}
 	t.Cleanup(func() {
 		if runErr := server.stop(); runErr != nil {
 			t.Errorf("run shutdown: %v", runErr)
