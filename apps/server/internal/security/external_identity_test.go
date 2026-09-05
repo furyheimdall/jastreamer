@@ -196,6 +196,9 @@ func externalIdentityTestDirectory(t *testing.T) string {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if err := secureDirectory(directory); err != nil {
+		t.Fatal(err)
+	}
 	return directory
 }
 
