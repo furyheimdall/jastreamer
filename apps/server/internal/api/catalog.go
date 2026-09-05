@@ -53,9 +53,12 @@ func (handlers *CatalogHandlers) Tracks(writer http.ResponseWriter, request *htt
 }
 
 func (handlers *CatalogHandlers) currentBrowser(ctx context.Context) *catalog.Browser {
-	snapshot := handlers.snapshot(ctx)
 	handlers.mu.Lock()
 	defer handlers.mu.Unlock()
+	if handlers.browser != nil && handlers.coordinator != nil && handlers.revision == handlers.coordinator.Revision() {
+		return handlers.browser
+	}
+	snapshot := handlers.snapshot(ctx)
 	if handlers.browser == nil || handlers.revision != snapshot.Revision {
 		handlers.browser = catalog.NewBrowser(snapshot)
 		handlers.revision = snapshot.Revision

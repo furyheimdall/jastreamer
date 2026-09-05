@@ -175,6 +175,12 @@ func (coordinator *Coordinator) AddRoot(_ context.Context, path, displayName str
 	return root, nil
 }
 
+func (coordinator *Coordinator) Revision() uint64 {
+	coordinator.mu.RLock()
+	defer coordinator.mu.RUnlock()
+	return coordinator.snapshot.Revision
+}
+
 func (coordinator *Coordinator) Snapshot() Snapshot {
 	coordinator.mu.RLock()
 	defer coordinator.mu.RUnlock()
