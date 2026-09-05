@@ -29,6 +29,7 @@ func TestLoadExternalIdentity_accepts_secure_pair_without_mutating_local_identit
 	if err != nil {
 		t.Fatal(err)
 	}
+	protectExternalIdentityTestKey(t, filepath.Join(externalDirectory, "tls-key.pem"))
 	loaded, err := LoadExternalIdentity(ExternalIdentityConfig{CertificatePath: filepath.Join(externalDirectory, "tls-cert.pem"), PrivateKeyPath: filepath.Join(externalDirectory, "tls-key.pem"), DNSNames: []string{"localhost"}, IPAddresses: []net.IP{net.ParseIP("127.0.0.1")}, Now: time.Now()})
 	if err != nil || loaded.Fingerprint != external.Fingerprint || loaded.Fingerprint == local.Fingerprint {
 		t.Fatalf("external identity = %q, %v", loaded.Fingerprint, err)
@@ -49,6 +50,8 @@ func TestLoadExternalIdentity_rejects_symlink_permissions_mismatch_and_malformed
 		t.Fatal(err)
 	}
 	certificatePath, keyPath := filepath.Join(left, "tls-cert.pem"), filepath.Join(left, "tls-key.pem")
+	protectExternalIdentityTestKey(t, keyPath)
+	protectExternalIdentityTestKey(t, filepath.Join(right, "tls-key.pem"))
 	tests := []struct {
 		name    string
 		prepare func(*testing.T) (string, string)
@@ -111,6 +114,7 @@ func TestReadExternalIdentityFile_rejects_path_drift_after_open(t *testing.T) {
 	if err := os.WriteFile(path, []byte("first"), 0o600); err != nil {
 		t.Fatal(err)
 	}
+	protectExternalIdentityTestKey(t, path)
 	if err := os.WriteFile(replacement, []byte("second"), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -129,6 +133,7 @@ func TestLoadExternalIdentity_rejects_missing_configured_SAN(t *testing.T) {
 	if _, err := LoadOrCreateIdentity(IdentityConfig{Directory: directory, DNSNames: []string{"localhost"}}); err != nil {
 		t.Fatal(err)
 	}
+	protectExternalIdentityTestKey(t, filepath.Join(directory, "tls-key.pem"))
 	_, err := LoadExternalIdentity(ExternalIdentityConfig{CertificatePath: filepath.Join(directory, "tls-cert.pem"), PrivateKeyPath: filepath.Join(directory, "tls-key.pem"), DNSNames: []string{"other.invalid"}, Now: time.Now()})
 	if err == nil {
 		t.Fatal("certificate without configured SAN was accepted")
