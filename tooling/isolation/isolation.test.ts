@@ -3,6 +3,7 @@ import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSyn
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { collectPackageReceipt } from "./artifacts.ts";
+import { commandsFor } from "./commands.ts";
 import { installInjection } from "./injection.ts";
 import { atomicWriteJson, filteredEnvironment } from "./io.ts";
 import { createNamespaces, verifyCanary } from "./namespaces.ts";
@@ -21,6 +22,20 @@ afterEach(() => {
 });
 
 const validArgs = ["--component", "server,control,renderer", "--sparse", "--trace-files"] as const;
+
+test("traced Server tests exclude only the large scan already covered by the untraced race suite", () => {
+  const commands = commandsFor({
+    component: "server",
+    worktree: "/worktree",
+    namespaceRoot: "/namespace",
+    artifactRoot: "/artifact",
+    tracePath: "/trace",
+  });
+  expect(commands[0]?.argv).toEqual([
+    "go", "test", "-skip", "^TestTask19LiveServerScansExactly100000ValidMediaPaths$", "./...",
+  ]);
+  expect(commands[1]?.argv).toEqual(["env", "CGO_ENABLED=1", "go", "test", "-race", "./..."]);
+});
 
 describe("isolation boundaries", () => {
   test("rejects malformed, duplicate, traversal, missing, and unknown options", () => {

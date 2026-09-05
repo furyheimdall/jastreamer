@@ -1,4 +1,6 @@
+import { closeSync, openSync, readSync } from "node:fs";
 import { isAbsolute, relative, resolve } from "node:path";
+import { StringDecoder } from "node:string_decoder";
 import type { ComponentName, TraceContext } from "./types.ts";
 
 type TraceResult = {
@@ -46,14 +48,14 @@ const SINGLE_PATH_SYSCALLS = new Set([
 ]);
 const TWO_PATH_SYSCALLS = new Set(["link", "linkat", "rename", "renameat", "renameat2", "symlink", "symlinkat"]);
 
-export function normalizeTrace(trace: string, context: TraceContext): TraceResult {
+export function normalizeTrace(trace: string | Iterable<string>, context: TraceContext): TraceResult {
   const accessed = new Set<string>();
   const missing = new Set<string>();
   const directories = new Map<string, string>();
   const pending = new Map<string, string>();
   directories.set("root", context.initialDirectory);
 
-  for (const rawLine of trace.split("\n")) {
+  for (const rawLine of typeof trace === "string" ? trace.split("\n") : trace) {
     const pid = processId(rawLine);
     if (rawLine.includes("<unfinished ...>")) {
       pending.set(pid, rawLine.replace("<unfinished ...>", ""));
@@ -95,6 +97,32 @@ export function normalizeTrace(trace: string, context: TraceContext): TraceResul
     }
   }
   return { accessedPaths: [...accessed].sort(), missingPaths: [...missing].sort() };
+}
+
+export function normalizeTraceFile(path: string, context: TraceContext): TraceResult {
+  function* lines(): Generator<string> {
+    const descriptor = openSync(path, "r");
+    try {
+      const buffer = Buffer.alloc(64 * 1024);
+      const decoder = new StringDecoder("utf8");
+      let pending = "";
+      let size: number;
+      while ((size = readSync(descriptor, buffer, 0, buffer.length, null)) > 0) {
+        const text = pending + decoder.write(buffer.subarray(0, size));
+        let start = 0;
+        let end: number;
+        while ((end = text.indexOf("\n", start)) !== -1) {
+          yield text.slice(start, end);
+          start = end + 1;
+        }
+        pending = text.slice(start);
+      }
+      yield pending + decoder.end();
+    } finally {
+      closeSync(descriptor);
+    }
+  }
+  return normalizeTrace(lines(), context);
 }
 
 const ANCESTOR_METADATA_PROBE = /^(?:apps(?:\/(?:server|control|renderer))?\/)?(?:Cargo\.toml|rust-toolchain(?:\.toml)?|clippy\.toml|\.clippy\.toml|\.cargo(?:\/config(?:\.toml)?)?|go\.work|BUILD\.gn|blaze-out|dart\/config\/ide\/flutter\.json|\.git|\.bzr|\.fslckout|\.hg|\.svn|_FOSSIL_)$/;
