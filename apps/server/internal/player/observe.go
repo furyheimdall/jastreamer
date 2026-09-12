@@ -131,29 +131,61 @@ type observationResult struct {
 	revokePlayID    string
 }
 
+const observationWarningThreshold = 3
+
+type observationFailure struct {
+	rendererID string
+	playID     string
+	count      int
+	warning    StatusWarning
+}
+
 func (s *Service) applyObservationFailure(ctx context.Context, observationError error) bool {
 	s.opMu.Lock()
 	defer s.opMu.Unlock()
 	s.terminal = terminalPositionEvidence{}
-	// A failed status query does not prove that the renderer stopped or lost
-	// its existing stream. Only confirmed disconnection revokes that binding.
+	st, err := s.loadState(ctx)
+	if err != nil {
+		return false
+	}
+	if st.playID == "" || st.state == StateStopped {
+		s.observationFailure = observationFailure{}
+		return false
+	}
+	previous := s.observationFailure
+	next := previous
+	newStreak := previous.count == 0 || previous.playID != st.playID || previous.rendererID != st.rendererID
+	if newStreak {
+		next = observationFailure{rendererID: st.rendererID, playID: st.playID}
+		next.warning.ID = st.revision + 1
+	}
+	if next.count < observationWarningThreshold {
+		next.count++
+	}
+	// Keep uncertainty immediate, but surface a warning only after consecutive
+	// failed observations. This never revokes or restarts the existing stream.
 	message := "Renderer status could not be confirmed. Existing playback has not been restarted."
 	var actionError *output.ActionError
 	if errors.As(observationError, &actionError) {
 		message = fmt.Sprintf("Renderer status could not be confirmed (%s). Existing playback has not been restarted.", actionError)
 	}
-	result, err := s.db.ExecContext(ctx, `UPDATE player_state SET revision=revision+1,state='unavailable',error=?
-		WHERE singleton=1 AND play_id<>'' AND state<>'stopped' AND (state<>'unavailable' OR error<>?)`, message, message)
-	if err != nil {
-		return false
+	next.warning.Message = message
+	changed := newStreak || st.state != StateUnavailable ||
+		(next.count >= observationWarningThreshold &&
+			(previous.count < observationWarningThreshold || previous.warning.Message != message))
+	if changed {
+		if _, err := s.db.ExecContext(ctx, `UPDATE player_state SET revision=revision+1,state='unavailable' WHERE singleton=1`); err != nil {
+			return false
+		}
 	}
-	changed, _ := result.RowsAffected()
-	return changed > 0
+	s.observationFailure = next
+	return changed
 }
 
 func (s *Service) applyRendererUnavailable(ctx context.Context, message string) (string, bool) {
 	s.opMu.Lock()
 	defer s.opMu.Unlock()
+	s.observationFailure = observationFailure{}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return "", false
@@ -191,10 +223,21 @@ func (s *Service) applyRendererUnavailable(ctx context.Context, message string) 
 	return playID, true
 }
 
-func (s *Service) applyObservation(ctx context.Context, observation output.Observation) observationResult {
+func (s *Service) applyObservation(ctx context.Context, observation output.Observation) (result observationResult) {
 	s.opMu.Lock()
 	defer s.opMu.Unlock()
-	result := observationResult{}
+	warningCleared := s.observationFailure.count >= observationWarningThreshold
+	s.observationFailure = observationFailure{}
+	// A successful query clears its warning even when ownership reconciliation
+	// produces no other state or position change.
+	defer func() {
+		if warningCleared {
+			if !result.playerChanged && !result.positionChanged {
+				_, _ = s.db.ExecContext(ctx, `UPDATE player_state SET revision=revision+1 WHERE singleton=1`)
+			}
+			result.playerChanged = true
+		}
+	}()
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return result

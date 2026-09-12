@@ -239,16 +239,13 @@ textarea.input {
   display: inline-grid;
   width: 2.25rem;
   height: 2.25rem;
-  border-radius: 0.72rem;
-  color: var(--accent-ink);
-  background: var(--accent);
   place-items: center;
 }
 
-.brand-mark svg {
-  width: 1.35rem;
-  height: 1.35rem;
-  stroke-width: 2;
+.brand-mark img {
+  display: block;
+  width: 100%;
+  height: 100%;
 }
 
 .main-nav {
@@ -653,6 +650,7 @@ textarea.input {
 }
 
 .queue-artwork {
+  position: relative;
   display: grid;
   width: 3.5rem;
   height: 3.5rem;
@@ -665,16 +663,79 @@ textarea.input {
   place-items: center;
 }
 
+.queue-artwork,
+.queue-track-title {
+  cursor: pointer;
+}
+
+.queue-artwork:focus-visible,
+.queue-track-title:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.queue-track-title:hover {
+  color: var(--accent);
+}
+
 .queue-artwork img {
   width: 100%;
   height: 100%;
   object-fit: cover;
 }
 
+.queue-artwork-info {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: #fff;
+  background: #0006;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 150ms ease;
+}
+
+.queue-artwork-info svg {
+  width: 2.1rem;
+  height: 2.1rem;
+  stroke-width: 2;
+  filter: drop-shadow(0 1px 2px #0008);
+}
+
+.queue-artwork:hover .queue-artwork-info,
+.queue-artwork:focus-visible .queue-artwork-info {
+  opacity: 1;
+}
+
+@media (pointer: coarse) {
+  .queue-artwork-info {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .queue-artwork-info {
+    transition: none;
+  }
+}
+
 .queue-track-copy {
   display: grid;
   min-width: 0;
   gap: 0.18rem;
+}
+
+.queue-track-title {
+  appearance: none;
+  min-width: 0;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  overflow: hidden;
+  color: inherit;
+  background: transparent;
+  text-align: left;
 }
 
 .queue-track-copy strong,
@@ -699,6 +760,10 @@ textarea.input {
 .queue-actions {
   display: flex;
   gap: 0.15rem;
+}
+
+.queue-play-button {
+  color: var(--accent);
 }
 
 .save-queue {

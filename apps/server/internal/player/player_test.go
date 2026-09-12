@@ -148,7 +148,7 @@ func TestObservationFailurePreservesOngoingPlaybackWithoutReplay(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if uncertain.State != StateUnavailable || uncertain.Error == "" || queue.Entries[0].Status != EntryPlaying {
+	if uncertain.State != StateUnavailable || uncertain.Error != "" || uncertain.StatusWarning != nil || queue.Entries[0].Status != EntryPlaying {
 		t.Fatalf("failed status query interrupted the ongoing track: state=%+v queue=%+v", uncertain, queue)
 	}
 	if len(service.media.(*fakeMedia).revoked) != 0 {
@@ -158,7 +158,7 @@ func TestObservationFailurePreservesOngoingPlaybackWithoutReplay(t *testing.T) {
 	devices.observation.PositionMS = 11000
 	service.observeSelected(ctx)
 	recovered := service.mustState(t)
-	if recovered.State != StatePlaying || recovered.PositionMS != 11000 || recovered.Error != "" || len(devices.calls) != calls {
+	if recovered.State != StatePlaying || recovered.PositionMS != 11000 || recovered.Error != "" || recovered.StatusWarning != nil || len(devices.calls) != calls {
 		t.Fatalf("status recovery did not observe existing playback without replay: %+v", recovered)
 	}
 	devices.device.Online = false
@@ -169,6 +169,65 @@ func TestObservationFailurePreservesOngoingPlaybackWithoutReplay(t *testing.T) {
 	}
 	if queue.Entries[0].Status != EntryPending || len(service.media.(*fakeMedia).revoked) != 1 {
 		t.Fatal("actual renderer disconnection did not revoke playback and require explicit resume")
+	}
+}
+
+func TestObservationWarningRequiresConsecutiveFailuresAndClearsOnRecovery(t *testing.T) {
+	service, _, devices := newPlayerTestService(t)
+	ctx := context.Background()
+	if _, err := service.MutateQueue(ctx, QueueMutation{Action: "append", TrackIDs: []string{"a"}, Revision: 0}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.Command(ctx, Command{Action: "play"}); err != nil {
+		t.Fatal(err)
+	}
+	runAcceptedCommand(t, service)
+	binding, err := service.loadState(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	devices.observation = output.Observation{State: "playing", URI: binding.currentURI, HasURI: true, HasPosition: true, PositionMS: 10000, DurationMS: 100000}
+	service.observeSelected(ctx)
+	mutationCalls := len(devices.calls)
+	var previousWarningID int64
+	for range 2 {
+		devices.fail["observe"] = output.NewActionError(output.ErrorTransport, "GetPositionInfo", 0, errors.New("connection reset"))
+		var warningID, warningRevision int64
+		for attempt := 1; attempt <= 4; attempt++ {
+			service.observeSelected(ctx)
+			state := service.mustState(t)
+			if state.Error != "" {
+				t.Fatalf("status failure was exposed as an immediate command error: %+v", state)
+			}
+			if attempt < 3 {
+				if state.StatusWarning != nil {
+					t.Fatalf("warning appeared after only %d consecutive failures: %+v", attempt, state)
+				}
+				continue
+			}
+			if state.StatusWarning == nil {
+				t.Fatalf("missing warning after %d consecutive failures: %+v", attempt, state)
+			}
+			if attempt == 3 {
+				warningID, warningRevision = state.StatusWarning.ID, state.Revision
+				if warningID == previousWarningID {
+					t.Fatal("new failure streak reused the dismissed warning's identity")
+				}
+			} else if state.StatusWarning.ID != warningID || state.Revision != warningRevision {
+				t.Fatal("continued failure republished the same warning as a new episode")
+			}
+		}
+		previousWarningID = warningID
+		delete(devices.fail, "observe")
+		devices.observation.PositionMS += 1000
+		service.observeSelected(ctx)
+		recovered := service.mustState(t)
+		if recovered.StatusWarning != nil || recovered.State != StatePlaying || recovered.PositionMS != devices.observation.PositionMS {
+			t.Fatalf("successful observation did not clear the warning and recover position: %+v", recovered)
+		}
+	}
+	if len(devices.calls) != mutationCalls || len(service.media.(*fakeMedia).revoked) != 0 {
+		t.Fatal("status warning or recovery sent a playback command or revoked the stream")
 	}
 }
 
@@ -837,8 +896,9 @@ func TestRendererSOAPFaultIsConfirmedFailure(t *testing.T) {
 	if err := db.QueryRow("SELECT status FROM player_commands ORDER BY created_at DESC LIMIT 1").Scan(&outcome); err != nil {
 		t.Fatal(err)
 	}
-	if outcome != "failed" || service.mustState(t).State != StateError {
-		t.Fatalf("confirmed SOAP rejection was not retained as failure: outcome=%q state=%#v", outcome, service.mustState(t))
+	state := service.mustState(t)
+	if outcome != "failed" || state.State != StateError || state.Error == "" || state.StatusWarning != nil {
+		t.Fatalf("confirmed SOAP rejection was not retained as an immediate failure: outcome=%q state=%#v", outcome, state)
 	}
 }
 

@@ -23,7 +23,7 @@
     "output": "one selected output shared by UPnP and AirPlay; output selection and pairing require stopped state",
     "pairing": "AirPlay setup uses an empty PairingRequest to begin, then a second request with the prompted PIN and/or password; credentials are write-only and never persisted by clients",
     "autoplay": "never on enqueue, startup, reconnect, scan, or output selection",
-    "observation_failure": "mark status uncertain without revoking an existing stream; confirmed disconnection requires explicit resume",
+    "observation_failure": "mark status uncertain without revoking an existing stream; status_warning appears after three consecutive failed observations, retains its id within the failure streak, and clears on the next successful observation; error remains for immediate command or confirmed playback failures; confirmed disconnection requires explicit resume",
     "natural_end": "correlated completion, or an owned terminal position repeatedly held for two seconds; the latter requires acknowledged Stop before advancement",
     "events": "invalidation only; clients refetch on open, gap, resync, and reconnect"
   },
@@ -81,7 +81,8 @@
     "PairingStatus":{"required":"boolean","prompt":"string"},
     "QueueEntry":{"id":"string","track_id":"string","track":"Track","status":"pending|playing|completed|error"},
     "Queue":{"revision":"integer","entries":"QueueEntry[]"},
-    "PlayerState":{"revision":"integer","state":"stopped|starting|playing|paused|unavailable|error","renderer_id":"string","current_entry_id":"string","track":"Track|null","position_ms":"integer","duration_ms":"integer","observed_at":"string","pending_command":"string","error":"string","capabilities":"Capabilities"},
+    "StatusWarning":{"id":"integer; stable within one consecutive observation-failure streak","message":"string"},
+    "PlayerState":{"revision":"integer","state":"stopped|starting|playing|paused|unavailable|error","renderer_id":"string","current_entry_id":"string","track":"Track|null","position_ms":"integer","duration_ms":"integer","observed_at":"string","pending_command":"string","error":"string","status_warning":"StatusWarning?","capabilities":"Capabilities"},
     "ServerConfig":{"version":1,"data_dir":"absolute path","server_name":"optional display name; empty uses hostname","http":{"enabled":"boolean","address":"string"},"https":{"enabled":"boolean","address":"string","certificate_file":"absolute path or empty when disabled","private_key_file":"absolute path or empty when disabled"},"library_roots":"Root[]","network":{"interfaces":"string[]","discovery_interval_seconds":"integer","poll_interval_seconds":"integer","allowed_cidrs":"string[]"},"media":{"base_url":"string","ffmpeg_path":"absolute path or empty","transcode":"boolean"},"airplay":{"enabled":"boolean","helper_path":"absolute path or empty when disabled"}},
     "ChangeEvent":{"event":"change","id":"monotonic integer","data":{"type":"player|queue|library|playlists|renderers|config|resync"}}
   }

@@ -122,6 +122,11 @@ export type PlaybackState =
   | "unavailable"
   | "error";
 
+export interface StatusWarning {
+  id: number;
+  message: string;
+}
+
 export interface PlayerState {
   revision: number;
   state: PlaybackState;
@@ -133,6 +138,7 @@ export interface PlayerState {
   observed_at: string;
   pending_command: string;
   error: string;
+  status_warning?: StatusWarning;
   capabilities: Capabilities;
 }
 

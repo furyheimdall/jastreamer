@@ -45,6 +45,11 @@ type Queue struct {
 	Entries  []Entry `json:"entries"`
 }
 
+type StatusWarning struct {
+	ID      int64  `json:"id"`
+	Message string `json:"message"`
+}
+
 type State struct {
 	Revision       int64               `json:"revision"`
 	State          string              `json:"state"`
@@ -56,5 +61,6 @@ type State struct {
 	ObservedAt     string              `json:"observed_at"`
 	PendingCommand string              `json:"pending_command"`
 	Error          string              `json:"error"`
+	StatusWarning  *StatusWarning      `json:"status_warning,omitempty"`
 	Capabilities   output.Capabilities `json:"capabilities"`
 }

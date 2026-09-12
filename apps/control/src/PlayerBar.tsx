@@ -1,21 +1,28 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { api, ApiError } from "./api";
-import TrackInfoDialog from "./TrackInfoDialog";
-import type { Device, PairingRequest, PairingStatus, PlayerState } from "./types";
+import { useI18n } from "./i18n";
+import type { Device, PairingRequest, PairingStatus, PlayerState, StatusWarning } from "./types";
 
 interface PlayerBarProps {
   revision: number;
   onNotice: (message: string, error?: boolean) => void;
+  onStatusWarning: (warning: StatusWarning | null, reopen?: boolean) => void;
   onQueueChange: () => void;
+  onShowQueue: () => void;
 }
 
-function timeLabel(milliseconds: number): string {
+function timeLabel(milliseconds: number, locale: string): string {
   const seconds = Math.max(0, Math.floor(milliseconds / 1000));
-  return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
+  const minutes = Math.floor(seconds / 60).toLocaleString(locale, { useGrouping: false });
+  const remainingSeconds = (seconds % 60).toLocaleString(locale, {
+    minimumIntegerDigits: 2,
+    useGrouping: false,
+  });
+  return `${minutes}:${remainingSeconds}`;
 }
 
-function errorMessage(error: unknown): string {
-  return error instanceof ApiError ? error.message : "요청을 완료하지 못했습니다.";
+function errorMessage(error: unknown, fallback: string): string {
+  return error instanceof ApiError ? error.message : fallback;
 }
 
 function deviceLabel(device: Device): string {
@@ -36,7 +43,8 @@ function PlayerIcon({ name }: { name: "play" | "pause" | "stop" | "next" | "prev
   return <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">{paths[name]}</svg>;
 }
 
-export default function PlayerBar({ revision, onNotice, onQueueChange }: PlayerBarProps) {
+export default function PlayerBar({ revision, onNotice, onStatusWarning, onQueueChange, onShowQueue }: PlayerBarProps) {
+  const { locale, t } = useI18n();
   const [player, setPlayer] = useState<PlayerState | null>(null);
   const [devices, setDevices] = useState<Device[]>([]);
   const [position, setPosition] = useState(0);
@@ -50,8 +58,6 @@ export default function PlayerBar({ revision, onNotice, onQueueChange }: PlayerB
   const [pairingStatus, setPairingStatus] = useState<PairingStatus | null>(null);
   const [pairingError, setPairingError] = useState("");
   const [pairingStarted, setPairingStarted] = useState(false);
-  const [infoTrackId, setInfoTrackId] = useState<string | null>(null);
-  const closeTrackInfo = useCallback(() => setInfoTrackId(null), []);
   const observedPlayerError = useRef<{ revision: number; message: string } | null>(null);
 
   const applyError = useCallback((message: string, playerRevision: number) => {
@@ -78,24 +84,27 @@ export default function PlayerBar({ revision, onNotice, onQueueChange }: PlayerB
     if (playerResult.status === "fulfilled") {
       const nextPlayer = playerResult.value;
       setPlayer(nextPlayer);
+      onStatusWarning(nextPlayer.status_warning ?? null);
       if (!seekingRef.current) setPosition(nextPlayer.position_ms);
       if (nextPlayer.error) messages.push(nextPlayer.error);
     } else {
-      messages.push(errorMessage(playerResult.reason));
+      messages.push(errorMessage(playerResult.reason, t("common.requestFailed")));
     }
     if (rendererResult.status === "fulfilled") {
       setDevices(rendererResult.value.items ?? []);
     } else {
-      const message = errorMessage(rendererResult.reason);
+      const message = errorMessage(rendererResult.reason, t("common.requestFailed"));
       if (!messages.includes(message)) messages.push(message);
     }
     applyError(messages.join("\n\n"), playerResult.status === "fulfilled" ? playerResult.value.revision : -1);
     setLoading(false);
-  }, [applyError]);
+  }, [applyError, onStatusWarning, t]);
 
   useEffect(() => {
     void load();
   }, [load, revision]);
+
+  useEffect(() => () => onStatusWarning(null), [onStatusWarning]);
 
   useEffect(() => {
     if (!player || player.state !== "playing" || seeking) return;
@@ -110,7 +119,9 @@ export default function PlayerBar({ revision, onNotice, onQueueChange }: PlayerB
     [devices, player?.renderer_id],
   );
   const missingSelectedDeviceLabel = player?.renderer_id && !selectedDevice
-    ? `연결되지 않은 기기 [${player.renderer_id.startsWith("airplay:") ? "AirPlay" : "UPnP"}]`
+    ? t("player.disconnectedOutput", {
+        protocol: player.renderer_id.startsWith("airplay:") ? "AirPlay" : "UPnP",
+      })
     : "";
   const pairingRequired = Boolean(
     selectedDevice?.protocol === "airplay"
@@ -134,11 +145,12 @@ export default function PlayerBar({ revision, onNotice, onQueueChange }: PlayerB
         body: JSON.stringify({ action }),
       });
       setPlayer(next);
+      onStatusWarning(next.status_warning ?? null);
       setPosition(next.position_ms);
       applyError(next.error || "", next.revision);
       onQueueChange();
     } catch (requestError) {
-      const message = errorMessage(requestError);
+      const message = errorMessage(requestError, t("common.requestFailed"));
       setError(message);
       onNotice(message, true);
     } finally {
@@ -159,11 +171,12 @@ export default function PlayerBar({ revision, onNotice, onQueueChange }: PlayerB
         body: JSON.stringify({ action: "seek", position_ms: Math.round(position) }),
       });
       setPlayer(next);
+      onStatusWarning(next.status_warning ?? null);
       setPosition(next.position_ms);
       applyError(next.error || "", next.revision);
     } catch (requestError) {
       setPosition(player.position_ms);
-      const message = errorMessage(requestError);
+      const message = errorMessage(requestError, t("common.requestFailed"));
       setError(message);
       onNotice(message, true);
     } finally {
@@ -182,10 +195,11 @@ export default function PlayerBar({ revision, onNotice, onQueueChange }: PlayerB
         body: JSON.stringify({ renderer_id: rendererID }),
       });
       setPlayer(next);
+      onStatusWarning(next.status_warning ?? null);
       applyError(next.error || "", next.revision);
-      onNotice("재생 기기를 변경했습니다.");
+      onNotice(t("player.outputChanged"));
     } catch (requestError) {
-      const message = errorMessage(requestError);
+      const message = errorMessage(requestError, t("common.requestFailed"));
       setError(message);
       onNotice(message, true);
     } finally {
@@ -198,7 +212,7 @@ export default function PlayerBar({ revision, onNotice, onQueueChange }: PlayerB
 
     setBusy("pairing");
     setPairingError("");
-    setPairingStatus({ required: true, prompt: "페어링 정보를 확인하는 중…" });
+    setPairingStatus({ required: true, prompt: "" });
     try {
       const next = await api<PairingStatus>(
         `/renderers/${encodeURIComponent(selectedDevice.id)}/pairing`,
@@ -216,11 +230,11 @@ export default function PlayerBar({ revision, onNotice, onQueueChange }: PlayerB
             ? { ...device, pairing_required: false, password_required: false }
             : device
         )));
-        onNotice(`${deviceLabel(selectedDevice)} 페어링을 완료했습니다.`);
+        onNotice(t("player.pairing.complete", { device: deviceLabel(selectedDevice) }));
       }
       return next;
     } catch (requestError) {
-      const message = errorMessage(requestError);
+      const message = errorMessage(requestError, t("common.requestFailed"));
       setPairingStatus(null);
       setPairingError(message);
       onNotice(message, true);
@@ -255,10 +269,10 @@ export default function PlayerBar({ revision, onNotice, onQueueChange }: PlayerB
         method: "POST",
         body: JSON.stringify({}),
       });
-      onNotice("기기를 다시 찾고 있습니다.");
+      onNotice(t("player.refreshingOutputs"));
       window.setTimeout(() => void load(), 1200);
     } catch (requestError) {
-      onNotice(errorMessage(requestError), true);
+      onNotice(errorMessage(requestError, t("common.requestFailed")), true);
     } finally {
       setBusy("");
     }
@@ -271,15 +285,14 @@ export default function PlayerBar({ revision, onNotice, onQueueChange }: PlayerB
   const duration = player?.duration_ms || player?.track?.duration_ms || 0;
 
   return (
-    <footer className="player-bar" aria-label="현재 재생">
+    <footer className="player-bar" aria-label={t("player.nowPlaying")}>
       <div className="now-playing">
         <button
           className="player-artwork"
           type="button"
-          disabled={!player?.track}
-          aria-label={player?.track ? `${player.track.title} 곡 정보` : "곡 정보"}
-          title="곡 정보"
-          onClick={() => { if (player?.track) setInfoTrackId(player.track.id); }}
+          aria-label={t("player.openQueue")}
+          title={t("player.openQueue")}
+          onClick={onShowQueue}
         >
           {player?.track?.artwork_id ? (
             <img
@@ -291,9 +304,14 @@ export default function PlayerBar({ revision, onNotice, onQueueChange }: PlayerB
           )}
         </button>
         <div className="now-playing-copy" aria-live="polite">
-          <strong>{loading ? "재생 정보를 불러오는 중…" : player?.track?.title || "재생 중인 곡 없음"}</strong>
-          <span>{player?.track?.artist || (selectedDevice ? deviceLabel(selectedDevice) : "기기를 선택해 주세요")}</span>
-          {error && <button className="player-error" type="button" onClick={() => onNotice(error, true)}>오류 상세 보기</button>}
+          <strong>{loading ? t("player.loading") : player?.track?.title || t("player.noTrack")}</strong>
+          <span>{player?.track?.artist || (selectedDevice ? deviceLabel(selectedDevice) : t("player.selectDevicePrompt"))}</span>
+          {error && <button className="player-error" type="button" onClick={() => onNotice(error, true)}>{t("player.errorDetails")}</button>}
+          {!error && player?.status_warning && (
+            <button className="player-error" type="button" onClick={() => onStatusWarning(player.status_warning ?? null, true)}>
+              {t("player.statusWarningDetails")}
+            </button>
+          )}
         </div>
       </div>
 
@@ -302,7 +320,7 @@ export default function PlayerBar({ revision, onNotice, onQueueChange }: PlayerB
           <button
             className="icon-button"
             type="button"
-            aria-label="이전 곡"
+            aria-label={t("player.previousTrack")}
             disabled={!canUsePlayback || Boolean(busy)}
             onClick={() => void command("previous")}
           >
@@ -311,7 +329,7 @@ export default function PlayerBar({ revision, onNotice, onQueueChange }: PlayerB
           <button
             className="icon-button player-primary-control"
             type="button"
-            aria-label={canPause ? "일시 정지" : "재생"}
+            aria-label={canPause ? t("player.pause") : t("player.play")}
             disabled={!(canPause ? canControl : canUsePlayback) || Boolean(busy)}
             onClick={() => void command(canPause ? "pause" : "play")}
           >
@@ -320,7 +338,7 @@ export default function PlayerBar({ revision, onNotice, onQueueChange }: PlayerB
           <button
             className="icon-button"
             type="button"
-            aria-label="정지"
+            aria-label={t("player.stop")}
             disabled={!canControl || player?.state === "stopped" || Boolean(busy)}
             onClick={() => void command("stop")}
           >
@@ -329,7 +347,7 @@ export default function PlayerBar({ revision, onNotice, onQueueChange }: PlayerB
           <button
             className="icon-button"
             type="button"
-            aria-label="다음 곡"
+            aria-label={t("player.nextTrack")}
             disabled={!canUsePlayback || Boolean(busy)}
             onClick={() => void command("next")}
           >
@@ -337,9 +355,9 @@ export default function PlayerBar({ revision, onNotice, onQueueChange }: PlayerB
           </button>
         </div>
         <div className="seek-row">
-          <span>{timeLabel(position)}</span>
+          <span>{timeLabel(position, locale)}</span>
           <input
-            aria-label="재생 위치"
+            aria-label={t("player.seekPosition")}
             className="seek-slider"
             type="range"
             min={0}
@@ -355,12 +373,12 @@ export default function PlayerBar({ revision, onNotice, onQueueChange }: PlayerB
             onPointerUp={() => void seek()}
             onKeyUp={() => void seek()}
           />
-          <span>{timeLabel(duration)}</span>
+          <span>{timeLabel(duration, locale)}</span>
         </div>
       </div>
 
       <div className="output-picker">
-        <label htmlFor="player-output">재생 기기</label>
+        <label htmlFor="player-output">{t("player.output")}</label>
         <div className="output-control">
           <select
             id="player-output"
@@ -368,20 +386,20 @@ export default function PlayerBar({ revision, onNotice, onQueueChange }: PlayerB
             disabled={player?.state !== "stopped" || Boolean(player?.pending_command) || Boolean(busy)}
             onChange={(event) => void selectOutput(event.target.value)}
           >
-            <option value="">기기를 선택하세요</option>
+            <option value="">{t("player.selectOutput")}</option>
             {missingSelectedDeviceLabel && player?.renderer_id && (
               <option value={player.renderer_id} disabled>{missingSelectedDeviceLabel}</option>
             )}
             {devices.map((device) => (
               <option key={device.id} value={device.id} disabled={!device.online}>
-                {deviceLabel(device)}{device.online ? "" : " (오프라인)"}
+                {deviceLabel(device)}{device.online ? "" : ` (${t("player.offline")})`}
               </option>
             ))}
           </select>
           <button
             className="icon-button"
             type="button"
-            aria-label="재생 기기 다시 찾기"
+            aria-label={t("player.refreshOutputs")}
             disabled={Boolean(busy)}
             onClick={() => void refreshDevices()}
           >
@@ -390,16 +408,18 @@ export default function PlayerBar({ revision, onNotice, onQueueChange }: PlayerB
         </div>
         {pairingRequired && selectedDevice && (
           <section className="pairing-panel" aria-labelledby="pairing-heading" aria-busy={busy === "pairing"}>
-            <h2 id="pairing-heading">{deviceLabel(selectedDevice)} 페어링</h2>
+            <h2 id="pairing-heading">{t("player.pairing.heading", { device: deviceLabel(selectedDevice) })}</h2>
             <p className="pairing-prompt" aria-live="polite">
               {pairingStatus?.prompt || (
-                selectedDevice.pairing_required && !pairingStarted
-                  ? "페어링을 시작하면 AirPlay 기기에 새 PIN이 표시됩니다."
-                  : selectedDevice.pairing_required && selectedDevice.password_required
-                    ? "기기에 표시된 PIN과 AirPlay 암호를 입력하세요."
-                    : selectedDevice.pairing_required
-                      ? "기기에 표시된 PIN을 입력하세요."
-                      : "AirPlay 암호를 입력하세요."
+                busy === "pairing"
+                  ? t("player.pairing.checking")
+                  : selectedDevice.pairing_required && !pairingStarted
+                    ? t("player.pairing.startHint")
+                    : selectedDevice.pairing_required && selectedDevice.password_required
+                      ? t("player.pairing.pinAndPasswordPrompt")
+                      : selectedDevice.pairing_required
+                        ? t("player.pairing.pinPrompt")
+                        : t("player.pairing.passwordPrompt")
               )}
             </p>
             {pairingAvailable ? (
@@ -411,14 +431,14 @@ export default function PlayerBar({ revision, onNotice, onQueueChange }: PlayerB
                     disabled={Boolean(busy)}
                     onClick={() => void beginPairing()}
                   >
-                    {busy === "pairing" ? "시작 중…" : "페어링 시작"}
+                    {busy === "pairing" ? t("player.pairing.starting") : t("player.pairing.start")}
                   </button>
                 </div>
               ) : (
                 <form className="pairing-form" autoComplete="off" onSubmit={(event) => void pairDevice(event)}>
                   {selectedDevice.pairing_required && (
                     <label>
-                      <span className="field-label">PIN</span>
+                      <span className="field-label">{t("player.pairing.pin")}</span>
                       <input
                         className="input"
                         type="text"
@@ -434,7 +454,7 @@ export default function PlayerBar({ revision, onNotice, onQueueChange }: PlayerB
                   )}
                   {selectedDevice.password_required && (
                     <label>
-                      <span className="field-label">AirPlay 암호</span>
+                      <span className="field-label">{t("player.pairing.password")}</span>
                       <input
                         className="input"
                         type="password"
@@ -448,19 +468,18 @@ export default function PlayerBar({ revision, onNotice, onQueueChange }: PlayerB
                     </label>
                   )}
                   <button className="button button-primary" type="submit" disabled={Boolean(busy)}>
-                    {busy === "pairing" ? "페어링 중…" : "페어링"}
+                    {busy === "pairing" ? t("player.pairing.inProgress") : t("player.pairing.submit")}
                   </button>
                 </form>
               )
             ) : (
-              <p className="pairing-stopped-message">재생을 정지하고 진행 중인 작업이 끝난 뒤 페어링하세요.</p>
+              <p className="pairing-stopped-message">{t("player.pairing.stoppedOnly")}</p>
             )}
             {pairingError && <p className="error-text pairing-error" role="alert">{pairingError}</p>}
           </section>
         )}
-        {playing && <span className="playing-indicator">재생 중</span>}
+        {playing && <span className="playing-indicator">{t("player.playing")}</span>}
       </div>
-      <TrackInfoDialog trackId={infoTrackId} onClose={closeTrackInfo} />
     </footer>
   );
 }

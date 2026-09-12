@@ -44,22 +44,23 @@ type terminalPositionEvidence struct {
 }
 
 type Service struct {
-	db           *sql.DB
-	lib          libraryAPI
-	devices      deviceAPI
-	media        mediaAPI
-	pollInterval time.Duration
-	notify       func(string)
-	epoch        string
-	wake         chan struct{}
-	observeWake  chan struct{}
-	opMu         sync.Mutex
-	rendererMu   sync.Mutex
-	runMu        sync.Mutex
-	running      bool
-	stopped      bool
-	now          func() time.Time
-	terminal     terminalPositionEvidence // guarded by opMu; never restored after restart
+	db                 *sql.DB
+	lib                libraryAPI
+	devices            deviceAPI
+	media              mediaAPI
+	pollInterval       time.Duration
+	notify             func(string)
+	epoch              string
+	wake               chan struct{}
+	observeWake        chan struct{}
+	opMu               sync.Mutex
+	rendererMu         sync.Mutex
+	runMu              sync.Mutex
+	running            bool
+	stopped            bool
+	now                func() time.Time
+	terminal           terminalPositionEvidence // guarded by opMu; never restored after restart
+	observationFailure observationFailure       // guarded by opMu; scoped to the current renderer/playback
 }
 
 type storedState struct {
@@ -262,7 +263,17 @@ func (s *Service) Run(ctx context.Context) error {
 }
 
 func (s *Service) Snapshot(ctx context.Context) (State, error) {
+	s.opMu.Lock()
 	st, err := s.loadState(ctx)
+	var warning *StatusWarning
+	failure := s.observationFailure
+	if err == nil && st.state != StateStopped && st.playID != "" &&
+		failure.playID == st.playID && failure.rendererID == st.rendererID &&
+		failure.count >= observationWarningThreshold {
+		copy := failure.warning
+		warning = &copy
+	}
+	s.opMu.Unlock()
 	if err != nil {
 		return State{}, err
 	}
@@ -270,6 +281,7 @@ func (s *Service) Snapshot(ctx context.Context) (State, error) {
 		Revision: st.revision, State: st.state, RendererID: st.rendererID,
 		CurrentEntryID: st.currentEntryID, PositionMS: st.positionMS,
 		DurationMS: st.durationMS, ObservedAt: st.observedAt, Error: st.errorMessage,
+		StatusWarning: warning,
 	}
 	if st.rendererID != "" {
 		if device, ok := s.devices.Device(st.rendererID); ok {

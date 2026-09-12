@@ -5,11 +5,15 @@ import Playlists from "./Playlists";
 import PlayerBar from "./PlayerBar";
 import Queue from "./Queue";
 import Settings from "./Settings";
-import type { Session, SessionUser } from "./types";
+import { useI18n, type MessageKey } from "./i18n";
+import type { Session, SessionUser, StatusWarning } from "./types";
 
 type View = "library" | "playlists" | "queue" | "settings";
 type EventTopic = "player" | "queue" | "library" | "playlists" | "renderers" | "config";
 type Revisions = Record<EventTopic, number>;
+type ErrorNotice =
+  | { source: "error"; message: string }
+  | { source: "status"; id: number; message: string };
 
 const initialRevisions: Revisions = {
   player: 0,
@@ -20,28 +24,30 @@ const initialRevisions: Revisions = {
   config: 0,
 };
 
-const navigation: Array<{ id: View; label: string; icon: "library" | "playlist" | "queue" | "settings" }> = [
-  { id: "library", label: "보관함", icon: "library" },
-  { id: "playlists", label: "플레이리스트", icon: "playlist" },
-  { id: "queue", label: "대기열", icon: "queue" },
-  { id: "settings", label: "설정", icon: "settings" },
+const navigation: Array<{ id: View; labelKey: MessageKey; icon: "library" | "playlist" | "queue" | "settings" }> = [
+  { id: "library", labelKey: "app.nav.library", icon: "library" },
+  { id: "playlists", labelKey: "app.nav.playlists", icon: "playlist" },
+  { id: "queue", labelKey: "app.nav.queue", icon: "queue" },
+  { id: "settings", labelKey: "app.nav.settings", icon: "settings" },
 ];
 
+const logoURL = new URL("../../../assets/jastreamer.svg", import.meta.url).href;
+
 function AppIcon({ name }: { name: "library" | "playlist" | "queue" | "settings" | "logout" | "logo" | "close" }) {
+  if (name === "logo") return <img src={logoURL} alt="" width="512" height="512" />;
   const paths = {
     library: <><path d="M4 19V5M8 19V5M12 19V5M16 19V5l4 14V5" /></>,
     playlist: <><path d="M4 6h11M4 10h11M4 14h7" /><path d="M17 14v5" /><circle cx="14" cy="19" r="3" /></>,
     queue: <><path d="M5 6h14M5 12h14M5 18h9" /><path d="m17 16 3 2-3 2Z" /></>,
     settings: <><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1-2.8 2.8-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.6v.2h-4V21a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.9.3l-.1.1L4.2 17l.1-.1a1.7 1.7 0 0 0 .3-1.9A1.7 1.7 0 0 0 3 14H2.8v-4H3a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.3-1.9L4.2 7 7 4.2l.1.1a1.7 1.7 0 0 0 1.9.3 1.7 1.7 0 0 0 1-1.6v-.2h4V3a1.7 1.7 0 0 0 1 1.6 1.7 1.7 0 0 0 1.9-.3l.1-.1L19.8 7l-.1.1a1.7 1.7 0 0 0-.3 1.9 1.7 1.7 0 0 0 1.6 1h.2v4H21a1.7 1.7 0 0 0-1.6 1Z" /></>,
     logout: <><path d="M10 5H5v14h5M14 8l4 4-4 4M8 12h10" /></>,
-    logo: <><path d="M7 17V6l10-2v11" /><circle cx="5" cy="17" r="2" /><circle cx="15" cy="15" r="2" /></>,
     close: <path d="m6 6 12 12M18 6 6 18" />,
   };
   return <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">{paths[name]}</svg>;
 }
 
-function authErrorMessage(error: unknown): string {
-  return error instanceof ApiError ? error.message : "요청을 완료하지 못했습니다.";
+function authErrorMessage(error: unknown, t: (key: MessageKey) => string): string {
+  return error instanceof ApiError ? error.message : t("app.requestFailed");
 }
 
 interface AuthScreenProps {
@@ -51,6 +57,7 @@ interface AuthScreenProps {
 }
 
 function AuthScreen({ setupRequired, onAuthenticated, onSetupComplete }: AuthScreenProps) {
+  const { t } = useI18n();
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -60,7 +67,7 @@ function AuthScreen({ setupRequired, onAuthenticated, onSetupComplete }: AuthScr
   async function submit(event: FormEvent) {
     event.preventDefault();
     if (setupRequired && password !== confirmPassword) {
-      setError("비밀번호가 서로 일치하지 않습니다.");
+      setError(t("app.auth.passwordMismatch"));
       return;
     }
     setBusy(true);
@@ -76,9 +83,9 @@ function AuthScreen({ setupRequired, onAuthenticated, onSetupComplete }: AuthScr
     } catch (requestError) {
       if (setupRequired && requestError instanceof ApiError && requestError.status === 409) {
         onSetupComplete();
-        setError("관리자 계정이 이미 만들어졌습니다. 계정으로 로그인해 주세요.");
+        setError(t("app.auth.accountExists"));
       } else {
-        setError(authErrorMessage(requestError));
+        setError(authErrorMessage(requestError, t));
       }
     } finally {
       setBusy(false);
@@ -93,17 +100,15 @@ function AuthScreen({ setupRequired, onAuthenticated, onSetupComplete }: AuthScr
           <span>jastreamer</span>
         </div>
         <div className="auth-copy">
-          <p className="eyebrow">{setupRequired ? "처음 시작" : "다시 오신 것을 환영합니다"}</p>
-          <h1 id="auth-heading">{setupRequired ? "관리자 계정 만들기" : "로그인"}</h1>
+          <p className="eyebrow">{t(setupRequired ? "app.auth.setupEyebrow" : "app.auth.loginEyebrow")}</p>
+          <h1 id="auth-heading">{t(setupRequired ? "app.auth.setupTitle" : "app.auth.loginTitle")}</h1>
           <p className="muted">
-            {setupRequired
-              ? "이 계정으로 음악 보관함과 재생 기기를 관리합니다."
-              : "서버 계정으로 음악 보관함에 접속하세요."}
+            {t(setupRequired ? "app.auth.setupDescription" : "app.auth.loginDescription")}
           </p>
         </div>
         <form className="auth-form" onSubmit={(event) => void submit(event)}>
           <label>
-            <span>사용자 이름</span>
+            <span>{t("app.auth.username")}</span>
             <input
               className="input"
               autoComplete="username"
@@ -114,7 +119,7 @@ function AuthScreen({ setupRequired, onAuthenticated, onSetupComplete }: AuthScr
             />
           </label>
           <label>
-            <span>비밀번호</span>
+            <span>{t("app.auth.password")}</span>
             <input
               className="input"
               type="password"
@@ -127,7 +132,7 @@ function AuthScreen({ setupRequired, onAuthenticated, onSetupComplete }: AuthScr
           </label>
           {setupRequired && (
             <label>
-              <span>비밀번호 확인</span>
+              <span>{t("app.auth.confirmPassword")}</span>
               <input
                 className="input"
                 type="password"
@@ -141,12 +146,12 @@ function AuthScreen({ setupRequired, onAuthenticated, onSetupComplete }: AuthScr
           )}
           {error && <p className="error-text" role="alert">{error}</p>}
           <button className="button button-primary auth-submit" type="submit" disabled={busy}>
-            {busy ? "확인 중…" : setupRequired ? "계정 만들기" : "로그인"}
+            {busy ? t("app.auth.checking") : t(setupRequired ? "app.auth.createAccount" : "app.auth.signIn")}
           </button>
         </form>
-        <p className="auth-security">비밀번호는 서버에 해시로 저장합니다. 로그인 상태는 자동 쿠키로 유지합니다.</p>
+        <p className="auth-security">{t("app.auth.passwordStorage")}</p>
         {window.location.protocol === "http:" && (
-          <p className="auth-security">현재 HTTP 연결은 암호화되지 않습니다. 신뢰하는 사설망에서만 사용하세요.</p>
+          <p className="auth-security">{t("app.auth.insecureHttp")}</p>
         )}
       </section>
     </main>
@@ -154,6 +159,7 @@ function AuthScreen({ setupRequired, onAuthenticated, onSetupComplete }: AuthScr
 }
 
 export default function App() {
+  const { t } = useI18n();
   const [booting, setBooting] = useState(true);
   const [initialized, setInitialized] = useState(false);
   const [bootstrapAttempt, setBootstrapAttempt] = useState(0);
@@ -163,7 +169,9 @@ export default function App() {
   const [online, setOnline] = useState(true);
   const [revisions, setRevisions] = useState<Revisions>(initialRevisions);
   const [notice, setNotice] = useState<string | null>(null);
-  const [errorNotice, setErrorNotice] = useState<string | null>(null);
+  const [errorNotice, setErrorNotice] = useState<ErrorNotice | null>(null);
+  const hasErrorNotice = errorNotice !== null;
+  const observedStatusWarning = useRef<number | null>(null);
   const noticeTimer = useRef<number | null>(null);
   const errorDialogClose = useRef<HTMLButtonElement | null>(null);
   const errorDialogPreviousFocus = useRef<HTMLElement | null>(null);
@@ -180,6 +188,22 @@ export default function App() {
     setErrorNotice(null);
   }, []);
 
+  const showStatusWarning = useCallback((warning: StatusWarning | null, reopen = false) => {
+    if (!warning) {
+      observedStatusWarning.current = null;
+      setErrorNotice((current) => current?.source === "status" ? null : current);
+      return;
+    }
+    const firstWarning = observedStatusWarning.current !== warning.id;
+    observedStatusWarning.current = warning.id;
+    setErrorNotice((current) => {
+      if (current?.source === "error") return current;
+      if (current?.source === "status" && current.id === warning.id && current.message === warning.message) return current;
+      if (current || firstWarning || reopen) return { source: "status", ...warning };
+      return null;
+    });
+  }, []);
+
   const showNotice = useCallback((message: string, error = false) => {
     if (error) {
       if (noticeTimer.current !== null) {
@@ -187,7 +211,7 @@ export default function App() {
         noticeTimer.current = null;
       }
       setNotice(null);
-      setErrorNotice(message);
+      setErrorNotice({ source: "error", message });
       return;
     }
 
@@ -226,7 +250,7 @@ export default function App() {
       } catch (requestError) {
         if (!active) return;
         setOnline(false);
-        showNotice(authErrorMessage(requestError), true);
+        showNotice(authErrorMessage(requestError, t), true);
       } finally {
         if (active) setBooting(false);
       }
@@ -235,7 +259,7 @@ export default function App() {
     return () => {
       active = false;
     };
-  }, [bootstrapAttempt, showNotice]);
+  }, [bootstrapAttempt, showNotice, t]);
 
   useEffect(() => {
     function requireAuthentication() {
@@ -298,7 +322,7 @@ export default function App() {
   }, [refreshAll, session.authenticated]);
 
   useEffect(() => {
-    if (errorNotice === null) return;
+    if (!hasErrorNotice) return;
 
     errorDialogPreviousFocus.current = document.activeElement instanceof HTMLElement
       ? document.activeElement
@@ -322,7 +346,7 @@ export default function App() {
       errorDialogPreviousFocus.current = null;
       if (previousFocus?.isConnected) previousFocus.focus();
     };
-  }, [dismissErrorNotice, errorNotice]);
+  }, [dismissErrorNotice, hasErrorNotice]);
 
   useEffect(() => () => {
     if (noticeTimer.current !== null) window.clearTimeout(noticeTimer.current);
@@ -332,7 +356,7 @@ export default function App() {
     try {
       await api<void>("/logout", { method: "POST", body: JSON.stringify({}) });
     } catch (requestError) {
-      showNotice(authErrorMessage(requestError), true);
+      showNotice(authErrorMessage(requestError, t), true);
       return;
     }
     setSession({ authenticated: false });
@@ -341,7 +365,7 @@ export default function App() {
   const noticeView = notice ? (
     <div className="toast" role="status">
       {notice}
-      <button type="button" aria-label="알림 닫기" onClick={dismissNotice}>
+      <button type="button" aria-label={t("app.notice.dismiss")} onClick={dismissNotice}>
         <AppIcon name="close" />
       </button>
     </div>
@@ -364,20 +388,20 @@ export default function App() {
       >
         <div className="error-dialog-heading">
           <div>
-            <p className="eyebrow">오류</p>
-            <h2 id="error-dialog-title">요청을 완료하지 못했습니다</h2>
+            <p className="eyebrow">{t(errorNotice.source === "status" ? "app.statusWarning.eyebrow" : "app.error.eyebrow")}</p>
+            <h2 id="error-dialog-title">{t(errorNotice.source === "status" ? "app.statusWarning.title" : "app.error.title")}</h2>
           </div>
           <button
             ref={errorDialogClose}
             className="icon-button error-dialog-close"
             type="button"
-            aria-label="오류 닫기"
+            aria-label={t(errorNotice.source === "status" ? "app.statusWarning.dismiss" : "app.error.dismiss")}
             onClick={dismissErrorNotice}
           >
             <AppIcon name="close" />
           </button>
         </div>
-        <p id="error-dialog-message" className="error-dialog-message">{errorNotice}</p>
+        <p id="error-dialog-message" className="error-dialog-message">{errorNotice.message}</p>
       </section>
     </div>
   ) : null;
@@ -387,7 +411,7 @@ export default function App() {
       <main className="splash-screen" aria-live="polite">
         <span className="brand-mark"><AppIcon name="logo" /></span>
         <strong>jastreamer</strong>
-        <span className="muted">서버에 연결하는 중…</span>
+        <span className="muted">{t("app.boot.connecting")}</span>
       </main>
     );
   }
@@ -400,9 +424,9 @@ export default function App() {
             <span className="brand-mark"><AppIcon name="logo" /></span>
             <span>jastreamer</span>
           </div>
-          <p className="eyebrow">연결 대기</p>
-          <h1 id="connection-heading">서버에 연결할 수 없습니다</h1>
-          <p className="muted">네트워크와 jastreamer 서버 상태를 확인한 뒤 다시 시도해 주세요.</p>
+          <p className="eyebrow">{t("app.connection.eyebrow")}</p>
+          <h1 id="connection-heading">{t("app.connection.title")}</h1>
+          <p className="muted">{t("app.connection.description")}</p>
           <button
             className="button button-primary auth-submit"
             type="button"
@@ -411,7 +435,7 @@ export default function App() {
               setBootstrapAttempt((current) => current + 1);
             }}
           >
-            다시 연결
+            {t("app.connection.retry")}
           </button>
         </section>
         {noticeView}
@@ -424,7 +448,7 @@ export default function App() {
     return (
       <>
         {!online && (
-          <div className="offline-banner" role="status">서버에 연결할 수 없습니다. 연결을 확인해 주세요.</div>
+          <div className="offline-banner" role="status">{t("app.connection.authOffline")}</div>
         )}
         <AuthScreen
           setupRequired={setupRequired}
@@ -469,7 +493,7 @@ export default function App() {
           onNotice={showNotice}
           onSignedOut={() => {
             setSession({ authenticated: false });
-            showNotice("비밀번호를 변경했습니다. 새 비밀번호로 로그인해 주세요.");
+            showNotice(t("app.account.passwordChanged"));
           }}
         />
       );
@@ -486,13 +510,13 @@ export default function App() {
 
   return (
     <div className="app-shell">
-      {!online && <div className="offline-banner" role="status">연결이 끊겼습니다. 자동으로 다시 연결합니다.</div>}
+      {!online && <div className="offline-banner" role="status">{t("app.connection.reconnecting")}</div>}
       <aside className="sidebar">
         <div className="brand">
           <span className="brand-mark"><AppIcon name="logo" /></span>
           <span>jastreamer</span>
         </div>
-        <nav className="main-nav" aria-label="주 메뉴">
+        <nav className="main-nav" aria-label={t("app.nav.main")}>
           {navigation.map((item) => (
             <button
               className={view === item.id ? "is-active" : ""}
@@ -502,13 +526,13 @@ export default function App() {
               onClick={() => setView(item.id)}
             >
               <AppIcon name={item.icon} />
-              <span>{item.label}</span>
+              <span>{t(item.labelKey)}</span>
             </button>
           ))}
         </nav>
         <div className="sidebar-account">
           <span title={session.user?.username}>{session.user?.username}</span>
-          <button className="icon-button" type="button" aria-label="로그아웃" onClick={() => void logout()}>
+          <button className="icon-button" type="button" aria-label={t("app.account.signOut")} onClick={() => void logout()}>
             <AppIcon name="logout" />
           </button>
         </div>
@@ -521,7 +545,7 @@ export default function App() {
         </div>
         <div className="mobile-account">
           <span>{session.user?.username}</span>
-          <button className="icon-button" type="button" aria-label="로그아웃" onClick={() => void logout()}>
+          <button className="icon-button" type="button" aria-label={t("app.account.signOut")} onClick={() => void logout()}>
             <AppIcon name="logout" />
           </button>
         </div>
@@ -529,7 +553,7 @@ export default function App() {
 
       <main className="main-content" id="main-content">{page}</main>
 
-      <nav className="mobile-nav" aria-label="주 메뉴">
+      <nav className="mobile-nav" aria-label={t("app.nav.main")}>
         {navigation.map((item) => (
           <button
             className={view === item.id ? "is-active" : ""}
@@ -539,7 +563,7 @@ export default function App() {
             onClick={() => setView(item.id)}
           >
             <AppIcon name={item.icon} />
-            <span>{item.label}</span>
+            <span>{t(item.labelKey)}</span>
           </button>
         ))}
       </nav>
@@ -547,6 +571,8 @@ export default function App() {
       <PlayerBar
         revision={revisions.player + revisions.renderers}
         onNotice={showNotice}
+        onStatusWarning={showStatusWarning}
+        onShowQueue={() => setView("queue")}
         onQueueChange={() => setRevisions((current) => ({ ...current, queue: current.queue + 1, player: current.player + 1 }))}
       />
 
