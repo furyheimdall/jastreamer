@@ -172,6 +172,14 @@ affect access, data, or service availability. Explain one stage at a time.
 
 The prompt is an installation workflow, not an unattended installer or permission to modify an existing deployment without review. The [user guide](INSTRUCTION.md) remains the reference for package handling and configuration.
 
+## Updating
+
+Update the Server by replacing its container image, not by reinstalling the application or clearing its data. The Web interface and packaged FFmpeg/AirPlay runtime are updated together; the optional Windows desktop executable has a separate ZIP update.
+
+There is currently no in-app update checker or automatic container updater. Review an available release, download its verified image, then stop playback and the Server, back up persistent state, and replace the image while keeping the same storage paths. After verification, open the existing Server URL and refresh the Web interface; playback does not resume automatically.
+
+See [backup and upgrade](INSTRUCTION.md#6-backup-and-upgrade) for the procedure, post-update checks, and a [copyable update prompt](INSTRUCTION.md#agent-assisted-update). Registry delivery is supported when an approved image reference is supplied; offline artifacts remain an alternative.
+
 ## Compatibility scope
 
 Automatic discovery depends on multicast and on the Server, client, and output having suitable LAN routes. Output capabilities vary by device: a receiver may omit Pause or Seek, reject a format, or require authorization. The repaired AirPlay path has bounded protocol and integration coverage; that is not universal receiver certification, long-term hardware qualification, or a promise about listening quality on every device. Confirm discovery, authorization, controls, queue advance, and audible playback on the equipment you intend to use.
