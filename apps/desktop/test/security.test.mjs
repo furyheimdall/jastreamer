@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   isSameServerNavigation,
+  isLanguageCookieForOrigin,
   isTrustedShellSender,
   normalizeEndpoint,
   sessionPartitionFor,
@@ -38,6 +39,27 @@ test("remote top-level navigation remains on the selected server origin", () => 
   assert.equal(isSameServerNavigation("https://other.local/", origin), false);
   assert.equal(isSameServerNavigation("javascript:alert(1)", origin), false);
   assert.equal(isSameServerNavigation("https://user:secret@media-box.local:8443/", origin), false);
+});
+
+test("accepts only the host-only strict language cookie for the active origin", () => {
+  const origin = "https://media-box.local:8443";
+  const valid = {
+    name: "jastreamer_language",
+    value: "ko",
+    domain: "media-box.local",
+    hostOnly: true,
+    httpOnly: false,
+    session: false,
+    expirationDate: Date.now() / 1_000 + 3600,
+    path: "/",
+    sameSite: "strict",
+  };
+  assert.equal(isLanguageCookieForOrigin(valid, origin), true);
+  assert.equal(isLanguageCookieForOrigin({ ...valid, value: "fr" }, origin), false);
+  assert.equal(isLanguageCookieForOrigin({ ...valid, domain: "other.local" }, origin), false);
+  assert.equal(isLanguageCookieForOrigin({ ...valid, hostOnly: false }, origin), false);
+  assert.equal(isLanguageCookieForOrigin({ ...valid, session: true }, origin), false);
+  assert.equal(isLanguageCookieForOrigin({ ...valid, removed: true }, origin), false);
 });
 
 test("shell IPC accepts equivalent file URL encoding without trusting other documents or frames", () => {

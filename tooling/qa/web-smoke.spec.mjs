@@ -73,22 +73,22 @@ test.afterAll(async () => {
 
 test("first-account form, session restoration, logout, and login work in the real Web app", async ({ page }) => {
   await page.goto(origin, { waitUntil: "domcontentloaded" });
-  await page.getByLabel("사용자 이름", { exact: true }).fill("browser-smoke");
-  await page.getByLabel("비밀번호", { exact: true }).fill("browser-smoke-password");
-  await page.getByLabel("비밀번호 확인", { exact: true }).fill("browser-smoke-password");
-  await page.getByRole("button", { name: "계정 만들기", exact: true }).click();
-  await expect(page.getByLabel("재생 기기", { exact: true })).toBeVisible();
+  await page.getByLabel("Username", { exact: true }).fill("browser-smoke");
+  await page.getByLabel("Password", { exact: true }).fill("browser-smoke-password");
+  await page.getByLabel("Confirm password", { exact: true }).fill("browser-smoke-password");
+  await page.getByRole("button", { name: "Create account", exact: true }).click();
+  await expect(page.getByLabel("Output device", { exact: true })).toBeVisible();
 
   await page.reload();
-  await expect(page.getByLabel("재생 기기", { exact: true })).toBeVisible();
-  await page.getByRole("button", { name: "로그아웃", exact: true }).click();
-  await expect(page.getByLabel("사용자 이름", { exact: true })).toBeVisible();
-  await expect(page.getByLabel("비밀번호 확인", { exact: true })).toHaveCount(0);
+  await expect(page.getByLabel("Output device", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Sign out", exact: true }).click();
+  await expect(page.getByLabel("Username", { exact: true })).toBeVisible();
+  await expect(page.getByLabel("Confirm password", { exact: true })).toHaveCount(0);
   const protectedStatus = await page.evaluate(async () => (await fetch("/api/v1/queue")).status);
   expect(protectedStatus).toBe(401);
 
-  await page.getByLabel("사용자 이름", { exact: true }).fill("browser-smoke");
-  await page.getByLabel("비밀번호", { exact: true }).fill("browser-smoke-password");
-  await page.getByRole("button", { name: "로그인", exact: true }).click();
-  await expect(page.getByLabel("재생 기기", { exact: true })).toBeVisible();
+  await page.getByLabel("Username", { exact: true }).fill("browser-smoke");
+  await page.getByLabel("Password", { exact: true }).fill("browser-smoke-password");
+  await page.getByRole("button", { name: "Sign in", exact: true }).click();
+  await expect(page.getByLabel("Output device", { exact: true })).toBeVisible();
 });

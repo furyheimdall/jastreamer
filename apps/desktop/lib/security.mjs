@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { fileURLToPath } from "node:url";
+import { LANGUAGE_COOKIE_NAME, normalizeLanguage, t } from "./i18n.mjs";
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const MAX_ENDPOINT_LENGTH = 2_048;
@@ -15,7 +16,7 @@ export class EndpointValidationError extends Error {
 export function normalizeServerId(value) {
   const id = typeof value === "string" ? value.trim().toLowerCase() : "";
   if (!UUID_PATTERN.test(id)) {
-    throw new EndpointValidationError("서버 ID가 올바른 UUID가 아닙니다.", "invalid_server_id");
+    throw new EndpointValidationError(t("security.invalidServerId"), "invalid_server_id");
   }
   return id;
 }
@@ -23,16 +24,16 @@ export function normalizeServerId(value) {
 export function normalizeEndpoint(value, { allowImplicitHttp = true } = {}) {
   let input = typeof value === "string" ? value.trim() : "";
   if (!input || input.length > MAX_ENDPOINT_LENGTH) {
-    throw new EndpointValidationError("서버 주소를 입력해 주세요.");
+    throw new EndpointValidationError(t("security.addressRequired"));
   }
   if (/[\u0000-\u0020\u007f]/.test(input)) {
-    throw new EndpointValidationError("주소에 공백이나 제어 문자를 포함할 수 없습니다.");
+    throw new EndpointValidationError(t("security.addressCharacters"));
   }
 
 
   if (!/^[a-z][a-z\d+.-]*:\/\//i.test(input)) {
     if (!allowImplicitHttp) {
-      throw new EndpointValidationError("주소는 http:// 또는 https://로 시작해야 합니다.");
+      throw new EndpointValidationError(t("security.schemeRequired"));
     }
     input = `http://${input}`;
   }
@@ -41,26 +42,26 @@ export function normalizeEndpoint(value, { allowImplicitHttp = true } = {}) {
   try {
     url = new URL(input);
   } catch {
-    throw new EndpointValidationError("올바른 서버 주소가 아닙니다.");
+    throw new EndpointValidationError(t("security.invalidAddress"));
   }
 
   if (url.protocol !== "http:" && url.protocol !== "https:") {
-    throw new EndpointValidationError("HTTP 또는 HTTPS 주소만 사용할 수 있습니다.");
+    throw new EndpointValidationError(t("security.httpOnly"));
   }
   if (!url.hostname) {
-    throw new EndpointValidationError("서버 호스트 이름이 없습니다.");
+    throw new EndpointValidationError(t("security.missingHost"));
   }
   if (url.hostname.endsWith(".")) {
     url.hostname = url.hostname.slice(0, -1);
   }
   if (url.username || url.password) {
-    throw new EndpointValidationError("사용자 정보가 포함된 주소는 사용할 수 없습니다.");
+    throw new EndpointValidationError(t("security.credentials"));
   }
   if (input.includes("?") || input.includes("#")) {
-    throw new EndpointValidationError("주소에 쿼리나 조각을 포함할 수 없습니다.");
+    throw new EndpointValidationError(t("security.queryFragment"));
   }
   if (url.pathname !== "/") {
-    throw new EndpointValidationError("서버의 루트 주소만 입력해 주세요. 경로는 사용할 수 없습니다.");
+    throw new EndpointValidationError(t("security.rootOnly"));
   }
 
   return url.origin;
@@ -71,6 +72,31 @@ export function sessionPartitionFor(serverId, endpoint) {
   const origin = normalizeEndpoint(endpoint, { allowImplicitHttp: false });
   const digest = createHash("sha256").update(id).update("\0").update(origin).digest("hex");
   return `persist:jastreamer-${digest}`;
+}
+
+export function isLanguageCookieForOrigin(cookie, endpoint) {
+  if (
+    !cookie ||
+    cookie.name !== LANGUAGE_COOKIE_NAME ||
+    !normalizeLanguage(cookie.value) ||
+    cookie.removed ||
+    cookie.hostOnly !== true ||
+    cookie.httpOnly !== false ||
+    cookie.session !== false ||
+    !Number.isFinite(cookie.expirationDate) ||
+    cookie.expirationDate <= Date.now() / 1_000 ||
+    cookie.path !== "/" ||
+    cookie.sameSite !== "strict"
+  ) {
+    return false;
+  }
+  try {
+    const cookieHost = cookie.domain.toLowerCase().replace(/^\[|\]$/g, "");
+    const endpointHost = new URL(endpoint).hostname.toLowerCase().replace(/^\[|\]$/g, "");
+    return cookieHost === endpointHost;
+  } catch {
+    return false;
+  }
 }
 
 export function isSameServerNavigation(target, endpoint) {

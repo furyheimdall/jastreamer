@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { addTracks, api, playTracks } from "./api";
 import type { Playlist, Track } from "./types";
+import { useI18n } from "./i18n";
 import "./library.css";
 
 type Props = {
@@ -23,9 +24,9 @@ function isConflict(error: unknown): boolean {
   return Boolean(error && typeof error === "object" && "status" in error && error.status === 409);
 }
 
-function errorMessage(error: unknown): string {
+function errorMessage(error: unknown, fallback: string): string {
   if (error && typeof error === "object" && "message" in error) return String(error.message);
-  return "요청을 완료하지 못했습니다.";
+  return fallback;
 }
 
 function formatDuration(milliseconds: number): string {
@@ -67,6 +68,8 @@ function sameTrackOrder(entries: DraftEntry[], playlist: Playlist): boolean {
 }
 
 export default function Playlists({ revision, onNotice, onQueueChange }: Props) {
+  const { locale, t } = useI18n();
+  const numberFormatter = useMemo(() => new Intl.NumberFormat(locale), [locale]);
   const [playlists, setPlaylists] = useState<Playlist[]>([]);
   const [selectedID, setSelectedID] = useState("");
   const [baseline, setBaseline] = useState<Playlist | null>(null);
@@ -109,13 +112,13 @@ export default function Playlists({ revision, onNotice, onQueueChange }: Props) 
         setSelectedID((current) => result.items.some((playlist) => playlist.id === current) ? current : result.items[0]?.id ?? "");
       })
       .catch((caught: unknown) => {
-        if (!controller.signal.aborted && !isAbort(caught)) setListError(errorMessage(caught));
+        if (!controller.signal.aborted && !isAbort(caught)) setListError(errorMessage(caught, t("common.requestFailed")));
       })
       .finally(() => {
         if (!controller.signal.aborted) setLoadingList(false);
       });
     return () => controller.abort();
-  }, [reload, revision]);
+  }, [reload, revision, t]);
 
   useEffect(() => {
     if (!selectedID) {
@@ -144,29 +147,29 @@ export default function Playlists({ revision, onNotice, onQueueChange }: Props) 
         applyAuthoritative(playlist);
       })
       .catch((caught: unknown) => {
-        if (!controller.signal.aborted && !isAbort(caught)) setDetailError(errorMessage(caught));
+        if (!controller.signal.aborted && !isAbort(caught)) setDetailError(errorMessage(caught, t("common.requestFailed")));
       })
       .finally(() => {
         if (!controller.signal.aborted) setLoadingDetail(false);
       });
     return () => controller.abort();
-  }, [reload, selectedID, revision]);
+  }, [reload, selectedID, revision, t]);
 
   async function refreshConflict() {
     if (!selectedID) return;
     try {
       const latest = await api<Playlist>(`/playlists/${encodeURIComponent(selectedID)}`);
       setPendingRemote(latest);
-      setDetailError("다른 곳에서 이 플레이리스트를 변경했습니다. 어느 버전을 유지할지 선택해 주세요.");
+      setDetailError(t("playlists.conflictChoice"));
     } catch (caught) {
-      setDetailError(errorMessage(caught));
+      setDetailError(errorMessage(caught, t("common.requestFailed")));
     }
   }
 
   function selectPlaylist(id: string) {
     if (id === selectedID) return;
     if (dirty || pendingRemote) {
-      setDetailError("현재 편집을 저장하거나 취소한 뒤 다른 플레이리스트를 선택해 주세요.");
+      setDetailError(t("playlists.finishEditing"));
       return;
     }
     setSelectedID(id);
@@ -181,7 +184,7 @@ export default function Playlists({ revision, onNotice, onQueueChange }: Props) 
     const name = newName.trim();
     if (!name) return;
     if (dirty || pendingRemote) {
-      setCreateError("현재 플레이리스트 편집을 먼저 저장하거나 취소해 주세요.");
+      setCreateError(t("playlists.finishBeforeCreate"));
       return;
     }
     setBusy(true);
@@ -195,9 +198,9 @@ export default function Playlists({ revision, onNotice, onQueueChange }: Props) 
       setNewName("");
       setSelectedID(created.id);
       applyAuthoritative(created);
-      onNotice(`‘${created.name}’ 플레이리스트를 만들었습니다.`);
+      onNotice(t("playlists.created", { name: created.name }));
     } catch (caught) {
-      setCreateError(errorMessage(caught));
+      setCreateError(errorMessage(caught, t("common.requestFailed")));
     } finally {
       setBusy(false);
     }
@@ -207,7 +210,7 @@ export default function Playlists({ revision, onNotice, onQueueChange }: Props) 
     if (!baseline || pendingRemote) return;
     const name = draftName.trim();
     if (!name) {
-      setDetailError("플레이리스트 이름을 입력해 주세요.");
+      setDetailError(t("playlists.nameRequired"));
       return;
     }
     setBusy(true);
@@ -219,10 +222,10 @@ export default function Playlists({ revision, onNotice, onQueueChange }: Props) 
       });
       applyAuthoritative(saved);
       setPlaylists((current) => current.map((playlist) => playlist.id === saved.id ? saved : playlist));
-      onNotice("플레이리스트를 저장했습니다.");
+      onNotice(t("playlists.saved"));
     } catch (caught) {
       if (isConflict(caught)) await refreshConflict();
-      else setDetailError(errorMessage(caught));
+      else setDetailError(errorMessage(caught, t("common.requestFailed")));
     } finally {
       setBusy(false);
     }
@@ -240,10 +243,10 @@ export default function Playlists({ revision, onNotice, onQueueChange }: Props) 
       setBaseline(null);
       setEntries([]);
       setDeleteArmed(false);
-      onNotice(`‘${baseline.name}’ 플레이리스트를 삭제했습니다. 원본 음악 파일은 그대로 유지됩니다.`);
+      onNotice(t("playlists.deleted", { name: baseline.name }));
     } catch (caught) {
       if (isConflict(caught)) await refreshConflict();
-      else setDetailError(errorMessage(caught));
+      else setDetailError(errorMessage(caught, t("common.requestFailed")));
     } finally {
       setBusy(false);
     }
@@ -262,7 +265,7 @@ export default function Playlists({ revision, onNotice, onQueueChange }: Props) 
   async function queuePlaylist(action: "play" | "append") {
     const availableIDs = entries.filter((entry) => entry.track?.available).map((entry) => entry.trackID);
     if (!availableIDs.length) {
-      onNotice("재생 가능한 곡이 없습니다.", true);
+      onNotice(t("playlists.noPlayable"), true);
       return;
     }
     setBusy(true);
@@ -270,9 +273,9 @@ export default function Playlists({ revision, onNotice, onQueueChange }: Props) 
       if (action === "play") await playTracks(availableIDs);
       else await addTracks(availableIDs, "append");
       onQueueChange();
-      onNotice(action === "play" ? "플레이리스트를 재생합니다." : "재생목록 끝에 추가했습니다.");
+      onNotice(t(action === "play" ? "playlists.playing" : "playlists.appended"));
     } catch (caught) {
-      onNotice(errorMessage(caught), true);
+      onNotice(errorMessage(caught, t("common.requestFailed")), true);
     } finally {
       setBusy(false);
     }
@@ -304,67 +307,75 @@ export default function Playlists({ revision, onNotice, onQueueChange }: Props) 
   return (
     <section className="playlist-shell" aria-labelledby="playlists-heading">
       <header className="playlist-page-heading">
-        <div><p className="playlist-eyebrow">내 컬렉션</p><h1 id="playlists-heading" className="page-heading">저장된 플레이리스트</h1><p className="muted">재생 대기열과 별도로 오래 보관하는 곡 목록입니다.</p></div>
+        <div><p className="playlist-eyebrow">{t("playlists.eyebrow")}</p><h1 id="playlists-heading" className="page-heading">{t("playlists.heading")}</h1><p className="muted">{t("playlists.description")}</p></div>
       </header>
 
       <div className="playlist-layout">
-        <aside className="playlist-sidebar" aria-label="저장된 플레이리스트">
+        <aside className="playlist-sidebar" aria-label={t("playlists.savedLabel")}>
           <form className="playlist-create" onSubmit={(event) => { event.preventDefault(); void createPlaylist(); }}>
-            <label htmlFor="playlist-new-name">새 플레이리스트</label>
-            <div><input id="playlist-new-name" className="input" value={newName} onChange={(event) => setNewName(event.target.value)} maxLength={120} placeholder="이름" /><button className="button button-primary" type="submit" disabled={busy || !newName.trim()} aria-label="새 플레이리스트 만들기"><Icon name="plus" /> 만들기</button></div>
+            <label htmlFor="playlist-new-name">{t("playlists.new")}</label>
+            <div><input id="playlist-new-name" className="input" value={newName} onChange={(event) => setNewName(event.target.value)} maxLength={120} placeholder={t("playlists.namePlaceholder")} /><button className="button button-primary" type="submit" disabled={busy || !newName.trim()} aria-label={t("playlists.createLabel")}><Icon name="plus" /> {t("playlists.create")}</button></div>
             {createError && <p className="error-text" role="alert">{createError}</p>}
           </form>
 
-          {loadingList && <p className="playlist-loading" role="status">목록을 불러오는 중…</p>}
-          {listError && <div className="playlist-inline-error" role="alert"><p className="error-text">{listError}</p><button className="button button-ghost" type="button" onClick={() => setReload((current) => current + 1)}>다시 시도</button></div>}
-          {!loadingList && !listError && playlists.length === 0 && <div className="empty-state">저장된 플레이리스트가 없습니다.</div>}
+          {loadingList && <p className="playlist-loading" role="status">{t("playlists.loadingList")}</p>}
+          {listError && <div className="playlist-inline-error" role="alert"><p className="error-text">{listError}</p><button className="button button-ghost" type="button" onClick={() => setReload((current) => current + 1)}>{t("common.retry")}</button></div>}
+          {!loadingList && !listError && playlists.length === 0 && <div className="empty-state">{t("playlists.empty")}</div>}
           <div className="playlist-list">
-            {playlists.map((playlist) => (
-              <button className={`playlist-list-item${selectedID === playlist.id ? " playlist-list-item-active" : ""}`} type="button" key={playlist.id} onClick={() => selectPlaylist(playlist.id)} aria-current={selectedID === playlist.id ? "page" : undefined}>
-                <span className="playlist-list-icon"><Icon name="playlist" /></span><span><strong>{playlist.name}</strong><small>{playlist.track_ids?.length ?? playlist.tracks?.length ?? 0}곡</small></span>
-              </button>
-            ))}
+            {playlists.map((playlist) => {
+              const trackCount = playlist.track_ids?.length ?? playlist.tracks?.length ?? 0;
+              return (
+                <button className={`playlist-list-item${selectedID === playlist.id ? " playlist-list-item-active" : ""}`} type="button" key={playlist.id} onClick={() => selectPlaylist(playlist.id)} aria-current={selectedID === playlist.id ? "page" : undefined}>
+                  <span className="playlist-list-icon"><Icon name="playlist" /></span><span><strong>{playlist.name}</strong><small>{t(trackCount === 1 ? "library.oneTrack" : "library.manyTracks", { count: numberFormatter.format(trackCount) })}</small></span>
+                </button>
+              );
+            })}
           </div>
         </aside>
 
         <main className="playlist-editor">
-          {!selectedID && !loadingList && <div className="empty-state">왼쪽에서 플레이리스트를 만들거나 선택해 주세요.</div>}
-          {selectedID && !loadingDetail && !baseline && detailError && <div className="playlist-inline-error" role="alert"><p className="error-text">{detailError}</p><button className="button button-ghost" type="button" onClick={() => setReload((current) => current + 1)}>다시 시도</button></div>}
-          {selectedID && loadingDetail && !baseline && <p className="playlist-loading" role="status">플레이리스트를 불러오는 중…</p>}
+          {!selectedID && !loadingList && <div className="empty-state">{t("playlists.selectPrompt")}</div>}
+          {selectedID && !loadingDetail && !baseline && detailError && <div className="playlist-inline-error" role="alert"><p className="error-text">{detailError}</p><button className="button button-ghost" type="button" onClick={() => setReload((current) => current + 1)}>{t("common.retry")}</button></div>}
+          {selectedID && loadingDetail && !baseline && <p className="playlist-loading" role="status">{t("playlists.loadingDetail")}</p>}
           {baseline && (
             <>
               <header className="playlist-editor-heading">
-                <div className="playlist-title-field"><label htmlFor="playlist-title">플레이리스트 이름</label><input id="playlist-title" className="input" value={draftName} onChange={(event) => setDraftName(event.target.value)} maxLength={120} /></div>
-                <p className="playlist-summary">{entries.length}곡 · 재생 가능 {availableCount}곡 · {formatDuration(totalDuration)}</p>
+                <div className="playlist-title-field"><label htmlFor="playlist-title">{t("playlists.name")}</label><input id="playlist-title" className="input" value={draftName} onChange={(event) => setDraftName(event.target.value)} maxLength={120} /></div>
+                <p className="playlist-summary">{t(entries.length === 1 ? "playlists.summaryOne" : "playlists.summaryMany", { count: numberFormatter.format(entries.length), available: numberFormatter.format(availableCount), duration: formatDuration(totalDuration) })}</p>
                 <div className="playlist-primary-actions">
-                  <button className="button button-primary" type="button" disabled={busy || !availableCount} onClick={() => queuePlaylist("play")}><Icon name="play" /> 재생</button>
-                  <button className="button button-ghost" type="button" disabled={busy || !availableCount} onClick={() => queuePlaylist("append")}><Icon name="append" /> 끝에 추가</button>
-                  <button className="button button-ghost" type="button" disabled={busy || !dirty || Boolean(pendingRemote) || !draftName.trim()} onClick={savePlaylist}><Icon name="save" /> 변경 저장</button>
-                  <button className="button button-ghost" type="button" disabled={busy || (!dirty && !pendingRemote)} onClick={discardDraft}>변경 취소</button>
+                  <button className="button button-primary" type="button" disabled={busy || !availableCount} onClick={() => queuePlaylist("play")}><Icon name="play" /> {t("playlists.play")}</button>
+                  <button className="button button-ghost" type="button" disabled={busy || !availableCount} onClick={() => queuePlaylist("append")}><Icon name="append" /> {t("playlists.append")}</button>
+                  <button className="button button-ghost" type="button" disabled={busy || !dirty || Boolean(pendingRemote) || !draftName.trim()} onClick={savePlaylist}><Icon name="save" /> {t("playlists.saveChanges")}</button>
+                  <button className="button button-ghost" type="button" disabled={busy || (!dirty && !pendingRemote)} onClick={discardDraft}>{t("playlists.cancelChanges")}</button>
                 </div>
               </header>
 
               {pendingRemote && (
                 <div className="playlist-conflict" role="alert">
-                  <div><strong>다른 곳에서 변경됨</strong><p>서버의 최신 변경을 불러오거나, 현재 편집 내용을 최신 버전에 다시 적용할 수 있습니다. 자동으로 덮어쓰지 않습니다.</p></div>
-                  <div><button className="button button-ghost" type="button" onClick={loadRemoteVersion}>서버 변경 불러오기</button><button className="button button-primary" type="button" onClick={keepDraftOnLatestRevision}>내 편집 다시 적용</button></div>
+                  <div><strong>{t("playlists.changedElsewhere")}</strong><p>{t("playlists.conflictDescription")}</p></div>
+                  <div><button className="button button-ghost" type="button" onClick={loadRemoteVersion}>{t("playlists.loadServerChanges")}</button><button className="button button-primary" type="button" onClick={keepDraftOnLatestRevision}>{t("playlists.reapplyEdits")}</button></div>
                 </div>
               )}
               {detailError && !pendingRemote && <p className="error-text playlist-detail-error" role="alert">{detailError}</p>}
 
-              {entries.length === 0 ? <div className="empty-state">아직 곡이 없습니다. 라이브러리에서 이 플레이리스트에 곡을 추가해 주세요.</div> : (
-                <div className="playlist-entry-list" role="list" aria-label={`${draftName || baseline.name} 수록곡`}>
+              {entries.length === 0 ? <div className="empty-state">{t("playlists.noTracks")}</div> : (
+                <div className="playlist-entry-list" role="list" aria-label={t("playlists.entriesLabel", { name: draftName || baseline.name })}>
                   {entries.map((entry, index) => {
                     const track = entry.track;
+                    const trackTitle = track?.title ?? t("playlists.unknownTrack");
                     return (
                       <article className={`playlist-entry${track?.available === false ? " playlist-entry-unavailable" : ""}`} role="listitem" key={entry.key}>
-                        <span className="playlist-entry-number">{index + 1}</span>
-                        <div className="playlist-entry-copy"><strong>{track?.title ?? "곡 정보를 불러올 수 없음"}</strong><span>{track ? `${track.artist || "아티스트 정보 없음"}${track.album ? ` · ${track.album}` : ""}` : entry.trackID}</span>{track?.available === false && <small>원본 파일을 현재 사용할 수 없음</small>}</div>
+                        <span className="playlist-entry-number">{numberFormatter.format(index + 1)}</span>
+                        <div className="playlist-entry-copy">
+                          <strong>{track?.title ?? t("playlists.trackUnavailable")}</strong>
+                          <span>{track ? <>{track.artist || t("library.unknownArtist")}{track.album && <> · {track.album}</>}</> : entry.trackID}</span>
+                          {track?.available === false && <small>{t("playlists.sourceUnavailable")}</small>}
+                        </div>
                         <time className="playlist-entry-duration">{formatDuration(track?.duration_ms ?? 0)}</time>
-                        <div className="playlist-entry-actions" aria-label={`${track?.title ?? "곡"} 순서와 항목 편집`}>
-                          <button type="button" disabled={busy || index === 0} onClick={() => moveEntry(index, -1)} aria-label={`${track?.title ?? "곡"} 위로 이동`} title="위로 이동"><Icon name="up" /></button>
-                          <button type="button" disabled={busy || index === entries.length - 1} onClick={() => moveEntry(index, 1)} aria-label={`${track?.title ?? "곡"} 아래로 이동`} title="아래로 이동"><Icon name="down" /></button>
-                          <button className="playlist-remove-button" type="button" disabled={busy} onClick={() => setEntries((current) => current.filter((_, currentIndex) => currentIndex !== index))} aria-label={`${track?.title ?? "곡"} 플레이리스트에서 제거`} title="플레이리스트에서 제거"><Icon name="remove" /></button>
+                        <div className="playlist-entry-actions" aria-label={t("playlists.entryActions", { title: trackTitle })}>
+                          <button type="button" disabled={busy || index === 0} onClick={() => moveEntry(index, -1)} aria-label={t("playlists.moveUp", { title: trackTitle })} title={t("playlists.moveUpTitle")}><Icon name="up" /></button>
+                          <button type="button" disabled={busy || index === entries.length - 1} onClick={() => moveEntry(index, 1)} aria-label={t("playlists.moveDown", { title: trackTitle })} title={t("playlists.moveDownTitle")}><Icon name="down" /></button>
+                          <button className="playlist-remove-button" type="button" disabled={busy} onClick={() => setEntries((current) => current.filter((_, currentIndex) => currentIndex !== index))} aria-label={t("playlists.removeTrack", { title: trackTitle })} title={t("playlists.removeTrackTitle")}><Icon name="remove" /></button>
                         </div>
                       </article>
                     );
@@ -373,8 +384,8 @@ export default function Playlists({ revision, onNotice, onQueueChange }: Props) 
               )}
 
               <footer className="playlist-danger-zone">
-                <div><strong>플레이리스트 삭제</strong><p>저장된 목록만 삭제하며 원본 음악 파일은 삭제하지 않습니다.</p></div>
-                {!deleteArmed ? <button className="button button-ghost playlist-danger-button" type="button" disabled={busy} onClick={() => setDeleteArmed(true)}><Icon name="trash" /> 삭제</button> : <div className="playlist-delete-confirm"><span>정말 삭제할까요?</span><button className="button button-ghost" type="button" onClick={() => setDeleteArmed(false)}>취소</button><button className="button playlist-danger-button" type="button" disabled={busy} onClick={deletePlaylist}>목록 삭제</button></div>}
+                <div><strong>{t("playlists.deleteHeading")}</strong><p>{t("playlists.deleteDescription")}</p></div>
+                {!deleteArmed ? <button className="button button-ghost playlist-danger-button" type="button" disabled={busy} onClick={() => setDeleteArmed(true)}><Icon name="trash" /> {t("common.delete")}</button> : <div className="playlist-delete-confirm"><span>{t("playlists.deleteConfirm")}</span><button className="button button-ghost" type="button" onClick={() => setDeleteArmed(false)}>{t("common.cancel")}</button><button className="button playlist-danger-button" type="button" disabled={busy} onClick={deletePlaylist}>{t("playlists.deleteList")}</button></div>}
               </footer>
             </>
           )}

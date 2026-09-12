@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { api } from "./api";
+import { useI18n } from "./i18n";
 import type { Track, TrackInfo } from "./types";
 import "./TrackInfoDialog.css";
 
@@ -16,61 +17,63 @@ type LoadedInfo = {
 
 type FailedInfo = {
   trackId: string;
-  message: string;
+  message: string | null;
 };
 
-const unavailable = "정보 없음";
-function present(value: string): string {
-  return value.trim() || unavailable;
+function present(value: string, unavailable: string): string {
+  return value.trim() ? value : unavailable;
 }
 
-function formatDuration(milliseconds: number): string {
+function formatDuration(milliseconds: number, unavailable: string, locale: string): string {
   if (!Number.isFinite(milliseconds) || milliseconds <= 0) return unavailable;
   const totalSeconds = Math.floor(milliseconds / 1000);
   const hours = Math.floor(totalSeconds / 3600);
   const minutes = Math.floor((totalSeconds % 3600) / 60);
   const seconds = totalSeconds % 60;
+  const twoDigit = { minimumIntegerDigits: 2, useGrouping: false } as const;
   return hours > 0
-    ? `${hours}:${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`
-    : `${minutes}:${String(seconds).padStart(2, "0")}`;
+    ? `${hours.toLocaleString(locale, { useGrouping: false })}:${minutes.toLocaleString(locale, twoDigit)}:${seconds.toLocaleString(locale, twoDigit)}`
+    : `${minutes.toLocaleString(locale, { useGrouping: false })}:${seconds.toLocaleString(locale, twoDigit)}`;
 }
 
-function formatSampleRate(value: number | null): string {
+function formatSampleRate(value: number | null, unavailable: string, locale: string): string {
   if (value === null || !Number.isFinite(value) || value <= 0) return unavailable;
-  const hz = value.toLocaleString("ko-KR");
+  const hz = value.toLocaleString(locale);
   if (value < 1_000) return `${hz} Hz`;
-  const khz = (value / 1_000).toLocaleString("ko-KR", { maximumFractionDigits: 3 });
+  const khz = (value / 1_000).toLocaleString(locale, { maximumFractionDigits: 3 });
   return `${khz} kHz (${hz} Hz)`;
 }
 
-function formatBitRate(value: number | null): string {
+function formatBitRate(value: number | null, unavailable: string, locale: string): string {
   if (value === null || !Number.isFinite(value) || value <= 0) return unavailable;
-  const kbps = (value / 1_000).toLocaleString("ko-KR", { maximumFractionDigits: 1 });
+  const kbps = (value / 1_000).toLocaleString(locale, { maximumFractionDigits: 1 });
   return `${kbps} kbps`;
 }
 
-function formatFileSize(bytes: number): string {
+function formatFileSize(bytes: number, unavailable: string, locale: string): string {
   if (!Number.isFinite(bytes) || bytes < 0) return unavailable;
-  if (bytes === 0) return "0 B";
+  if (bytes === 0) return `${bytes.toLocaleString(locale)} B`;
   const units = ["B", "KiB", "MiB", "GiB", "TiB"];
   const unitIndex = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1);
   const value = bytes / (1024 ** unitIndex);
-  return `${value.toLocaleString("ko-KR", { maximumFractionDigits: unitIndex === 0 ? 0 : 2 })} ${units[unitIndex]}`;
+  return `${value.toLocaleString(locale, { maximumFractionDigits: unitIndex === 0 ? 0 : 2 })} ${units[unitIndex]}`;
 }
 
-function formatModifiedAt(value: string): string {
+function formatModifiedAt(value: string, unavailable: string, locale: string): string {
   if (!value.trim()) return unavailable;
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
-  return date.toLocaleString("ko-KR");
+  return date.toLocaleString(locale);
 }
 
 function Artwork({ track }: { track: Track }) {
+  const { t } = useI18n();
   const [failedArtworkID, setFailedArtworkID] = useState("");
   const artworkID = track.artwork_id;
+  const title = track.title.trim() ? track.title : t("info.unavailable");
   if (!artworkID || failedArtworkID === artworkID) {
     return (
-      <span className="track-info-artwork track-info-artwork-empty" role="img" aria-label={`${track.title} 아트워크 없음`}>
+      <span className="track-info-artwork track-info-artwork-empty" role="img" aria-label={t("info.artworkMissing", { title })}>
         <svg viewBox="0 0 24 24" aria-hidden="true">
           <path d="M9 18V5l11-2v13" />
           <circle cx="6" cy="18" r="3" />
@@ -83,7 +86,7 @@ function Artwork({ track }: { track: Track }) {
     <img
       className="track-info-artwork"
       src={`/api/v1/artwork/${encodeURIComponent(artworkID)}`}
-      alt={`${track.title} 아트워크`}
+      alt={t("info.artwork", { title })}
       onError={() => setFailedArtworkID(artworkID)}
     />
   );
@@ -99,6 +102,7 @@ function Detail({ label, value, wide = false, code = false }: { label: string; v
 }
 
 export default function TrackInfoDialog({ trackId, onClose }: Props) {
+  const { locale, t } = useI18n();
   const [loaded, setLoaded] = useState<LoadedInfo | null>(null);
   const [failure, setFailure] = useState<FailedInfo | null>(null);
   const [requestVersion, setRequestVersion] = useState(0);
@@ -174,7 +178,7 @@ export default function TrackInfoDialog({ trackId, onClose }: Props) {
         if (!active || currentTrackIDRef.current !== requestedTrackID || (caught instanceof DOMException && caught.name === "AbortError")) return;
         const message = caught && typeof caught === "object" && "message" in caught
           ? String(caught.message)
-          : "곡 정보를 불러오지 못했습니다.";
+          : null;
         setFailure({ trackId: requestedTrackID, message });
       });
 
@@ -187,10 +191,11 @@ export default function TrackInfoDialog({ trackId, onClose }: Props) {
   if (trackId === null) return null;
 
   const info = loaded?.trackId === trackId ? loaded.value : null;
-  const error = failure?.trackId === trackId ? failure.message : "";
+  const error = failure?.trackId === trackId ? failure.message ?? t("info.loadFailed") : "";
   const track = info?.track;
+  const unavailable = t("info.unavailable");
   const tags = info
-    ? Object.entries(info.tags).sort(([left], [right]) => left.localeCompare(right, "ko"))
+    ? Object.entries(info.tags).sort(([left], [right]) => left.localeCompare(right, locale))
     : [];
 
   return createPortal(
@@ -212,20 +217,20 @@ export default function TrackInfoDialog({ trackId, onClose }: Props) {
       >
         <header className="track-info-heading">
           <div>
-            <p className="track-info-eyebrow">곡 정보</p>
-            <h2 id="track-info-title">{track ? track.title : "곡 정보"}</h2>
+            <p className="track-info-eyebrow">{t("info.title")}</p>
+            <h2 id="track-info-title">{track?.title || t("info.title")}</h2>
           </div>
-          <button ref={closeRef} className="track-info-close" type="button" aria-label="곡 정보 닫기" title="닫기" onClick={onClose}>
+          <button ref={closeRef} className="track-info-close" type="button" aria-label={t("info.close")} title={t("common.close")} onClick={onClose}>
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18" /></svg>
           </button>
         </header>
 
-        {!info && !error && <div className="track-info-status" role="status">곡 정보를 불러오는 중…</div>}
+        {!info && !error && <div className="track-info-status" role="status">{t("info.loading")}</div>}
 
         {error && (
           <div className="track-info-error" id="track-info-error" role="alert">
             <p>{error}</p>
-            <button className="button button-ghost" type="button" onClick={() => setRequestVersion((value) => value + 1)}>다시 시도</button>
+            <button className="button button-ghost" type="button" onClick={() => setRequestVersion((value) => value + 1)}>{t("common.retry")}</button>
           </div>
         )}
 
@@ -234,51 +239,51 @@ export default function TrackInfoDialog({ trackId, onClose }: Props) {
             <div className="track-info-summary">
               <Artwork key={track.artwork_id} track={track} />
               <div>
-                <strong>{present(track.title)}</strong>
-                <span>{present(track.artist)}</span>
-                <span>{present(track.album)}</span>
+                <strong>{present(track.title, unavailable)}</strong>
+                <span>{present(track.artist, unavailable)}</span>
+                <span>{present(track.album, unavailable)}</span>
               </div>
             </div>
 
             <section className="track-info-section" aria-labelledby="track-info-music-heading">
-              <h3 id="track-info-music-heading">음악</h3>
+              <h3 id="track-info-music-heading">{t("info.music")}</h3>
               <dl className="track-info-grid">
-                <Detail label="제목" value={present(track.title)} />
-                <Detail label="아티스트" value={present(track.artist)} />
-                <Detail label="앨범" value={present(track.album)} />
-                <Detail label="앨범 아티스트" value={present(track.album_artist)} />
-                <Detail label="디스크" value={track.disc > 0 ? track.disc.toLocaleString("ko-KR") : unavailable} />
-                <Detail label="트랙" value={track.track > 0 ? track.track.toLocaleString("ko-KR") : unavailable} />
-                <Detail label="장르" value={track.genres.length ? track.genres.join(", ") : unavailable} wide />
+                <Detail label={t("info.field.title")} value={present(track.title, unavailable)} />
+                <Detail label={t("info.field.artist")} value={present(track.artist, unavailable)} />
+                <Detail label={t("info.field.album")} value={present(track.album, unavailable)} />
+                <Detail label={t("info.field.albumArtist")} value={present(track.album_artist, unavailable)} />
+                <Detail label={t("info.field.disc")} value={track.disc > 0 ? track.disc.toLocaleString(locale) : unavailable} />
+                <Detail label={t("info.field.track")} value={track.track > 0 ? track.track.toLocaleString(locale) : unavailable} />
+                <Detail label={t("info.field.genre")} value={track.genres.length ? track.genres.join(", ") : unavailable} wide />
               </dl>
             </section>
 
             <section className="track-info-section" aria-labelledby="track-info-audio-heading">
-              <h3 id="track-info-audio-heading">오디오</h3>
+              <h3 id="track-info-audio-heading">{t("info.audio")}</h3>
               <dl className="track-info-grid">
-                <Detail label="코덱" value={present(info.audio.codec)} />
-                <Detail label="샘플 레이트" value={formatSampleRate(info.audio.sample_rate)} />
-                <Detail label="채널" value={info.audio.channels !== null && info.audio.channels > 0 ? `${info.audio.channels.toLocaleString("ko-KR")}채널` : unavailable} />
-                <Detail label="비트 깊이" value={info.audio.bits_per_sample !== null && info.audio.bits_per_sample > 0 ? `${info.audio.bits_per_sample.toLocaleString("ko-KR")}비트` : unavailable} />
-                <Detail label="비트레이트" value={formatBitRate(info.audio.bit_rate)} />
-                <Detail label="재생 시간" value={formatDuration(track.duration_ms)} />
+                <Detail label={t("info.field.codec")} value={present(info.audio.codec, unavailable)} />
+                <Detail label={t("info.field.sampleRate")} value={formatSampleRate(info.audio.sample_rate, unavailable, locale)} />
+                <Detail label={t("info.field.channels")} value={info.audio.channels !== null && info.audio.channels > 0 ? t(info.audio.channels === 1 ? "info.channelCountOne" : "info.channelCount", { count: info.audio.channels.toLocaleString(locale) }) : unavailable} />
+                <Detail label={t("info.field.bitDepth")} value={info.audio.bits_per_sample !== null && info.audio.bits_per_sample > 0 ? t("info.bitDepth", { count: info.audio.bits_per_sample.toLocaleString(locale) }) : unavailable} />
+                <Detail label={t("info.field.bitRate")} value={formatBitRate(info.audio.bit_rate, unavailable, locale)} />
+                <Detail label={t("info.field.duration")} value={formatDuration(track.duration_ms, unavailable, locale)} />
               </dl>
             </section>
 
             <section className="track-info-section" aria-labelledby="track-info-file-heading">
-              <h3 id="track-info-file-heading">파일</h3>
+              <h3 id="track-info-file-heading">{t("info.file")}</h3>
               <dl className="track-info-grid">
-                <Detail label="형식" value={present(track.format)} />
-                <Detail label="MIME 형식" value={present(track.mime)} />
-                <Detail label="크기" value={formatFileSize(track.size)} />
-                <Detail label="상태" value={track.available ? "사용 가능" : "파일을 사용할 수 없음"} />
-                <Detail label="수정 시각" value={formatModifiedAt(track.modified_at)} wide />
-                <Detail label="경로" value={present(track.path)} wide code />
+                <Detail label={t("info.field.format")} value={present(track.format, unavailable)} />
+                <Detail label={t("info.field.mime")} value={present(track.mime, unavailable)} />
+                <Detail label={t("info.field.size")} value={formatFileSize(track.size, unavailable, locale)} />
+                <Detail label={t("info.field.status")} value={track.available ? t("info.available") : t("info.fileUnavailable")} />
+                <Detail label={t("info.field.modifiedAt")} value={formatModifiedAt(track.modified_at, unavailable, locale)} wide />
+                <Detail label={t("info.field.path")} value={present(track.path, unavailable)} wide code />
               </dl>
             </section>
 
             <section className="track-info-section" aria-labelledby="track-info-tags-heading">
-              <h3 id="track-info-tags-heading">임베디드 메타데이터</h3>
+              <h3 id="track-info-tags-heading">{t("info.embeddedMetadata")}</h3>
               {tags.length ? (
                 <dl className="track-info-tags">
                   {tags.map(([name, values]) => (
@@ -288,7 +293,7 @@ export default function TrackInfoDialog({ trackId, onClose }: Props) {
                     </div>
                   ))}
                 </dl>
-              ) : <p className="track-info-empty">표시할 임베디드 메타데이터가 없습니다.</p>}
+              ) : <p className="track-info-empty">{t("info.noEmbeddedMetadata")}</p>}
             </section>
           </div>
         )}

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { addTracks, api, playTracks } from "./api";
 import type { Album, Artist, Folder, Genre, Page, Playlist, Track } from "./types";
 import TrackInfoDialog from "./TrackInfoDialog";
+import { useI18n, type MessageKey } from "./i18n";
 import "./library.css";
 
 type Props = {
@@ -19,13 +20,20 @@ type Scope =
   | { kind: "folder"; rootID: string; path: string; title: string };
 type QueueAction = "play" | "next" | "append";
 
-const tabs: Array<{ kind: LibraryKind; label: string }> = [
-  { kind: "albums", label: "앨범" },
-  { kind: "artists", label: "아티스트" },
-  { kind: "genres", label: "장르" },
-  { kind: "folders", label: "폴더" },
-  { kind: "tracks", label: "곡" },
+const tabs: Array<{ kind: LibraryKind; labelKey: MessageKey }> = [
+  { kind: "albums", labelKey: "library.tabs.albums" },
+  { kind: "artists", labelKey: "library.tabs.artists" },
+  { kind: "genres", labelKey: "library.tabs.genres" },
+  { kind: "folders", labelKey: "library.tabs.folders" },
+  { kind: "tracks", labelKey: "library.tabs.tracks" },
 ];
+
+const scopeTypeKeys: Record<Scope["kind"], MessageKey> = {
+  album: "library.type.album",
+  artist: "library.type.artist",
+  genre: "library.type.genre",
+  folder: "library.type.folder",
+};
 
 const pageSize = 48;
 const trackPageSize = 100;
@@ -34,11 +42,11 @@ function isAbort(error: unknown): boolean {
   return error instanceof DOMException && error.name === "AbortError";
 }
 
-function errorMessage(error: unknown): string {
+function errorMessage(error: unknown, fallback: string): string {
   if (error && typeof error === "object" && "message" in error) {
     return String(error.message);
   }
-  return "요청을 완료하지 못했습니다.";
+  return fallback;
 }
 
 function isConflict(error: unknown): boolean {
@@ -75,13 +83,13 @@ function Icon({ name }: { name: "music" | "play" | "next" | "append" | "playlist
   return <svg className="library-icon" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">{paths[name]}</svg>;
 }
 
-function Artwork({ id, alt, compact = false }: { id: string; alt: string; compact?: boolean }) {
+function Artwork({ id, label, missingLabel, compact = false }: { id: string; label: string; missingLabel: string; compact?: boolean }) {
   const [failedID, setFailedID] = useState("");
   const src = artworkURL(id);
   if (!src || failedID === id) {
-    return <span className={`library-artwork library-artwork-empty${compact ? " library-artwork-compact" : ""}`} role="img" aria-label={`${alt} 아트워크 없음`}><Icon name="music" /></span>;
+    return <span className={`library-artwork library-artwork-empty${compact ? " library-artwork-compact" : ""}`} role="img" aria-label={missingLabel}><Icon name="music" /></span>;
   }
-  return <img className={`library-artwork${compact ? " library-artwork-compact" : ""}`} src={src} alt={`${alt} 아트워크`} loading="lazy" onError={() => setFailedID(id)} />;
+  return <img className={`library-artwork${compact ? " library-artwork-compact" : ""}`} src={src} alt={label} loading="lazy" onError={() => setFailedID(id)} />;
 }
 
 function paramsFor(kind: LibraryKind | "tracks", search: string, offset: number, limit: number, scope: Scope | null): URLSearchParams {
@@ -111,6 +119,8 @@ function paramsFor(kind: LibraryKind | "tracks", search: string, offset: number,
 }
 
 export default function Library({ revision, onNotice, onQueueChange }: Props) {
+  const { locale, t } = useI18n();
+  const numberFormatter = useMemo(() => new Intl.NumberFormat(locale), [locale]);
   const [kind, setKind] = useState<LibraryKind>("albums");
   const [scope, setScope] = useState<Scope | null>(null);
   const [searchInput, setSearchInput] = useState("");
@@ -167,14 +177,14 @@ export default function Library({ revision, onNotice, onQueueChange }: Props) {
         if (isAbort(caught) || requestSerial.current !== serial) return;
         setPage(null);
         setChildFolders([]);
-        setError(errorMessage(caught));
+        setError(errorMessage(caught, t("common.requestFailed")));
       })
       .finally(() => {
         if (requestSerial.current === serial) setLoading(false);
       });
 
     return () => controller.abort();
-  }, [kind, offset, reload, revision, scope, search]);
+  }, [kind, offset, reload, revision, scope, search, t]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -228,7 +238,7 @@ export default function Library({ revision, onNotice, onQueueChange }: Props) {
   async function runQueue(tracks: Track[], action: QueueAction) {
     const trackIDs = tracks.filter((track) => track.available).map((track) => track.id);
     if (!trackIDs.length) {
-      onNotice("재생 가능한 곡이 없습니다.", true);
+      onNotice(t("library.noPlayableTracks"), true);
       return;
     }
     setActionBusy(true);
@@ -236,9 +246,9 @@ export default function Library({ revision, onNotice, onQueueChange }: Props) {
       if (action === "play") await playTracks(trackIDs);
       else await addTracks(trackIDs, action);
       onQueueChange();
-      onNotice(action === "play" ? "재생을 시작했습니다." : action === "next" ? "다음 재생에 추가했습니다." : "재생목록 끝에 추가했습니다.");
+      onNotice(t(action === "play" ? "library.playStarted" : action === "next" ? "library.addedNext" : "library.addedEnd"));
     } catch (caught) {
-      onNotice(errorMessage(caught), true);
+      onNotice(errorMessage(caught, t("common.requestFailed")), true);
     } finally {
       setActionBusy(false);
     }
@@ -249,13 +259,16 @@ export default function Library({ revision, onNotice, onQueueChange }: Props) {
     try {
       const tracks = await collectScopeTracks();
       const trackIDs = tracks.map((track) => track.id);
-      if (!trackIDs.length) throw new Error("재생 가능한 곡이 없습니다.");
+      if (!trackIDs.length) {
+        onNotice(t("library.noPlayableTracks"), true);
+        return;
+      }
       if (action === "play") await playTracks(trackIDs);
       else await addTracks(trackIDs, action);
       onQueueChange();
-      onNotice(action === "play" ? "선택한 음악을 재생합니다." : action === "next" ? "다음 재생에 추가했습니다." : "재생목록 끝에 추가했습니다.");
+      onNotice(t(action === "play" ? "library.selectionPlaying" : action === "next" ? "library.addedNext" : "library.addedEnd"));
     } catch (caught) {
-      onNotice(errorMessage(caught), true);
+      onNotice(errorMessage(caught, t("common.requestFailed")), true);
     } finally {
       setActionBusy(false);
     }
@@ -265,13 +278,16 @@ export default function Library({ revision, onNotice, onQueueChange }: Props) {
     setActionBusy(true);
     try {
       const tracks = await collectScopeTracks();
-      if (!tracks.length) throw new Error("추가할 수 있는 곡이 없습니다.");
+      if (!tracks.length) {
+        onNotice(t("library.noTracksToAdd"), true);
+        return;
+      }
       setPickerTracks(tracks);
       setPickerTarget(playlists[0]?.id ?? "");
       setPickerError("");
       setNewPlaylistName("");
     } catch (caught) {
-      onNotice(errorMessage(caught), true);
+      onNotice(errorMessage(caught, t("common.requestFailed")), true);
     } finally {
       setActionBusy(false);
     }
@@ -297,10 +313,10 @@ export default function Library({ revision, onNotice, onQueueChange }: Props) {
         body: JSON.stringify({ name: current.name, track_ids: trackIDs, revision: current.revision }),
       });
       setPickerTracks(null);
-      onNotice(`‘${current.name}’에 추가했습니다.`);
+      onNotice(t("library.addedToPlaylist", { name: current.name }));
     } catch (caught) {
       if (isConflict(caught)) {
-        setPickerError("다른 곳에서 플레이리스트가 변경되었습니다. 최신 목록을 확인한 뒤 다시 선택해 주세요.");
+        setPickerError(t("library.playlistConflict"));
         try {
           const result = await api<{ items: Playlist[] }>("/playlists");
           setPlaylists(result.items);
@@ -308,7 +324,7 @@ export default function Library({ revision, onNotice, onQueueChange }: Props) {
           // The original conflict is the useful, safe error to show.
         }
       } else {
-        setPickerError(errorMessage(caught));
+        setPickerError(errorMessage(caught, t("common.requestFailed")));
       }
     } finally {
       setActionBusy(false);
@@ -328,9 +344,9 @@ export default function Library({ revision, onNotice, onQueueChange }: Props) {
       setPlaylists((current) => [...current, created]);
       setNewPlaylistName("");
       setPickerTracks(null);
-      onNotice(`‘${created.name}’ 플레이리스트를 만들었습니다.`);
+      onNotice(t("library.playlistCreated", { name: created.name }));
     } catch (caught) {
-      setPickerError(errorMessage(caught));
+      setPickerError(errorMessage(caught, t("common.requestFailed")));
     } finally {
       setActionBusy(false);
     }
@@ -366,57 +382,69 @@ export default function Library({ revision, onNotice, onQueueChange }: Props) {
     <section className="library-shell" aria-labelledby="library-heading">
       <header className="library-heading-row">
         <div>
-          <p className="library-eyebrow">내 음악</p>
-          <h1 id="library-heading" className="page-heading">음악 라이브러리</h1>
+          <p className="library-eyebrow">{t("library.eyebrow")}</p>
+          <h1 id="library-heading" className="page-heading">{t("library.heading")}</h1>
         </div>
         <label className="library-search">
           <span className="library-search-icon"><Icon name="search" /></span>
-          <span className="library-visually-hidden">라이브러리 검색</span>
-          <input className="input" type="search" value={searchInput} onChange={(event) => setSearchInput(event.target.value)} placeholder="제목, 아티스트, 앨범 검색" autoComplete="off" />
+          <span className="library-visually-hidden">{t("library.searchLabel")}</span>
+          <input className="input" type="search" value={searchInput} onChange={(event) => setSearchInput(event.target.value)} placeholder={t("library.searchPlaceholder")} autoComplete="off" />
         </label>
       </header>
 
-      <nav className="library-tabs" aria-label="라이브러리 분류">
+      <nav className="library-tabs" aria-label={t("library.categoriesLabel")}>
         {tabs.map((tab) => (
-          <button key={tab.kind} className={`library-tab${kind === tab.kind && !scope ? " library-tab-active" : ""}`} type="button" onClick={() => { setKind(tab.kind); setScope(null); }} aria-current={kind === tab.kind && !scope ? "page" : undefined}>{tab.label}</button>
+          <button key={tab.kind} className={`library-tab${kind === tab.kind && !scope ? " library-tab-active" : ""}`} type="button" onClick={() => { setKind(tab.kind); setScope(null); }} aria-current={kind === tab.kind && !scope ? "page" : undefined}>{t(tab.labelKey)}</button>
         ))}
       </nav>
 
       {scope && (
         <div className="library-detail-header">
-          <button className="button button-ghost" type="button" onClick={leaveScope}><Icon name="back" /> 목록으로</button>
+          <button className="button button-ghost" type="button" onClick={leaveScope}><Icon name="back" /> {t("library.backToList")}</button>
           <div className="library-detail-summary">
-            {scope.kind === "album" ? <Artwork id={scope.artworkID} alt={scope.title} /> : <span className="library-detail-symbol" aria-hidden="true"><Icon name={scope.kind === "folder" ? "folder" : "music"} /></span>}
+            {scope.kind === "album" ? (
+              <Artwork
+                id={scope.artworkID}
+                label={t("library.artwork", { name: scope.title })}
+                missingLabel={t("library.noArtwork", { name: scope.title })}
+              />
+            ) : <span className="library-detail-symbol" aria-hidden="true"><Icon name={scope.kind === "folder" ? "folder" : "music"} /></span>}
             <div className="library-detail-copy">
-              <span className="muted">{scope.kind === "album" ? "앨범" : scope.kind === "artist" ? "아티스트" : scope.kind === "genre" ? "장르" : "폴더"}</span>
+              <span className="muted">{t(scopeTypeKeys[scope.kind])}</span>
               <h2>{scope.title}</h2>
               {scope.kind === "album" && <p>{scope.subtitle}</p>}
               {scope.kind === "folder" && <p className="library-path">{scope.path}</p>}
             </div>
           </div>
-          <div className="library-bulk-actions" aria-label="현재 목록 작업">
-            <button className="button button-primary" type="button" disabled={actionBusy || (!loading && !page?.total)} onClick={() => runScopeQueue("play")}><Icon name="play" /> 전체 재생</button>
-            <button className="button button-ghost" type="button" disabled={actionBusy || (!loading && !page?.total)} onClick={() => runScopeQueue("next")}><Icon name="next" /> 다음에</button>
-            <button className="button button-ghost" type="button" disabled={actionBusy || (!loading && !page?.total)} onClick={() => runScopeQueue("append")}><Icon name="append" /> 끝에 추가</button>
-            <button className="button button-ghost" type="button" disabled={actionBusy || (!loading && !page?.total)} onClick={openScopePicker}><Icon name="playlist" /> 저장 목록에</button>
+          <div className="library-bulk-actions" aria-label={t("library.currentListActions")}>
+            <button className="button button-primary" type="button" disabled={actionBusy || (!loading && !page?.total)} onClick={() => runScopeQueue("play")}><Icon name="play" /> {t("library.playAll")}</button>
+            <button className="button button-ghost" type="button" disabled={actionBusy || (!loading && !page?.total)} onClick={() => runScopeQueue("next")}><Icon name="next" /> {t("library.playNext")}</button>
+            <button className="button button-ghost" type="button" disabled={actionBusy || (!loading && !page?.total)} onClick={() => runScopeQueue("append")}><Icon name="append" /> {t("library.addToEnd")}</button>
+            <button className="button button-ghost" type="button" disabled={actionBusy || (!loading && !page?.total)} onClick={openScopePicker}><Icon name="playlist" /> {t("library.addToSaved")}</button>
           </div>
         </div>
       )}
 
-      {error && <div className="library-error" role="alert"><p className="error-text">{error}</p><button className="button button-ghost" type="button" onClick={() => setReload((current) => current + 1)}>다시 시도</button></div>}
-      {loading && <div className="library-loading" role="status">라이브러리를 불러오는 중…</div>}
+      {error && <div className="library-error" role="alert"><p className="error-text">{error}</p><button className="button button-ghost" type="button" onClick={() => setReload((current) => current + 1)}>{t("common.retry")}</button></div>}
+      {loading && <div className="library-loading" role="status">{t("library.loading")}</div>}
 
       {!loading && !error && page && page.items.length === 0 && childFolders.length === 0 && (
-        <div className="empty-state">{search ? "검색 결과가 없습니다." : "표시할 음악이 없습니다. 설정에서 음악 폴더를 확인하고 라이브러리를 스캔해 주세요."}</div>
+        <div className="empty-state">{t(search ? "library.noSearchResults" : "library.empty")}</div>
       )}
 
       {!loading && !error && !scope && kind === "albums" && (
         <div className="library-album-grid">
           {(page?.items as Album[] | undefined)?.map((album) => (
             <button className="library-album-card" type="button" key={album.id} onClick={() => openItem(album)}>
-              <Artwork id={album.artwork_id} alt={album.title} />
+              <Artwork
+                id={album.artwork_id}
+                label={t("library.artwork", { name: album.title })}
+                missingLabel={t("library.noArtwork", { name: album.title })}
+              />
               <span className="library-card-title">{album.title}</span>
-              <span className="library-card-meta">{album.artist || "아티스트 정보 없음"} · {album.track_count}곡</span>
+              <span className="library-card-meta">
+                {album.artist || t("library.unknownArtist")} · {t(album.track_count === 1 ? "library.oneTrack" : "library.manyTracks", { count: numberFormatter.format(album.track_count) })}
+              </span>
             </button>
           ))}
         </div>
@@ -424,43 +452,48 @@ export default function Library({ revision, onNotice, onQueueChange }: Props) {
 
       {!loading && !error && !scope && kind === "artists" && (
         <div className="library-name-grid">
-          {(page?.items as Artist[] | undefined)?.map((artist) => <button className="library-name-card" type="button" key={artist.id} onClick={() => openItem(artist)}><span className="library-name-mark"><Icon name="music" /></span><span><strong>{artist.name}</strong><small>{artist.track_count}곡</small></span></button>)}
+          {(page?.items as Artist[] | undefined)?.map((artist) => <button className="library-name-card" type="button" key={artist.id} onClick={() => openItem(artist)}><span className="library-name-mark"><Icon name="music" /></span><span><strong>{artist.name}</strong><small>{t(artist.track_count === 1 ? "library.oneTrack" : "library.manyTracks", { count: numberFormatter.format(artist.track_count) })}</small></span></button>)}
         </div>
       )}
 
       {!loading && !error && !scope && kind === "genres" && (
         <div className="library-name-grid">
-          {(page?.items as Genre[] | undefined)?.map((genre) => <button className="library-name-card" type="button" key={genre.id} onClick={() => openItem(genre)}><span className="library-name-mark"><Icon name="music" /></span><span><strong>{genre.name}</strong><small>{genre.track_count}곡</small></span></button>)}
+          {(page?.items as Genre[] | undefined)?.map((genre) => <button className="library-name-card" type="button" key={genre.id} onClick={() => openItem(genre)}><span className="library-name-mark"><Icon name="music" /></span><span><strong>{genre.name}</strong><small>{t(genre.track_count === 1 ? "library.oneTrack" : "library.manyTracks", { count: numberFormatter.format(genre.track_count) })}</small></span></button>)}
         </div>
       )}
 
       {!loading && !error && !scope && kind === "folders" && (
         <div className="library-folder-list">
-          {(page?.items as Folder[] | undefined)?.map((folder) => <button className="library-folder-row" type="button" key={`${folder.root_id}:${folder.path}`} onClick={() => openItem(folder)}><span className="library-folder-icon"><Icon name="folder" /></span><span><strong>{folder.name}</strong><small>{folder.path || "최상위 폴더"}</small></span><span className="library-folder-count">{folder.track_count}곡</span></button>)}
+          {(page?.items as Folder[] | undefined)?.map((folder) => <button className="library-folder-row" type="button" key={`${folder.root_id}:${folder.path}`} onClick={() => openItem(folder)}><span className="library-folder-icon"><Icon name="folder" /></span><span><strong>{folder.name}</strong><small>{folder.path || t("library.rootFolder")}</small></span><span className="library-folder-count">{t(folder.track_count === 1 ? "library.oneTrack" : "library.manyTracks", { count: numberFormatter.format(folder.track_count) })}</span></button>)}
         </div>
       )}
 
       {!loading && !error && scope?.kind === "folder" && childFolders.length > 0 && (
-        <div className="library-child-folders" aria-label="하위 폴더">
-          {childFolders.map((folder) => <button className="library-folder-row" type="button" key={`${folder.root_id}:${folder.path}`} onClick={() => setScope({ kind: "folder", rootID: folder.root_id, path: folder.path, title: folder.name })}><span className="library-folder-icon"><Icon name="folder" /></span><span><strong>{folder.name}</strong><small>{folder.path}</small></span><span className="library-folder-count">{folder.track_count}곡</span></button>)}
+        <div className="library-child-folders" aria-label={t("library.childFolders")}>
+          {childFolders.map((folder) => <button className="library-folder-row" type="button" key={`${folder.root_id}:${folder.path}`} onClick={() => setScope({ kind: "folder", rootID: folder.root_id, path: folder.path, title: folder.name })}><span className="library-folder-icon"><Icon name="folder" /></span><span><strong>{folder.name}</strong><small>{folder.path}</small></span><span className="library-folder-count">{t(folder.track_count === 1 ? "library.oneTrack" : "library.manyTracks", { count: numberFormatter.format(folder.track_count) })}</span></button>)}
         </div>
       )}
 
       {!loading && !error && (scope || kind === "tracks") && visibleTracks.length > 0 && (
-        <div className="library-track-list" role="list" aria-label="곡 목록">
+        <div className="library-track-list" role="list" aria-label={t("library.trackList")}>
           {visibleTracks.map((track, index) => (
             <article className={`library-track-row${track.available ? "" : " library-track-unavailable"}`} role="listitem" key={track.id}>
-              <span className="library-track-number">{scope?.kind === "album" ? `${track.disc > 1 ? `${track.disc}-` : ""}${track.track || offset + index + 1}` : offset + index + 1}</span>
-              <Artwork id={track.artwork_id} alt={track.album || track.title} compact />
-              <div className="library-track-main"><strong>{track.title}</strong><span>{track.artist || "아티스트 정보 없음"}</span></div>
-              <div className="library-track-album"><span>{track.album || "앨범 정보 없음"}</span>{!track.available && <small>파일을 사용할 수 없음</small>}</div>
+              <span className="library-track-number">{scope?.kind === "album" ? `${track.disc > 1 ? `${track.disc}-` : ""}${track.track || offset + index + 1}` : numberFormatter.format(offset + index + 1)}</span>
+              <Artwork
+                id={track.artwork_id}
+                label={t("library.artwork", { name: track.album || track.title })}
+                missingLabel={t("library.noArtwork", { name: track.album || track.title })}
+                compact
+              />
+              <div className="library-track-main"><strong>{track.title}</strong><span>{track.artist || t("library.unknownArtist")}</span></div>
+              <div className="library-track-album"><span>{track.album || t("library.unknownAlbum")}</span>{!track.available && <small>{t("library.fileUnavailable")}</small>}</div>
               <time className="library-track-duration">{formatDuration(track.duration_ms)}</time>
-              <div className="library-track-actions" aria-label={`${track.title} 작업`}>
-                <button type="button" title="지금 재생" aria-label={`${track.title} 지금 재생`} disabled={!track.available || actionBusy} onClick={() => runQueue([track], "play")}><Icon name="play" /></button>
-                <button type="button" title="다음에 재생" aria-label={`${track.title} 다음에 재생`} disabled={!track.available || actionBusy} onClick={() => runQueue([track], "next")}><Icon name="next" /></button>
-                <button type="button" title="끝에 추가" aria-label={`${track.title} 재생목록 끝에 추가`} disabled={!track.available || actionBusy} onClick={() => runQueue([track], "append")}><Icon name="append" /></button>
-                <button type="button" title="저장 목록에 추가" aria-label={`${track.title} 저장된 플레이리스트에 추가`} disabled={!track.available || actionBusy} onClick={() => openTrackPicker(track)}><Icon name="playlist" /></button>
-                <button type="button" title="곡 정보" aria-label={`${track.title} 곡 정보 보기`} onClick={(event) => { event.stopPropagation(); setInfoTrackID(track.id); }}><Icon name="info" /></button>
+              <div className="library-track-actions" aria-label={t("library.trackActions", { title: track.title })}>
+                <button type="button" title={t("library.playNow")} aria-label={t("library.playNowTrack", { title: track.title })} disabled={!track.available || actionBusy} onClick={() => runQueue([track], "play")}><Icon name="play" /></button>
+                <button type="button" title={t("library.playNextTitle")} aria-label={t("library.playNextTrack", { title: track.title })} disabled={!track.available || actionBusy} onClick={() => runQueue([track], "next")}><Icon name="next" /></button>
+                <button type="button" title={t("library.addToEnd")} aria-label={t("library.addEndTrack", { title: track.title })} disabled={!track.available || actionBusy} onClick={() => runQueue([track], "append")}><Icon name="append" /></button>
+                <button type="button" title={t("library.addSavedTitle")} aria-label={t("library.addSavedTrack", { title: track.title })} disabled={!track.available || actionBusy} onClick={() => openTrackPicker(track)}><Icon name="playlist" /></button>
+                <button type="button" title={t("library.trackInfo")} aria-label={t("library.viewTrackInfo", { title: track.title })} onClick={(event) => { event.stopPropagation(); setInfoTrackID(track.id); }}><Icon name="info" /></button>
               </div>
             </article>
           ))}
@@ -468,20 +501,20 @@ export default function Library({ revision, onNotice, onQueueChange }: Props) {
       )}
 
       {!loading && !error && total > limit && (
-        <nav className="library-pagination" aria-label="페이지 이동">
-          <button className="button button-ghost" type="button" disabled={offset === 0} onClick={() => setOffset(Math.max(0, offset - limit))}>이전</button>
-          <span>{start.toLocaleString("ko-KR")}–{end.toLocaleString("ko-KR")} / {total.toLocaleString("ko-KR")}</span>
-          <button className="button button-ghost" type="button" disabled={offset + limit >= total} onClick={() => setOffset(offset + limit)}>다음</button>
+        <nav className="library-pagination" aria-label={t("library.pagination")}>
+          <button className="button button-ghost" type="button" disabled={offset === 0} onClick={() => setOffset(Math.max(0, offset - limit))}>{t("common.previous")}</button>
+          <span>{numberFormatter.format(start)}–{numberFormatter.format(end)} / {numberFormatter.format(total)}</span>
+          <button className="button button-ghost" type="button" disabled={offset + limit >= total} onClick={() => setOffset(offset + limit)}>{t("common.next")}</button>
         </nav>
       )}
 
       {pickerTracks && (
         <div className="library-dialog-backdrop" role="presentation" onMouseDown={(event) => { if (event.currentTarget === event.target) setPickerTracks(null); }}>
           <section className="library-dialog" role="dialog" aria-modal="true" aria-labelledby="library-picker-title">
-            <div className="library-dialog-heading"><div><p className="library-eyebrow">저장된 플레이리스트</p><h2 id="library-picker-title">{pickerTracks.length}곡 추가</h2></div><button className="button button-ghost" type="button" onClick={() => setPickerTracks(null)}>닫기</button></div>
-            {playlists.length > 0 && <><label className="library-field"><span>추가할 플레이리스트</span><select className="input" value={pickerTarget} onChange={(event) => setPickerTarget(event.target.value)} autoFocus>{playlists.map((playlist) => <option key={playlist.id} value={playlist.id}>{playlist.name}</option>)}</select></label><button className="button button-primary library-dialog-submit" type="button" disabled={actionBusy || !pickerTarget} onClick={addToPlaylist}>선택한 목록에 추가</button></>}
-            <div className="library-dialog-divider"><span>또는 새로 만들기</span></div>
-            <form className="library-create-inline" onSubmit={(event) => { event.preventDefault(); void createPlaylistWithTracks(); }}><label className="library-field"><span>새 플레이리스트 이름</span><input className="input" value={newPlaylistName} onChange={(event) => setNewPlaylistName(event.target.value)} maxLength={120} autoFocus={playlists.length === 0} /></label><button className="button button-ghost" type="submit" disabled={actionBusy || !newPlaylistName.trim()}>만들고 추가</button></form>
+            <div className="library-dialog-heading"><div><p className="library-eyebrow">{t("library.savedPlaylists")}</p><h2 id="library-picker-title">{t(pickerTracks.length === 1 ? "library.addOneTrack" : "library.addManyTracks", { count: numberFormatter.format(pickerTracks.length) })}</h2></div><button className="button button-ghost" type="button" onClick={() => setPickerTracks(null)}>{t("common.close")}</button></div>
+            {playlists.length > 0 && <><label className="library-field"><span>{t("library.playlistToAdd")}</span><select className="input" value={pickerTarget} onChange={(event) => setPickerTarget(event.target.value)} autoFocus>{playlists.map((playlist) => <option key={playlist.id} value={playlist.id}>{playlist.name}</option>)}</select></label><button className="button button-primary library-dialog-submit" type="button" disabled={actionBusy || !pickerTarget} onClick={addToPlaylist}>{t("library.addToSelected")}</button></>}
+            <div className="library-dialog-divider"><span>{t("library.orCreate")}</span></div>
+            <form className="library-create-inline" onSubmit={(event) => { event.preventDefault(); void createPlaylistWithTracks(); }}><label className="library-field"><span>{t("library.newPlaylistName")}</span><input className="input" value={newPlaylistName} onChange={(event) => setNewPlaylistName(event.target.value)} maxLength={120} autoFocus={playlists.length === 0} /></label><button className="button button-ghost" type="submit" disabled={actionBusy || !newPlaylistName.trim()}>{t("library.createAndAdd")}</button></form>
             {pickerError && <p className="error-text" role="alert">{pickerError}</p>}
           </section>
         </div>

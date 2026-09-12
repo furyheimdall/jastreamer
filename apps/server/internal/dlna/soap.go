@@ -84,6 +84,12 @@ func (manager *Manager) executeSOAP(ctx context.Context, call soapCall) ([]byte,
 	}
 	request.Header.Set("Content-Type", `text/xml; charset="utf-8"`)
 	request.Header.Set("SOAPAction", `"`+call.service+`#`+call.action+`"`)
+	if replayableSOAPQuery(call.action) {
+		// net/http only retries a failed reused connection when a request is
+		// replayable. A nil value marks this read-only POST as idempotent
+		// without sending the implementation header to the renderer.
+		request.Header["Idempotency-Key"] = nil
+	}
 	response, err := manager.soapClientFor(call.candidate.source.Addr(), call.candidate.network).Do(request)
 	if err != nil {
 		return nil, classifyActionError(ctx, call.action, err)
@@ -153,6 +159,15 @@ func validateSOAPResponse(data []byte, service, action string) (int, bool, error
 	return 0, false, nil
 }
 
+func replayableSOAPQuery(action string) bool {
+	switch action {
+	case "GetProtocolInfo", "GetTransportInfo", "GetPositionInfo", "GetMediaInfo":
+		return true
+	default:
+		return false
+	}
+}
+
 func classifyActionError(ctx context.Context, action string, err error) error {
 	if errors.Is(ctx.Err(), context.DeadlineExceeded) || errors.Is(err, context.DeadlineExceeded) {
 		return output.NewActionError(output.ErrorTimeout, action, 0, ErrTimeout)
@@ -164,7 +179,7 @@ func classifyActionError(ctx context.Context, action string, err error) error {
 	if errors.As(err, &networkError) && networkError.Timeout() {
 		return output.NewActionError(output.ErrorTimeout, action, 0, ErrTimeout)
 	}
-	return output.NewActionError(output.ErrorTransport, action, 0, ErrUnavailable)
+	return output.NewActionError(output.ErrorTransport, action, 0, err)
 }
 
 func didlMetadata(resource output.Resource) (string, error) {

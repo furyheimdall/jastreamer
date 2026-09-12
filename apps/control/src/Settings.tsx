@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import { api, ApiError } from "./api";
+import { useI18n, type Language, type MessageKey } from "./i18n";
 import type { ConfigDocument, ConfigRoot, ScanJob, ServerConfig } from "./types";
 
 interface SettingsProps {
@@ -9,8 +10,8 @@ interface SettingsProps {
   onSignedOut: () => void;
 }
 
-function requestMessage(error: unknown): string {
-  return error instanceof ApiError ? error.message : "요청을 완료하지 못했습니다.";
+function requestMessage(error: unknown, t: (key: MessageKey) => string): string {
+  return error instanceof ApiError ? error.message : t("settings.requestFailed");
 }
 
 function listText(items: string[]): string {
@@ -30,15 +31,9 @@ function newRootID(): string {
   return `root-${Array.from(random, (value) => value.toString(16).padStart(2, "0")).join("")}`;
 }
 
-const scanStatus: Record<ScanJob["status"], string> = {
-  queued: "대기 중",
-  running: "스캔 중",
-  complete: "완료",
-  failed: "실패",
-  cancelled: "취소됨",
-};
 
 export default function Settings({ configRevision, libraryRevision, onNotice, onSignedOut }: SettingsProps) {
+  const { language, locale, t, setLanguage } = useI18n();
   const [document, setDocument] = useState<ConfigDocument | null>(null);
   const [draft, setDraft] = useState<ServerConfig | null>(null);
   const [scans, setScans] = useState<ScanJob[]>([]);
@@ -54,6 +49,7 @@ export default function Settings({ configRevision, libraryRevision, onNotice, on
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [passwordBusy, setPasswordBusy] = useState(false);
+  const [languagePersistFailed, setLanguagePersistFailed] = useState(false);
   const configDirtyRef = useRef(false);
   configDirtyRef.current = Boolean(
     document
@@ -75,20 +71,20 @@ export default function Settings({ configRevision, libraryRevision, onNotice, on
       setError("");
       setRemoteConfigPending(false);
     } catch (requestError) {
-      setError(requestMessage(requestError));
+      setError(requestMessage(requestError, t));
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [t]);
 
   const loadScans = useCallback(async () => {
     try {
       const result = await api<{ items: ScanJob[] }>("/library/scans");
       setScans(result.items ?? []);
     } catch (requestError) {
-      setError(requestMessage(requestError));
+      setError(requestMessage(requestError, t));
     }
-  }, []);
+  }, [t]);
 
   useEffect(() => {
     if (configDirtyRef.current) {
@@ -128,16 +124,12 @@ export default function Settings({ configRevision, libraryRevision, onNotice, on
       setRestartRequired(Boolean(next.restart_required));
       setError("");
       setRemoteConfigPending(false);
-      onNotice(
-        next.restart_required
-          ? "설정을 저장했습니다. 서버 이름과 접속 설정 등의 적용에는 서버 재시작이 필요합니다."
-          : "설정을 저장했습니다.",
-      );
+      onNotice(t(next.restart_required ? "settings.savedRestart" : "settings.saved"));
     } catch (requestError) {
       const conflict = requestError instanceof ApiError && requestError.status === 409;
       const message = conflict
-        ? "설정이 다른 곳에서 변경되었습니다. 최신 설정을 다시 불러왔습니다."
-        : requestMessage(requestError);
+        ? t("settings.conflict")
+        : requestMessage(requestError, t);
       setError(message);
       onNotice(message, true);
       if (conflict) await loadConfig();
@@ -182,9 +174,9 @@ export default function Settings({ configRevision, libraryRevision, onNotice, on
         body: JSON.stringify({}),
       });
       setScans((current) => [job, ...current.filter((item) => item.id !== job.id)]);
-      onNotice("음악 보관함 스캔을 시작했습니다.");
+      onNotice(t("settings.scan.started"));
     } catch (requestError) {
-      onNotice(requestMessage(requestError), true);
+      onNotice(requestMessage(requestError, t), true);
     } finally {
       setScanBusy("");
     }
@@ -195,9 +187,9 @@ export default function Settings({ configRevision, libraryRevision, onNotice, on
     try {
       await api<void>(`/library/scans/${encodeURIComponent(id)}`, { method: "DELETE" });
       await loadScans();
-      onNotice("스캔 취소를 요청했습니다.");
+      onNotice(t("settings.scan.cancelRequested"));
     } catch (requestError) {
-      onNotice(requestMessage(requestError), true);
+      onNotice(requestMessage(requestError, t), true);
     } finally {
       setScanBusy("");
     }
@@ -206,7 +198,7 @@ export default function Settings({ configRevision, libraryRevision, onNotice, on
   async function changePassword(event: FormEvent) {
     event.preventDefault();
     if (newPassword !== confirmPassword) {
-      onNotice("새 비밀번호가 서로 일치하지 않습니다.", true);
+      onNotice(t("settings.account.passwordMismatch"), true);
       return;
     }
     setPasswordBusy(true);
@@ -223,23 +215,62 @@ export default function Settings({ configRevision, libraryRevision, onNotice, on
       setConfirmPassword("");
       onSignedOut();
     } catch (requestError) {
-      onNotice(requestMessage(requestError), true);
+      onNotice(requestMessage(requestError, t), true);
     } finally {
       setPasswordBusy(false);
     }
   }
 
+  const settingsHeader = (
+    <header className="page-heading">
+      <p className="eyebrow">{t("settings.eyebrow")}</p>
+      <h1 id="settings-heading">{t("settings.title")}</h1>
+      <p className="muted">{t("settings.description")}</p>
+    </header>
+  );
+  const languageSettings = (
+    <section className="settings-card" aria-labelledby="language-heading">
+      <h2 id="language-heading">{t("settings.language.title")}</h2>
+      <p className="muted" id="language-description">{t("settings.language.description")}</p>
+      <label className="field-label" htmlFor="language-select">{t("settings.language.label")}</label>
+      <select
+        className="input"
+        id="language-select"
+        value={language}
+        aria-describedby={languagePersistFailed ? "language-description language-warning" : "language-description"}
+        onChange={(event) => {
+          const persisted = setLanguage(event.target.value as Language);
+          setLanguagePersistFailed(!persisted);
+        }}
+      >
+        <option value="en">{t("settings.language.english")}</option>
+        <option value="ko">{t("settings.language.korean")}</option>
+      </select>
+      {languagePersistFailed && (
+        <p className="error-text" id="language-warning" role="status">{t("settings.language.persistWarning")}</p>
+      )}
+    </section>
+  );
+
   if (loading && !draft) {
-    return <div className="loading-block" aria-live="polite">설정을 불러오는 중…</div>;
+    return (
+      <section className="content-section settings-page" aria-labelledby="settings-heading">
+        {settingsHeader}
+        {languageSettings}
+        <div className="loading-block" aria-live="polite">{t("settings.loading")}</div>
+      </section>
+    );
   }
 
   if (!draft) {
     return (
-      <section className="content-section">
+      <section className="content-section settings-page" aria-labelledby="settings-heading">
+        {settingsHeader}
+        {languageSettings}
         <div className="inline-error" role="alert">
-          <span>{error || "설정을 불러오지 못했습니다."}</span>
+          <span>{error || t("settings.loadFailed")}</span>
           <button className="button button-ghost" type="button" onClick={() => void loadConfig()}>
-            다시 시도
+            {t("settings.retry")}
           </button>
         </div>
       </section>
@@ -248,45 +279,42 @@ export default function Settings({ configRevision, libraryRevision, onNotice, on
 
   return (
     <section className="content-section settings-page" aria-labelledby="settings-heading">
-      <header className="page-heading">
-        <p className="eyebrow">서버 관리</p>
-        <h1 id="settings-heading">설정</h1>
-        <p className="muted">음악 위치와 접속 방식을 이 서버에 안전하게 저장합니다.</p>
-      </header>
+      {settingsHeader}
+      {languageSettings}
 
       {error && <p className="error-text" role="alert">{error}</p>}
       {remoteConfigPending && (
         <div className="inline-error" role="alert">
-          <span>다른 곳에서 설정을 변경했습니다. 편집 중인 내용은 아직 유지하고 있습니다.</span>
+          <span>{t("settings.remoteChanged")}</span>
           <button className="button button-ghost" type="button" onClick={() => void loadConfig()}>
-            최신 설정 불러오기
+            {t("settings.loadLatest")}
           </button>
         </div>
       )}
       {restartRequired && (
         <div className="restart-banner" role="status">
-          저장된 서버 이름과 접속 설정 등을 적용하려면 jastreamer 서버를 재시작하세요.
+          {t("settings.restartRequired")}
         </div>
       )}
 
       <form className="settings-form" onSubmit={(event) => void saveConfig(event)}>
         <section className="settings-card">
-          <h2>서버 이름</h2>
-          <label className="field-label" htmlFor="server-name">데스크톱 앱에 표시할 이름</label>
+          <h2>{t("settings.serverName.title")}</h2>
+          <label className="field-label" htmlFor="server-name">{t("settings.serverName.label")}</label>
           <input
             className="input"
             id="server-name"
             value={draft.server_name ?? ""}
             maxLength={64}
-            placeholder="비워 두면 서버의 호스트 이름을 사용합니다"
+            placeholder={t("settings.serverName.placeholder")}
             onChange={(event) => updateDraft((config) => ({ ...config, server_name: event.target.value }))}
           />
-          <p className="field-help">같은 네트워크에서 서버를 찾을 때 표시합니다. 변경 후 서버 재시작이 필요합니다.</p>
+          <p className="field-help">{t("settings.serverName.help")}</p>
         </section>
 
         <section className="settings-card">
-          <h2>서버 저장소</h2>
-          <label className="field-label" htmlFor="data-directory">데이터 디렉터리</label>
+          <h2>{t("settings.storage.title")}</h2>
+          <label className="field-label" htmlFor="data-directory">{t("settings.storage.dataDirectory")}</label>
           <input
             className="input"
             id="data-directory"
@@ -294,14 +322,14 @@ export default function Settings({ configRevision, libraryRevision, onNotice, on
             required
             onChange={(event) => updateDraft((config) => ({ ...config, data_dir: event.target.value }))}
           />
-          <p className="field-help">데이터베이스와 아트워크 캐시 위치입니다. 변경 후 재시작이 필요할 수 있습니다.</p>
+          <p className="field-help">{t("settings.storage.help")}</p>
         </section>
 
         <section className="settings-card protocol-settings">
           <div className="settings-card-heading">
             <div>
               <h2>HTTP</h2>
-              <p className="muted">신뢰하는 사설 네트워크에서 접속합니다.</p>
+              <p className="muted">{t("settings.protocol.privateNetwork")}</p>
             </div>
             <label className="switch-label">
               <input
@@ -312,10 +340,10 @@ export default function Settings({ configRevision, libraryRevision, onNotice, on
                   http: { ...config.http, enabled: event.target.checked },
                 }))}
               />
-              사용
+              {t("settings.protocol.enabled")}
             </label>
           </div>
-          <label className="field-label" htmlFor="http-address">수신 주소</label>
+          <label className="field-label" htmlFor="http-address">{t("settings.protocol.listenAddress")}</label>
           <input
             className="input"
             id="http-address"
@@ -334,7 +362,7 @@ export default function Settings({ configRevision, libraryRevision, onNotice, on
           <div className="settings-card-heading">
             <div>
               <h2>HTTPS</h2>
-              <p className="muted">서버에서 읽을 수 있는 PEM 인증서가 필요합니다.</p>
+              <p className="muted">{t("settings.https.description")}</p>
             </div>
             <label className="switch-label">
               <input
@@ -345,12 +373,12 @@ export default function Settings({ configRevision, libraryRevision, onNotice, on
                   https: { ...config.https, enabled: event.target.checked },
                 }))}
               />
-              사용
+              {t("settings.protocol.enabled")}
             </label>
           </div>
           <div className="field-grid">
             <label>
-              <span className="field-label">수신 주소</span>
+              <span className="field-label">{t("settings.protocol.listenAddress")}</span>
               <input
                 className="input"
                 value={draft.https.address}
@@ -364,7 +392,7 @@ export default function Settings({ configRevision, libraryRevision, onNotice, on
               />
             </label>
             <label>
-              <span className="field-label">인증서 파일</span>
+              <span className="field-label">{t("settings.https.certificate")}</span>
               <input
                 className="input"
                 value={draft.https.certificate_file}
@@ -378,7 +406,7 @@ export default function Settings({ configRevision, libraryRevision, onNotice, on
               />
             </label>
             <label>
-              <span className="field-label">개인 키 파일</span>
+              <span className="field-label">{t("settings.https.privateKey")}</span>
               <input
                 className="input"
                 value={draft.https.private_key_file}
@@ -397,29 +425,29 @@ export default function Settings({ configRevision, libraryRevision, onNotice, on
         <section className="settings-card roots-settings">
           <div className="settings-card-heading">
             <div>
-              <h2>음악 폴더</h2>
-              <p className="muted">서버에 마운트된 절대 경로만 지정하세요.</p>
+              <h2>{t("settings.roots.title")}</h2>
+              <p className="muted">{t("settings.roots.description")}</p>
             </div>
-            <button className="button button-ghost" type="button" onClick={addRoot}>폴더 추가</button>
+            <button className="button button-ghost" type="button" onClick={addRoot}>{t("settings.roots.add")}</button>
           </div>
           {draft.library_roots.length === 0 ? (
-            <p className="empty-inline">등록된 음악 폴더가 없습니다.</p>
+            <p className="empty-inline">{t("settings.roots.empty")}</p>
           ) : (
             <div className="root-list">
               {draft.library_roots.map((root, index) => (
                 <div className="root-row" key={root.id}>
                   <label>
-                    <span className="field-label">표시 이름</span>
+                    <span className="field-label">{t("settings.roots.name")}</span>
                     <input
                       className="input"
                       value={root.name}
                       required
-                      placeholder="거실 음악"
+                      placeholder={t("settings.roots.namePlaceholder")}
                       onChange={(event) => changeRoot(index, "name", event.target.value)}
                     />
                   </label>
                   <label>
-                    <span className="field-label">서버 경로</span>
+                    <span className="field-label">{t("settings.roots.path")}</span>
                     <input
                       className="input"
                       value={root.path}
@@ -431,10 +459,10 @@ export default function Settings({ configRevision, libraryRevision, onNotice, on
                   <button
                     className="button button-ghost danger-button"
                     type="button"
-                    aria-label={`${root.name || "음악 폴더"} 삭제`}
+                    aria-label={t("settings.roots.removeLabel", { name: root.name || t("settings.roots.fallbackName") })}
                     onClick={() => removeRoot(index)}
                   >
-                    삭제
+                    {t("settings.roots.remove")}
                   </button>
                 </div>
               ))}
@@ -443,15 +471,15 @@ export default function Settings({ configRevision, libraryRevision, onNotice, on
         </section>
 
         <section className="settings-card">
-          <h2>네트워크 검색</h2>
+          <h2>{t("settings.network.title")}</h2>
           <div className="field-grid">
             <label>
-              <span className="field-label">네트워크 인터페이스</span>
+              <span className="field-label">{t("settings.network.interfaces")}</span>
               <textarea
                 className="input"
                 rows={3}
                 value={interfacesText}
-                placeholder="비워 두면 자동 선택"
+                placeholder={t("settings.network.interfacesPlaceholder")}
                 onChange={(event) => {
                   setInterfacesText(event.target.value);
                   updateDraft((config) => ({
@@ -462,12 +490,12 @@ export default function Settings({ configRevision, libraryRevision, onNotice, on
               />
             </label>
             <label>
-              <span className="field-label">허용 CIDR</span>
+              <span className="field-label">{t("settings.network.cidrs")}</span>
               <textarea
                 className="input"
                 rows={3}
                 value={cidrsText}
-                placeholder="비워 두면 사설/루프백 네트워크만 허용"
+                placeholder={t("settings.network.cidrsPlaceholder")}
                 onChange={(event) => {
                   setCidrsText(event.target.value);
                   updateDraft((config) => ({
@@ -478,7 +506,7 @@ export default function Settings({ configRevision, libraryRevision, onNotice, on
               />
             </label>
             <label>
-              <span className="field-label">기기 검색 간격(초)</span>
+              <span className="field-label">{t("settings.network.discoveryInterval")}</span>
               <input
                 className="input"
                 type="number"
@@ -491,7 +519,7 @@ export default function Settings({ configRevision, libraryRevision, onNotice, on
               />
             </label>
             <label>
-              <span className="field-label">재생 상태 확인 간격(초)</span>
+              <span className="field-label">{t("settings.network.pollInterval")}</span>
               <input
                 className="input"
                 type="number"
@@ -509,8 +537,8 @@ export default function Settings({ configRevision, libraryRevision, onNotice, on
         <section className="settings-card protocol-settings">
           <div className="settings-card-heading">
             <div>
-              <h2>AirPlay 출력</h2>
-              <p className="muted">AirPlay 기기로 음악과 아트워크를 전송합니다.</p>
+              <h2>{t("settings.airplay.title")}</h2>
+              <p className="muted">{t("settings.airplay.description")}</p>
             </div>
             <label className="switch-label">
               <input
@@ -521,10 +549,10 @@ export default function Settings({ configRevision, libraryRevision, onNotice, on
                   airplay: { ...config.airplay, enabled: event.target.checked },
                 }))}
               />
-              사용
+              {t("settings.protocol.enabled")}
             </label>
           </div>
-          <label className="field-label" htmlFor="airplay-helper-path">AirPlay helper 경로</label>
+          <label className="field-label" htmlFor="airplay-helper-path">{t("settings.airplay.helperPath")}</label>
           <input
             className="input"
             id="airplay-helper-path"
@@ -537,18 +565,18 @@ export default function Settings({ configRevision, libraryRevision, onNotice, on
               airplay: { ...config.airplay, helper_path: event.target.value },
             }))}
           />
-          <p className="field-help">서버에서 실행할 수 있는 AirPlay helper 파일의 절대 경로입니다. 변경 후 재시작이 필요합니다.</p>
+          <p className="field-help">{t("settings.airplay.help")}</p>
         </section>
 
         <section className="settings-card">
-          <h2>미디어 전송</h2>
+          <h2>{t("settings.media.title")}</h2>
           <div className="field-grid">
             <label>
-              <span className="field-label">기기에서 접근할 기본 URL</span>
+              <span className="field-label">{t("settings.media.baseUrl")}</span>
               <input
                 className="input"
                 value={draft.media.base_url}
-                placeholder="비워 두면 네트워크에 맞게 자동 선택"
+                placeholder={t("settings.media.baseUrlPlaceholder")}
                 onChange={(event) => updateDraft((config) => ({
                   ...config,
                   media: { ...config.media, base_url: event.target.value },
@@ -556,7 +584,7 @@ export default function Settings({ configRevision, libraryRevision, onNotice, on
               />
             </label>
             <label>
-              <span className="field-label">FFmpeg 경로</span>
+              <span className="field-label">{t("settings.media.ffmpegPath")}</span>
               <input
                 className="input"
                 value={draft.media.ffmpeg_path}
@@ -577,7 +605,7 @@ export default function Settings({ configRevision, libraryRevision, onNotice, on
                 media: { ...config.media, transcode: event.target.checked },
               }))}
             />
-            기기가 원본 형식을 지원하지 않을 때 변환 허용
+            {t("settings.media.transcode")}
           </label>
         </section>
 
@@ -593,10 +621,10 @@ export default function Settings({ configRevision, libraryRevision, onNotice, on
               setError("");
             }}
           >
-            변경 취소
+            {t("settings.discard")}
           </button>
           <button className="button button-primary" type="submit" disabled={saving}>
-            {saving ? "저장 중…" : "설정 저장"}
+            {saving ? t("settings.saving") : t("settings.save")}
           </button>
         </div>
       </form>
@@ -604,8 +632,8 @@ export default function Settings({ configRevision, libraryRevision, onNotice, on
       <section className="settings-card scan-settings" aria-labelledby="scan-heading">
         <div className="settings-card-heading">
           <div>
-            <h2 id="scan-heading">보관함 스캔</h2>
-            <p className="muted">추가·변경·누락된 음악을 확인합니다.</p>
+            <h2 id="scan-heading">{t("settings.scan.title")}</h2>
+            <p className="muted">{t("settings.scan.description")}</p>
           </div>
           <button
             className="button button-primary"
@@ -613,11 +641,11 @@ export default function Settings({ configRevision, libraryRevision, onNotice, on
             disabled={Boolean(scanBusy) || scans.some((scan) => scan.status === "queued" || scan.status === "running")}
             onClick={() => void startScan()}
           >
-            {scanBusy === "new" ? "시작 중…" : "지금 스캔"}
+            {t(scanBusy === "new" ? "settings.scan.starting" : "settings.scan.start")}
           </button>
         </div>
         {scans.length === 0 ? (
-          <p className="empty-inline">아직 스캔 기록이 없습니다.</p>
+          <p className="empty-inline">{t("settings.scan.empty")}</p>
         ) : (
           <ul className="scan-list">
             {scans.map((scan) => {
@@ -625,9 +653,16 @@ export default function Settings({ configRevision, libraryRevision, onNotice, on
               return (
                 <li key={scan.id}>
                   <div className="scan-summary">
-                    <strong>{scanStatus[scan.status]}</strong>
-                    <span>처리 {scan.processed.toLocaleString()} / 발견 {scan.discovered.toLocaleString()}</span>
-                    <span>추가 {scan.added.toLocaleString()} · 갱신 {scan.updated.toLocaleString()} · 누락 {scan.unavailable.toLocaleString()}</span>
+                    <strong>{t(`settings.scan.status.${scan.status}`)}</strong>
+                    <span>{t("settings.scan.progress", {
+                      processed: scan.processed.toLocaleString(locale),
+                      discovered: scan.discovered.toLocaleString(locale),
+                    })}</span>
+                    <span>{t("settings.scan.changes", {
+                      added: scan.added.toLocaleString(locale),
+                      updated: scan.updated.toLocaleString(locale),
+                      unavailable: scan.unavailable.toLocaleString(locale),
+                    })}</span>
                     {scan.error && <span className="error-text">{scan.error}</span>}
                   </div>
                   {active && (
@@ -637,7 +672,7 @@ export default function Settings({ configRevision, libraryRevision, onNotice, on
                       disabled={scanBusy === scan.id}
                       onClick={() => void cancelScan(scan.id)}
                     >
-                      취소
+                      {t("settings.scan.cancel")}
                     </button>
                   )}
                 </li>
@@ -648,11 +683,11 @@ export default function Settings({ configRevision, libraryRevision, onNotice, on
       </section>
 
       <section className="settings-card account-settings" aria-labelledby="password-heading">
-        <h2 id="password-heading">비밀번호 변경</h2>
-        <p className="muted">변경이 끝나면 모든 기기에서 로그아웃됩니다.</p>
+        <h2 id="password-heading">{t("settings.account.title")}</h2>
+        <p className="muted">{t("settings.account.description")}</p>
         <form className="password-form" onSubmit={(event) => void changePassword(event)}>
           <label>
-            <span className="field-label">현재 비밀번호</span>
+            <span className="field-label">{t("settings.account.currentPassword")}</span>
             <input
               className="input"
               type="password"
@@ -663,7 +698,7 @@ export default function Settings({ configRevision, libraryRevision, onNotice, on
             />
           </label>
           <label>
-            <span className="field-label">새 비밀번호</span>
+            <span className="field-label">{t("settings.account.newPassword")}</span>
             <input
               className="input"
               type="password"
@@ -675,7 +710,7 @@ export default function Settings({ configRevision, libraryRevision, onNotice, on
             />
           </label>
           <label>
-            <span className="field-label">새 비밀번호 확인</span>
+            <span className="field-label">{t("settings.account.confirmPassword")}</span>
             <input
               className="input"
               type="password"
@@ -687,7 +722,7 @@ export default function Settings({ configRevision, libraryRevision, onNotice, on
             />
           </label>
           <button className="button button-primary" type="submit" disabled={passwordBusy}>
-            {passwordBusy ? "변경 중…" : "비밀번호 변경"}
+            {passwordBusy ? t("settings.account.changing") : t("settings.account.change")}
           </button>
         </form>
       </section>

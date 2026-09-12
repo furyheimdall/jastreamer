@@ -1,4 +1,5 @@
 import { normalizeEndpoint, normalizeServerId } from "./security.mjs";
+import { t } from "./i18n.mjs";
 
 const MAX_RESPONSE_BYTES = 32 * 1024;
 const MAX_NAME_LENGTH = 128;
@@ -7,10 +8,12 @@ const DISPLAY_CONTROL_PATTERN = /[\u0000-\u001f\u007f]/;
 
 
 export class ProbeError extends Error {
-  constructor(code, message, cause) {
-    super(message, cause ? { cause } : undefined);
+  constructor(code, messageKey, cause, params = {}) {
+    super(t(messageKey, params), cause ? { cause } : undefined);
     this.name = "ProbeError";
     this.code = code;
+    this.messageKey = messageKey;
+    this.params = params;
   }
 }
 
@@ -26,7 +29,7 @@ async function readBoundedBody(response) {
       if (done) break;
       size += value.byteLength;
       if (size > MAX_RESPONSE_BYTES) {
-        throw new ProbeError("response_too_large", "서버 응답이 허용 크기를 초과했습니다.");
+        throw new ProbeError("response_too_large", "probe.responseTooLarge");
       }
       chunks.push(value);
     }
@@ -38,8 +41,8 @@ async function readBoundedBody(response) {
 }
 
 function classifyFetchFailure(error, timedOut, externallyAborted) {
-  if (timedOut) return new ProbeError("timeout", "서버 응답 시간이 초과되었습니다.", error);
-  if (externallyAborted) return new ProbeError("cancelled", "서버 확인이 취소되었습니다.", error);
+  if (timedOut) return new ProbeError("timeout", "probe.timeout", error);
+  if (externallyAborted) return new ProbeError("cancelled", "probe.cancelled", error);
 
   const causeCode = String(error?.cause?.code ?? error?.code ?? "").toUpperCase();
   const message = String(error?.cause?.message ?? error?.message ?? "").toUpperCase();
@@ -55,26 +58,26 @@ function classifyFetchFailure(error, timedOut, externallyAborted) {
   ) {
     return new ProbeError(
       "tls",
-      "HTTPS 인증서를 확인할 수 없습니다. 인증서와 서버 이름을 확인해 주세요.",
+      "probe.tls",
       error,
     );
   }
-  return new ProbeError("unreachable", "서버에 연결할 수 없습니다.", error);
+  return new ProbeError("unreachable", "probe.unreachable", error);
 }
 
 function validateMetadata(value) {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
-    throw new ProbeError("invalid_metadata", "서버 확인 응답 형식이 올바르지 않습니다.");
+    throw new ProbeError("invalid_metadata", "probe.invalidObject");
   }
   if (value.product !== "jastreamer" || value.protocol !== 1) {
-    throw new ProbeError("incompatible_server", "호환되는 JASTREAMER 서버가 아닙니다.");
+    throw new ProbeError("incompatible_server", "probe.incompatible");
   }
 
   let id;
   try {
     id = normalizeServerId(value.id);
   } catch (error) {
-    throw new ProbeError("invalid_metadata", "서버 ID가 올바르지 않습니다.", error);
+    throw new ProbeError("invalid_metadata", "probe.invalidId", error);
   }
 
   const name = typeof value.name === "string" ? value.name.trim() : "";
@@ -87,7 +90,7 @@ function validateMetadata(value) {
     version.length > MAX_VERSION_LENGTH ||
     DISPLAY_CONTROL_PATTERN.test(version)
   ) {
-    throw new ProbeError("invalid_metadata", "서버 이름 또는 버전 정보가 올바르지 않습니다.");
+    throw new ProbeError("invalid_metadata", "probe.invalidInfo");
   }
 
   return { id, name, version };
@@ -127,15 +130,15 @@ export async function probeEndpoint(
     });
 
     if (response.status >= 300 && response.status < 400) {
-      throw new ProbeError("redirect", "서버 확인 요청이 다른 주소로 이동되었습니다.");
+      throw new ProbeError("redirect", "probe.redirect");
     }
     if (!response.ok) {
-      throw new ProbeError("http_status", `서버 확인 요청이 HTTP ${response.status}로 실패했습니다.`);
+      throw new ProbeError("http_status", "probe.httpStatus", null, { status: response.status });
     }
 
     const contentType = response.headers.get("content-type")?.toLowerCase() ?? "";
     if (contentType && !contentType.includes("application/json")) {
-      throw new ProbeError("invalid_metadata", "서버 확인 응답이 JSON이 아닙니다.");
+      throw new ProbeError("invalid_metadata", "probe.notJson");
     }
 
     const rawBody = await readBoundedBody(response);
@@ -143,14 +146,14 @@ export async function probeEndpoint(
     try {
       parsed = JSON.parse(rawBody);
     } catch (error) {
-      throw new ProbeError("invalid_metadata", "서버 확인 응답의 JSON이 올바르지 않습니다.", error);
+      throw new ProbeError("invalid_metadata", "probe.invalidJson", error);
     }
 
     const metadata = validateMetadata(parsed);
     if (requiredId && metadata.id !== requiredId) {
       throw new ProbeError(
         "identity_mismatch",
-        "저장된 서버와 현재 주소의 서버 ID가 다릅니다. 자격 증명을 공유하지 않습니다.",
+        "probe.identityMismatch",
       );
     }
     return { ...metadata, origin };
@@ -165,6 +168,6 @@ export async function probeEndpoint(
 }
 
 export function probeErrorMessage(error) {
-  if (error instanceof ProbeError) return error.message;
-  return "서버를 확인하는 중 알 수 없는 오류가 발생했습니다.";
+  if (error instanceof ProbeError) return t(error.messageKey, error.params);
+  return t("probe.unknown");
 }

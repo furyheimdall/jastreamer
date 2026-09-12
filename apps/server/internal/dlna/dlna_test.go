@@ -1,10 +1,13 @@
 package dlna
 
 import (
+	"bufio"
 	"context"
 	"errors"
+	"fmt"
 	"github.com/jastreamer/jastreamer-server/internal/output"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/netip"
@@ -123,6 +126,116 @@ func TestDecodeSafeXMLRejectsEntitiesAndOversize(t *testing.T) {
 	if err := decodeSafeXML(oversize, &target); !errors.Is(err, ErrInvalidResponse) {
 		t.Fatalf("oversized document error = %v", err)
 	}
+}
+
+func TestSOAPOnlyRetriesReadQueriesAfterStaleConnection(t *testing.T) {
+	const service = "urn:schemas-upnp-org:service:AVTransport:1"
+	tests := []struct {
+		name         string
+		action       string
+		wantSuccess  bool
+		wantAccepted int32
+	}{
+		{name: "read query", action: "GetPositionInfo", wantSuccess: true, wantAccepted: 2},
+		{name: "command", action: "Stop", wantAccepted: 1},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			client, endpoint, accepted := staleSOAPEndpoint(t, service)
+			manager := fixtureManager(client)
+			candidate := fixtureAdvertisement(endpoint, "uuid:stale-soap-fixture", "1")
+
+			if _, err := manager.executeSOAP(context.Background(), soapCall{
+				candidate: candidate, url: endpoint, service: service, action: "GetTransportInfo",
+			}); err != nil {
+				t.Fatalf("warm-up query failed: %v", err)
+			}
+			_, err := manager.executeSOAP(context.Background(), soapCall{
+				candidate: candidate, url: endpoint, service: service, action: test.action,
+			})
+			if test.wantSuccess {
+				if err != nil {
+					t.Fatalf("%s was not retried on a fresh connection: %v", test.action, err)
+				}
+			} else {
+				var actionErr *output.ActionError
+				if !errors.As(err, &actionErr) || actionErr.Kind != output.ErrorTransport {
+					t.Fatalf("%s error = %v, want transport ActionError", test.action, err)
+				}
+				if cause := errors.Unwrap(actionErr); cause == nil || errors.Is(cause, ErrUnavailable) {
+					t.Fatalf("%s discarded transport cause: %v", test.action, cause)
+				}
+			}
+			if got := accepted.Load(); got != test.wantAccepted {
+				t.Fatalf("%s accepted connections = %d, want %d", test.action, got, test.wantAccepted)
+			}
+		})
+	}
+}
+
+func staleSOAPEndpoint(t *testing.T, service string) (*http.Client, string, *atomic.Int32) {
+	t.Helper()
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	transport := &http.Transport{}
+	client := &http.Client{Transport: transport}
+	accepted := new(atomic.Int32)
+	t.Cleanup(func() {
+		transport.CloseIdleConnections()
+		_ = listener.Close()
+	})
+	go func() {
+		for {
+			connection, acceptErr := listener.Accept()
+			if acceptErr != nil {
+				return
+			}
+			number := accepted.Add(1)
+			func() {
+				defer connection.Close()
+				reader := bufio.NewReader(connection)
+				action, requestErr := readSOAPAction(reader)
+				if requestErr != nil {
+					return
+				}
+				if writeSOAPResponse(connection, service, action) != nil || number != 1 {
+					return
+				}
+				// Consume the next request on the reused connection, then close
+				// without a response like a stale renderer connection.
+				_, _ = readSOAPAction(reader)
+			}()
+			if number >= 2 {
+				return
+			}
+		}
+	}()
+	return client, "http://" + listener.Addr().String(), accepted
+}
+
+func readSOAPAction(reader *bufio.Reader) (string, error) {
+	request, err := http.ReadRequest(reader)
+	if err != nil {
+		return "", err
+	}
+	defer request.Body.Close()
+	if _, err := io.Copy(io.Discard, request.Body); err != nil {
+		return "", err
+	}
+	header := strings.Trim(request.Header.Get("SOAPAction"), `"`)
+	index := strings.LastIndexByte(header, '#')
+	if index < 0 || index == len(header)-1 {
+		return "", errors.New("missing SOAP action")
+	}
+	return header[index+1:], nil
+}
+
+func writeSOAPResponse(writer io.Writer, service, action string) error {
+	body := soapResponse(service, action)
+	_, err := fmt.Fprintf(writer, "HTTP/1.1 200 OK\r\nContent-Type: text/xml\r\nContent-Length: %d\r\n\r\n%s", len(body), body)
+	return err
 }
 
 func TestStopRequiresValidMatchingSOAPResponse(t *testing.T) {

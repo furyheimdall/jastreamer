@@ -1,4 +1,5 @@
 import type { PlayerState, QueueState } from "./types";
+import { t } from "./i18n";
 
 const API_PREFIX = "/api/v1";
 
@@ -23,7 +24,7 @@ interface ErrorEnvelope {
 
 export async function api<T>(path: string, options: RequestInit = {}): Promise<T> {
   if (!path.startsWith("/") || path.startsWith("//")) {
-    throw new Error("API 경로는 /로 시작해야 합니다.");
+    throw new Error(t("api.invalidPath"));
   }
 
   const headers = new Headers(options.headers);
@@ -40,7 +41,7 @@ export async function api<T>(path: string, options: RequestInit = {}): Promise<T
     });
   } catch (error) {
     if (error instanceof DOMException && error.name === "AbortError") throw error;
-    throw new ApiError(0, "NETWORK_ERROR", "서버에 연결할 수 없습니다.");
+    throw new ApiError(0, "NETWORK_ERROR", t("api.offline"));
   }
 
   if (!response.ok) {
@@ -53,7 +54,7 @@ export async function api<T>(path: string, options: RequestInit = {}): Promise<T
     const error = new ApiError(
       response.status,
       envelope?.error?.code ?? "REQUEST_FAILED",
-      envelope?.error?.message ?? "요청을 완료하지 못했습니다.",
+      envelope?.error?.message ?? t("common.requestFailed"),
     );
     if (response.status === 401) {
       window.dispatchEvent(new Event("jastreamer:auth-required"));
@@ -69,7 +70,7 @@ export async function api<T>(path: string, options: RequestInit = {}): Promise<T
   try {
     return JSON.parse(body) as T;
   } catch {
-    throw new ApiError(response.status, "INVALID_RESPONSE", "서버 응답을 읽을 수 없습니다.");
+    throw new ApiError(response.status, "INVALID_RESPONSE", t("api.invalidResponse"));
   }
 }
 
@@ -83,7 +84,7 @@ async function waitUntilStopped(): Promise<void> {
     }
     await new Promise<void>((resolve) => window.setTimeout(resolve, 300));
   }
-  throw new ApiError(409, "PLAYER_BUSY", "재생기가 멈출 때까지 기다리지 못했습니다.");
+  throw new ApiError(409, "PLAYER_BUSY", t("api.stopTimeout"));
 }
 
 export async function playTracks(trackIDs: string[]): Promise<void> {

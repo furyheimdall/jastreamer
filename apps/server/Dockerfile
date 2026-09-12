@@ -38,6 +38,7 @@ FROM --platform=$BUILDPLATFORM node:22.20.0-alpine3.22@sha256:dbcedd8aeab47fbc0f
 WORKDIR /src/apps/control
 COPY apps/control/package.json apps/control/package-lock.json ./
 RUN npm ci
+COPY assets/ /src/assets/
 COPY apps/control/ ./
 RUN npm run build
 

@@ -5,7 +5,7 @@ import "./base.css";
 import "./library.css";
 
 const root = document.getElementById("root");
-if (!root) throw new Error("앱을 표시할 요소를 찾지 못했습니다.");
+if (!root) throw new Error("Application root element was not found.");
 
 createRoot(root).render(
   <StrictMode>

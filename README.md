@@ -1,73 +1,48 @@
 # jastreamer
 
-jastreamer 0.2.0 is a self-hosted music server for a private LAN. One Go process indexes administrator-approved local music, stores a durable queue and playlists in SQLite, serves an embedded React Web application, and plays through one selected network output. Generic UPnP/DLNA is always available; AirPlay sending is an optional Linux feature. A portable Windows desktop shell is also optional.
+<img src="assets/jastreamer.svg" width="80" height="80" alt="jastreamer logo" />
 
-## Architecture and protocols
+jastreamer 0.2.0 is a self-hosted music server for a trusted private LAN. A single Linux Server indexes administrator-approved local music, serves the Web interface, keeps the queue and playlists in SQLite, and sends audio to one selected network output. UPnP/DLNA is built in; AirPlay sending is available on the supported Linux container platforms.
 
-- **Server:** Go, SQLite, embedded React/TypeScript Web UI, same-origin JSON API and server-sent events.
-- **UPnP/DLNA outputs:** SSDP discovery, SOAP AVTransport control, and renderer-bound HTTP media/artwork URLs. Original compatible audio is streamed; optional FFmpeg transcoding targets L16.
-- **AirPlay outputs:** Linux amd64/arm64 only, using the packaged FFmpeg 8.1.2 decoder and pyatv 0.18.0 RAOP sender. It is independent of UPnP discovery.
-- **Windows desktop:** an Electron x64 connection shell which discovers Servers with `_jastreamer._tcp.local`, verifies `/api/v1/discovery`, and then displays the Server-hosted Web UI. It is not a second player or server.
+English is the default interface language, and Korean is also available. The navigation label is always **Settings** in both languages; choose **Language / 언어** inside that page.
 
-Server discovery and output discovery are separate. Discovering a Server or output never connects to it or starts playback automatically.
+- [English user guide](INSTRUCTION.md)
+- [한국어 README](README.ko.md)
+- [한국어 사용자 안내서](INSTRUCTION.ko.md)
 
-## Capabilities
+## What it does
 
-- FLAC, MP3, WAV, Ogg/Vorbis, Opus, and M4A library scanning without modifying source music
-- track, album, artist, genre, and folder browsing; search and embedded artwork
-- on-demand track information from library info buttons and player artwork, including embedded text tags and verified audio properties
-- saved playlists and one global, duplicate-preserving durable queue
-- explicit Play, Pause, Stop, Previous, Next, and Seek when the selected output supports them
-- stopped-only output selection and AirPlay PIN/password authorization
-- deduplicated AirPlay discovery, advertised AirTunes RSA/AES with ALAC framing, and UTF-8-correct metadata
-- dismissible full-text error dialogs, including delayed playback failures
-- first-account setup, password login, HttpOnly sessions, password change and local recovery
-- private-LAN HTTP by default, or built-in HTTPS with an operator-provided PEM certificate and key
+- Scans FLAC, MP3, WAV/WAVE, Ogg/Vorbis, Opus, and M4A files without modifying the source library
+- Browses tracks, albums, artists, genres, and folders, with search and embedded artwork
+- Shows stored text tags and verified audio/file information on demand
+- Maintains playlists and one server-wide, duplicate-preserving queue
+- Uses predictable artwork actions: footer artwork opens Queue; Library `(i)` and Queue artwork open track information; Queue artwork reveals a large `(i)` on hover, and only the explicit triangular Play button starts that entry
+- Provides explicit Play, Pause, Stop, Previous, Next, and Seek controls when the selected output supports them
+- Discovers UPnP/DLNA and AirPlay outputs on the LAN
+- Supports AirPlay PIN/password authorization when required by the receiver
+- Provides first-account setup, password login/change/recovery, and durable sessions
+- Uses private-LAN HTTP by default, with optional built-in HTTPS using an operator-provided PEM certificate and key
 
-## Prerequisites
+The optional Windows 10/11 x64 portable desktop is a connection shell. It finds a jastreamer Server or accepts its HTTP(S) address and displays the Server-hosted Web interface. It is not a Windows server and does not play audio locally.
 
-Running jastreamer requires a private LAN between the Server, browser, and output; writable configuration and application-data directories; and read-only access to the music library. Multicast must be allowed for automatic discovery.
+## Deployment model
 
-Building from source uses Go 1.25.0, Node.js 22.20.0, and npm. Container packaging additionally needs Docker Buildx. The optional desktop package targets Windows 10/11 x64.
+The supported Server package is a Linux container for `amd64` or `arm64`, including the Web interface, an audio-only FFmpeg 8.1.2 executable, and the pyatv 0.18.0 AirPlay sender. Synology Container Manager is supported through the supplied Compose definition. Version 0.2 distribution is private: use only a verified artifact supplied to you or an exact digest from an approved private registry. There is no public image or public download promised by this repository.
 
-## Source layout
+Keep three storage areas separate:
 
-- `apps/server` — Server, database, library, output protocols, API, and embedded-Web boundary
-- `apps/control` — shared React Web application
-- `apps/desktop` — optional portable Windows Electron shell
-- `contracts/http-api` — HTTP API machine contract
-- `deploy/docker/server` — Synology Compose definition
-- `packaging/server` — container recipe inputs, notices, and private artifact scripts
-- `tooling/qa` — browser integration checks
+- **config:** writable `server.json` and optional HTTPS PEM files
+- **data:** writable SQLite database, artwork cache, and AirPlay state
+- **music:** the existing library, mounted read-only
 
-## Quick start from source
+Preserve config and data across container replacement. Never recursively change ownership or permissions on the music library for jastreamer, and never expose the Server directly to the public Internet.
 
-```sh
-make build
-apps/server/dist/jastreamer-server --init-config "$PWD/server.json"
-```
+See the [English user guide](INSTRUCTION.md) for artifact import, Docker and Synology setup, the optional Windows client, first use, language selection, upgrades, and troubleshooting.
 
-Edit `server.json`: choose a writable absolute `data_dir` and add absolute `library_roots`. Then validate and start it:
+## Compatibility scope
 
-```sh
-apps/server/dist/jastreamer-server --check-config "$PWD/server.json"
-apps/server/dist/jastreamer-server --config "$PWD/server.json"
-```
-
-Open `http://<server-LAN-address>:8080/` and create the initial account. HTTP does not encrypt credentials, cookies, metadata, commands, or media; use the built-in HTTPS listener unless every part of the LAN path is trusted. Never expose either listener directly to the public Internet.
-
-Container and Synology deployment, the exact configuration schema, AirPlay setup, desktop packaging, upgrades, API routes, and operational checks are documented in [INSTRUCTION.md](INSTRUCTION.md).
-
-## Development and verification
-
-```sh
-make verify
-make browser-smoke
-make desktop-verify
-```
-
-See [INSTRUCTION.md](INSTRUCTION.md) for prerequisites, exact command effects, private package commands, and the limits of automated verification.
+Automatic discovery depends on multicast and on the Server, client, and output having suitable LAN routes. Output capabilities vary by device: a receiver may omit Pause or Seek, reject a format, or require authorization. The repaired AirPlay path has bounded protocol and integration coverage; that is not universal receiver certification, long-term hardware qualification, or a promise about listening quality on every device. Confirm discovery, authorization, controls, queue advance, and audible playback on the equipment you intend to use.
 
 ## License
 
-jastreamer is licensed under [Apache License 2.0](LICENSE). Packaged third-party components retain their own licenses; see `packaging/server/THIRD-PARTY-NOTICES.txt`. In particular, the AirPlay sender uses pyatv 0.18.0 under MIT, and the separate audio-only FFmpeg 8.1.2 executable is LGPL-2.1-or-later.
+jastreamer is licensed under the [Apache License 2.0](LICENSE). Packaged third-party components retain their own licenses; see `THIRD-PARTY-NOTICES.txt` in the supplied Server artifact set or `/usr/share/jastreamer/THIRD-PARTY-NOTICES.txt` in the container.
