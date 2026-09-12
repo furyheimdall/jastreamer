@@ -23,7 +23,7 @@ The interface supports English (the default) and Korean.
 - Provides first-account setup, password login/change/recovery, and durable sessions
 - Uses private-LAN HTTP by default, with optional built-in HTTPS using an operator-provided PEM certificate and key
 
-The optional Windows 10/11 x64 portable desktop is a connection shell. It finds a jastreamer Server or accepts its HTTP(S) address and displays the Server-hosted Web interface. It is not a Windows server and does not play audio locally.
+The optional desktop is a connection shell: a Windows 10/11 x64 portable ZIP or Linux amd64 DEB. It finds a jastreamer Server or accepts its HTTP(S) address and displays the Server-hosted Web interface. Neither package is a server or local audio player; Linux arm64 clients can use a browser.
 
 ## Deployment model
 
@@ -37,7 +37,7 @@ Keep three storage areas separate:
 
 Preserve config and data across container replacement. Never recursively change ownership or permissions on the music library for jastreamer, and never expose the Server directly to the public Internet.
 
-See the [English user guide](INSTRUCTION.md) for artifact import, Docker and Synology setup, the optional Windows client, first use, language selection, upgrades, and troubleshooting.
+See the [English user guide](INSTRUCTION.md) for artifact import, Docker and Synology setup, optional desktop clients, first use, language selection, upgrades, and troubleshooting.
 
 ## Agent-assisted setup
 
@@ -159,7 +159,7 @@ affect access, data, or service availability. Explain one stage at a time.
    URL, including scheme and port, as a clickable link. Do not leave an
    example address, localhost, or 0.0.0.0 as the client access URL.
    Tell me to open it from a browser on the same LAN and log in; the
-   optional Windows client can use that same URL.
+   optional desktop client can use that same URL.
    Invite me to check that my music is listed, select my intended output
    while stopped, and explicitly play a track to confirm audible sound.
    Then suggest checking pause/seek if supported and stopping playback.
@@ -177,7 +177,7 @@ The prompt is an installation workflow, not an unattended installer or permissio
 
 ## Updating
 
-Update the Server by replacing its container image, not by reinstalling the application or clearing its data. The Web interface and packaged FFmpeg/AirPlay runtime are updated together; the optional Windows desktop executable has a separate ZIP update.
+Update the Server by replacing its container image, not by reinstalling the application or clearing its data. The Web interface and packaged FFmpeg/AirPlay runtime are updated together; optional desktop executables have separate ZIP or DEB updates.
 
 There is currently no in-app update checker or automatic container updater. Review an available release, download its verified image, then stop playback and the Server, back up persistent state, and replace the image while keeping the same storage paths. After verification, open the existing Server URL and refresh the Web interface; playback does not resume automatically.
 

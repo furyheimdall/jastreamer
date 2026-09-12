@@ -48,8 +48,10 @@ const LANGUAGE_COOKIE_LIFETIME_SECONDS = 365 * 24 * 60 * 60;
 
 const userDataPath = resolveUserDataPath({
   isPackaged: app.isPackaged,
+  platform: process.platform,
   executablePath: app.getPath("exe"),
   appDirectory: APP_DIRECTORY,
+  appDataPath: app.getPath("appData"),
 });
 
 let bootstrapFailed = false;
@@ -60,7 +62,7 @@ try {
   bootstrapFailed = true;
   dialog.showErrorBox(
     t("main.start.title"),
-    t("main.start.portable", { path: userDataPath }),
+    t("main.start.data", { path: userDataPath }),
   );
   app.exit(1);
 }

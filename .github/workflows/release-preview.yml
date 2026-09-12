@@ -1,0 +1,299 @@
+name: Public Preview Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      ci_run_id:
+        description: Successful Server, Web, and Desktop CI run ID from a protected-main push
+        required: true
+        type: string
+      release_tag:
+        description: Public GitHub prerelease tag
+        required: true
+        default: v0.2.0-preview.1
+        type: string
+      image_tag:
+        description: GHCR preview image tag (without a leading v)
+        required: true
+        default: 0.2.0-preview.1
+        type: string
+
+permissions:
+  actions: read
+  contents: write
+  packages: write
+
+concurrency:
+  group: public-preview-release
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Publish exact protected-main CI artifacts
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    environment: public-preview
+    env:
+      GH_TOKEN: ${{ github.token }}
+      RUN_ID: ${{ inputs.ci_run_id }}
+      RELEASE_TAG: ${{ inputs.release_tag }}
+      IMAGE_TAG: ${{ inputs.image_tag }}
+      IMAGE_REPOSITORY: ghcr.io/furyheimdall/jastreamer-server
+    steps:
+      - name: Restrict dispatch origin
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "${GITHUB_REPOSITORY}" = "furyheimdall/jastreamer"
+          test "${GITHUB_REF}" = "refs/heads/main"
+          test "${GITHUB_EVENT_NAME}" = "workflow_dispatch"
+          printf '%s\n' \
+            "METADATA_DIR=${RUNNER_TEMP}/jastreamer-release-metadata" \
+            "ARTIFACT_DIR=${RUNNER_TEMP}/jastreamer-release-artifacts" \
+            "REGISTRY_DIR=${RUNNER_TEMP}/jastreamer-release-registry" \
+            "RELEASE_DIR=${RUNNER_TEMP}/jastreamer-release-assets" >> "${GITHUB_ENV}"
+      - name: Check out the protected release implementation
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Validate fixed preview input grammar
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "${RUN_ID}" != "${GITHUB_RUN_ID}"
+          python3 packaging/server/publish-preview.py validate-identity \
+            --source-revision "${GITHUB_SHA}" \
+            --release-tag "${RELEASE_TAG}" \
+            --image-tag "${IMAGE_TAG}"
+          case "${RUN_ID}" in
+            ''|*[!0-9]*) echo "ci_run_id must be a positive decimal workflow run ID" >&2; exit 64 ;;
+          esac
+          test "${RUN_ID}" -gt 0
+      - name: Retrieve CI run identity, checks, and artifact records
+        id: provenance
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "${METADATA_DIR}"
+          gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${RUN_ID}" > "${METADATA_DIR}/run.json"
+          workflow_id="$(jq -er '.workflow_id | select(type == "number" and . > 0)' "${METADATA_DIR}/run.json")"
+          source_sha="$(jq -er '.head_sha | select(test("^[0-9a-f]{40}$"))' "${METADATA_DIR}/run.json")"
+          gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/${workflow_id}" > "${METADATA_DIR}/workflow.json"
+          gh api "repos/${GITHUB_REPOSITORY}/branches/main" > "${METADATA_DIR}/branch.json"
+          gh api "repos/${GITHUB_REPOSITORY}/compare/${source_sha}...main" > "${METADATA_DIR}/comparison.json"
+          gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${RUN_ID}/jobs?filter=latest&per_page=100" > "${METADATA_DIR}/jobs.json"
+          gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${RUN_ID}/artifacts?per_page=100" > "${METADATA_DIR}/artifacts.json"
+          python3 packaging/server/publish-preview.py validate-run \
+            --run "${METADATA_DIR}/run.json" \
+            --workflow "${METADATA_DIR}/workflow.json" \
+            --branch "${METADATA_DIR}/branch.json" \
+            --comparison "${METADATA_DIR}/comparison.json" \
+            --jobs "${METADATA_DIR}/jobs.json" \
+            --artifacts "${METADATA_DIR}/artifacts.json" \
+            --repository "${GITHUB_REPOSITORY}" \
+            --run-id "${RUN_ID}" \
+            --output "${METADATA_DIR}/run-provenance.json" \
+            --github-output "${GITHUB_OUTPUT}"
+      - name: Revalidate preview inputs against the selected source
+        shell: bash
+        env:
+          SOURCE_SHA: ${{ steps.provenance.outputs.source_sha }}
+        run: |
+          set -euo pipefail
+          python3 packaging/server/publish-preview.py validate-identity \
+            --source-revision "${SOURCE_SHA}" \
+            --release-tag "${RELEASE_TAG}" \
+            --image-tag "${IMAGE_TAG}"
+      - name: Require an unused GitHub release tag
+        shell: bash
+        run: |
+          set -euo pipefail
+          response="$(mktemp)"
+          require_absent() {
+            local url="$1"
+            local status
+            status="$(curl --silent --show-error --output "${response}" --write-out '%{http_code}' \
+              --header "Accept: application/vnd.github+json" \
+              --header "Authorization: Bearer ${GH_TOKEN}" \
+              --header "X-GitHub-Api-Version: 2022-11-28" \
+              "${url}")"
+            if test "${status}" != 404; then
+              echo "Expected an unused release reference, received HTTP ${status} from ${url}" >&2
+              cat "${response}" >&2
+              exit 1
+            fi
+          }
+          require_absent "https://api.github.com/repos/${GITHUB_REPOSITORY}/releases/tags/${RELEASE_TAG}"
+          require_absent "https://api.github.com/repos/${GITHUB_REPOSITORY}/git/ref/tags/${RELEASE_TAG}"
+      - name: Check out the exact successful CI source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.provenance.outputs.source_sha }}
+          persist-credentials: false
+      - name: Download only artifacts from the selected CI run
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 packaging/server/publish-preview.py download-artifacts \
+            --run-provenance "${METADATA_DIR}/run-provenance.json" \
+            --output-dir "${ARTIFACT_DIR}"
+      - name: Verify all downloaded CI artifact identities and bytes
+        shell: bash
+        env:
+          SOURCE_SHA: ${{ steps.provenance.outputs.source_sha }}
+        run: |
+          set -euo pipefail
+          python3 packaging/server/ci_artifact.py verify-server --artifact-dir "${ARTIFACT_DIR}/server-image-amd64" --architecture amd64 --source-revision "${SOURCE_SHA}"
+          python3 packaging/server/ci_artifact.py verify-server --artifact-dir "${ARTIFACT_DIR}/server-image-arm64" --architecture arm64 --source-revision "${SOURCE_SHA}"
+          python3 packaging/server/ci_artifact.py verify-desktop --artifact-dir "${ARTIFACT_DIR}/jastreamer-desktop-windows-x64" --target windows-x64 --source-revision "${SOURCE_SHA}"
+          python3 packaging/server/ci_artifact.py verify-desktop --artifact-dir "${ARTIFACT_DIR}/jastreamer-desktop-linux-amd64" --target linux-amd64 --source-revision "${SOURCE_SHA}"
+      - uses: docker/setup-buildx-action@v3
+      - name: Authenticate to GHCR for publication
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+      - name: Load the exact verified native images
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker image load --input "${ARTIFACT_DIR}/server-image-amd64/server-image-amd64.tar"
+          docker image load --input "${ARTIFACT_DIR}/server-image-arm64/server-image-arm64.tar"
+          test "$(docker image inspect --format '{{.Os}}/{{.Architecture}}' jastreamer-server-ci:amd64)" = linux/amd64
+          test "$(docker image inspect --format '{{.Os}}/{{.Architecture}}' jastreamer-server-ci:arm64)" = linux/arm64
+      - name: Publish or reuse matching immutable architecture references
+        shell: bash
+        env:
+          SOURCE_SHA: ${{ steps.provenance.outputs.source_sha }}
+        run: |
+          set -euo pipefail
+          mkdir -p "${REGISTRY_DIR}"
+          publish_architecture() {
+            local architecture="$1"
+            local reference="${IMAGE_REPOSITORY}:${IMAGE_TAG}-${architecture}"
+            local raw="${REGISTRY_DIR}/${architecture}-raw.json"
+            local error="${REGISTRY_DIR}/${architecture}-lookup-error.txt"
+            if docker buildx imagetools inspect --raw "${reference}" > "${raw}" 2> "${error}"; then
+              python3 packaging/server/publish-preview.py validate-registry-image \
+                --raw "${raw}" \
+                --artifact-dir "${ARTIFACT_DIR}/server-image-${architecture}" \
+                --architecture "${architecture}" \
+                --source-revision "${SOURCE_SHA}" \
+                --output "${REGISTRY_DIR}/${architecture}.json"
+              echo "Reusing existing matching ${reference}; no mutable overwrite was attempted."
+              return
+            fi
+            python3 packaging/server/publish-preview.py require-missing-reference --error "${error}"
+            docker image tag "jastreamer-server-ci:${architecture}" "${reference}"
+            docker image push "${reference}"
+            docker buildx imagetools inspect --raw "${reference}" > "${raw}"
+            python3 packaging/server/publish-preview.py validate-registry-image \
+              --raw "${raw}" \
+              --artifact-dir "${ARTIFACT_DIR}/server-image-${architecture}" \
+              --architecture "${architecture}" \
+              --source-revision "${SOURCE_SHA}" \
+              --output "${REGISTRY_DIR}/${architecture}.json"
+          }
+          publish_architecture amd64
+          publish_architecture arm64
+      - name: Publish or reuse the matching two-architecture preview index
+        shell: bash
+        run: |
+          set -euo pipefail
+          reference="${IMAGE_REPOSITORY}:${IMAGE_TAG}"
+          raw="${REGISTRY_DIR}/index-raw.json"
+          error="${REGISTRY_DIR}/index-lookup-error.txt"
+          if docker buildx imagetools inspect --raw "${reference}" > "${raw}" 2> "${error}"; then
+            python3 packaging/server/publish-preview.py validate-registry-index \
+              --raw "${raw}" \
+              --amd64-raw "${REGISTRY_DIR}/amd64-raw.json" \
+              --arm64-raw "${REGISTRY_DIR}/arm64-raw.json" \
+              --output "${REGISTRY_DIR}/index.json"
+            echo "Reusing existing matching ${reference}; no mutable overwrite was attempted."
+          else
+            python3 packaging/server/publish-preview.py require-missing-reference --error "${error}"
+            amd64_digest="$(jq -er '.manifestDigest | select(test("^sha256:[0-9a-f]{64}$"))' "${REGISTRY_DIR}/amd64.json")"
+            arm64_digest="$(jq -er '.manifestDigest | select(test("^sha256:[0-9a-f]{64}$"))' "${REGISTRY_DIR}/arm64.json")"
+            docker buildx imagetools create \
+              --tag "${reference}" \
+              "${IMAGE_REPOSITORY}@${amd64_digest}" \
+              "${IMAGE_REPOSITORY}@${arm64_digest}"
+            docker buildx imagetools inspect --raw "${reference}" > "${raw}"
+            python3 packaging/server/publish-preview.py validate-registry-index \
+              --raw "${raw}" \
+              --amd64-raw "${REGISTRY_DIR}/amd64-raw.json" \
+              --arm64-raw "${REGISTRY_DIR}/arm64-raw.json" \
+              --output "${REGISTRY_DIR}/index.json"
+          fi
+      - name: Verify anonymous access to both manifests and every image blob
+        shell: bash
+        env:
+          SOURCE_SHA: ${{ steps.provenance.outputs.source_sha }}
+        run: |
+          set -euo pipefail
+          docker logout ghcr.io
+          export DOCKER_CONFIG="$(mktemp -d)"
+          python3 packaging/server/publish-preview.py verify-anonymous-registry \
+            --artifact-root "${ARTIFACT_DIR}" \
+            --source-revision "${SOURCE_SHA}" \
+            --release-tag "${RELEASE_TAG}" \
+            --image-tag "${IMAGE_TAG}" \
+            --output-dir "${REGISTRY_DIR}/anonymous"
+      - name: Stage exact desktop assets, manifests, receipts, and checksums
+        shell: bash
+        env:
+          SOURCE_SHA: ${{ steps.provenance.outputs.source_sha }}
+        run: |
+          set -euo pipefail
+          python3 packaging/server/publish-preview.py stage-release \
+            --artifact-root "${ARTIFACT_DIR}" \
+            --run-provenance "${METADATA_DIR}/run-provenance.json" \
+            --run-id "${RUN_ID}" \
+            --source-revision "${SOURCE_SHA}" \
+            --release-tag "${RELEASE_TAG}" \
+            --image-tag "${IMAGE_TAG}" \
+            --amd64-raw "${REGISTRY_DIR}/amd64-raw.json" \
+            --arm64-raw "${REGISTRY_DIR}/arm64-raw.json" \
+            --index-raw "${REGISTRY_DIR}/index-raw.json" \
+            --output-dir "${RELEASE_DIR}"
+      - name: Publish public GitHub prerelease without changing asset bytes
+        shell: bash
+        env:
+          SOURCE_SHA: ${{ steps.provenance.outputs.source_sha }}
+        run: |
+          set -euo pipefail
+          gh release create "${RELEASE_TAG}" "${RELEASE_DIR}"/* \
+            --repo "${GITHUB_REPOSITORY}" \
+            --target "${SOURCE_SHA}" \
+            --title "jastreamer ${RELEASE_TAG}" \
+            --notes "Public prerelease of jastreamer 0.2.0 from protected-main CI run ${RUN_ID}. Unsigned and not production qualified. Server image: ${IMAGE_REPOSITORY}:${IMAGE_TAG}." \
+            --prerelease \
+            --latest=false
+      - name: Verify public prerelease metadata and anonymously downloaded bytes
+        shell: bash
+        env:
+          SOURCE_SHA: ${{ steps.provenance.outputs.source_sha }}
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error --location \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/releases/tags/${RELEASE_TAG}" \
+            --output "${REGISTRY_DIR}/public-release.json"
+          latest_status="$(curl --silent --show-error --location --output "${REGISTRY_DIR}/latest-release.json" --write-out '%{http_code}' \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/releases/latest")"
+          if test "${latest_status}" = 200; then
+            latest_argument=(--latest-json "${REGISTRY_DIR}/latest-release.json")
+          elif test "${latest_status}" = 404; then
+            latest_argument=()
+          else
+            echo "Unexpected anonymous latest-release response: HTTP ${latest_status}" >&2
+            exit 1
+          fi
+          python3 packaging/server/publish-preview.py verify-public-release \
+            --release-json "${REGISTRY_DIR}/public-release.json" \
+            --staged "${RELEASE_DIR}" \
+            --source-revision "${SOURCE_SHA}" \
+            --release-tag "${RELEASE_TAG}" \
+            --image-tag "${IMAGE_TAG}" \
+            "${latest_argument[@]}"

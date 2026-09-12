@@ -52,7 +52,7 @@ await writeFile(path.join(directory, 'START-HERE.txt'), [
   'The folder must remain writable. No AppData fallback or administrator launch is required.',
   'Saved sessions are not guaranteed to move across Windows accounts or machines; sign in again there.',
   'Closing this app or changing servers does not stop playback on a server.',
-  'This private build is unsigned. No public release or production qualification is implied.',
+  'This build is unsigned and is not production-qualified.',
   '',
 ].join('\r\n'));
 async function* files(dir, prefix = '') {

@@ -2,7 +2,7 @@
 
 [English user guide](INSTRUCTION.md) · [프로젝트 소개](README.ko.md)
 
-jastreamer는 웹 화면을 제공하고 음악을 UPnP/DLNA 또는 AirPlay 출력으로 보내는 Linux 서버 컨테이너 하나로 실행됩니다. 선택 사항인 Windows 앱은 이 서버에 접속만 합니다.
+jastreamer는 Web 화면을 제공하고 음악을 UPnP/DLNA 또는 AirPlay 출력으로 보내는 Linux 서버 컨테이너 하나로 실행됩니다. 선택 사항인 Windows·Linux 데스크톱 앱은 이 서버에 접속만 합니다.
 
 ## 1. 요구 사항과 안전 주의
 
@@ -125,7 +125,9 @@ Synology Container Manager에서는 같은 Compose 파일과 네 환경 변수�
 
 UPnP/AirPlay 기능은 수신기마다 다릅니다. 실제 장비에서 소리와 필요한 제어 기능을 확인하세요.
 
-## 5. 선택 사항인 Windows 무설치 앱
+## 5. 선택 사항인 데스크톱 앱
+
+### Windows x64 무설치 ZIP
 
 Windows 10/11 x64에서 선택한 프리뷰의 미서명 `jastreamer-desktop_0.2.0_windows-x64.zip`을 사용합니다. 릴리즈 체크섬과 비교하세요.
 
@@ -138,6 +140,23 @@ ZIP 전체를 쓰기 가능한 새 로컬 폴더에 풀고 `jastreamer-desktop.e
 서버 검색은 활성 IPv4 네트워크 어댑터마다 5초 간격으로 수행하며 어댑터 변경도 반영합니다. 방화벽이나 멀티캐스트 제한이 있으면 서버 주소를 직접 입력해야 할 수 있습니다.
 
 최근 서버, 언어, 쿠키와 로그인 상태는 EXE 옆 `user-data`에 저장됩니다. 앱을 닫아도 서버 재생은 멈추지 않습니다. 업데이트할 때 완전히 종료하고 기존 폴더를 백업한 뒤 새 ZIP을 새 폴더에 풀고 기존 `user-data`를 새 EXE 옆에 보존하세요. 다른 Windows 계정이나 PC에서는 다시 로그인해야 할 수 있습니다.
+### Linux amd64 DEB
+
+그래픽 환경이 있는 Linux amd64에서 `jastreamer-desktop_0.2.0_linux-amd64.deb`을 사용합니다. 네이티브 설치·sandbox 검증 대상은 Ubuntu 24.04 amd64입니다. arm64 데스크톱 패키지나 Linux 서버 패키지가 아닙니다.
+
+선택한 릴리즈의 체크섬과 DEB를 비교하고, 의존성도 설치하도록 APT를 사용하세요.
+
+```sh
+sha256sum -c jastreamer-desktop_0.2.0_linux-amd64.deb.sha256
+sudo apt install ./jastreamer-desktop_0.2.0_linux-amd64.deb
+```
+
+일반 사용자로 앱 메뉴의 **JASTREAMER**를 열거나 `/usr/lib/jastreamer-desktop/jastreamer-desktop`을 실행하세요. `sudo`로 앱을 실행하거나 `--no-sandbox`를 추가하지 마세요. 서버를 선택하거나 완전한 HTTP(S) URL을 입력하면 되며, 이 클라이언트에 FFmpeg나 오디오 플레이어를 따로 설치할 필요는 없습니다.
+
+설치 파일은 root 소유이며, `chrome-sandbox`는 `root:root`, `4755` 권한으로 설치합니다. 호환되는 AppArmor 시스템에서는 `/usr/lib/jastreamer-desktop/jastreamer-desktop` 실행 파일에 한정된 사용자 네임스페이스 프로필을 설치합니다. AppArmor나 시스템 전체의 사용자 네임스페이스 제한을 끄지 않습니다. 기존 사용자 관리 정책은 보존하며 로컬 추가 규칙은 `/etc/apparmor.d/local/jastreamer-desktop`에 둡니다. 실행이 실패하면 sandbox를 약화하지 말고 오류와 설치 권한을 확인하세요.
+
+최근 서버, 언어, 쿠키와 로그인 상태는 root 소유 설치 폴더가 아닌 `$XDG_CONFIG_HOME/jastreamer-desktop`, 보통 `~/.config/jastreamer-desktop`에 저장됩니다. 새 DEB를 설치하기 전에 완전히 종료하고 이 프로필을 백업하세요. 패키지 버전이 같은 프리뷰를 교체한다면 `sudo apt install --reinstall ./jastreamer-desktop_0.2.0_linux-amd64.deb`을 사용합니다. 롤백용 이전 검증 DEB를 보관하고, 업데이트를 위해 프로필을 삭제하지 마세요.
+
 
 ## 6. 백업과 업데이트
 
@@ -155,7 +174,7 @@ ZIP 전체를 쓰기 가능한 새 로컬 폴더에 풀고 `jastreamer-desktop.e
 6. **서버만 재생성:** 같은 프로젝트에서 `up -d --no-deps jastreamer-server`를 실행합니다. 실제 실행 이미지가 선택한 다이제스트·아키텍처와 일치하는지, 컨테이너 상태와 로그, `/healthz`, 클라이언트 LAN에서 Web 접속을 확인하세요. 컨테이너가 생성됐다는 사실만으로 완료라고 판단하지 마세요.
 7. **접속과 테스트:** 기존에 사용하던 실제 HTTP(S) URL을 포트까지 포함해 안내합니다. 브라우저나 Windows 앱의 Web 화면을 새로고침하고 로그인, 보관함·앨범 아트, 대기열 순서, 플레이리스트, 설정과 출력 검색이 업데이트 전과 같은지 확인하세요. 사용자가 명시적으로 시작하기 전까지 재생은 정지 상태여야 합니다. 원하는 곡을 직접 재생해 소리를 확인하고, 지원되는 일시 정지·탐색을 시험한 뒤 정지하도록 안내하세요. 실패하면 비밀정보 없이 어느 단계에서 어떤 오류가 났는지 알려 달라고 합니다.
 
-서버가 제공하는 Web 화면을 갱신하는 데 Windows 앱 ZIP 교체가 필요한 것은 아닙니다. Windows 실행 파일도 변경된 릴리즈라면 5절의 별도 절차를 따르고 EXE 옆 `user-data`를 보존하세요.
+서버가 제공하는 Web 화면을 갱신하는 데 데스크톱 패키지 교체가 필요한 것은 아닙니다. 앱 실행 파일도 변경된 릴리즈라면 5절의 별도 절차를 따르고, Windows는 EXE 옆 `user-data`, Linux는 사용자별 프로필을 보존하세요.
 
 ### 롤백
 
@@ -215,8 +234,9 @@ Web 화면을 새로고침하고 로그인·보관함·대기열·플레이리�
 오류 문구를 알려 달라는 안내를 포함해.
 에이전트가 확인한 결과와 사용자가 직접 할 청취 검증을 구분하고,
 최종 버전·다이제스트, 백업 위치와 롤백 방법을 정리해줘.
-Windows 앱 ZIP은 별도이므로 그것도 업데이트할 때는 user-data를
-보존해. 서버의 Web 화면만 갱신하려고 Windows 앱을 교체하지 마.
+데스크톱 패키지는 별도이므로 그것도 업데이트할 때는 Windows의
+user-data 또는 Linux의 사용자별 프로필을 보존해.
+서버의 Web 화면만 갱신하려고 데스크톱 앱을 교체하지 마.
 ```
 
 </details>

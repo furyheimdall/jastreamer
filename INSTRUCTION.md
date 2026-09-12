@@ -2,7 +2,7 @@
 
 [한국어 사용자 안내서](INSTRUCTION.ko.md) · [Project overview](README.md)
 
-jastreamer runs one Linux Server container that hosts the Web interface and sends music to UPnP/DLNA or AirPlay outputs. The optional Windows app only connects to that Server.
+jastreamer runs one Linux Server container that hosts the Web interface and sends music to UPnP/DLNA or AirPlay outputs. Optional Windows and Linux desktop clients only connect to that Server.
 
 ## 1. Requirements and safety
 
@@ -125,7 +125,9 @@ An isolated renderer-status query failure does not restart playback or open a po
 
 UPnP/AirPlay capabilities vary by receiver. Confirm audible playback and the controls you need on your equipment.
 
-## 5. Optional Windows portable client
+## 5. Optional desktop clients
+
+### Windows x64 portable ZIP
 
 Use the unsigned `jastreamer-desktop_0.2.0_windows-x64.zip` from the selected preview on Windows 10/11 x64. Compare its hash with the release checksum:
 
@@ -138,6 +140,23 @@ Extract the complete ZIP to a new writable local folder and run `jastreamer-desk
 Server discovery searches each active IPv4 network adapter every five seconds, including when adapters change. Firewall and multicast restrictions can still require entering the Server URL manually.
 
 Recent Servers, language, cookies, and sessions are stored beside the EXE in `user-data`. Closing the app does not stop Server playback. To upgrade, exit completely, back up the old folder, extract the new ZIP to a new folder, and preserve the old `user-data` beside the new EXE. A different Windows account or PC may require login again.
+### Linux amd64 DEB
+
+Use `jastreamer-desktop_0.2.0_linux-amd64.deb` on a graphical Linux amd64 system. The native installation/sandbox qualification target is Ubuntu 24.04 amd64; this is not an arm64 desktop package or a Linux Server package.
+
+Verify the downloaded DEB against the selected release checksum, then install through APT so dependencies are resolved:
+
+```sh
+sha256sum -c jastreamer-desktop_0.2.0_linux-amd64.deb.sha256
+sudo apt install ./jastreamer-desktop_0.2.0_linux-amd64.deb
+```
+
+Launch **JASTREAMER** from the application menu as your ordinary user, or run `/usr/lib/jastreamer-desktop/jastreamer-desktop`. Do not launch it with `sudo` or add `--no-sandbox`. Select a Server or enter its complete HTTP(S) URL; no separate FFmpeg or audio player is needed on this client.
+
+The installer keeps application files root-owned and installs `chrome-sandbox` as `root:root`, mode `4755`. On compatible AppArmor systems it installs an executable-specific user-namespace profile for `/usr/lib/jastreamer-desktop/jastreamer-desktop`. It does not disable AppArmor or the system-wide user-namespace restriction. Unmanaged policy is preserved; local additions belong in `/etc/apparmor.d/local/jastreamer-desktop`. If launch fails, report the error and installed permissions rather than weakening sandbox settings.
+
+Recent Servers, language, cookies, and sessions use `$XDG_CONFIG_HOME/jastreamer-desktop`, normally `~/.config/jastreamer-desktop`, not the root-owned installation directory. Exit completely and back up this profile before installing an updated DEB. If replacing a preview with the same package version, use `sudo apt install --reinstall ./jastreamer-desktop_0.2.0_linux-amd64.deb`. Keep the previous verified DEB for rollback; never remove the profile just to upgrade.
+
 
 ## 6. Backup and upgrade
 
@@ -155,7 +174,7 @@ Use the **existing** Compose project name, project directory, Compose files, and
 6. **Recreate only the Server.** Use the existing project with `up -d --no-deps jastreamer-server`. Confirm the running image matches the intended digest/platform, inspect container state and logs, and verify `/healthz` and the Web page from the client LAN. Do not declare success from container creation alone.
 7. **Open and test.** Give the user the actual, previously used HTTP(S) URL including its port. Refresh the browser or the desktop's hosted Web view. Check login, library/artwork, queue order, playlists, settings, and output discovery against the pre-update state. Playback must remain stopped until the user explicitly starts it. Invite the user to play a chosen track, confirm audible sound, try pause/seek where supported, and stop playback. If a check fails, report which step failed and its error text without secrets.
 
-The Windows desktop does not need a ZIP replacement just to display an updated Server-hosted Web interface. If a release also updates the desktop executable, follow section 5 separately and preserve its adjacent `user-data`.
+The desktop does not need a package replacement just to display an updated Server-hosted Web interface. If a release also updates the desktop executable, follow section 5 separately and preserve the Windows adjacent `user-data` or Linux per-user profile.
 
 ### Rollback
 
@@ -214,8 +233,9 @@ try supported pause/seek, and stop playback. Explain the expected results
 and ask for the failed step and redacted error text if anything is wrong.
 Keep agent-verified checks separate from user-only listening checks.
 Provide the final version/digest, backup location, and rollback instructions.
-The Windows desktop ZIP is separate; preserve user-data if it also needs
-an update. Do not change it just to update the Server-hosted Web interface.
+Desktop packages are separate; preserve Windows user-data or the Linux
+per-user profile if the client also needs an update. Do not replace the
+desktop just to update the Server-hosted Web interface.
 ```
 
 </details>
