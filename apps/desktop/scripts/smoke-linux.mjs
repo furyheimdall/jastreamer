@@ -254,7 +254,7 @@ async function inspectRendererSandbox(origin) {
   assert.equal(noNewPrivileges, 1, "Renderer must have Linux no_new_privs enabled");
   assert.equal(seccomp, 2, "Renderer must run under a seccomp filter");
   assert(seccompFilters >= 1, "Renderer must have at least one seccomp filter");
-  assert(commandLine.includes("--type=renderer"), "Inspected process is not a Chromium renderer");
+  assert(commandLine.includes("--type=renderer"), `Inspected renderer PID ${renderer.pid} has unexpected argv: ${JSON.stringify(commandLine)}`);
   assert(!commandLine.includes("--no-sandbox"), "Renderer was launched with --no-sandbox");
   assert(!commandLine.includes("--disable-setuid-sandbox"), "Renderer disabled the setuid sandbox");
   assert(!commandLine.includes("--disable-seccomp-filter-sandbox"), "Renderer disabled the seccomp sandbox");
