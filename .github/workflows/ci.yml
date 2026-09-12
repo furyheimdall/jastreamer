@@ -14,6 +14,7 @@ concurrency:
 
 jobs:
   validate:
+    name: Validate Server and Web
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -52,7 +53,7 @@ jobs:
             architecture: arm64
             machine: aarch64
     runs-on: ${{ matrix.runner }}
-    timeout-minutes: 45
+    timeout-minutes: 60
     env:
       IMAGE: jastreamer-server-ci:${{ matrix.architecture }}
     steps:
@@ -93,10 +94,31 @@ jobs:
             "${IMAGE}" -B -m unittest discover -s /qa -p test_helper.py
           docker run --rm "${IMAGE}" --version
           docker run --rm "${IMAGE}" --check-config /etc/jastreamer/server.json
+      - name: Export the exact verified native image and receipt
+        shell: bash
+        run: |
+          output="dist/server-image-${{ matrix.architecture }}"
+          mkdir -p "${output}"
+          docker image save --output "${output}/server-image-${{ matrix.architecture }}.tar" "${IMAGE}"
+          python3 packaging/server/ci_artifact.py create-server \
+            --output-dir "${output}" \
+            --architecture "${{ matrix.architecture }}" \
+            --source-revision "${GITHUB_SHA}"
+      - name: Upload exact verified native image
+        uses: actions/upload-artifact@v4
+        with:
+          name: server-image-${{ matrix.architecture }}
+          path: dist/server-image-${{ matrix.architecture }}/
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 30
 
-  desktop:
+  desktop-windows:
+    name: Windows x64 portable desktop
     runs-on: windows-latest
     timeout-minutes: 30
+    env:
+      JASTREAMER_SOURCE_REVISION: ${{ github.sha }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -130,12 +152,101 @@ jobs:
         run: go build -trimpath -o dist/jastreamer-server.exe ./cmd/jastreamer-server
       - name: Exercise packaged Windows app, isolated sessions, and portable relocation
         working-directory: apps/desktop
-        run: node scripts/smoke.mjs ../server/dist/jastreamer-server.exe dist/jastreamer-desktop-win32-x64/jastreamer-desktop.exe
+        run: |
+          for ($iteration = 1; $iteration -le 3; $iteration++) {
+            Write-Host "Consecutive portable relocation smoke $iteration/3"
+            node scripts/smoke.mjs ../server/dist/jastreamer-server.exe dist/jastreamer-desktop-win32-x64/jastreamer-desktop.exe
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
+      - name: Record successful Windows package verification
+        run: >-
+          python packaging/server/ci_artifact.py create-desktop
+          --dist apps/desktop/dist
+          --target windows-x64
+          --source-revision "${{ github.sha }}"
       - uses: actions/upload-artifact@v4
         with:
           name: jastreamer-desktop-windows-x64
           path: |
-            apps/desktop/dist/*.zip
-            apps/desktop/dist/*.sha256
+            apps/desktop/dist/jastreamer-desktop_0.2.0_windows-x64.zip
+            apps/desktop/dist/jastreamer-desktop_0.2.0_windows-x64.zip.sha256
             apps/desktop/dist/manifest.json
+            apps/desktop/dist/verification.json
           if-no-files-found: error
+          compression-level: 0
+          retention-days: 30
+
+  desktop-linux:
+    name: Linux amd64 DEB desktop
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    env:
+      JASTREAMER_SOURCE_REVISION: ${{ github.sha }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Require native amd64 runner and normal user
+        shell: bash
+        run: |
+          test "$(uname -m)" = x86_64
+          test "$(id -u)" -ne 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: apps/server/go.mod
+          cache-dependency-path: apps/server/go.sum
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.20.0
+          cache: npm
+          cache-dependency-path: apps/desktop/package-lock.json
+      - name: Install pinned desktop dependencies
+        working-directory: apps/desktop
+        run: npm ci
+      - name: Verify desktop security and discovery boundaries
+        working-directory: apps/desktop
+        run: npm test
+      - name: Package Linux amd64 DEB desktop
+        working-directory: apps/desktop
+        run: npm run package:linux
+      - name: Verify exact packaged bytes and Linux executable
+        working-directory: apps/desktop
+        run: npm run verify:package
+      - name: Build shared Web for real desktop connection smoke
+        working-directory: apps/control
+        run: npm ci && npm run build
+      - name: Build native Linux Server for isolated desktop smoke
+        working-directory: apps/server
+        env:
+          CGO_ENABLED: "0"
+        run: go build -trimpath -o dist/jastreamer-server ./cmd/jastreamer-server
+      - name: Install the DEB with normal package dependency handling
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes xvfb dbus-x11 "$PWD/apps/desktop/dist/jastreamer-desktop_0.2.0_linux-amd64.deb"
+          test "$(stat --format='%U:%G %a' /usr/lib/jastreamer-desktop/chrome-sandbox)" = "root:root 4755"
+          test -x /usr/lib/jastreamer-desktop/jastreamer-desktop
+      - name: Exercise installed desktop as a normal user with Chromium sandboxing
+        working-directory: apps/desktop
+        shell: bash
+        run: |
+          test "$(id -u)" -ne 0
+          dbus-run-session -- xvfb-run --auto-servernum node scripts/smoke-linux.mjs \
+            ../server/dist/jastreamer-server \
+            /usr/lib/jastreamer-desktop/jastreamer-desktop
+      - name: Record successful Linux package and sandbox verification
+        run: >-
+          python3 packaging/server/ci_artifact.py create-desktop
+          --dist apps/desktop/dist
+          --target linux-amd64
+          --source-revision "${GITHUB_SHA}"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: jastreamer-desktop-linux-amd64
+          path: |
+            apps/desktop/dist/jastreamer-desktop_0.2.0_linux-amd64.deb
+            apps/desktop/dist/jastreamer-desktop_0.2.0_linux-amd64.deb.sha256
+            apps/desktop/dist/manifest.json
+            apps/desktop/dist/verification.json
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 30

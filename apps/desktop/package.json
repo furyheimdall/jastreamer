@@ -2,7 +2,7 @@
   "name": "@jastreamer/desktop",
   "productName": "jastreamer",
   "version": "0.2.0",
-  "description": "Windows desktop connection shell for jastreamer servers",
+  "description": "Windows and Linux desktop connection shell for jastreamer servers",
   "author": "jastreamer contributors",
   "license": "Apache-2.0",
   "private": true,
@@ -12,6 +12,7 @@
     "start": "electron .",
     "test": "node --test",
     "package:win": "node scripts/package.mjs",
+    "package:linux": "node scripts/package-linux.mjs",
     "verify:package": "node scripts/verify-package.mjs"
   },
   "dependencies": {

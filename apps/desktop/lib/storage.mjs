@@ -8,10 +8,17 @@ export const MAX_RECENT_SERVERS = 12;
 const STORE_VERSION = 1;
 const MAX_TIMESTAMP = 8_640_000_000_000_000;
 
-export function resolveUserDataPath({ isPackaged, executablePath, appDirectory }) {
-  return isPackaged
-    ? path.join(path.dirname(executablePath), "user-data")
-    : path.join(appDirectory, ".user-data");
+export function resolveUserDataPath({
+  isPackaged,
+  platform = process.platform,
+  executablePath,
+  appDirectory,
+  appDataPath,
+}) {
+  if (!isPackaged) return path.join(appDirectory, ".user-data");
+  if (platform === "win32") return path.join(path.dirname(executablePath), "user-data");
+  if (!appDataPath) throw new TypeError("appDataPath is required for an installed application");
+  return path.join(appDataPath, "jastreamer-desktop");
 }
 
 export async function ensureWritableDirectory(directory) {
