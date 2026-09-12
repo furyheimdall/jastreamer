@@ -233,12 +233,13 @@ func advertisementFromEntry(entry *zeroconf.ServiceEntry, networks []localNetwor
 	if !selected.IsValid() {
 		return advertisement{}, false
 	}
+	instance := unescapeInstanceName(entry.Instance)
 	properties := parseTXT(entry.Text)
-	identity := receiverIdentity(entry.Instance, entry.HostName, selected, properties)
+	identity := receiverIdentity(instance, entry.HostName, selected, properties)
 	if identity == "" {
 		return advertisement{}, false
 	}
-	name := strings.TrimSpace(unescapeInstanceName(entry.Instance))
+	name := strings.TrimSpace(instance)
 	if strings.EqualFold(strings.TrimSpace(entry.Service), raopService) {
 		if index := strings.IndexByte(name, '@'); index >= 0 && index+1 < len(name) {
 			name = name[index+1:]

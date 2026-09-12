@@ -131,6 +131,12 @@ jastreamer-server --reset-password USER --config /absolute/path/server.json
 
 지원하는 library 확장자와 실제 확인 형식은 FLAC, MP3, WAV/WAVE, Ogg/Vorbis, Opus와 M4A다. symlink는 scan하지 않는다. scan은 원본을 수정하지 않고 metadata와 artwork cache를 data에 쓴다. root를 사용할 수 없거나 scan이 실패·취소되면 정상 완료로 위장하지 않는다.
 
+보관함 곡 행 오른쪽 `(i)` 또는 하단 player의 앨범 커버를 누르면 같은 곡 정보 팝업이 열린다. 제목·아티스트·앨범과 원본의 텍스트 tag, codec, sample rate, channel 수, 유효한 bit depth/bitrate, 재생 길이와 파일 정보를 표시한다. 이때만 원본을 안전하게 열어 읽으므로 기존 library를 다시 scan할 필요가 없으며 queue나 재생 상태는 바뀌지 않는다. 확인할 수 없는 값은 `정보 없음`으로 표시한다. 손실 압축의 bit depth와 검증되지 않은 FLAC/ALAC bitrate는 추정하지 않으며, tag의 그림 payload는 표시하지 않는다.
+
+서버가 제공한 오류는 줄임표 없이 읽을 수 있는 팝업에 표시된다. 긴 내용은 팝업 안에서 스크롤할 수 있고 닫기 버튼이나 Escape로 닫는다. command 접수 뒤 늦게 도착한 재생 오류와 상태 조회 실패도 표시하며, 바뀌지 않은 오류의 반복 조회는 닫은 팝업을 다시 열지 않는다. 하단의 `오류 상세 보기`로 닫은 오류를 다시 열 수 있다.
+
+Server를 업데이트해도 이미 열린 화면의 JavaScript는 자동 교체되지 않는다. browser는 페이지를 새로고침하고, 데스크톱 앱은 상단 `서버 변경`을 누른 뒤 같은 Server에 다시 연결한다. 데스크톱 재연결은 기존 로그인 session을 유지하며 재생 명령을 보내지 않는다.
+
 하나의 Server에는 전역 queue 하나와 선택 output 하나가 있다. queue와 playlist는 중복 track과 순서를 보존한다. output 선택과 AirPlay 인증은 player가 정지했고 command가 진행 중이지 않을 때만 가능하다. queue 변경, Server 재시작, output 발견, 데스크톱 연결은 자동 재생을 일으키지 않는다. 재시작 후 재생은 명시적으로 다시 시작해야 한다.
 
 ## 5. 소스에서 native 실행
@@ -336,7 +342,11 @@ Server는 광고된 `SetAVTransportURI`, `Play`, `Stop`, 상태 조회와 선택
 
 ### AirPlay
 
-AirPlay는 FFmpeg로 원본을 decode하고 pyatv RAOP sender에 signed 16-bit big-endian PCM을 전달한다. wire format은 L16, 44.1 kHz, stereo, 16-bit로 고정된다. `sr`, `ch`, `ss`를 명시적으로 다른 값으로 광고하는 receiver는 지원하지 않는다.
+AirPlay는 FFmpeg로 원본을 decode하고 pyatv RAOP sender에 signed 16-bit big-endian PCM을 전달한다. 오디오는 44.1 kHz, stereo, 16-bit로 고정된다. `sr`, `ch`, `ss`를 명시적으로 다른 값으로 광고하는 receiver는 지원하지 않는다. 기본 L16 경로와 달리 RSA AirPlay 1 receiver가 `cn=1` ALAC도 광고하면 PCM을 무손실 uncompressed ALAC frame으로 구성해 전송한다.
+
+같은 기기의 `_raop`/`_airplay` 광고는 DNS 이름 escape를 해제한 뒤 안정적인 기기 ID로 합친다. 한 기기가 UPnP와 AirPlay를 모두 지원하면 프로토콜별 출력은 별도로 남는다. AirPlay 1 receiver가 `et=1` RSA 방식을 광고하면 임시 AES key를 RSA-OAEP로 교환하고 RTP 오디오를 packet별 AES-CBC로 보낸다. AirPlay 2의 기존 인증·암호화 경로는 바꾸지 않으며 기기 이름별 예외나 자동 재시도는 사용하지 않는다.
+
+제목·앨범·아티스트의 DMAP 길이는 문자 수가 아닌 UTF-8 바이트 수로 기록한다. 이 보정은 AirPlay 1/2 공통으로 적용하며 비ASCII metadata를 삭제하지 않는다. 소프트웨어 수신기에서 metadata 구조, JPEG 보존과 복호화한 ALAC의 원본 PCM 일치는 검증할 수 있지만, 그것만으로 실기기 재부팅 방지나 청취 품질을 보장하지 않는다.
 
 AirPlay receiver가 PIN pairing을 요구하면 player를 먼저 Stop하고 Web의 output 인증 절차를 시작한 뒤 receiver에 표시된 정확한 네 자리 PIN을 2분 안에 입력한다. 별도 AirPlay password를 요구하는 receiver에는 해당 password도 입력한다. 성공한 credentials/password와 jastreamer client identity는 `server.sqlite`에 저장된다. data를 잃으면 다시 인증해야 한다.
 
@@ -359,6 +369,7 @@ pyatv나 특정 AirPlay receiver가 설치된 사실만으로 호환을 가정�
 | `GET/PUT /api/v1/config` | session | revision 기반 설정 읽기/저장 |
 | `GET /api/v1/library/{tracks,albums,artists,genres,folders}` | session | 검색·filter·paging browse |
 | `GET /api/v1/library/tracks/{id}`, `GET /api/v1/artwork/{id}` | session | track와 Web artwork |
+| `GET /api/v1/library/tracks/{id}/info` | session | 원본에서 읽는 곡 정보: `track`, nullable numeric `audio`, 텍스트 `tags` |
 | `GET/POST /api/v1/library/scans`, `DELETE /api/v1/library/scans/{id}` | session | scan 상태·시작·취소 |
 | `GET/POST /api/v1/playlists`, `GET/PUT/DELETE /api/v1/playlists/{id}` | session | revision 기반 playlist 작업 |
 | `GET /api/v1/renderers`, `POST /api/v1/renderers/refresh` | session | UPnP/AirPlay output 목록과 재검색 |

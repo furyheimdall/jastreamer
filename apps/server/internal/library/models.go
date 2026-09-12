@@ -29,6 +29,20 @@ type Track struct {
 	ModifiedAt  string   `json:"modified_at"`
 }
 
+type TrackInfo struct {
+	Track Track               `json:"track"`
+	Audio AudioProperties     `json:"audio"`
+	Tags  map[string][]string `json:"tags"`
+}
+
+type AudioProperties struct {
+	Codec         string `json:"codec"`
+	SampleRate    *int64 `json:"sample_rate"`
+	Channels      *int   `json:"channels"`
+	BitsPerSample *int   `json:"bits_per_sample"`
+	BitRate       *int64 `json:"bit_rate"`
+}
+
 type Album struct {
 	ID         string `json:"id"`
 	Title      string `json:"title"`

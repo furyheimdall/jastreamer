@@ -70,6 +70,7 @@ func New(options Options) http.Handler {
 		mux.HandleFunc("GET /api/v1/library/"+kind, service.require(service.browse(kind)))
 	}
 	mux.HandleFunc("GET /api/v1/library/tracks/{id}", service.require(service.track))
+	mux.HandleFunc("GET /api/v1/library/tracks/{id}/info", service.require(service.trackInfo))
 	mux.HandleFunc("GET /api/v1/artwork/{id}", service.require(service.artwork))
 	mux.HandleFunc("GET /api/v1/library/scans", service.require(service.scans))
 	mux.HandleFunc("POST /api/v1/library/scans", service.require(service.startScan))

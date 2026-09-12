@@ -162,13 +162,41 @@ export default function App() {
   const [view, setView] = useState<View>("library");
   const [online, setOnline] = useState(true);
   const [revisions, setRevisions] = useState<Revisions>(initialRevisions);
-  const [notice, setNotice] = useState<{ message: string; error: boolean } | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [errorNotice, setErrorNotice] = useState<string | null>(null);
   const noticeTimer = useRef<number | null>(null);
+  const errorDialogClose = useRef<HTMLButtonElement | null>(null);
+  const errorDialogPreviousFocus = useRef<HTMLElement | null>(null);
+
+  const dismissNotice = useCallback(() => {
+    if (noticeTimer.current !== null) {
+      window.clearTimeout(noticeTimer.current);
+      noticeTimer.current = null;
+    }
+    setNotice(null);
+  }, []);
+
+  const dismissErrorNotice = useCallback(() => {
+    setErrorNotice(null);
+  }, []);
 
   const showNotice = useCallback((message: string, error = false) => {
-    setNotice({ message, error });
+    if (error) {
+      if (noticeTimer.current !== null) {
+        window.clearTimeout(noticeTimer.current);
+        noticeTimer.current = null;
+      }
+      setNotice(null);
+      setErrorNotice(message);
+      return;
+    }
+
+    setNotice(message);
     if (noticeTimer.current !== null) window.clearTimeout(noticeTimer.current);
-    noticeTimer.current = window.setTimeout(() => setNotice(null), 5000);
+    noticeTimer.current = window.setTimeout(() => {
+      setNotice(null);
+      noticeTimer.current = null;
+    }, 5000);
   }, []);
 
   const refreshAll = useCallback(() => {
@@ -269,6 +297,33 @@ export default function App() {
     };
   }, [refreshAll, session.authenticated]);
 
+  useEffect(() => {
+    if (errorNotice === null) return;
+
+    errorDialogPreviousFocus.current = document.activeElement instanceof HTMLElement
+      ? document.activeElement
+      : null;
+    errorDialogClose.current?.focus();
+
+    function handleDialogKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        dismissErrorNotice();
+      } else if (event.key === "Tab") {
+        event.preventDefault();
+        errorDialogClose.current?.focus();
+      }
+    }
+
+    document.addEventListener("keydown", handleDialogKeyDown);
+    return () => {
+      document.removeEventListener("keydown", handleDialogKeyDown);
+      const previousFocus = errorDialogPreviousFocus.current;
+      errorDialogPreviousFocus.current = null;
+      if (previousFocus?.isConnected) previousFocus.focus();
+    };
+  }, [dismissErrorNotice, errorNotice]);
+
   useEffect(() => () => {
     if (noticeTimer.current !== null) window.clearTimeout(noticeTimer.current);
   }, []);
@@ -284,11 +339,46 @@ export default function App() {
   }
 
   const noticeView = notice ? (
-    <div className={`toast ${notice.error ? "is-error" : ""}`} role={notice.error ? "alert" : "status"}>
-      {notice.message}
-      <button type="button" aria-label="알림 닫기" onClick={() => setNotice(null)}>
+    <div className="toast" role="status">
+      {notice}
+      <button type="button" aria-label="알림 닫기" onClick={dismissNotice}>
         <AppIcon name="close" />
       </button>
+    </div>
+  ) : null;
+
+  const errorDialogView = errorNotice ? (
+    <div
+      className="error-dialog-backdrop"
+      role="presentation"
+      onMouseDown={(event) => {
+        if (event.currentTarget === event.target) dismissErrorNotice();
+      }}
+    >
+      <section
+        className="error-dialog"
+        role="alertdialog"
+        aria-modal="true"
+        aria-labelledby="error-dialog-title"
+        aria-describedby="error-dialog-message"
+      >
+        <div className="error-dialog-heading">
+          <div>
+            <p className="eyebrow">오류</p>
+            <h2 id="error-dialog-title">요청을 완료하지 못했습니다</h2>
+          </div>
+          <button
+            ref={errorDialogClose}
+            className="icon-button error-dialog-close"
+            type="button"
+            aria-label="오류 닫기"
+            onClick={dismissErrorNotice}
+          >
+            <AppIcon name="close" />
+          </button>
+        </div>
+        <p id="error-dialog-message" className="error-dialog-message">{errorNotice}</p>
+      </section>
     </div>
   ) : null;
 
@@ -325,6 +415,7 @@ export default function App() {
           </button>
         </section>
         {noticeView}
+        {errorDialogView}
       </main>
     );
   }
@@ -345,6 +436,7 @@ export default function App() {
           onSetupComplete={() => setSetupRequired(false)}
         />
         {noticeView}
+        {errorDialogView}
       </>
     );
   }
@@ -459,6 +551,7 @@ export default function App() {
       />
 
       {noticeView}
+      {errorDialogView}
     </div>
   );
 }

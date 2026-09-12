@@ -19,11 +19,12 @@ import (
 )
 
 const (
-	processStopTimeout  = 10 * time.Second
-	processStartTimeout = 20 * time.Second
-	maxHelperLine       = 64 << 10
-	maxProcessError     = 16 << 10
-	maxArtworkBytes     = 5 << 20
+	processStopTimeout    = 10 * time.Second
+	processStartTimeout   = 20 * time.Second
+	maxHelperLine         = 64 << 10
+	maxProcessError       = 16 << 10
+	maxRendererErrorRunes = 512
+	maxArtworkBytes       = 5 << 20
 )
 
 type playbackSession struct {
@@ -102,6 +103,7 @@ type senderProcess struct {
 	decoderDone   chan struct{}
 	decoderErr    error
 	decoderOutput *limitedBuffer
+	helperOutput  *limitedBuffer
 	playingOnce   sync.Once
 	terminalOne   sync.Once
 	stopOnce      sync.Once
@@ -345,7 +347,8 @@ func (session *playbackSession) newSenderProcess(positionMS int64) (*senderProce
 		closeFiles(source, pcmReader, pcmWriter, artwork)
 		return nil, fmt.Errorf("create helper status pipe: %w", err)
 	}
-	helper.Stderr = &limitedBuffer{remaining: maxProcessError}
+	helperErrors := &limitedBuffer{buffer: &bytes.Buffer{}, remaining: maxProcessError}
+	helper.Stderr = helperErrors
 	decoderOutput := &limitedBuffer{buffer: &bytes.Buffer{}, remaining: maxProcessError}
 	decoder := exec.Command(session.manager.config.FFmpegPath,
 		"-nostdin", "-hide_banner", "-loglevel", "error", "-xerror", "-i", "/proc/self/fd/3",
@@ -358,7 +361,8 @@ func (session *playbackSession) newSenderProcess(positionMS int64) (*senderProce
 	process := &senderProcess{
 		session: session, baseMS: positionMS, helper: helper, decoder: decoder, stdin: helperInput,
 		playing: make(chan struct{}), terminal: make(chan terminalEvent, 1), done: make(chan struct{}),
-		stopRequested: make(chan struct{}), decoderDone: make(chan struct{}), decoderOutput: decoderOutput,
+		stopRequested: make(chan struct{}), decoderDone: make(chan struct{}),
+		decoderOutput: decoderOutput, helperOutput: helperErrors,
 	}
 	processStart := func() error {
 		if err := helper.Start(); err != nil {
@@ -434,14 +438,23 @@ func (process *senderProcess) waitDecoder() error {
 		}
 		detail := strings.TrimSpace(process.decoderOutput.buffer.String())
 		if detail == "" {
-			return fmt.Errorf("FFmpeg exited: %w", process.decoderErr)
+			return helperFailure{kind: "transport", message: fmt.Sprintf("FFmpeg decoder exited: %v", process.decoderErr)}
 		}
-		return fmt.Errorf("FFmpeg exited: %w: %s", process.decoderErr, detail)
+		return helperFailure{kind: "transport", message: fmt.Sprintf("FFmpeg decoder exited: %v: %s", process.decoderErr, detail)}
 	case <-timer.C:
 		if process.decoder.Process != nil {
 			_ = process.decoder.Process.Kill()
 		}
-		return errors.New("FFmpeg did not exit after closing the PCM stream")
+		return helperFailure{kind: "transport", message: "FFmpeg decoder did not exit after closing the PCM stream"}
+	}
+}
+
+func (process *senderProcess) finishedDecoderError() error {
+	select {
+	case <-process.decoderDone:
+		return process.waitDecoder()
+	default:
+		return nil
 	}
 }
 
@@ -449,10 +462,12 @@ func (process *senderProcess) monitor(reader io.Reader) {
 	defer close(process.done)
 	scanner := bufio.NewScanner(reader)
 	scanner.Buffer(make([]byte, 4096), maxHelperLine)
+	var monitorFailure *helperFailure
 	for scanner.Scan() {
 		var event helperEvent
 		if err := json.Unmarshal(scanner.Bytes(), &event); err != nil || event.Protocol != helperProtocolVersion {
-			process.complete(terminalEvent{err: errors.New("AirPlay helper returned an invalid status message")})
+			failure := helperProcessFailure("protocol", "AirPlay helper returned an invalid status message", process.helperOutput)
+			monitorFailure = &failure
 			process.kill()
 			break
 		}
@@ -462,16 +477,29 @@ func (process *senderProcess) monitor(reader io.Reader) {
 			break
 		}
 	}
+	if err := scanner.Err(); err != nil && monitorFailure == nil {
+		failure := helperProcessFailure("protocol", fmt.Sprintf("read AirPlay helper status: %v", err), process.helperOutput)
+		monitorFailure = &failure
+		process.kill()
+	}
 	waitErr := process.helper.Wait()
+	var decoderErr error
 	if process.decoder.Process != nil {
-		_ = process.decoder.Process.Kill()
-		_ = process.waitDecoder()
+		decoderErr = process.finishedDecoderError()
+		if decoderErr == nil {
+			_ = process.decoder.Process.Kill()
+			_ = process.waitDecoder()
+		}
 	}
 	_ = process.stdin.Close()
-	if waitErr != nil {
-		process.complete(terminalEvent{err: fmt.Errorf("AirPlay helper exited: %w", waitErr)})
+	if monitorFailure != nil {
+		process.complete(terminalEvent{err: *monitorFailure})
+	} else if decoderErr != nil && !process.stopping() {
+		process.complete(terminalEvent{err: decoderErr})
+	} else if waitErr != nil {
+		process.complete(terminalEvent{err: helperProcessFailure("transport", fmt.Sprintf("AirPlay helper exited: %v", waitErr), process.helperOutput)})
 	} else {
-		process.complete(terminalEvent{err: errors.New("AirPlay helper exited without a terminal status")})
+		process.complete(terminalEvent{err: helperProcessFailure("transport", "AirPlay helper exited without a terminal status", process.helperOutput)})
 	}
 }
 
@@ -512,7 +540,11 @@ func (process *senderProcess) handle(event helperEvent) {
 		if event.Kind == "auth" {
 			go process.session.manager.invalidateAuth(process.session.device.device.ID, process.session.device.auth)
 		}
-		process.complete(terminalEvent{event: "error", err: helperFailure{kind: event.Kind, message: event.Message}})
+		failure := error(helperFailure{kind: event.Kind, message: event.Message})
+		if decoderErr := process.finishedDecoderError(); decoderErr != nil && !process.stopping() {
+			failure = decoderErr
+		}
+		process.complete(terminalEvent{event: "error", err: failure})
 	}
 }
 
@@ -545,6 +577,32 @@ func (failure helperFailure) Error() string {
 		return "AirPlay helper failed"
 	}
 	return failure.message
+}
+
+func (failure helperFailure) SafeRendererError() string {
+	message := compactRendererError(failure.message)
+	if message == "" {
+		return ""
+	}
+	return "AirPlay sender detail: " + message
+}
+
+func helperProcessFailure(kind, message string, output *limitedBuffer) helperFailure {
+	if output != nil && output.buffer != nil {
+		if detail := strings.TrimSpace(output.buffer.String()); detail != "" {
+			message += ": " + detail
+		}
+	}
+	return helperFailure{kind: kind, message: compactRendererError(message)}
+}
+
+func compactRendererError(message string) string {
+	message = strings.Join(strings.Fields(message), " ")
+	runes := []rune(message)
+	if len(runes) <= maxRendererErrorRunes {
+		return message
+	}
+	return strings.TrimSpace(string(runes[:maxRendererErrorRunes-3])) + "..."
 }
 
 func actionError(action string, err error) error {
