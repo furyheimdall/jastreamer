@@ -27,7 +27,7 @@ jastreamer 0.2.0은 신뢰하는 사설 LAN에서 사용하는 자체 호스팅 
 
 ## 배포 방식
 
-서버는 `amd64` 또는 `arm64`용 Linux 컨테이너로 배포합니다. 웹 화면, 오디오 전용 FFmpeg 8.1.2 실행 파일과 pyatv 0.18.0 AirPlay 송신 프로그램이 포함됩니다. 제공된 Compose 파일로 Synology Container Manager에 설치할 수 있습니다. 0.2 배포는 비공개입니다. 전달받은 검증된 패키지나 승인된 비공개 레지스트리의 정확한 이미지 다이제스트만 사용하세요. 공개 이미지나 다운로드는 제공하지 않습니다.
+서버는 `amd64` 또는 `arm64`용 Linux 컨테이너로 배포하며, Web 화면, 오디오 전용 FFmpeg 8.1.2와 pyatv 0.18.0 AirPlay 송신 프로그램을 포함합니다. Synology Container Manager에서는 제공된 Compose 파일을 사용합니다. [GitHub Releases](https://github.com/furyheimdall/jastreamer/releases)에 게시된 프리뷰를 선택하고, 해당 릴리즈의 정확한 `ghcr.io/furyheimdall/jastreamer-server@sha256:…` 이미지 주소를 사용하세요. 공개 프리뷰는 레지스트리 로그인이 필요하지 않습니다. 정식 production 검증을 마친 릴리즈는 아니므로 명시된 검증 범위를 확인하고, 다운로드한 파일을 릴리즈 체크섬과 비교하세요. 가변 `latest` 태그는 사용하지 마세요.
 
 저장소 세 종류를 분리하세요.
 
@@ -82,11 +82,14 @@ Web 화면은 Server에 내장되어 있으므로 Linux 컨테이너 하나만 �
    - 서로 분리된 영구 project/config/data 경로, 여유 공간,
      기존 jastreamer 설치·재생 여부, 보존할 계정·대기열·
      플레이리스트·자격 증명과 백업.
-   - 검증된 비공개 이미지 다이제스트 또는 전달받은 패키지 위치,
-     신뢰할 수 있는 체크섬·manifest와 일치하는 소스 리비전.
-     공개 이미지를 가정하지 마. 패키지나 검증 근거가 없으면
-     무엇을 확보해야 하는지 설명하고, 이미지 URL을 지어내거나
-     가변 태그를 사용하거나 임의의 다른 빌드로 대체하지 마.
+   - https://github.com/furyheimdall/jastreamer/releases 의 대상 프리뷰.
+     릴리즈 메타데이터에서 ghcr.io/furyheimdall/jastreamer-server의
+     정확한 다이제스트, 체크섬과 소스 리비전을 확인해.
+     공개 이미지는 레지스트리 비밀번호가 필요 없어. 내가 별도로 전달받은
+     오프라인·비공개 패키지를 선택한 경우에만 그 위치를 물어봐.
+     게시된 패키지나 검증 근거를 확보하지 못하면 무엇이 필요한지
+     설명하고, 이미지 URL·다이제스트를 지어내거나 가변 태그를
+     사용하거나 임의의 다른 빌드로 대체하지 마.
    비밀정보를 대화·생성 파일·Git·로그에 기록하지 말고 기존의
    안전한 인증 수단이나 사용자의 비공개 직접 입력을 사용해.
 

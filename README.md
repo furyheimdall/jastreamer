@@ -27,7 +27,7 @@ The optional Windows 10/11 x64 portable desktop is a connection shell. It finds 
 
 ## Deployment model
 
-The supported Server package is a Linux container for `amd64` or `arm64`, including the Web interface, an audio-only FFmpeg 8.1.2 executable, and the pyatv 0.18.0 AirPlay sender. Synology Container Manager is supported through the supplied Compose definition. Version 0.2 distribution is private: use only a verified artifact supplied to you or an exact digest from an approved private registry. There is no public image or public download promised by this repository.
+The Server package is a Linux container for `amd64` or `arm64`, including the Web interface, an audio-only FFmpeg 8.1.2 executable, and the pyatv 0.18.0 AirPlay sender. Synology Container Manager uses the supplied Compose definition. Select a published preview from [GitHub Releases](https://github.com/furyheimdall/jastreamer/releases) and use its exact `ghcr.io/furyheimdall/jastreamer-server@sha256:…` image reference. Public previews do not require registry login. They are not production-qualified releases; review the stated verification limits and verify downloaded files against the release checksums. Do not use a floating `latest` tag.
 
 Keep three storage areas separate:
 
@@ -80,11 +80,14 @@ affect access, data, or service availability. Explain one stage at a time.
    - Separate persistent project/config/data paths, available disk space,
      and whether jastreamer is already installed or playing. Identify any
      accounts, queue, playlists, credentials, and backups to preserve.
-   - The verified private image digest or supplied artifact location,
-     trusted checksum/manifest, and matching source revision.
-     No public image is promised. If the artifact or its verification
-     evidence is missing, explain what I must obtain; do not invent an
-     image URL, use a floating tag, or silently substitute another build.
+   - The target preview from https://github.com/furyheimdall/jastreamer/releases.
+     Retrieve its exact ghcr.io/furyheimdall/jastreamer-server digest,
+     checksums, and source revision from the release metadata.
+     Public images need no registry password. Ask for an artifact location
+     only if I choose a separately supplied offline/private package.
+     If a published artifact or its verification evidence is unavailable,
+     explain the missing prerequisite; do not invent an image URL or digest,
+     use a floating tag, or silently substitute another build.
    Never collect secrets in chat, generated files, Git, or logs. Use
    existing secure credential handling or let me enter secrets privately.
 

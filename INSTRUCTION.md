@@ -7,25 +7,41 @@ jastreamer runs one Linux Server container that hosts the Web interface and send
 ## 1. Requirements and safety
 
 - Linux `amd64` or `arm64` with Docker Engine and Compose v2, or Synology DSM with Container Manager. `arm/v7` is not supported; DS918+ is `amd64`.
-- A verified private jastreamer 0.2 image digest or supplied release artifact. There is no public image or download.
+- An exact image digest from a published jastreamer 0.2 preview, or a verified separately supplied offline artifact. Preview status and physical-device verification limits still apply.
 - A trusted private LAN between Server, browser/client, and outputs. Automatic discovery needs multicast.
 - Separate config and data directories writable by container UID/GID `10001:10001`.
 - An existing music directory readable by UID 10001 and mounted read-only.
 
 Do not use `chmod 777` or recursively change ownership of the music library. HTTP port 8080 does not encrypt credentials or audio; use built-in HTTPS with your own PEM certificate/key when the LAN path is not fully trusted. Never expose the Server directly to the public Internet.
 
-## 2. Verify the private artifact
+## 2. Obtain and verify a release
 
-For a supplied release directory:
+### Public registry image
+
+Choose a published preview from [GitHub Releases](https://github.com/furyheimdall/jastreamer/releases), read its limitations, and obtain the exact Server image reference from its release notes/manifest. Do not use `/releases/latest` to select previews automatically: a prerelease is not marked as the latest production release.
+
+The registry is `ghcr.io/furyheimdall/jastreamer-server`. Public images can be pulled without a GitHub token. Replace the example digest below with the complete value from the selected release, not a guessed tag:
+
+```sh
+export JASTREAMER_SERVER_IMAGE='ghcr.io/furyheimdall/jastreamer-server@sha256:<digest-from-release>'
+docker pull "$JASTREAMER_SERVER_IMAGE"
+docker image inspect --format '{{.Os}}/{{.Architecture}} {{.Id}}' "$JASTREAMER_SERVER_IMAGE"
+```
+
+The multi-platform image selects `amd64` or `arm64` for the host. Keep the exact digest in the deployment's persistent environment settings; do not install FFmpeg or Python separately on the host. Download desktop files and their checksums only from the same release.
+
+### Supplied offline artifacts
+
+If you were separately given an offline Server bundle, verify its supplied checksum list before import:
 
 ```sh
 cd /path/to/supplied/release
 sha256sum -c SHA256SUMS
 ```
 
-If you received an approved private-registry reference, use its exact digest as `JASTREAMER_SERVER_IMAGE`, for example `registry.example/name@sha256:<verified-digest>`.
+An explicitly approved private registry remains an alternative; use its exact digest and private credential handling. Do not put registry tokens in Compose files, source control, or support logs.
 
-The supplied `.oci` is multi-platform and cannot be passed directly to `docker load`. When an offline Docker TAR is needed, convert only the target architecture on a Linux machine with Skopeo:
+If the supplied bundle contains the multi-platform `.oci`, it cannot be passed directly to `docker load`. When an offline Docker TAR is needed, convert only the target architecture on a Linux machine with Skopeo:
 
 ```sh
 ARCH=amd64  # or arm64
@@ -111,7 +127,7 @@ UPnP/AirPlay capabilities vary by receiver. Confirm audible playback and the con
 
 ## 5. Optional Windows portable client
 
-Use the supplied private, unsigned `jastreamer-desktop_0.2.0_windows-x64.zip` on Windows 10/11 x64. Compare its hash with the supplied `.sha256` value:
+Use the unsigned `jastreamer-desktop_0.2.0_windows-x64.zip` from the selected preview on Windows 10/11 x64. Compare its hash with the release checksum:
 
 ```powershell
 Get-FileHash .\jastreamer-desktop_0.2.0_windows-x64.zip -Algorithm SHA256
@@ -132,7 +148,7 @@ There is currently no in-app update checker or automatic updater. Updating means
 Use the **existing** Compose project name, project directory, Compose files, and environment file for every operation. Do not create a second installation with new default storage paths.
 
 1. **Review the target version.** Read its changes, configuration/database compatibility notes, and any required intermediate versions. Record the current image identity, architecture, service URL, mounts, and persistent settings. Confirm backup space and a rollback plan before modifying anything.
-2. **Download before downtime.** When given an approved registry reference, pull the exact target digest using existing Docker credentials or private interactive authentication. Do not paste tokens into chat or configuration files. A supplied multi-platform image selects the host architecture automatically; confirm `amd64` or `arm64`. For an offline artifact, follow section 2 to verify and import the correct platform. Do not use a floating `latest` tag, invent a registry address, or delete the old image.
+2. **Download before downtime.** Pull the exact target digest from the selected public release; no registry login is required. Use existing Docker credentials or private interactive authentication only for an explicitly chosen private registry. Do not paste tokens into chat or configuration files. The multi-platform image selects the host architecture automatically; confirm `amd64` or `arm64`. For an offline artifact, follow section 2 to verify and import the correct platform. Do not use a floating `latest` tag, invent a registry address, or delete the old image.
 3. **Agree on the interruption.** Stop playback and confirm it is stopped. Stop only `jastreamer-server` in the existing Compose project before backing up its state. Do not stop unrelated services, remove volumes, or use `down -v`.
 4. **Back up consistently.** With the Server stopped, back up the complete config and data directories, the Compose files, and their environment file; record the corresponding old image identity. Confirm the backup can be read and contains the expected files. Protect it as private data because it includes account, session, AirPlay, and possibly TLS credentials. The read-only source music is not application state and must not be overwritten or modified.
 5. **Change the saved image reference.** Set `JASTREAMER_SERVER_IMAGE` in the deployment's persistent settings to the verified target digest or imported local image ID. Preserve all other settings and mounts unless the release explicitly requires a reviewed migration. Do not replace `server.json` with a new-install template. Keep UID/GID `10001:10001`, host networking, read-only rootfs/music, writable config/data, and the other Compose security restrictions. Render the proposed configuration with `docker compose config` and validate the existing configuration with the target image's `--check-config` command before starting it.
@@ -170,8 +186,9 @@ preserve, backup location, validation steps, and rollback plan for approval.
 Keep the existing URL, settings, accounts, library, artwork, queue order,
 playlists, and AirPlay state unless a documented migration is approved.
 Download and verify the full image for this architecture before downtime,
-including its FFmpeg and AirPlay runtime. Use secure registry authentication
-or the documented offline import; never collect secrets in chat or logs.
+including its FFmpeg and AirPlay runtime. Public GHCR images need no login;
+use private authentication only for an explicitly chosen private registry,
+or follow the documented offline import. Never collect secrets in chat or logs.
 
 After approval, confirm playback is stopped and stop only this Server.
 Back up complete config/data and deployment settings with the service
