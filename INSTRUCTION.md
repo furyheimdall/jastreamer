@@ -125,16 +125,83 @@ Recent Servers, language, cookies, and sessions are stored beside the EXE in `us
 
 ## 6. Backup and upgrade
 
-There is no automatic updater.
+There is currently no in-app update checker or automatic updater. Updating means replacing the Server container with a verified image, not running first-account setup again. The image includes the Web interface, FFmpeg, and the AirPlay runtime for its supported architecture. Do not mount the Docker socket into the Server or grant it host-management privileges to make it update itself.
 
-1. Stop playback and confirm the player is stopped.
-2. Run `docker compose -f deploy/docker/server/compose.synology.yaml down`.
-3. With the Server stopped, back up the complete config directory (including PEM files) and data directory.
-4. Verify/import the new private image and update `JASTREAMER_SERVER_IMAGE` to its exact digest or local image ID.
-5. Keep the same config, data, and read-only music paths; review `docker compose ... config`, then run `up -d`.
-6. Check login, library, artwork, queue preservation, output discovery, and actual playback.
+### Update procedure
 
-For rollback, restore the matching previous image **and** its config/data backup. Never delete `/music`, `/srv/music`, `/volume1/music`, or another source library during an update or reset.
+Use the **existing** Compose project name, project directory, Compose files, and environment file for every operation. Do not create a second installation with new default storage paths.
+
+1. **Review the target version.** Read its changes, configuration/database compatibility notes, and any required intermediate versions. Record the current image identity, architecture, service URL, mounts, and persistent settings. Confirm backup space and a rollback plan before modifying anything.
+2. **Download before downtime.** When given an approved registry reference, pull the exact target digest using existing Docker credentials or private interactive authentication. Do not paste tokens into chat or configuration files. A supplied multi-platform image selects the host architecture automatically; confirm `amd64` or `arm64`. For an offline artifact, follow section 2 to verify and import the correct platform. Do not use a floating `latest` tag, invent a registry address, or delete the old image.
+3. **Agree on the interruption.** Stop playback and confirm it is stopped. Stop only `jastreamer-server` in the existing Compose project before backing up its state. Do not stop unrelated services, remove volumes, or use `down -v`.
+4. **Back up consistently.** With the Server stopped, back up the complete config and data directories, the Compose files, and their environment file; record the corresponding old image identity. Confirm the backup can be read and contains the expected files. Protect it as private data because it includes account, session, AirPlay, and possibly TLS credentials. The read-only source music is not application state and must not be overwritten or modified.
+5. **Change the saved image reference.** Set `JASTREAMER_SERVER_IMAGE` in the deployment's persistent settings to the verified target digest or imported local image ID. Preserve all other settings and mounts unless the release explicitly requires a reviewed migration. Do not replace `server.json` with a new-install template. Keep UID/GID `10001:10001`, host networking, read-only rootfs/music, writable config/data, and the other Compose security restrictions. Render the proposed configuration with `docker compose config` and validate the existing configuration with the target image's `--check-config` command before starting it.
+6. **Recreate only the Server.** Use the existing project with `up -d --no-deps jastreamer-server`. Confirm the running image matches the intended digest/platform, inspect container state and logs, and verify `/healthz` and the Web page from the client LAN. Do not declare success from container creation alone.
+7. **Open and test.** Give the user the actual, previously used HTTP(S) URL including its port. Refresh the browser or the desktop's hosted Web view. Check login, library/artwork, queue order, playlists, settings, and output discovery against the pre-update state. Playback must remain stopped until the user explicitly starts it. Invite the user to play a chosen track, confirm audible sound, try pause/seek where supported, and stop playback. If a check fails, report which step failed and its error text without secrets.
+
+The Windows desktop does not need a ZIP replacement just to display an updated Server-hosted Web interface. If a release also updates the desktop executable, follow section 5 separately and preserve its adjacent `user-data`.
+
+### Rollback
+
+If startup or verification fails, stop the new Server, preserve its logs and state, and follow the approved rollback plan. Restore the previous image **together with its matching config/data and deployment settings backup**; changing only the image tag may not work after a database migration. Restoring a backup can discard changes made since that backup, so confirm this impact before restoring it. Recheck the original URL and preserved state without automatically restarting playback. Never delete or change the source music during an update or rollback.
+
+### Agent-assisted update
+
+Copy this prompt into an agent with authorized server access. Start with the current Server URL and how the agent may connect; let it inspect the existing deployment rather than asking you to rewrite configuration files. Passwords and keys must remain in private credential handling, not in the prompt.
+
+<details>
+<summary>Expand and copy the update prompt</summary>
+
+```text
+Help me update my existing jastreamer Server, preserving its data.
+Read the matching repository README and INSTRUCTION.md, especially
+the backup and upgrade procedure. This is an update, not a new install.
+
+Ask for the current Server URL and authorized SSH connection method if
+unknown. Inspect the actual deployment to identify its Compose project,
+files, persistent environment, image/digest, architecture, mounts, config,
+and playback state. Do not assume the installation uses example paths.
+Collect only missing information and ask which released version to use;
+explain the changes and recommend a compatible verified version.
+Do not invent a published image, use latest, or substitute another build.
+
+Show the current and target versions, expected interruption, state to
+preserve, backup location, validation steps, and rollback plan for approval.
+Keep the existing URL, settings, accounts, library, artwork, queue order,
+playlists, and AirPlay state unless a documented migration is approved.
+Download and verify the full image for this architecture before downtime,
+including its FFmpeg and AirPlay runtime. Use secure registry authentication
+or the documented offline import; never collect secrets in chat or logs.
+
+After approval, confirm playback is stopped and stop only this Server.
+Back up complete config/data and deployment settings with the service
+stopped, verify the backup, and retain the old image. Do not copy a running
+SQLite database alone, remove volumes, reset accounts, modify music, change
+its ownership recursively, or weaken container security.
+Update only the required persistent deployment settings, validate Compose
+and the target image's --check-config against the prepared configuration,
+then recreate this service in the same project with the same mounts.
+Write the actual configuration and commands yourself; do not leave
+placeholders or depend on environment exports that disappear with a shell.
+
+Verify the running image, logs, /healthz, client-LAN Web access, and preserved
+state. Do not automatically pair outputs, start playback, or repeatedly
+replace a failing container. If verification fails, preserve evidence and
+use only the approved rollback plan; explain any loss of post-backup data.
+Report blockers rather than claiming success.
+
+Finish with the actual clickable Server URL and say: open this address,
+refresh the Web interface, log in, and check the library, queue, playlists,
+and outputs. Invite me to explicitly play a chosen track, confirm sound,
+try supported pause/seek, and stop playback. Explain the expected results
+and ask for the failed step and redacted error text if anything is wrong.
+Keep agent-verified checks separate from user-only listening checks.
+Provide the final version/digest, backup location, and rollback instructions.
+The Windows desktop ZIP is separate; preserve user-data if it also needs
+an update. Do not change it just to update the Server-hosted Web interface.
+```
+
+</details>
 
 ## 7. Troubleshooting
 
