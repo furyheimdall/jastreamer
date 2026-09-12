@@ -4,11 +4,12 @@
 
 jastreamer 0.2.0 is a self-hosted music server for a trusted private LAN. A single Linux Server indexes administrator-approved local music, serves the Web interface, keeps the queue and playlists in SQLite, and sends audio to one selected network output. UPnP/DLNA is built in; AirPlay sending is available on the supported Linux container platforms.
 
-English is the default interface language, and Korean is also available. The navigation label is always **Settings** in both languages; choose **Language / 언어** inside that page.
+The interface supports English (the default) and Korean.
 
 - [English user guide](INSTRUCTION.md)
 - [한국어 README](README.ko.md)
 - [한국어 사용자 안내서](INSTRUCTION.ko.md)
+- [Copyable agent setup prompt](#agent-assisted-setup)
 
 ## What it does
 
@@ -16,8 +17,7 @@ English is the default interface language, and Korean is also available. The nav
 - Browses tracks, albums, artists, genres, and folders, with search and embedded artwork
 - Shows stored text tags and verified audio/file information on demand
 - Maintains playlists and one server-wide, duplicate-preserving queue
-- Uses predictable artwork actions: footer artwork opens Queue; Library `(i)` and Queue artwork open track information; Queue artwork reveals a large `(i)` on hover, and only the explicit triangular Play button starts that entry
-- Provides explicit Play, Pause, Stop, Previous, Next, and Seek controls when the selected output supports them
+- Controls playback and seeking on compatible network outputs
 - Discovers UPnP/DLNA and AirPlay outputs on the LAN
 - Supports AirPlay PIN/password authorization when required by the receiver
 - Provides first-account setup, password login/change/recovery, and durable sessions
@@ -38,6 +38,104 @@ Keep three storage areas separate:
 Preserve config and data across container replacement. Never recursively change ownership or permissions on the music library for jastreamer, and never expose the Server directly to the public Internet.
 
 See the [English user guide](INSTRUCTION.md) for artifact import, Docker and Synology setup, the optional Windows client, first use, language selection, upgrades, and troubleshooting.
+
+## Agent-assisted setup
+
+Copy the entire prompt below into a coding agent that can read this repository and, with your permission, operate your Linux server or NAS. You do not need to fill in a template first: the agent should ask for missing information and explain unfamiliar choices. If it cannot access the server, it should give you commands to run and inspect their output, not claim to have installed anything.
+
+Do not paste SSH passwords, private keys, registry tokens, or your jastreamer password into the prompt. Use an existing SSH profile/key agent or an interactive credential prompt. Review the proposed paths and service changes before authorizing installation.
+
+<details>
+<summary>Expand and copy the setup prompt</summary>
+
+```text
+Help me install jastreamer Server and its Web Control on my own server.
+Use https://github.com/furyheimdall/jastreamer and read README.md,
+INSTRUCTION.md, deploy/docker/server/compose.synology.yaml, and
+packaging/server/server.json from the revision matching my supplied image.
+The Web interface is embedded in the Server: deploy one Linux container,
+not a separate Web container or a Windows Server.
+Use the complete image, including FFmpeg, pyatv, and its Python runtime for
+the selected architecture; do not deploy only the Go executable or install
+these media dependencies separately on the host.
+
+1. Collect the information needed for this host before making changes.
+   Ask only for details you cannot establish from my answers or authorized
+   read-only inspection. Group related questions and explain safe defaults:
+   - Server/NAS address, an existing SSH profile or SSH user and port,
+     permitted access method, Linux/DSM version, CPU architecture, and
+     whether Docker/Container Manager and Compose are available.
+   - The LAN address browsers and audio outputs can reach; desired HTTP(S)
+     port, port conflicts, and UPnP/DLNA or AirPlay outputs to use.
+     Ask about HTTPS certificate/key file locations if HTTPS is needed;
+     never ask me to paste private key contents.
+   - The existing absolute music-folder path ON THE SERVER, not my PC.
+     Confirm it exists, including any network mount, and that UID/GID
+     10001:10001 can read files and traverse directories.
+   - Separate persistent project/config/data paths, available disk space,
+     and whether jastreamer is already installed or playing. Identify any
+     accounts, queue, playlists, credentials, and backups to preserve.
+   - The verified private image digest or supplied artifact location,
+     trusted checksum/manifest, and matching source revision.
+     No public image is promised. If the artifact or its verification
+     evidence is missing, explain what I must obtain; do not invent an
+     image URL, use a floating tag, or silently substitute another build.
+   Never collect secrets in chat, generated files, Git, or logs. Use
+   existing secure credential handling or let me enter secrets privately.
+
+2. Inspect first and show me a concrete installation plan for approval.
+   State the exact image/architecture, project and backup locations,
+   host-to-container mounts, listener/LAN URL, required permissions and
+   network access, and any downtime. Support Linux amd64 or arm64 only.
+   Resolve real paths and reject overlapping config, data, and music
+   locations, including nesting or symlinks that could expose application
+   state as music. Never create a missing music path as an empty fallback.
+   Ask separately before installing Docker, changing host permissions or
+   firewall rules, or stopping/replacing an existing service.
+
+3. After approval, prepare persistent Compose configuration using the
+   repository template and actual values for JASTREAMER_SERVER_IMAGE,
+   JASTREAMER_CONFIG_PATH, JASTREAMER_DATA_PATH, and JASTREAMER_MUSIC_PATH.
+   Verify the artifact and target architecture before import; follow the
+   guide for OCI conversion rather than passing an OCI archive to docker
+   load directly. Record the verified registry digest or local image ID.
+   Keep UID/GID 10001:10001, read-only rootfs, dropped capabilities,
+   no-new-privileges, tmpfs, and host networking. Do not add bridge port
+   mappings; configure the listener in server.json and check port conflicts.
+   Keep config writable at /etc/jastreamer, data writable at
+   /var/lib/jastreamer, and existing music read-only at /music. Keep the
+   configured data_dir and library_roots consistent with these container
+   paths and retain the packaged FFmpeg/AirPlay helper paths.
+   Never use privileged mode, chmod 777, or recursive chown/chmod on music.
+   Do not disable the firewall or expose the service to the public Internet.
+   Never overwrite existing config/data or reset accounts. For an upgrade,
+   obtain permission to stop playback and the service, back up complete
+   config/data consistently with the service stopped, and retain the
+   previous image and matching backup for rollback.
+   Validate with docker compose config and the image's --check-config
+   command using the prepared mounts before starting the service.
+
+4. Start the approved deployment and verify actual results.
+   Check container state/logs, /healthz, and the Web page from a client
+   device, not just localhost. Verify UID, security settings, read-only
+   music, writable config/data, and the configured library mount.
+   Let me create the first administrator account in the browser privately;
+   if an account already exists, use login rather than setup/reset.
+   Guide me through Settings, language selection, and a library scan.
+   Confirm scan results and output discovery without starting playback.
+   Ask before pairing a receiver or sending playback commands; a healthy
+   container or discovered receiver is not proof of audible playback.
+
+5. Report the access URL, exact image identity, saved configuration and
+   storage locations, commands used, verification results, and backup/
+   rollback steps without secrets. Distinguish completed work from any
+   client-network or physical-audio checks I still need to perform.
+   Preserve existing music and application state if any step fails.
+```
+
+</details>
+
+The prompt is an installation workflow, not an unattended installer or permission to modify an existing deployment without review. The [user guide](INSTRUCTION.md) remains the reference for package handling and configuration.
 
 ## Compatibility scope
 
