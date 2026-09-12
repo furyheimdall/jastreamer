@@ -1,0 +1,39 @@
+# Local agent and execution state
+/.omo/
+/.playwright-mcp/
+/ffbuild/
+
+# Credentials and local configuration
+*.pfx
+*.p12
+*.jks
+*.keystore
+*.key
+.env
+.env.*
+!.env.example
+/server.json
+/run/
+/.venv-airplay/
+__pycache__/
+
+# Go, Web, browser, desktop, and release output
+/apps/server/jastreamer-server
+/apps/server/jastreamer-server.exe
+/apps/server/dist/
+/apps/server/web/ui/dist/
+/apps/control/node_modules/
+/apps/control/test-results/
+/apps/control/playwright-report/
+/apps/desktop/node_modules/
+/apps/desktop/dist/
+/apps/desktop/.user-data/
+/apps/desktop/user-data/
+/dist/
+/coverage/
+
+# Editors and operating systems
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db

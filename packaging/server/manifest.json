@@ -1,0 +1,36 @@
+{
+  "schema": 1,
+  "product": "jastreamer-server",
+  "version": "0.2.0",
+  "artifact": "jastreamer-server_<version>_linux_amd64-arm64.oci",
+  "platforms": ["linux/amd64", "linux/arm64"],
+  "components": {
+    "server": {"version": "0.2.0", "entrypoint": "/usr/local/bin/jastreamer-server"},
+    "web": {"delivery": "embedded in Server"},
+    "airplay": {"implementation": "pyatv", "version": "0.18.0", "helper": "/usr/local/bin/jastreamer-airplay", "server_platform": "linux"},
+    "ffmpeg": {"version": "8.1.2", "license": "LGPL-2.1-or-later", "executable": "/usr/local/bin/ffmpeg", "profile": "audio-only"}
+  },
+  "legal": {
+    "notices": "/usr/share/jastreamer/THIRD-PARTY-NOTICES.txt",
+    "go_web_licenses": "/usr/share/licenses/jastreamer-third-party",
+    "ffmpeg_license": "/usr/share/licenses/ffmpeg/COPYING.LGPLv2.1",
+    "ffmpeg_corresponding_source": "/usr/share/jastreamer/sources/ffmpeg-8.1.2.tar.xz",
+    "ffmpeg_build_script": "/usr/share/jastreamer/sources/build-ffmpeg.sh",
+    "python_sources": "/usr/share/jastreamer/sources/python"
+  },
+  "release_files": [
+    "jastreamer-server_<version>_linux_amd64-arm64.oci",
+    "manifest.json",
+    "server.json",
+    "LICENSE",
+    "THIRD-PARTY-NOTICES.txt",
+    "SHA256SUMS"
+  ],
+  "default_config": "/etc/jastreamer/server.json",
+  "bind_mount_config_template": "server.json",
+  "runtime_user": "10001:10001",
+  "ports": {"http": 8080, "https": 8443},
+  "integrity": "SHA256SUMS",
+  "publication": "none",
+  "production_qualified": false
+}

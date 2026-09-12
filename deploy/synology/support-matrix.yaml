@@ -1,0 +1,30 @@
+schema_version: 1
+product: jastreamer-server
+version: 0.2.0
+container:
+  user: 10001:10001
+  network: host
+  supported_platforms:
+    - linux/amd64
+    - linux/arm64
+synology:
+  DS918+:
+    platform: linux/amd64
+    delivery: Container Manager Compose
+    qualification: not-yet-verified-on-hardware
+  arm64:
+    platform: linux/arm64
+    delivery: Container Manager Compose
+    qualification: not-yet-verified-on-hardware
+storage:
+  config: writable
+  data: writable
+  music: read-only
+  config_file: server.json
+upgrade:
+  automatic: false
+  required_player_state: stopped
+  preserve:
+    - config
+    - data
+    - music

@@ -1,0 +1,37 @@
+{
+  "version": 1,
+  "data_dir": "/var/lib/jastreamer",
+  "server_name": "",
+  "http": {
+    "enabled": true,
+    "address": ":8080"
+  },
+  "https": {
+    "enabled": false,
+    "address": ":8443",
+    "certificate_file": "",
+    "private_key_file": ""
+  },
+  "library_roots": [
+    {
+      "id": "music",
+      "name": "Music",
+      "path": "/music"
+    }
+  ],
+  "network": {
+    "interfaces": [],
+    "discovery_interval_seconds": 30,
+    "poll_interval_seconds": 1,
+    "allowed_cidrs": []
+  },
+  "media": {
+    "base_url": "",
+    "ffmpeg_path": "/usr/local/bin/ffmpeg",
+    "transcode": false
+  },
+  "airplay": {
+    "enabled": true,
+    "helper_path": "/usr/local/bin/jastreamer-airplay"
+  }
+}

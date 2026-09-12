@@ -1,0 +1,13 @@
+name: jastreamer-server
+display_name: jastreamer Server
+root: apps/server
+version_file: VERSION
+manifest: go.mod
+lockfile: go.sum
+web_root: ../control
+web_lockfile: ../control/package-lock.json
+web_output: web/ui/dist
+verify: make verify
+build: make build
+package: make package
+license: Apache-2.0

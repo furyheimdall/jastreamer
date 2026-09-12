@@ -1,0 +1,107 @@
+jastreamer Server container: third-party components
+
+The jastreamer application is licensed under Apache-2.0. Bundled components
+retain their own licenses; this notice does not relicense those components.
+
+Go server
+  The Server executable incorporates the Go 1.25.0 runtime. Application
+  modules declared by apps/server/go.mod are listed below. Complete license and
+  third-party notice files are retained under
+  /usr/share/licenses/jastreamer-third-party/go/.
+    github.com/enbility/zeroconf/v3 v3.0.0-20260410070239-bf752832c353
+    github.com/google/uuid v1.6.0
+    github.com/miekg/dns v1.1.62
+    github.com/dustin/go-humanize v1.0.1
+    github.com/mattn/go-isatty v0.0.24
+    github.com/ncruces/go-strftime v1.0.0
+    github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec
+    golang.org/x/crypto v0.55.0
+    golang.org/x/mod v0.38.0
+    golang.org/x/net v0.57.0
+    golang.org/x/sync v0.22.0
+    golang.org/x/sys v0.47.0
+    golang.org/x/term v0.45.0
+    golang.org/x/text v0.41.0
+    golang.org/x/tools v0.48.0
+    modernc.org/libc v1.74.4
+    modernc.org/mathutil v1.7.1
+    modernc.org/memory v1.11.0
+    modernc.org/sqlite v1.57.0
+
+Embedded Web
+  React 19.1.1, React DOM 19.1.1, and Scheduler 0.26.0.
+  Copyright (c) Meta Platforms, Inc. and affiliates. MIT license.
+  License: /usr/share/licenses/jastreamer-third-party/web/react-react-dom-scheduler.txt
+
+AirPlay sender
+  pyatv 0.18.0
+  Copyright (c) 2020 Pierre Ståhl
+  MIT license. The original copyright and license are retained in the installed
+  pyatv distribution's license files.
+  Upstream: https://github.com/postlund/pyatv
+
+Audio decoder
+  FFmpeg 8.1.2, audio-only build without GPL or nonfree configure options.
+  Copyright (c) 2000-2026 the FFmpeg developers.
+  LGPL-2.1-or-later.
+  License: /usr/share/licenses/ffmpeg/COPYING.LGPLv2.1
+  Complete corresponding source: /usr/share/jastreamer/sources/ffmpeg-8.1.2.tar.xz
+  Build script: /usr/share/jastreamer/sources/build-ffmpeg.sh
+  This is a separate executable, not linked into the Go application.
+  Upstream: https://ffmpeg.org/
+
+Python dependencies
+  Exact runtime versions and accepted input hashes:
+    /usr/share/jastreamer/requirements-airplay.txt
+  Complete upstream source archives, with SHA-256 and upstream URLs:
+    /usr/share/jastreamer/sources/python/manifest.json
+  Source archives are next to that manifest. The source fetcher and hash-locked
+  build-only requirements used by the image build are retained at:
+    /usr/share/jastreamer/sources/fetch-python-sources.py
+    /usr/share/jastreamer/sources/requirements-airplay-build.txt
+  Installed wheel metadata and license files are retained as supplied by each
+  distribution. Source archives retain their upstream license and notice files.
+
+  Runtime package inventory and upstream-declared licenses:
+    aiohappyeyeballs 2.7.1                 PSF-2.0
+    aiohttp 3.14.3                         Apache-2.0 AND MIT
+    aiosignal 1.4.0                        Apache-2.0
+    annotated-types 0.8.0                  MIT
+    attrs 26.1.0                           MIT
+    certifi 2026.7.22                      MPL-2.0
+    cffi 2.1.1                             MIT-0
+    chacha20poly1305-reuseable 0.13.2      Apache-2.0 OR BSD-3-Clause
+    charset-normalizer 3.5.1               MIT
+    cryptography 50.0.1                    Apache-2.0 OR BSD-3-Clause
+    frozenlist 1.8.0                       Apache-2.0
+    idna 3.19                              BSD-3-Clause
+    ifaddr 0.2.0                           MIT
+    miniaudio 1.71                         MIT
+    multidict 6.8.0                        Apache-2.0
+    propcache 0.5.2                        Apache-2.0
+    protobuf 7.36.1                        BSD-3-Clause
+    pyatv 0.18.0                           MIT
+    pycparser 3.0                          BSD-3-Clause
+    pydantic-core 2.46.5                   MIT
+    pydantic 2.13.5                        MIT
+    requests 2.34.2                        Apache-2.0
+    six 1.17.0                             MIT
+    srptools 1.0.1                         BSD-3-Clause
+    tabulate 0.10.0                        MIT
+    tinytag 2.3.2                          MIT
+    typing-extensions 4.16.0               PSF-2.0
+    typing-inspection 0.4.4                MIT
+    urllib3 2.7.0                          MIT
+    yarl 1.24.5                            Apache-2.0
+    zeroconf 0.151.3                       LGPL-2.1-or-later
+
+  The source archives allow inspecting, modifying, and rebuilding these
+  components. The image does not restrict replacement of the helper or libraries.
+
+Base runtime
+  The pinned official Python/Alpine base retains its Python, musl, OpenSSL,
+  Alpine package, and other upstream licenses. Those components are not
+  covered by the jastreamer application license.
+
+No airplay-cli, cliairplay, or libraop binary/source is bundled.
+AirPlay is a trademark of Apple Inc.; this project is not affiliated with Apple.

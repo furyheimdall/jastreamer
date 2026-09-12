@@ -1,0 +1,24 @@
+services:
+  jastreamer-server:
+    image: "${JASTREAMER_SERVER_IMAGE:?set JASTREAMER_SERVER_IMAGE to a verified image digest}"
+    command: ["--config", "/etc/jastreamer/server.json"]
+    network_mode: host
+    user: "10001:10001"
+    init: true
+    read_only: true
+    restart: unless-stopped
+    volumes:
+      - type: bind
+        source: "${JASTREAMER_CONFIG_PATH:-/volume1/docker/jastreamer/config}"
+        target: /etc/jastreamer
+      - type: bind
+        source: "${JASTREAMER_DATA_PATH:-/volume1/docker/jastreamer/data}"
+        target: /var/lib/jastreamer
+      - type: bind
+        source: "${JASTREAMER_MUSIC_PATH:-/volume1/music}"
+        target: /music
+        read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]

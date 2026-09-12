@@ -1,0 +1,15 @@
+.git
+.github
+.omo
+.playwright-mcp
+ffbuild
+dist
+**/node_modules
+apps/control/test-results
+apps/desktop
+apps/control/playwright-report
+apps/server/dist
+apps/server/jastreamer-server
+apps/server/jastreamer-server.exe
+apps/server/**/*_test.go
+apps/server/testdata

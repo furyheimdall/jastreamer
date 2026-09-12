@@ -1,0 +1,141 @@
+name: Server, Web, and Desktop CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: apps/server/go.mod
+          cache-dependency-path: apps/server/go.sum
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.20.0
+          cache: npm
+          cache-dependency-path: apps/control/package-lock.json
+      - name: Validate Server and build Web
+        run: make verify
+      - name: Install Chromium for browser smoke
+        working-directory: apps/control
+        run: npx playwright install --with-deps chromium
+      - name: Build Server with embedded Web
+        run: make server-build-only
+      - name: Exercise installed Web and account session in Chromium
+        run: make browser-smoke-only
+
+  container:
+    name: Native Server container (${{ matrix.platform }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            platform: linux/amd64
+            architecture: amd64
+            machine: x86_64
+          - runner: ubuntu-24.04-arm
+            platform: linux/arm64
+            architecture: arm64
+            machine: aarch64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+    env:
+      IMAGE: jastreamer-server-ci:${{ matrix.architecture }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Require native architecture
+        shell: bash
+        run: test "$(uname -m)" = "${{ matrix.machine }}"
+      - name: Build native Server image without publication
+        shell: bash
+        env:
+          PLATFORM: ${{ matrix.platform }}
+        run: |
+          version="$(cat apps/server/VERSION)"
+          epoch="$(git show -s --format=%ct HEAD)"
+          created="$(date -u -d "@${epoch}" +%Y-%m-%dT%H:%M:%SZ)"
+          docker buildx build \
+            --platform "${PLATFORM}" \
+            --build-arg "VERSION=${version}" \
+            --build-arg "REVISION=${GITHUB_SHA}" \
+            --build-arg "CREATED=${created}" \
+            --provenance=false \
+            --load \
+            --tag "${IMAGE}" \
+            --file apps/server/Dockerfile .
+      - name: Verify packaged binaries, dependencies, sources, and config
+        shell: bash
+        run: |
+          docker run --rm \
+            --volume "$PWD/packaging/server/verify-image.py:/verify-image.py:ro" \
+            --entrypoint /usr/local/bin/python3 \
+            "${IMAGE}" /verify-image.py "${{ matrix.architecture }}"
+          docker run --rm --read-only \
+            --cap-drop ALL \
+            --security-opt no-new-privileges \
+            --volume "$PWD/apps/server/internal/airplay:/qa:ro" \
+            --entrypoint python \
+            "${IMAGE}" -B -m unittest discover -s /qa -p test_helper.py
+          docker run --rm "${IMAGE}" --version
+          docker run --rm "${IMAGE}" --check-config /etc/jastreamer/server.json
+
+  desktop:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: apps/server/go.mod
+          cache-dependency-path: apps/server/go.sum
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.20.0
+          cache: npm
+          cache-dependency-path: apps/desktop/package-lock.json
+      - name: Install pinned desktop dependencies
+        working-directory: apps/desktop
+        run: npm ci
+      - name: Verify desktop security and discovery boundaries
+        working-directory: apps/desktop
+        run: npm test
+      - name: Package Windows portable desktop
+        working-directory: apps/desktop
+        run: npm run package:win
+      - name: Verify exact packaged bytes and Windows executable
+        working-directory: apps/desktop
+        run: npm run verify:package
+      - name: Build shared Web for real desktop connection smoke
+        working-directory: apps/control
+        run: npm ci && npm run build
+      - name: Build Windows Server for isolated desktop smoke
+        working-directory: apps/server
+        env:
+          CGO_ENABLED: "0"
+        run: go build -trimpath -o dist/jastreamer-server.exe ./cmd/jastreamer-server
+      - name: Exercise packaged Windows app, isolated sessions, and portable relocation
+        working-directory: apps/desktop
+        run: node scripts/smoke.mjs ../server/dist/jastreamer-server.exe dist/jastreamer-desktop-win32-x64/jastreamer-desktop.exe
+      - uses: actions/upload-artifact@v4
+        with:
+          name: jastreamer-desktop-windows-x64
+          path: |
+            apps/desktop/dist/*.zip
+            apps/desktop/dist/*.sha256
+            apps/desktop/dist/manifest.json
+          if-no-files-found: error

@@ -1,0 +1,9 @@
+name: jastreamer-control
+display_name: jastreamer Web
+root: apps/control
+version_file: VERSION
+manifest: package.json
+lockfile: package-lock.json
+changelog: CHANGELOG.md
+verify: npm ci
+license: Apache-2.0
