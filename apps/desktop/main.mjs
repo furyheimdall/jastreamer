@@ -11,9 +11,18 @@ import {
   WebContentsView,
 } from "electron";
 import { LanDiscovery } from "./lib/discovery.mjs";
+import {
+  DEFAULT_LANGUAGE,
+  getLanguage,
+  LANGUAGE_COOKIE_NAME,
+  normalizeLanguage,
+  setLanguage,
+  t,
+} from "./lib/i18n.mjs";
 import { probeEndpoint, probeErrorMessage } from "./lib/probe.mjs";
 import {
   isTrustedShellSender,
+  isLanguageCookieForOrigin,
   normalizeEndpoint,
   normalizeServerId,
   restrictLocalContents,
@@ -23,6 +32,7 @@ import {
 } from "./lib/security.mjs";
 import {
   ensureWritableDirectory,
+  LanguagePreferenceStore,
   RecentServerStore,
   resolveUserDataPath,
 } from "./lib/storage.mjs";
@@ -34,6 +44,7 @@ const PRELOAD_PATH = path.join(APP_DIRECTORY, "preload.cjs");
 const REMOTE_TOP = 76;
 const RECENT_PROBE_INTERVAL_MS = 60_000;
 const MAX_PARALLEL_RECENT_PROBES = 3;
+const LANGUAGE_COOKIE_LIFETIME_SECONDS = 365 * 24 * 60 * 60;
 
 const userDataPath = resolveUserDataPath({
   isPackaged: app.isPackaged,
@@ -48,8 +59,8 @@ try {
 } catch {
   bootstrapFailed = true;
   dialog.showErrorBox(
-    "JASTREAMER 시작 실패",
-    `휴대용 데이터 폴더를 만들 수 없습니다.\n\n${userDataPath}\n\n쓰기 가능한 폴더로 앱을 이동한 뒤 다시 실행해 주세요.`,
+    t("main.start.title"),
+    t("main.start.portable", { path: userDataPath }),
   );
   app.exit(1);
 }
@@ -61,6 +72,7 @@ let shellWindow = null;
 let remoteView = null;
 let remoteAttached = false;
 let store = null;
+let languageStore = null;
 let discovery = null;
 let operationGeneration = 0;
 let connectController = null;
@@ -68,6 +80,7 @@ let recentProbePromise = null;
 let recentProbeTimer = null;
 let shuttingDown = false;
 let lastAttempt = null;
+let remoteLanguageObserver = null;
 const pendingControllers = new Set();
 const restrictedSessions = new WeakSet();
 const recentAvailability = new Map();
@@ -76,6 +89,7 @@ const appState = {
   mode: "selection",
   current: null,
   error: null,
+  language: DEFAULT_LANGUAGE,
   refreshing: false,
 };
 
@@ -95,7 +109,7 @@ function publicRecents() {
       name: status?.name ?? recent.name,
       version: status?.version ?? recent.version,
       availability: status?.availability ?? "checking",
-      message: status?.message ?? "서버를 확인하는 중입니다.",
+      message: t(status?.messageKey ?? "status.checking", status?.messageParams),
       connectable: status?.availability === "available",
     };
   });
@@ -140,9 +154,58 @@ function layoutRemoteView() {
   remoteView.setBounds({ x: 0, y: REMOTE_TOP, width, height: Math.max(0, height - REMOTE_TOP) });
 }
 
+function clearRemoteLanguageObserver(view = null) {
+  if (!remoteLanguageObserver || (view && remoteLanguageObserver.view !== view)) return;
+  const { cookies, listener } = remoteLanguageObserver;
+  remoteLanguageObserver = null;
+  cookies.off("changed", listener);
+}
+
+async function persistLanguagePreference(value) {
+  const language = normalizeLanguage(value);
+  if (!language) throw new TypeError(t("main.language.invalid"));
+  if (languageStore.get() !== language) await languageStore.set(language);
+  setLanguage(language);
+  appState.language = language;
+  broadcastState();
+  return language;
+}
+
+function observeRemoteLanguage(view, server, token) {
+  const cookies = view.webContents.session.cookies;
+  const listener = (_event, cookie, _cause, removed) => {
+    if (
+      removed ||
+      token !== operationGeneration ||
+      remoteView !== view ||
+      view.webContents.isDestroyed() ||
+      !isLanguageCookieForOrigin(cookie, server.origin) ||
+      cookie.value === languageStore.get()
+    ) {
+      return;
+    }
+    void persistLanguagePreference(cookie.value).catch(() => {});
+  };
+  cookies.on("changed", listener);
+  remoteLanguageObserver = { view, cookies, listener };
+}
+
+async function setRemoteLanguageCookie(view, origin, language) {
+  await view.webContents.session.cookies.set({
+    url: `${origin}/`,
+    name: LANGUAGE_COOKIE_NAME,
+    value: language,
+    path: "/",
+    httpOnly: false,
+    sameSite: "strict",
+    expirationDate: Math.floor(Date.now() / 1_000) + LANGUAGE_COOKIE_LIFETIME_SECONDS,
+  });
+}
+
 function closeRemoteView() {
   const view = remoteView;
   remoteView = null;
+  clearRemoteLanguageObserver(view);
   if (!view) return;
   if (remoteAttached && shellWindow && !shellWindow.isDestroyed()) {
     shellWindow.contentView.removeChildView(view);
@@ -162,12 +225,12 @@ function cancelConnection() {
 function remoteFailureDetail(errorCode, description) {
   const text = `${errorCode ?? ""} ${description ?? ""}`.toUpperCase();
   if (text.includes("CERT") || text.includes("SSL") || text.includes("TLS")) {
-    return "HTTPS 인증서를 확인할 수 없습니다. 인증서 유효 기간과 서버 이름을 확인해 주세요.";
+    return t("main.remote.cert");
   }
   if (text.includes("NAME_NOT_RESOLVED")) {
-    return "서버 이름을 찾을 수 없습니다. 주소와 네트워크 연결을 확인해 주세요.";
+    return t("main.remote.name");
   }
-  return "서버 화면을 불러올 수 없습니다. 서버와 네트워크 상태를 확인한 뒤 다시 시도해 주세요.";
+  return t("main.remote.load");
 }
 
 function failRemoteView(token, detail) {
@@ -175,7 +238,7 @@ function failRemoteView(token, detail) {
   closeRemoteView();
   updateState({
     mode: "error",
-    error: { title: "서버 연결이 끊어졌습니다", detail, retryable: true },
+    error: { title: t("main.remote.disconnected"), detail, retryable: true },
   });
 }
 
@@ -219,12 +282,15 @@ async function loadRemoteServer(server, token) {
     showFailure(remoteFailureDetail(errorCode, errorDescription));
   });
   view.webContents.on("render-process-gone", () => {
-    showFailure("서버 화면 프로세스가 종료되었습니다. 다시 연결해 주세요.");
+    showFailure(t("main.remote.processGone"));
   });
   view.webContents.on("unresponsive", () => {
-    showFailure("서버 화면이 응답하지 않습니다. 네트워크 상태를 확인한 뒤 다시 시도해 주세요.");
+    showFailure(t("main.remote.unresponsive"));
   });
-  view.webContents.once("destroyed", () => clearTimeout(loadTimer));
+  view.webContents.once("destroyed", () => {
+    clearTimeout(loadTimer);
+    clearRemoteLanguageObserver(view);
+  });
   view.webContents.once("did-finish-load", () => {
     if (failed || token !== operationGeneration || remoteView !== view || !shellWindow) return;
     shellWindow.contentView.addChildView(view);
@@ -234,11 +300,19 @@ async function loadRemoteServer(server, token) {
     clearTimeout(loadTimer);
   });
   loadTimer = setTimeout(
-    () => showFailure("서버 화면을 불러오는 시간이 초과되었습니다. 네트워크 상태를 확인해 주세요."),
+    () => showFailure(t("main.remote.timeout")),
     20_000,
   );
   loadTimer.unref?.();
 
+  try {
+    await setRemoteLanguageCookie(view, server.origin, getLanguage());
+  } catch {
+    showFailure(t("main.language.cookieFailed"));
+    return;
+  }
+  if (failed || token !== operationGeneration || remoteView !== view) return;
+  observeRemoteLanguage(view, server, token);
   try {
     await view.webContents.loadURL(`${server.origin}/`);
   } catch (error) {
@@ -261,7 +335,7 @@ async function connectToServer(input) {
   const expectedId = input?.expectedId ? normalizeServerId(input.expectedId) : null;
   const selected = listedSelection(origin, expectedId);
   if (expectedId && !selected) {
-    throw new Error("현재 서버 목록에서 이 항목을 찾을 수 없습니다. 새로 고침한 뒤 다시 시도해 주세요.");
+    throw new Error(t("main.selection.stale"));
   }
 
   cancelConnection();
@@ -275,7 +349,7 @@ async function connectToServer(input) {
     mode: "connecting",
     current: selected
       ? { id: selected.id, name: selected.name, origin, version: selected.version }
-      : { id: null, name: "서버 확인 중", origin, version: null },
+      : { id: null, name: t("main.server.verifying"), origin, version: null },
     error: null,
   });
 
@@ -290,13 +364,13 @@ async function connectToServer(input) {
     try {
       await store.upsert(server);
     } catch (error) {
-      throw new Error("최근 서버 정보를 휴대용 데이터 폴더에 저장할 수 없습니다.", { cause: error });
+      throw new Error(t("main.recents.saveFailed"), { cause: error });
     }
     if (token !== operationGeneration) return;
 
     recentAvailability.set(recentKey(server.id, server.origin), {
       availability: "available",
-      message: "연결할 수 있습니다.",
+      messageKey: "status.available",
     });
     appState.current = server;
     lastAttempt = { origin: server.origin, expectedId: server.id };
@@ -307,7 +381,7 @@ async function connectToServer(input) {
     updateState({
       mode: "error",
       error: {
-        title: "서버에 연결할 수 없습니다",
+        title: t("shell.error.title"),
         detail: error?.message || probeErrorMessage(error),
         retryable: true,
       },
@@ -325,7 +399,7 @@ async function probeRecentServers() {
   for (const recent of recents) {
     recentAvailability.set(recentKey(recent.id, recent.origin), {
       availability: "checking",
-      message: "서버를 확인하는 중입니다.",
+      messageKey: "status.checking",
     });
   }
   broadcastState();
@@ -348,13 +422,14 @@ async function probeRecentServers() {
             name: verified.name,
             version: verified.version,
             availability: "available",
-            message: "연결할 수 있습니다.",
+            messageKey: "status.available",
           });
         } catch (error) {
           if (!controller.signal.aborted) {
             recentAvailability.set(recentKey(recent.id, recent.origin), {
               availability: "unavailable",
-              message: probeErrorMessage(error),
+              messageKey: error?.messageKey ?? "probe.unknown",
+              messageParams: error?.params,
             });
           }
         } finally {
@@ -391,7 +466,7 @@ function changeServer() {
 
 function assertTrustedSender(event) {
   if (!isTrustedShellSender(event, shellWindow?.webContents, SHELL_URL)) {
-    throw new Error("허용되지 않은 IPC 요청입니다.");
+    throw new Error(t("main.ipc.denied"));
   }
 }
 
@@ -412,13 +487,27 @@ function registerIpc() {
   });
   ipcMain.handle("desktop:retry", async (event) => {
     assertTrustedSender(event);
-    if (!lastAttempt) throw new Error("다시 연결할 서버가 없습니다.");
+    if (!lastAttempt) throw new Error(t("main.retry.none"));
     await connectToServer(lastAttempt);
     return publicState();
   });
   ipcMain.handle("desktop:change-server", (event) => {
     assertTrustedSender(event);
     changeServer();
+    return publicState();
+  });
+  ipcMain.handle("desktop:set-language", async (event, value) => {
+    assertTrustedSender(event);
+    const language = normalizeLanguage(value);
+    if (!language) throw new TypeError(t("main.language.invalid"));
+    try {
+      await persistLanguagePreference(language);
+      if (remoteView && !remoteView.webContents.isDestroyed() && appState.current?.origin) {
+        await setRemoteLanguageCookie(remoteView, appState.current.origin, language);
+      }
+    } catch (error) {
+      throw new Error(t("main.language.saveFailed"), { cause: error });
+    }
     return publicState();
   });
 }
@@ -432,6 +521,7 @@ function createShellWindow() {
     show: false,
     backgroundColor: "#111315",
     title: "JASTREAMER",
+    icon: fileURLToPath(new URL("./assets/jastreamer.png", import.meta.url)),
     autoHideMenuBar: true,
     webPreferences: {
       preload: PRELOAD_PATH,
@@ -456,7 +546,7 @@ function createShellWindow() {
   });
   window.once("ready-to-show", () => window.show());
   window.loadFile(SHELL_PATH).catch((error) => {
-    dialog.showErrorBox("JASTREAMER 화면 오류", `서버 선택 화면을 열 수 없습니다.\n\n${error.message}`);
+    dialog.showErrorBox(t("main.shell.title"), t("main.shell.openFailed", { message: error.message }));
     app.quit();
   });
 }
@@ -464,12 +554,16 @@ function createShellWindow() {
 async function startApplication() {
   try {
     await ensureWritableDirectory(userDataPath);
+    languageStore = new LanguagePreferenceStore(userDataPath);
+    const language = await languageStore.load();
+    setLanguage(language);
+    appState.language = language;
     store = new RecentServerStore(userDataPath);
     await store.load();
   } catch {
     dialog.showErrorBox(
-      "JASTREAMER 데이터 폴더 오류",
-      `휴대용 데이터 폴더를 읽거나 쓸 수 없습니다.\n\n${userDataPath}\n\n폴더 권한을 확인하거나 앱을 쓰기 가능한 위치로 이동해 주세요.`,
+      t("main.data.title"),
+      t("main.data.unavailable", { path: userDataPath }),
     );
     app.quit();
     return;
@@ -506,7 +600,7 @@ app.on("before-quit", () => {
 
 if (ownsSingleInstance) {
   app.whenReady().then(startApplication).catch((error) => {
-    dialog.showErrorBox("JASTREAMER 시작 실패", error?.message ?? String(error));
+    dialog.showErrorBox(t("main.start.title"), error?.message ?? String(error));
     app.quit();
   });
 }

@@ -1,4 +1,5 @@
-"use strict";
+import { DEFAULT_LANGUAGE, normalizeLanguage, setLanguage as setCatalogLanguage, t } from "./lib/i18n.mjs";
+
 
 const api = window.jastreamerDesktop;
 const elements = {
@@ -11,6 +12,7 @@ const elements = {
   manualForm: document.querySelector("#manual-form"),
   manualInput: document.querySelector("#manual-form input"),
   inlineError: document.querySelector("#inline-error"),
+  language: document.querySelector("#language"),
   refresh: document.querySelector("#selection-screen #refresh"),
   discovered: document.querySelector("#discovered-list"),
   recents: document.querySelector("#recent-list"),
@@ -25,9 +27,20 @@ const elements = {
 
 let state = null;
 let actionPending = false;
+let language = DEFAULT_LANGUAGE;
+
+function applyStaticTranslations() {
+  document.documentElement.lang = language;
+  document.querySelectorAll("[data-i18n]").forEach((element) => {
+    element.textContent = t(element.dataset.i18n);
+  });
+  document.querySelectorAll("[data-i18n-placeholder]").forEach((element) => {
+    element.placeholder = t(element.dataset.i18nPlaceholder);
+  });
+}
 
 function showLocalError(error) {
-  elements.inlineError.textContent = error?.message || "요청을 처리하지 못했습니다.";
+  elements.inlineError.textContent = error?.message || t("shell.requestFailed");
   elements.inlineError.hidden = false;
 }
 
@@ -37,9 +50,9 @@ function clearLocalError() {
 }
 
 function availabilityLabel(value) {
-  if (value === "available") return "사용 가능";
-  if (value === "unavailable") return "연결 안 됨";
-  return "확인 중";
+  if (value === "available") return t("shell.availability.available");
+  if (value === "unavailable") return t("shell.availability.unavailable");
+  return t("shell.availability.checking");
 }
 
 function createServerCard(server, kind) {
@@ -57,7 +70,7 @@ function createServerCard(server, kind) {
 
   const address = document.createElement("p");
   address.className = "server-meta server-address";
-  address.textContent = `${server.origin}\n버전 ${server.version}`;
+  address.textContent = `${server.origin}\n${t("shell.version", { version: server.version })}`;
 
   const message = document.createElement("p");
   message.className = "server-meta";
@@ -67,8 +80,8 @@ function createServerCard(server, kind) {
   button.type = "button";
   button.className = server.connectable ? "button button-primary compact" : "button button-ghost compact";
   button.textContent = server.availability === "unavailable" && kind === "recent"
-    ? "다시 확인 및 연결"
-    : "이 서버 연결";
+    ? t("shell.connectAgain")
+    : t("shell.connectThis");
   button.disabled = actionPending || server.availability === "checking" || (kind === "discovered" && !server.connectable);
   button.addEventListener("click", () => runAction(() => api.connect(server.origin, server.id)));
 
@@ -82,8 +95,8 @@ function renderServerList(container, servers, kind) {
     const empty = document.createElement("div");
     empty.className = "empty-state";
     empty.textContent = kind === "discovered"
-      ? "확인된 서버가 없습니다. 서버와 이 PC가 같은 네트워크인지 확인해 주세요."
-      : "최근에 연결한 서버가 없습니다.";
+      ? t("shell.empty.discovered")
+      : t("shell.empty.recent");
     container.append(empty);
     return;
   }
@@ -92,6 +105,13 @@ function renderServerList(container, servers, kind) {
 
 function render(nextState) {
   state = nextState;
+  const nextLanguage = normalizeLanguage(nextState.language) ?? DEFAULT_LANGUAGE;
+  if (language !== nextLanguage) {
+    language = nextLanguage;
+    setCatalogLanguage(language);
+  }
+  elements.language.value = language;
+  applyStaticTranslations();
   const selecting = state.mode === "selection";
   elements.selectionScreen.hidden = !selecting;
   elements.workspaceScreen.hidden = selecting;
@@ -100,24 +120,25 @@ function render(nextState) {
   elements.connected.hidden = state.mode !== "connected";
 
   const current = state.current;
-  elements.currentName.textContent = current?.name || "서버를 선택하세요";
-  elements.currentOrigin.textContent = current?.origin || "로컬 네트워크의 서버를 찾고 있습니다";
+  elements.currentName.textContent = current?.name || t("shell.current.none");
+  elements.currentOrigin.textContent = current?.origin || t("shell.current.searching");
   elements.changeServer.hidden = selecting;
   elements.connectionState.textContent = state.mode === "connected"
-    ? "연결됨"
+    ? t("shell.state.connected")
     : state.mode === "connecting"
-      ? "연결 중"
+      ? t("shell.state.connecting")
       : state.mode === "error"
-        ? "연결 오류"
+        ? t("shell.state.error")
         : "";
 
   elements.loadingOrigin.textContent = current?.origin || "";
-  elements.errorTitle.textContent = state.error?.title || "서버에 연결할 수 없습니다";
-  elements.errorDetail.textContent = state.error?.detail || "주소와 네트워크 상태를 확인해 주세요.";
+  elements.errorTitle.textContent = state.error?.title || t("shell.error.title");
+  elements.errorDetail.textContent = state.error?.detail || t("shell.error.detail");
   elements.retry.hidden = state.error?.retryable === false;
   elements.retry.disabled = actionPending;
   elements.refresh.disabled = actionPending || state.refreshing;
-  elements.refresh.textContent = state.refreshing ? "확인 중…" : "새로 고침";
+  elements.language.disabled = actionPending;
+  elements.refresh.textContent = state.refreshing ? t("shell.refreshing") : t("shell.refresh");
 
   renderServerList(elements.discovered, state.discovered || [], "discovered");
   renderServerList(elements.recents, state.recents || [], "recent");
@@ -144,6 +165,12 @@ elements.manualForm.addEventListener("submit", (event) => {
   const origin = elements.manualInput.value.trim();
   if (!origin) return;
   runAction(() => api.connect(origin));
+});
+
+elements.language.addEventListener("change", () => {
+  const nextLanguage = normalizeLanguage(elements.language.value);
+  if (!nextLanguage || nextLanguage === language) return;
+  runAction(() => api.setLanguage(nextLanguage));
 });
 
 elements.refresh.addEventListener("click", () => runAction(() => api.refresh()));

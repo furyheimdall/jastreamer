@@ -3,7 +3,7 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { MAX_RECENT_SERVERS, RecentServerStore } from "../lib/storage.mjs";
+import { LanguagePreferenceStore, MAX_RECENT_SERVERS, RecentServerStore } from "../lib/storage.mjs";
 
 const SERVER_ID = "11111111-1111-4111-8111-111111111111";
 
@@ -50,4 +50,21 @@ test("deduplicates only the same identity and normalized origin", async (context
   assert.equal(store.list().length, 2);
   assert.equal(store.list()[0].origin, "http://media-box.local:8081");
   assert.equal(store.list()[1].name, "새 이름");
+});
+
+test("persists the validated language beside portable recents without changing them", async (context) => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), "jastreamer-language-"));
+  context.after(() => rm(directory, { recursive: true, force: true }));
+  const recents = new RecentServerStore(directory);
+  await recents.load();
+  await recents.upsert({ id: SERVER_ID, origin: "http://media-box.local:8080", name: "Music", version: "2.0" });
+
+  const preference = new LanguagePreferenceStore(directory);
+  assert.equal(await preference.load(), "en");
+  assert.equal(await preference.set("ko"), "ko");
+
+  const restartedPreference = new LanguagePreferenceStore(directory);
+  assert.equal(await restartedPreference.load(), "ko");
+  assert.equal((await recents.load())[0].name, "Music");
+  await assert.rejects(preference.set("fr"), TypeError);
 });

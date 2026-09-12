@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="ko">
+<html lang="en">
   <head>
     <meta charset="UTF-8" />
     <meta
@@ -13,38 +13,48 @@
   <body>
     <header class="topbar">
       <div class="brand" aria-label="JASTREAMER">
-        <span class="brand-mark" aria-hidden="true">J</span>
+        <img class="brand-mark" src="./assets/jastreamer.png" alt="" width="512" height="512" />
         <span>JASTREAMER</span>
       </div>
       <div class="current-server" aria-live="polite">
-        <strong id="current-name">서버를 선택하세요</strong>
-        <span id="current-origin">로컬 네트워크의 서버를 찾고 있습니다</span>
+        <strong id="current-name" data-i18n="shell.current.none">Select a server</strong>
+        <span id="current-origin" data-i18n="shell.current.searching">Searching for servers on your local network</span>
       </div>
       <div class="topbar-actions">
         <span id="connection-state" class="connection-state"></span>
-        <button id="change-server" class="button button-ghost compact" type="button" hidden>
-          서버 변경
+        <button id="change-server" class="button button-ghost compact" type="button" hidden data-i18n="shell.changeServer">
+          Change server
         </button>
       </div>
     </header>
 
     <main id="selection-screen" class="screen selection-screen">
       <section class="intro">
-        <p class="eyebrow">DESKTOP CONNECTION</p>
-        <h1>재생할 서버를 선택하세요</h1>
-        <p>
-          같은 네트워크에서 확인된 JASTREAMER 서버만 연결할 수 있습니다.
-          서버 선택은 항상 직접 해야 하며 자동으로 연결하지 않습니다.
+        <div class="intro-header">
+          <div>
+            <p class="eyebrow" data-i18n="shell.intro.eyebrow">DESKTOP CONNECTION</p>
+            <h1 data-i18n="shell.intro.title">Select a server to play from</h1>
+          </div>
+          <label class="language-control" for="language">
+            <span data-i18n="shell.language">Language</span>
+            <select id="language" class="language-select">
+              <option value="en" data-i18n="shell.language.english">English</option>
+              <option value="ko" data-i18n="shell.language.korean">Korean</option>
+            </select>
+          </label>
+        </div>
+        <p data-i18n="shell.intro.detail">
+          You can connect only to verified JASTREAMER servers on your network. You must always choose a server yourself; the app never connects automatically.
         </p>
       </section>
 
       <section class="manual-panel panel" aria-labelledby="manual-heading">
         <div>
-          <h2 id="manual-heading">주소로 연결</h2>
-          <p class="muted">호스트 이름 또는 HTTP(S) 루트 주소를 입력하세요.</p>
+          <h2 id="manual-heading" data-i18n="shell.manual.title">Connect by address</h2>
+          <p class="muted" data-i18n="shell.manual.detail">Enter a host name or an HTTP(S) root URL.</p>
         </div>
         <form id="manual-form" class="manual-form">
-          <label class="sr-only" for="manual-origin">서버 주소</label>
+          <label class="sr-only" for="manual-origin" data-i18n="shell.manual.label">Server address</label>
           <input
             id="manual-origin"
             class="input"
@@ -53,12 +63,13 @@
             autocomplete="off"
             autocapitalize="none"
             spellcheck="false"
-            placeholder="예: music-server.local:8080 또는 https://music.example.local"
+            placeholder="Example: music-server.local:8080 or https://music.example.local"
+            data-i18n-placeholder="shell.manual.placeholder"
             required
           />
-          <button class="button button-primary" type="submit">확인 후 연결</button>
+          <button class="button button-primary" type="submit" data-i18n="shell.manual.connect">Verify and connect</button>
         </form>
-        <p class="http-note">HTTP 연결은 신뢰할 수 있는 사설 LAN에서만 사용하세요. HTTPS 인증서 검사는 끌 수 없습니다.</p>
+        <p class="http-note" data-i18n="shell.manual.httpNote">Use HTTP only on a trusted private LAN. HTTPS certificate checks cannot be disabled.</p>
       </section>
 
       <div id="inline-error" class="inline-error" role="alert" hidden></div>
@@ -66,10 +77,10 @@
       <section class="server-section" aria-labelledby="discovered-heading">
         <div class="section-heading">
           <div>
-            <p class="eyebrow">LOCAL NETWORK</p>
-            <h2 id="discovered-heading">발견된 서버</h2>
+            <p class="eyebrow" data-i18n="shell.discovered.eyebrow">LOCAL NETWORK</p>
+            <h2 id="discovered-heading" data-i18n="shell.discovered.title">Discovered servers</h2>
           </div>
-          <button id="refresh" class="button button-ghost compact" type="button">새로 고침</button>
+          <button id="refresh" class="button button-ghost compact" type="button" data-i18n="shell.refresh">Refresh</button>
         </div>
         <div id="discovered-list" class="server-grid" aria-live="polite"></div>
       </section>
@@ -77,8 +88,8 @@
       <section class="server-section" aria-labelledby="recent-heading">
         <div class="section-heading">
           <div>
-            <p class="eyebrow">RECENT</p>
-            <h2 id="recent-heading">최근 서버</h2>
+            <p class="eyebrow" data-i18n="shell.recent.eyebrow">RECENT</p>
+            <h2 id="recent-heading" data-i18n="shell.recent.title">Recent servers</h2>
           </div>
         </div>
         <div id="recent-list" class="server-grid" aria-live="polite"></div>
@@ -88,26 +99,26 @@
     <main id="workspace-screen" class="screen workspace-screen" hidden>
       <section id="loading-panel" class="status-panel" hidden>
         <span class="spinner" aria-hidden="true"></span>
-        <p class="eyebrow">CONNECTING</p>
-        <h1>서버를 확인하고 있습니다</h1>
+        <p class="eyebrow" data-i18n="shell.connecting.eyebrow">CONNECTING</p>
+        <h1 data-i18n="shell.connecting.title">Verifying the server</h1>
         <p id="loading-origin" class="muted"></p>
       </section>
 
       <section id="error-panel" class="status-panel error-panel" role="alert" hidden>
-        <p class="eyebrow danger">CONNECTION ERROR</p>
-        <h1 id="error-title">서버에 연결할 수 없습니다</h1>
+        <p class="eyebrow danger" data-i18n="shell.error.eyebrow">CONNECTION ERROR</p>
+        <h1 id="error-title" data-i18n="shell.error.title">Cannot connect to the server</h1>
         <p id="error-detail" class="muted"></p>
         <div class="error-actions">
-          <button id="retry" class="button button-primary" type="button">다시 시도</button>
-          <button id="error-change-server" class="button button-ghost" type="button">다른 서버 선택</button>
+          <button id="retry" class="button button-primary" type="button" data-i18n="shell.retry">Try again</button>
+          <button id="error-change-server" class="button button-ghost" type="button" data-i18n="shell.otherServer">Choose another server</button>
         </div>
       </section>
 
       <section id="connected-underlay" class="status-panel" hidden aria-hidden="true">
-        <p class="muted">서버 화면을 표시하고 있습니다.</p>
+        <p class="muted" data-i18n="shell.connectedUnderlay">Displaying the server interface.</p>
       </section>
     </main>
 
-    <script src="./shell.js" defer></script>
+    <script type="module" src="./shell.js"></script>
   </body>
 </html>

@@ -28,7 +28,7 @@ const directory = child(output, manifest.directory);
 const expected = new Set();
 for (const entry of manifest.files) {
   assert(!expected.has(entry.path), 'Duplicate artifact path');
-  assert(!/(^|\/)(?:user-data|\.user-data|recents\.json)(\/|$)/i.test(entry.path), 'Private runtime data in artifact');
+  assert(!/(^|\/)(?:user-data|\.user-data|recents\.json|preferences\.json)(\/|$)/i.test(entry.path), 'Private runtime data in artifact');
   expected.add(entry.path);
   const file = child(directory, entry.path);
   assert.equal((await stat(file)).size, entry.bytes, entry.path);

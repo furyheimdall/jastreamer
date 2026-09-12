@@ -93,15 +93,16 @@ async function connect(shell, origin) {
     throw new Error(`${error.message}; contents=${JSON.stringify(contents)}; shell=${shellState}`, { cause: error });
   });
   await page.waitForLoadState('domcontentloaded');
-  await until(async () => (await shell.locator('#connection-state').innerText()) === '연결됨', 'Trusted connection bar did not become ready');
+  const expectedState = await shell.locator("#language").inputValue() === "ko" ? "연결됨" : "Connected";
+  await until(async () => (await shell.locator("#connection-state").innerText()) === expectedState, "Trusted connection bar did not become ready");
   return page;
 }
 async function createAccount(page, username) {
-  await page.getByLabel('사용자 이름', { exact: true }).fill(username);
-  await page.getByLabel('비밀번호', { exact: true }).fill(password);
-  await page.getByLabel('비밀번호 확인', { exact: true }).fill(password);
-  await page.getByRole('button', { name: '계정 만들기', exact: true }).click();
-  await page.getByLabel('재생 기기', { exact: true }).waitFor({ state: 'visible' });
+  await page.getByLabel("Username", { exact: true }).fill(username);
+  await page.getByLabel("Password", { exact: true }).fill(password);
+  await page.getByLabel("Confirm password", { exact: true }).fill(password);
+  await page.getByRole("button", { name: "Create account", exact: true }).click();
+  await page.getByLabel("Output device", { exact: true }).waitFor({ state: "visible" });
 }
 async function username(page) {
   return page.evaluate(async () => (await (await fetch('/api/v1/session')).json()).user?.username);
@@ -110,19 +111,39 @@ try {
   await cp(path.dirname(desktopBinary), portable, { recursive: true, filter: (source) => path.basename(source) !== 'user-data' });
   const [a, b] = await Promise.all([startServer('Desktop A'), startServer('Desktop B')]);
   let shell = await launch();
+  assert.equal(await shell.locator("#language").inputValue(), "en", "A new portable profile must default to English");
+  assert.equal(await shell.locator("#manual-heading").innerText(), "Connect by address");
   let page = await connect(shell, a);
   await createAccount(page, 'desktop-a');
   assert.equal(await username(page), 'desktop-a');
-  const privileges = await page.evaluate(() => ({ node: typeof require, process: typeof process, popupBlocked: window.open('https://example.invalid/') === null }));
-  assert.deepEqual(privileges, { node: 'undefined', process: 'undefined', popupBlocked: true });
+  const privileges = await page.evaluate(() => ({
+    node: typeof require,
+    process: typeof process,
+    desktopBridge: typeof window.jastreamerDesktop,
+    popupBlocked: window.open("https://example.invalid/") === null,
+  }));
+  assert.deepEqual(privileges, { node: "undefined", process: "undefined", desktopBridge: "undefined", popupBlocked: true });
+  assert.match(await page.evaluate(() => document.cookie), /(?:^|; )jastreamer_language=en(?:;|$)/, "The active server partition must receive English before load");
+  await page.evaluate(() => {
+    document.cookie = "jastreamer_language=ko; Path=/; SameSite=Strict; Max-Age=31536000";
+  });
+  await until(async () => (await shell.locator("#language").inputValue()) === "ko", "Remote language cookie did not update the trusted shell");
+  assert.equal(await shell.locator("#change-server").innerText(), "서버 변경");
+  await page.evaluate(() => {
+    document.cookie = "jastreamer_language=en; Path=/; SameSite=Strict; Max-Age=31536000";
+  });
+  await until(async () => (await shell.locator("#language").inputValue()) === "en", "English language cookie did not update the trusted shell");
   await shell.locator('#change-server').click();
   page = await connect(shell, b);
   assert.equal(await username(page), undefined, 'A session must not enter B at another port of the same host');
   await createAccount(page, 'desktop-b');
   await shell.locator('#change-server').click();
   page = await connect(shell, a);
-  await page.getByLabel('재생 기기', { exact: true }).waitFor({ state: 'visible' });
+  await page.getByLabel("Output device", { exact: true }).waitFor({ state: "visible" });
   assert.equal(await username(page), 'desktop-a', 'B login must not overwrite A session');
+  await shell.locator("#change-server").click();
+  await shell.locator("#language").selectOption("ko");
+  await until(async () => (await shell.locator("#manual-heading").innerText()) === "주소로 연결", "Local language selection did not apply");
   await application.close();
   application = null;
   assert.deepEqual(commands, [], 'Switching and closing must not send queue or playback commands');
@@ -130,15 +151,18 @@ try {
   await rename(portable, moved);
   portable = moved;
   shell = await launch();
+  assert.equal(await shell.locator("#language").inputValue(), "ko", "Portable restart must retain the language preference");
+  await shell.locator("#language").selectOption("en");
+  await until(async () => (await shell.locator("#manual-heading").innerText()) === "Connect by address", "English selection did not apply");
   assert.equal(application.context().pages().some((candidate) => candidate.url() === a + '/'), false, 'Restart must not auto-connect');
   page = await connect(shell, a);
-  await page.getByLabel('재생 기기', { exact: true }).waitFor({ state: 'visible' });
+  await page.getByLabel("Output device", { exact: true }).waitFor({ state: "visible" });
   assert.equal(await username(page), 'desktop-a', 'Moving the complete portable directory must retain the session on the same user/machine');
   await application.close();
   application = null;
   assert.deepEqual(commands, []);
   assert.equal((await fetch(a + '/healthz')).status, 200, 'Server must remain alive after desktop exits');
-  console.log(JSON.stringify({ packagedLaunch: true, platform: process.platform, twoServerSessionIsolation: true, portableMoveSessionRetained: true, noAutomaticConnection: true, remoteNodeBlocked: true, remotePopupBlocked: true, playbackCommandsOnSwitchOrExit: commands.length }));
+  console.log(JSON.stringify({ packagedLaunch: true, platform: process.platform, twoServerSessionIsolation: true, portableMoveSessionRetained: true, portableLanguageRetained: true, remoteLanguageCookieObserved: true, noAutomaticConnection: true, remoteNodeBlocked: true, remoteDesktopBridgeBlocked: true, remotePopupBlocked: true, playbackCommandsOnSwitchOrExit: commands.length }));
 } finally {
   if (application) await application.close().catch(() => {});
   for (const proxy of proxies) { proxy.closeAllConnections(); proxy.close(); }

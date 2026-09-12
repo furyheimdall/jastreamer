@@ -1,12 +1,28 @@
 import { isIP } from "node:net";
+import { networkInterfaces } from "node:os";
 import { Bonjour } from "bonjour-service";
-import { probeEndpoint, probeErrorMessage } from "./probe.mjs";
+import multicastDNS from "multicast-dns";
+import { probeEndpoint } from "./probe.mjs";
 import { normalizeEndpoint, normalizeServerId } from "./security.mjs";
+import { getLanguage, t } from "./i18n.mjs";
 
 const MAX_DISCOVERED_SERVICES = 64;
+const MAX_PARALLEL_PROBES = 4;
 const DISCOVERY_QUERY_INTERVAL_MS = 5_000;
 const DEFAULT_PROBE_INTERVAL_MS = 60_000;
-const MAX_PARALLEL_PROBES = 4;
+const DISCOVERY_SERVICE = "_jastreamer._tcp.local";
+
+function ipv4InterfaceAddresses() {
+  const addresses = new Set();
+  for (const interfaces of Object.values(networkInterfaces())) {
+    for (const entry of interfaces ?? []) {
+      if (!entry.internal && (entry.family === 4 || entry.family === "IPv4")) {
+        addresses.add(entry.address);
+      }
+    }
+  }
+  return addresses;
+}
 
 function txtValue(value) {
   if (Buffer.isBuffer(value)) return value.toString("utf8");
@@ -86,6 +102,7 @@ function serviceKey(service) {
 export class LanDiscovery {
   #bonjour;
   #browser = null;
+  #querySockets = new Map();
   #records = new Map();
   #queue = [];
   #active = 0;
@@ -108,14 +125,17 @@ export class LanDiscovery {
   start() {
     if (!this.#stopped) return;
     this.#stopped = false;
-    this.#browser = this.#bonjour.find({ type: "jastreamer", protocol: "tcp" });
-    this.#browser.on("up", (service) => this.#serviceUp(service));
+    this.#browser = this.#bonjour.find(
+      { type: "jastreamer", protocol: "tcp" },
+      (service) => this.#serviceUp(service),
+    );
     this.#browser.on("down", (service) => this.#serviceDown(service));
     this.#browser.on("txt-update", (service) => this.#serviceUp(service));
     this.#browser.on("srv-update", (service) => this.#serviceUp(service));
+    this.#queryAllInterfaces();
     this.#queryTimer = setInterval(() => {
       this.#browser?.expire?.();
-      this.#browser?.update?.();
+      this.#queryAllInterfaces();
     }, DISCOVERY_QUERY_INTERVAL_MS);
     this.#queryTimer.unref?.();
     this.#timer = setInterval(() => {
@@ -126,16 +146,19 @@ export class LanDiscovery {
 
   refresh() {
     this.#browser?.expire?.();
-    this.#browser?.update?.();
+    this.#queryAllInterfaces();
     this.#scheduleAll();
   }
 
   snapshot() {
     return [...this.#records.values()]
-      .map(({ generation: _generation, queued: _queued, origins: _origins, ...record }) => ({ ...record }))
+      .map(({ generation: _generation, queued: _queued, origins: _origins, messageKey, messageParams, ...record }) => ({
+        ...record,
+        message: t(messageKey, messageParams),
+      }))
       .sort((left, right) => {
         if (left.availability !== right.availability) return left.availability === "available" ? -1 : 1;
-        return left.name.localeCompare(right.name, "ko");
+        return left.name.localeCompare(right.name, getLanguage() === "ko" ? "ko-KR" : "en-US");
       });
   }
 
@@ -150,7 +173,31 @@ export class LanDiscovery {
     this.#controllers.clear();
     this.#browser?.stop?.();
     this.#browser = null;
+    for (const socket of this.#querySockets.values()) socket.destroy();
+    this.#querySockets.clear();
     this.#bonjour.destroy();
+  }
+
+  #queryAllInterfaces() {
+    if (this.#stopped) return;
+    const addresses = ipv4InterfaceAddresses();
+    for (const [address, socket] of this.#querySockets) {
+      if (addresses.has(address)) continue;
+      this.#querySockets.delete(address);
+      socket.destroy();
+    }
+    for (const address of addresses) {
+      let socket = this.#querySockets.get(address);
+      if (!socket) {
+        socket = multicastDNS({ interface: address, bind: "0.0.0.0" });
+        this.#querySockets.set(address, socket);
+        socket.on("error", () => {
+          if (this.#querySockets.get(address) === socket) this.#querySockets.delete(address);
+          socket.destroy();
+        });
+      }
+      socket.query(DISCOVERY_SERVICE, "PTR");
+    }
   }
 
   #serviceUp(service) {
@@ -168,7 +215,7 @@ export class LanDiscovery {
       origin: previous?.origin ?? parsed.origins[0],
       origins: parsed.origins,
       availability: "checking",
-      message: "서버를 확인하는 중입니다.",
+      messageKey: "status.checking",
       connectable: false,
       lastSeen: Date.now(),
       generation: ++this.#sequence,
@@ -188,7 +235,7 @@ export class LanDiscovery {
   #scheduleAll() {
     for (const [key, record] of this.#records) {
       record.availability = "checking";
-      record.message = "서버를 다시 확인하는 중입니다.";
+      record.messageKey = "status.rechecking";
       record.connectable = false;
       record.generation = ++this.#sequence;
       this.#enqueue(key);
@@ -241,7 +288,7 @@ export class LanDiscovery {
             version: metadata.version,
             origin: metadata.origin,
             availability: "available",
-            message: "연결할 수 있습니다.",
+            messageKey: "status.available",
             connectable: true,
             lastSeen: Date.now(),
           });
@@ -257,7 +304,8 @@ export class LanDiscovery {
       if (!current || current.generation !== generation) return;
       current.availability = "unavailable";
       current.connectable = false;
-      current.message = probeErrorMessage(lastError);
+      current.messageKey = lastError?.messageKey ?? "probe.unknown";
+      current.messageParams = lastError?.params;
       this.#emit();
     } finally {
       this.#controllers.delete(controller);
