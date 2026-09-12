@@ -152,6 +152,17 @@ affect access, data, or service availability. Explain one stage at a time.
    storage locations, commands used, verification results, and backup/
    rollback steps without secrets. Distinguish completed work from any
    client-network or physical-audio checks I still need to perform.
+   End with a short "Open and try it" guide using the actual verified LAN
+   URL, including scheme and port, as a clickable link. Do not leave an
+   example address, localhost, or 0.0.0.0 as the client access URL.
+   Tell me to open it from a browser on the same LAN and log in; the
+   optional Windows client can use that same URL.
+   Invite me to check that my music is listed, select my intended output
+   while stopped, and explicitly play a track to confirm audible sound.
+   Then suggest checking pause/seek if supported and stopping playback.
+   These are user-run checks, not permission for automatic playback.
+   Explain the expected result of each check and ask me to report the
+   failed step and error text without passwords or other secrets.
    If a prerequisite or user-only action is still missing, identify it
    explicitly rather than calling the setup complete.
    Preserve existing music and application state if any step fails.
