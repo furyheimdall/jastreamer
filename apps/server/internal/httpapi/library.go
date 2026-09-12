@@ -39,6 +39,15 @@ func (service *server) track(w http.ResponseWriter, r *http.Request) {
 	reply(w, 200, track)
 }
 
+func (service *server) trackInfo(w http.ResponseWriter, r *http.Request) {
+	info, err := service.options.Library.Info(r.Context(), r.PathValue("id"))
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	reply(w, http.StatusOK, info)
+}
+
 func (service *server) artwork(w http.ResponseWriter, r *http.Request) {
 	file, kind, err := service.options.Library.Artwork(r.Context(), r.PathValue("id"))
 	if err != nil {

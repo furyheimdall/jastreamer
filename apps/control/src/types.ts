@@ -19,6 +19,18 @@ export interface Track {
   modified_at: string;
 }
 
+export interface TrackInfo {
+  track: Track;
+  audio: {
+    codec: string;
+    sample_rate: number | null;
+    channels: number | null;
+    bits_per_sample: number | null;
+    bit_rate: number | null;
+  };
+  tags: Record<string, string[]>;
+}
+
 export interface Album {
   id: string;
   title: string;

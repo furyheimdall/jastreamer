@@ -15,9 +15,12 @@ Server discovery and output discovery are separate. Discovering a Server or outp
 
 - FLAC, MP3, WAV, Ogg/Vorbis, Opus, and M4A library scanning without modifying source music
 - track, album, artist, genre, and folder browsing; search and embedded artwork
+- on-demand track information from library info buttons and player artwork, including embedded text tags and verified audio properties
 - saved playlists and one global, duplicate-preserving durable queue
 - explicit Play, Pause, Stop, Previous, Next, and Seek when the selected output supports them
 - stopped-only output selection and AirPlay PIN/password authorization
+- deduplicated AirPlay discovery, advertised AirTunes RSA/AES with ALAC framing, and UTF-8-correct metadata
+- dismissible full-text error dialogs, including delayed playback failures
 - first-account setup, password login, HttpOnly sessions, password change and local recovery
 - private-LAN HTTP by default, or built-in HTTPS with an operator-provided PEM certificate and key
 

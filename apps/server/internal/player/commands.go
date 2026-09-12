@@ -194,15 +194,10 @@ func (s *Service) executeSafely(runCtx context.Context, command commandRecord) {
 	defer cancel()
 	if err := s.executeCommand(ctx, command); err != nil {
 		if ctx.Err() != nil || rendererOutcomeUnknown(err) {
-			message := "The renderer did not confirm the command; its outcome is unknown."
-			var actionError *output.ActionError
-			if errors.As(err, &actionError) {
-				message = fmt.Sprintf("The renderer did not confirm %s (%s); its outcome is unknown.", actionError.Action, actionError.Kind)
-			}
-			s.completeUnknown(command, message)
+			s.completeUnknown(command, rendererUnknownOutcomeMessage(err))
 			return
 		}
-		s.completeFailure(command, commandFailureMessage(command.action), false, "")
+		s.completeFailure(command, rendererFailureMessage(command.action, err), false, "")
 	}
 }
 
@@ -445,6 +440,38 @@ func rendererOutcomeUnknown(err error) bool {
 	default:
 		return false
 	}
+}
+
+type safeRendererError interface {
+	SafeRendererError() string
+}
+
+func rendererUnknownOutcomeMessage(err error) string {
+	message := "The renderer did not confirm the command; its outcome is unknown."
+	var actionError *output.ActionError
+	if errors.As(err, &actionError) {
+		message = fmt.Sprintf("The renderer did not confirm %s (%s); its outcome is unknown.", actionError.Action, actionError.Kind)
+	}
+	if detail := safeRendererErrorDetail(err); detail != "" {
+		message += " " + detail
+	}
+	return message
+}
+
+func rendererFailureMessage(action string, err error) string {
+	message := commandFailureMessage(action)
+	if detail := safeRendererErrorDetail(err); detail != "" {
+		message += " " + detail
+	}
+	return message
+}
+
+func safeRendererErrorDetail(err error) string {
+	var detail safeRendererError
+	if errors.As(err, &detail) {
+		return detail.SafeRendererError()
+	}
+	return ""
 }
 
 func (s *Service) resolvePlayTarget(ctx context.Context, requested, current string) (queueRecord, bool, error) {

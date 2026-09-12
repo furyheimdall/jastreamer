@@ -1,0 +1,304 @@
+.track-info-backdrop {
+  position: fixed;
+  z-index: 180;
+  inset: 0;
+  display: grid;
+  padding: clamp(0.75rem, 3vw, 1.5rem);
+  overflow: hidden;
+  background: #000000b8;
+  place-items: center;
+}
+
+.track-info-dialog {
+  width: min(58rem, 100%);
+  max-height: calc(100dvh - clamp(1.5rem, 6vw, 3rem));
+  padding: clamp(1rem, 3vw, 1.5rem);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  border: 1px solid #ffffff1f;
+  border-radius: 0.9rem;
+  background: var(--panel-raised, #252b2f);
+  box-shadow: 0 1.5rem 4.5rem #000a;
+  scrollbar-width: thin;
+}
+
+.track-info-heading {
+  position: sticky;
+  z-index: 1;
+  top: calc(-1 * clamp(1rem, 3vw, 1.5rem));
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 1rem;
+  margin: calc(-1 * clamp(1rem, 3vw, 1.5rem)) calc(-1 * clamp(1rem, 3vw, 1.5rem)) 0;
+  padding: clamp(1rem, 3vw, 1.5rem);
+  border-bottom: 1px solid transparent;
+  background: color-mix(in srgb, var(--panel-raised, #252b2f) 94%, transparent);
+  backdrop-filter: blur(12px);
+}
+
+.track-info-heading h2 {
+  max-width: 42rem;
+  margin: 0.15rem 0 0;
+  overflow-wrap: anywhere;
+  font-size: clamp(1.2rem, 3vw, 1.55rem);
+  line-height: 1.2;
+}
+
+.track-info-eyebrow {
+  margin: 0;
+  color: var(--accent, #c8edb2);
+  font-size: 0.72rem;
+  font-weight: 750;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.track-info-close {
+  appearance: none;
+  display: grid;
+  flex: 0 0 auto;
+  width: 2.25rem;
+  height: 2.25rem;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--muted, #9aa3a6);
+  place-items: center;
+}
+
+.track-info-close:hover {
+  background: #ffffff0c;
+  color: var(--text, #f4f4ec);
+}
+
+.track-info-close svg {
+  width: 1.2rem;
+  height: 1.2rem;
+}
+
+.track-info-status {
+  padding: 4rem 1rem;
+  color: var(--muted, #9aa3a6);
+  text-align: center;
+}
+
+.track-info-error {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-top: 1.25rem;
+  padding: 1rem;
+  border: 1px solid color-mix(in srgb, var(--danger, #ff9b9b) 35%, transparent);
+  border-radius: 0.65rem;
+  background: color-mix(in srgb, var(--danger, #ff9b9b) 8%, transparent);
+}
+
+.track-info-error p {
+  margin: 0;
+  color: #ffdede;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.track-info-error .button {
+  flex: 0 0 auto;
+}
+
+.track-info-content {
+  display: grid;
+  gap: 1.4rem;
+  margin-top: 1.25rem;
+}
+
+.track-info-summary {
+  display: grid;
+  grid-template-columns: clamp(7rem, 18vw, 10rem) minmax(0, 1fr);
+  align-items: center;
+  gap: clamp(1rem, 3vw, 1.5rem);
+  padding-bottom: 1.4rem;
+  border-bottom: 1px solid var(--border, #ffffff12);
+}
+
+.track-info-summary > div {
+  min-width: 0;
+}
+
+.track-info-summary strong,
+.track-info-summary span {
+  display: block;
+  overflow-wrap: anywhere;
+}
+
+.track-info-summary strong {
+  font-size: clamp(1.25rem, 4vw, 1.8rem);
+  line-height: 1.2;
+}
+
+.track-info-summary span {
+  margin-top: 0.45rem;
+  color: var(--muted, #9aa3a6);
+  line-height: 1.45;
+}
+
+.track-info-artwork {
+  display: block;
+  width: 100%;
+  aspect-ratio: 1;
+  border: 1px solid var(--border, #ffffff12);
+  border-radius: 0.75rem;
+  background: var(--panel, #1b1f22);
+  object-fit: cover;
+}
+
+.track-info-artwork-empty {
+  display: grid;
+  color: color-mix(in srgb, var(--muted, #9aa3a6) 70%, transparent);
+  background:
+    linear-gradient(145deg, #ffffff08, transparent 45%),
+    var(--panel, #1b1f22);
+  place-items: center;
+}
+
+.track-info-artwork-empty svg {
+  width: 32%;
+  height: 32%;
+}
+
+.track-info-section h3 {
+  margin: 0 0 0.75rem;
+  color: var(--text, #f4f4ec);
+  font-size: 0.9rem;
+  letter-spacing: 0.02em;
+}
+
+.track-info-grid,
+.track-info-tags {
+  margin: 0;
+}
+
+.track-info-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1px;
+  overflow: hidden;
+  border: 1px solid var(--border, #ffffff12);
+  border-radius: 0.65rem;
+  background: var(--border, #ffffff12);
+}
+
+.track-info-detail {
+  min-width: 0;
+  padding: 0.75rem 0.85rem;
+  background: var(--panel, #1b1f22);
+}
+
+.track-info-detail-wide {
+  grid-column: 1 / -1;
+}
+
+.track-info-detail dt,
+.track-info-tags dt {
+  margin-bottom: 0.3rem;
+  color: var(--muted, #9aa3a6);
+  font-size: 0.7rem;
+  font-weight: 700;
+}
+
+.track-info-detail dd,
+.track-info-tags dd {
+  margin: 0;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.track-info-code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.78rem;
+  white-space: pre-wrap;
+}
+
+.track-info-tags {
+  overflow: hidden;
+  border: 1px solid var(--border, #ffffff12);
+  border-radius: 0.65rem;
+}
+
+.track-info-tags > div {
+  display: grid;
+  grid-template-columns: minmax(8rem, 0.35fr) minmax(0, 1fr);
+  gap: 0.8rem;
+  padding: 0.7rem 0.85rem;
+  background: var(--panel, #1b1f22);
+}
+
+.track-info-tags > div + div {
+  border-top: 1px solid var(--border, #ffffff12);
+}
+
+.track-info-tags dt {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.track-info-tags dd span {
+  display: block;
+}
+
+.track-info-tags dd span + span {
+  margin-top: 0.25rem;
+}
+
+.track-info-empty {
+  margin: 0;
+  padding: 1rem;
+  border: 1px solid var(--border, #ffffff12);
+  border-radius: 0.65rem;
+  color: var(--muted, #9aa3a6);
+  background: var(--panel, #1b1f22);
+}
+
+@media (max-width: 640px) {
+  .track-info-backdrop {
+    align-items: end;
+    padding: 0;
+  }
+
+  .track-info-dialog {
+    width: 100%;
+    max-height: calc(100dvh - 0.5rem);
+    padding: 1rem;
+    border-radius: 0.9rem 0.9rem 0 0;
+  }
+
+  .track-info-heading {
+    top: -1rem;
+    margin: -1rem -1rem 0;
+    padding: 1rem;
+  }
+
+  .track-info-summary {
+    grid-template-columns: 5.5rem minmax(0, 1fr);
+  }
+
+  .track-info-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .track-info-detail-wide {
+    grid-column: auto;
+  }
+
+  .track-info-tags > div {
+    grid-template-columns: 1fr;
+    gap: 0.25rem;
+  }
+
+  .track-info-error {
+    align-items: stretch;
+    flex-direction: column;
+  }
+}

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { addTracks, api, playTracks } from "./api";
 import type { Album, Artist, Folder, Genre, Page, Playlist, Track } from "./types";
+import TrackInfoDialog from "./TrackInfoDialog";
 import "./library.css";
 
 type Props = {
@@ -59,7 +60,7 @@ function formatDuration(milliseconds: number): string {
     : `${minutes}:${String(seconds).padStart(2, "0")}`;
 }
 
-function Icon({ name }: { name: "music" | "play" | "next" | "append" | "playlist" | "folder" | "back" | "search" }) {
+function Icon({ name }: { name: "music" | "play" | "next" | "append" | "playlist" | "folder" | "back" | "search" | "info" }) {
   const paths = {
     music: <><path d="M9 18V5l11-2v13" /><circle cx="6" cy="18" r="3" /><circle cx="17" cy="16" r="3" /></>,
     play: <path d="m8 5 11 7-11 7z" />,
@@ -69,6 +70,7 @@ function Icon({ name }: { name: "music" | "play" | "next" | "append" | "playlist
     folder: <path d="M3 6.5h7l2 2h9v10H3z" />,
     back: <path d="m15 18-6-6 6-6" />,
     search: <><circle cx="11" cy="11" r="7" /><path d="m20 20-4-4" /></>,
+    info: <><circle cx="12" cy="12" r="9" /><path d="M12 11v6" /><path d="M12 7h.01" /></>,
   };
   return <svg className="library-icon" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">{paths[name]}</svg>;
 }
@@ -125,6 +127,7 @@ export default function Library({ revision, onNotice, onQueueChange }: Props) {
   const [pickerTarget, setPickerTarget] = useState("");
   const [newPlaylistName, setNewPlaylistName] = useState("");
   const [pickerError, setPickerError] = useState("");
+  const [infoTrackID, setInfoTrackID] = useState<string | null>(null);
   const requestSerial = useRef(0);
 
   useEffect(() => {
@@ -457,6 +460,7 @@ export default function Library({ revision, onNotice, onQueueChange }: Props) {
                 <button type="button" title="다음에 재생" aria-label={`${track.title} 다음에 재생`} disabled={!track.available || actionBusy} onClick={() => runQueue([track], "next")}><Icon name="next" /></button>
                 <button type="button" title="끝에 추가" aria-label={`${track.title} 재생목록 끝에 추가`} disabled={!track.available || actionBusy} onClick={() => runQueue([track], "append")}><Icon name="append" /></button>
                 <button type="button" title="저장 목록에 추가" aria-label={`${track.title} 저장된 플레이리스트에 추가`} disabled={!track.available || actionBusy} onClick={() => openTrackPicker(track)}><Icon name="playlist" /></button>
+                <button type="button" title="곡 정보" aria-label={`${track.title} 곡 정보 보기`} onClick={(event) => { event.stopPropagation(); setInfoTrackID(track.id); }}><Icon name="info" /></button>
               </div>
             </article>
           ))}
@@ -482,6 +486,7 @@ export default function Library({ revision, onNotice, onQueueChange }: Props) {
           </section>
         </div>
       )}
+      <TrackInfoDialog trackId={infoTrackID} onClose={() => setInfoTrackID(null)} />
     </section>
   );
 }

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { api, ApiError } from "./api";
+import TrackInfoDialog from "./TrackInfoDialog";
 import type { Device, PairingRequest, PairingStatus, PlayerState } from "./types";
 
 interface PlayerBarProps {
@@ -49,23 +50,48 @@ export default function PlayerBar({ revision, onNotice, onQueueChange }: PlayerB
   const [pairingStatus, setPairingStatus] = useState<PairingStatus | null>(null);
   const [pairingError, setPairingError] = useState("");
   const [pairingStarted, setPairingStarted] = useState(false);
+  const [infoTrackId, setInfoTrackId] = useState<string | null>(null);
+  const closeTrackInfo = useCallback(() => setInfoTrackId(null), []);
+  const observedPlayerError = useRef<{ revision: number; message: string } | null>(null);
+
+  const applyError = useCallback((message: string, playerRevision: number) => {
+    setError(message);
+    if (!message) {
+      observedPlayerError.current = null;
+      return;
+    }
+    if (
+      observedPlayerError.current?.revision === playerRevision
+      && observedPlayerError.current.message === message
+    ) return;
+
+    observedPlayerError.current = { revision: playerRevision, message };
+    onNotice(message, true);
+  }, [onNotice]);
 
   const load = useCallback(async () => {
-    try {
-      const [nextPlayer, rendererResult] = await Promise.all([
-        api<PlayerState>("/player"),
-        api<{ items: Device[] }>("/renderers"),
-      ]);
+    const [playerResult, rendererResult] = await Promise.allSettled([
+      api<PlayerState>("/player"),
+      api<{ items: Device[] }>("/renderers"),
+    ]);
+    const messages: string[] = [];
+    if (playerResult.status === "fulfilled") {
+      const nextPlayer = playerResult.value;
       setPlayer(nextPlayer);
-      setDevices(rendererResult.items ?? []);
       if (!seekingRef.current) setPosition(nextPlayer.position_ms);
-      setError(nextPlayer.error || "");
-    } catch (requestError) {
-      setError(errorMessage(requestError));
-    } finally {
-      setLoading(false);
+      if (nextPlayer.error) messages.push(nextPlayer.error);
+    } else {
+      messages.push(errorMessage(playerResult.reason));
     }
-  }, []);
+    if (rendererResult.status === "fulfilled") {
+      setDevices(rendererResult.value.items ?? []);
+    } else {
+      const message = errorMessage(rendererResult.reason);
+      if (!messages.includes(message)) messages.push(message);
+    }
+    applyError(messages.join("\n\n"), playerResult.status === "fulfilled" ? playerResult.value.revision : -1);
+    setLoading(false);
+  }, [applyError]);
 
   useEffect(() => {
     void load();
@@ -109,7 +135,7 @@ export default function PlayerBar({ revision, onNotice, onQueueChange }: PlayerB
       });
       setPlayer(next);
       setPosition(next.position_ms);
-      setError(next.error || "");
+      applyError(next.error || "", next.revision);
       onQueueChange();
     } catch (requestError) {
       const message = errorMessage(requestError);
@@ -134,7 +160,7 @@ export default function PlayerBar({ revision, onNotice, onQueueChange }: PlayerB
       });
       setPlayer(next);
       setPosition(next.position_ms);
-      setError("");
+      applyError(next.error || "", next.revision);
     } catch (requestError) {
       setPosition(player.position_ms);
       const message = errorMessage(requestError);
@@ -156,7 +182,7 @@ export default function PlayerBar({ revision, onNotice, onQueueChange }: PlayerB
         body: JSON.stringify({ renderer_id: rendererID }),
       });
       setPlayer(next);
-      setError("");
+      applyError(next.error || "", next.revision);
       onNotice("재생 기기를 변경했습니다.");
     } catch (requestError) {
       const message = errorMessage(requestError);
@@ -247,7 +273,14 @@ export default function PlayerBar({ revision, onNotice, onQueueChange }: PlayerB
   return (
     <footer className="player-bar" aria-label="현재 재생">
       <div className="now-playing">
-        <div className="player-artwork">
+        <button
+          className="player-artwork"
+          type="button"
+          disabled={!player?.track}
+          aria-label={player?.track ? `${player.track.title} 곡 정보` : "곡 정보"}
+          title="곡 정보"
+          onClick={() => { if (player?.track) setInfoTrackId(player.track.id); }}
+        >
           {player?.track?.artwork_id ? (
             <img
               src={`/api/v1/artwork/${encodeURIComponent(player.track.artwork_id)}`}
@@ -256,11 +289,11 @@ export default function PlayerBar({ revision, onNotice, onQueueChange }: PlayerB
           ) : (
             <PlayerIcon name="music" />
           )}
-        </div>
+        </button>
         <div className="now-playing-copy" aria-live="polite">
           <strong>{loading ? "재생 정보를 불러오는 중…" : player?.track?.title || "재생 중인 곡 없음"}</strong>
           <span>{player?.track?.artist || (selectedDevice ? deviceLabel(selectedDevice) : "기기를 선택해 주세요")}</span>
-          {error && <span className="player-error">{error}</span>}
+          {error && <button className="player-error" type="button" onClick={() => onNotice(error, true)}>오류 상세 보기</button>}
         </div>
       </div>
 
@@ -427,6 +460,7 @@ export default function PlayerBar({ revision, onNotice, onQueueChange }: PlayerB
         )}
         {playing && <span className="playing-indicator">재생 중</span>}
       </div>
+      <TrackInfoDialog trackId={infoTrackId} onClose={closeTrackInfo} />
     </footer>
   );
 }
