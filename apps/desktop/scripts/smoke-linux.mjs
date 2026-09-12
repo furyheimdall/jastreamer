@@ -242,7 +242,8 @@ async function inspectRendererSandbox(origin) {
 
   const processRoot = `/proc/${renderer.pid}`;
   const status = await readFile(path.join(processRoot, "status"), "utf8");
-  const commandLine = (await readFile(path.join(processRoot, "cmdline"))).toString("utf8").split("\0").filter(Boolean);
+  // Chromium setproctitle can collapse argv into one space-separated string.
+  const commandLine = (await readFile(path.join(processRoot, "cmdline"))).toString("utf8").split(/[\0\s]+/).filter(Boolean);
   const uidValues = statusField(status, "Uid").split(/\s+/).map(Number);
   const capEff = statusField(status, "CapEff");
   const noNewPrivileges = Number(statusField(status, "NoNewPrivs"));
@@ -260,7 +261,7 @@ async function inspectRendererSandbox(origin) {
   assert(!commandLine.includes("--disable-seccomp-filter-sandbox"), "Renderer disabled the seccomp sandbox");
 
   const browserPid = application.process().pid;
-  const browserCommandLine = (await readFile(`/proc/${browserPid}/cmdline`)).toString("utf8").split("\0").filter(Boolean);
+  const browserCommandLine = (await readFile(`/proc/${browserPid}/cmdline`)).toString("utf8").split(/[\0\s]+/).filter(Boolean);
   const browserStatus = await readFile(`/proc/${browserPid}/status`, "utf8");
   const browserSeccompFilters = Number(statusField(browserStatus, "Seccomp_filters"));
   assert(seccompFilters > browserSeccompFilters, `Renderer did not add a Chromium seccomp filter (browser=${browserSeccompFilters}, renderer=${seccompFilters})`);

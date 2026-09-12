@@ -152,7 +152,12 @@ jobs:
         run: go build -trimpath -o dist/jastreamer-server.exe ./cmd/jastreamer-server
       - name: Exercise packaged Windows app, isolated sessions, and portable relocation
         working-directory: apps/desktop
-        run: node scripts/smoke.mjs ../server/dist/jastreamer-server.exe dist/jastreamer-desktop-win32-x64/jastreamer-desktop.exe
+        run: |
+          for ($iteration = 1; $iteration -le 3; $iteration++) {
+            Write-Host "Consecutive portable relocation smoke $iteration/3"
+            node scripts/smoke.mjs ../server/dist/jastreamer-server.exe dist/jastreamer-desktop-win32-x64/jastreamer-desktop.exe
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
       - name: Record successful Windows package verification
         run: >-
           python packaging/server/ci_artifact.py create-desktop

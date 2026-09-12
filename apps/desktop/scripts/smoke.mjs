@@ -107,6 +107,23 @@ async function createAccount(page, username) {
 async function username(page) {
   return page.evaluate(async () => (await (await fetch('/api/v1/session')).json()).user?.username);
 }
+async function closeApplication() {
+  const processes = await application.evaluate(({ app }) => app.getAppMetrics().map(({ pid, type }) => ({ pid, type })));
+  await application.close();
+  application = null;
+  const remaining = () => processes.filter(({ pid }) => {
+    try {
+      process.kill(pid, 0);
+      return true;
+    } catch (error) {
+      if (error.code === 'ESRCH') return false;
+      throw error;
+    }
+  });
+  const exiting = remaining();
+  if (exiting.length) console.log(JSON.stringify({ desktopProcessesStillExiting: exiting }));
+  await until(() => remaining().length === 0, `Desktop processes did not exit: ${JSON.stringify(processes)}`);
+}
 try {
   await cp(path.dirname(desktopBinary), portable, { recursive: true, filter: (source) => path.basename(source) !== 'user-data' });
   const [a, b] = await Promise.all([startServer('Desktop A'), startServer('Desktop B')]);
@@ -144,8 +161,7 @@ try {
   await shell.locator("#change-server").click();
   await shell.locator("#language").selectOption("ko");
   await until(async () => (await shell.locator("#manual-heading").innerText()) === "주소로 연결", "Local language selection did not apply");
-  await application.close();
-  application = null;
+  await closeApplication();
   assert.deepEqual(commands, [], 'Switching and closing must not send queue or playback commands');
   const moved = path.join(work, 'moved portable with spaces');
   await rename(portable, moved);
@@ -158,8 +174,7 @@ try {
   page = await connect(shell, a);
   await page.getByLabel("Output device", { exact: true }).waitFor({ state: "visible" });
   assert.equal(await username(page), 'desktop-a', 'Moving the complete portable directory must retain the session on the same user/machine');
-  await application.close();
-  application = null;
+  await closeApplication();
   assert.deepEqual(commands, []);
   assert.equal((await fetch(a + '/healthz')).status, 200, 'Server must remain alive after desktop exits');
   console.log(JSON.stringify({ packagedLaunch: true, platform: process.platform, twoServerSessionIsolation: true, portableMoveSessionRetained: true, portableLanguageRetained: true, remoteLanguageCookieObserved: true, noAutomaticConnection: true, remoteNodeBlocked: true, remoteDesktopBridgeBlocked: true, remotePopupBlocked: true, playbackCommandsOnSwitchOrExit: commands.length }));
