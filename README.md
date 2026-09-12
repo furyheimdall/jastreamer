@@ -58,6 +58,11 @@ not a separate Web container or a Windows Server.
 Use the complete image, including FFmpeg, pyatv, and its Python runtime for
 the selected architecture; do not deploy only the Go executable or install
 these media dependencies separately on the host.
+Complete the setup with me; do not stop at general advice or ask me to
+write configuration files. Start with server access and the music path.
+Inspect the host to fill in technical details, propose safe defaults for
+the remaining choices, and ask me only for preferences or decisions that
+affect access, data, or service availability. Explain one stage at a time.
 
 1. Collect the information needed for this host before making changes.
    Ask only for details you cannot establish from my answers or authorized
@@ -69,7 +74,7 @@ these media dependencies separately on the host.
      port, port conflicts, and UPnP/DLNA or AirPlay outputs to use.
      Ask about HTTPS certificate/key file locations if HTTPS is needed;
      never ask me to paste private key contents.
-   - The existing absolute music-folder path ON THE SERVER, not my PC.
+   - The existing absolute music-folder path(s) ON THE SERVER, not my PC.
      Confirm it exists, including any network mount, and that UID/GID
      10001:10001 can read files and traverse directories.
    - Separate persistent project/config/data paths, available disk space,
@@ -87,6 +92,11 @@ these media dependencies separately on the host.
    State the exact image/architecture, project and backup locations,
    host-to-container mounts, listener/LAN URL, required permissions and
    network access, and any downtime. Support Linux amd64 or arm64 only.
+   Propose all application settings together: server name, library roots,
+   HTTP/HTTPS, AirPlay enablement, LAN interfaces/access restrictions, media
+   base URL and transcoding, and my preferred UI language. Keep documented
+   defaults unless my requirements or inspected network justify a change;
+   explain any non-default value instead of asking me to understand JSON.
    Resolve real paths and reject overlapping config, data, and music
    locations, including nesting or symlinks that could expose application
    state as music. Never create a missing music path as an empty fallback.
@@ -96,6 +106,12 @@ these media dependencies separately on the host.
 3. After approval, prepare persistent Compose configuration using the
    repository template and actual values for JASTREAMER_SERVER_IMAGE,
    JASTREAMER_CONFIG_PATH, JASTREAMER_DATA_PATH, and JASTREAMER_MUSIC_PATH.
+   Write the complete Compose file, persistent environment values, and
+   server.json yourself, handling special characters in paths safely.
+   Do not leave placeholders or make installation depend on exports in a
+   temporary shell. If access is unavailable, provide ready-to-save files
+   and exact commands for my confirmed paths, then verify the returned
+   results before moving on.
    Verify the artifact and target architecture before import; follow the
    guide for OCI conversion rather than passing an OCI archive to docker
    load directly. Record the verified registry digest or local image ID.
@@ -106,6 +122,8 @@ these media dependencies separately on the host.
    /var/lib/jastreamer, and existing music read-only at /music. Keep the
    configured data_dir and library_roots consistent with these container
    paths and retain the packaged FFmpeg/AirPlay helper paths.
+   For additional approved music roots, add separate read-only mounts and
+   matching library_roots entries rather than exposing a broader parent.
    Never use privileged mode, chmod 777, or recursive chown/chmod on music.
    Do not disable the firewall or expose the service to the public Internet.
    Never overwrite existing config/data or reset accounts. For an upgrade,
@@ -121,8 +139,12 @@ these media dependencies separately on the host.
    music, writable config/data, and the configured library mount.
    Let me create the first administrator account in the browser privately;
    if an account already exists, use login rather than setup/reset.
-   Guide me through Settings, language selection, and a library scan.
-   Confirm scan results and output discovery without starting playback.
+   After private login, use the authorized browser session to apply the
+   agreed UI language and finish settings, start a library scan, and wait
+   for its result. If browser access is unavailable, guide me through the
+   exact remaining steps and check the outcome. Select the output I choose
+   only while stopped; do not pick or pair a receiver silently.
+   Confirm library contents and output discovery without starting playback.
    Ask before pairing a receiver or sending playback commands; a healthy
    container or discovered receiver is not proof of audible playback.
 
@@ -130,6 +152,8 @@ these media dependencies separately on the host.
    storage locations, commands used, verification results, and backup/
    rollback steps without secrets. Distinguish completed work from any
    client-network or physical-audio checks I still need to perform.
+   If a prerequisite or user-only action is still missing, identify it
+   explicitly rather than calling the setup complete.
    Preserve existing music and application state if any step fails.
 ```
 
