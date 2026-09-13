@@ -9,6 +9,20 @@ if (Test-Path -LiteralPath $configPath) {
     throw 'server.json exists but is not a regular file'
 }
 
+function Get-SampleSha256([string]$Path) {
+    $algorithm = [Security.Cryptography.SHA256]::Create()
+    try {
+        $inputStream = [IO.File]::OpenRead($Path)
+        try {
+            return [BitConverter]::ToString($algorithm.ComputeHash($inputStream)).Replace('-', '').ToLowerInvariant()
+        } finally {
+            $inputStream.Dispose()
+        }
+    } finally {
+        $algorithm.Dispose()
+    }
+}
+
 $config = Get-Content -Raw -LiteralPath (Join-Path $root 'server.template.json') | ConvertFrom-Json
 $config.data_dir = Join-Path $root 'data'
 $music = Join-Path $root 'music'
@@ -40,7 +54,7 @@ for ($index = 0; $index -lt $trackNames.Count; $index++) {
         throw "sample manifest entry is invalid: $name"
     }
     $sourceFile = Get-Item -LiteralPath $source
-    $sourceHash = (Get-FileHash -LiteralPath $source -Algorithm SHA256).Hash.ToLowerInvariant()
+    $sourceHash = Get-SampleSha256 $source
     if ($sourceFile.Length -ne [long]$track.bytes -or $sourceHash -cne [string]$track.sha256) {
         throw "sample does not match manifest: $name"
     }
@@ -66,8 +80,8 @@ foreach ($name in $payloadNames) {
         }
         $sourceFile = Get-Item -LiteralPath $source
         $targetFile = Get-Item -LiteralPath $target
-        $sourceHash = (Get-FileHash -LiteralPath $source -Algorithm SHA256).Hash
-        $targetHash = (Get-FileHash -LiteralPath $target -Algorithm SHA256).Hash
+        $sourceHash = Get-SampleSha256 $source
+        $targetHash = Get-SampleSha256 $target
         if ($sourceFile.Length -ne $targetFile.Length -or $sourceHash -cne $targetHash) {
             throw "refusing to overwrite different existing sample file: $target"
         }
@@ -82,8 +96,8 @@ foreach ($name in $payloadNames) {
         }
         $sourceFile = Get-Item -LiteralPath $source
         $targetFile = Get-Item -LiteralPath $target
-        $sourceHash = (Get-FileHash -LiteralPath $source -Algorithm SHA256).Hash
-        $targetHash = (Get-FileHash -LiteralPath $target -Algorithm SHA256).Hash
+        $sourceHash = Get-SampleSha256 $source
+        $targetHash = Get-SampleSha256 $target
         if ($sourceFile.Length -ne $targetFile.Length -or $sourceHash -cne $targetHash) {
             throw "sample destination changed during setup: $target"
         }
