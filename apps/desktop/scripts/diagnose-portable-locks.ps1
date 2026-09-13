@@ -1,9 +1,14 @@
 param([Parameter(Mandatory=$true)][string]$Directory)
 $ErrorActionPreference = 'Stop'
+$desktopProcesses = @(Get-CimInstance Win32_Process -Filter "Name='jastreamer-desktop.exe'" | ForEach-Object {
+  $type = [regex]::Match($_.CommandLine, '--type=([^\s"]+)').Groups[1].Value
+  [pscustomobject]@{pid=$_.ProcessId; parent=$_.ParentProcessId; executable=$_.ExecutablePath; type=$type}
+})
+[pscustomobject]@{desktopProcesses=$desktopProcesses; directoryAttributes=(Get-Item -LiteralPath $Directory).Attributes.ToString(); currentDirectory=[Environment]::CurrentDirectory} | ConvertTo-Json -Depth 5 -Compress
 Add-Type -TypeDefinition @'
 using System;
 using System.Runtime.InteropServices;
-using System.Runtime.InteropServices.ComTypes;
+using FILETIME = System.Runtime.InteropServices.ComTypes.FILETIME;
 public static class PortableLocks {
   [StructLayout(LayoutKind.Sequential)] public struct UniqueProcess { public uint Id; public FILETIME Started; }
   [StructLayout(LayoutKind.Sequential, CharSet=CharSet.Unicode)] public struct ProcessInfo {
@@ -19,10 +24,6 @@ public static class PortableLocks {
   [DllImport("rstrtmgr.dll")] public static extern int RmEndSession(uint session);
 }
 '@
-$desktopProcesses = @(Get-CimInstance Win32_Process -Filter "Name='jastreamer-desktop.exe'" | ForEach-Object {
-  $type = [regex]::Match($_.CommandLine, '--type=([^\s"]+)').Groups[1].Value
-  [pscustomobject]@{pid=$_.ProcessId; parent=$_.ParentProcessId; executable=$_.ExecutablePath; type=$type}
-})
 $files = @([IO.Directory]::GetFiles($Directory, '*', [IO.SearchOption]::AllDirectories))
 if ($files.Count -gt 8192) { throw 'Unexpected portable fixture file count' }
 [uint32]$session = 0
