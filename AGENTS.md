@@ -5,7 +5,7 @@ This is the entry point for agents helping with [jastreamer](https://github.com/
 ## Route the request
 
 1. Read [README.md](README.md) or [README.ko.md](README.ko.md) for the product and supported targets.
-2. For installation, select the platform in [INSTALL.md](INSTALL.md) or [INSTALL.ko.md](INSTALL.ko.md). For an existing deployment, start with [backup and upgrade](INSTALL.md#backup-and-upgrade), not first-account setup.
+2. For Korean-language requests, use [INSTALL.ko.md](INSTALL.ko.md); for English-language requests, use [INSTALL.md](INSTALL.md). In the selected guide, follow the branch matching the target platform and whether this is a new installation or an update. For an existing deployment, start at `#backup-and-upgrade`, not first-account setup. When following `INSTALL.md` links below for Korean-language requests, use the same section anchor in `INSTALL.ko.md`.
 3. For everyday controls, settings, music browsing, and troubleshooting, use [INSTRUCTION.md](INSTRUCTION.md) or [INSTRUCTION.ko.md](INSTRUCTION.ko.md).
 4. Inspect the authorized host and the repository revision matching the chosen artifact. Ask only for information unavailable from that inspection and for decisions affecting access, data, or availability.
 
