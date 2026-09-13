@@ -206,13 +206,21 @@ func (s *Service) executeCommand(ctx context.Context, command commandRecord) err
 	if err != nil {
 		return err
 	}
+	if command.action == "stop" && recoveredPlaybackIntent(st) {
+		if st.playID != "" {
+			s.media.Revoke(st.playID)
+		}
+		const message = "Server playback stopped and media access was revoked, but physical renderer playback could not be confirmed after recovery."
+		return s.completeUnconfirmedStop(command, st.currentEntryID, message)
+	}
 	device, found := s.devices.Device(st.rendererID)
 	if !found || !device.Online {
 		if command.action == "stop" {
 			if st.playID != "" {
 				s.media.Revoke(st.playID)
 			}
-			return s.completeOfflineStop(command, st.currentEntryID)
+			const message = "Server playback stopped and media access was revoked, but the offline renderer could not confirm physical stop."
+			return s.completeUnconfirmedStop(command, st.currentEntryID, message)
 		}
 		if st.playID != "" {
 			s.media.Revoke(st.playID)
@@ -286,15 +294,19 @@ func (s *Service) executePlay(ctx context.Context, command commandRecord, st sto
 	}
 	controlAction := ""
 	if st.playID != "" {
-		if !device.Capabilities.Stop {
-			s.completeFailure(command, "Stop is required to change tracks, but this renderer does not support it.", false, target.id)
-			return nil
+		if recoveredPlaybackIntent(st) {
+			s.media.Revoke(st.playID)
+		} else {
+			if !device.Capabilities.Stop {
+				s.completeFailure(command, "Stop is required to change tracks, but this renderer does not support it.", false, target.id)
+				return nil
+			}
+			if err := s.callRenderer(func() error { return s.devices.Stop(ctx, device.ID) }); err != nil {
+				return err
+			}
+			s.media.Revoke(st.playID)
+			controlAction = "switch"
 		}
-		if err := s.callRenderer(func() error { return s.devices.Stop(ctx, device.ID) }); err != nil {
-			return err
-		}
-		s.media.Revoke(st.playID)
-		controlAction = "switch"
 	}
 	started, err := s.startEntry(ctx, device, target)
 	if err != nil {
@@ -318,15 +330,19 @@ func (s *Service) executeNext(ctx context.Context, command commandRecord, st sto
 	}
 	controlAction := ""
 	if st.playID != "" {
-		if !device.Capabilities.Stop {
-			s.completeFailure(command, "The selected renderer does not support stop, so it cannot advance safely.", false, "")
-			return nil
+		if recoveredPlaybackIntent(st) {
+			s.media.Revoke(st.playID)
+		} else {
+			if !device.Capabilities.Stop {
+				s.completeFailure(command, "The selected renderer does not support stop, so it cannot advance safely.", false, "")
+				return nil
+			}
+			if err := s.callRenderer(func() error { return s.devices.Stop(ctx, device.ID) }); err != nil {
+				return err
+			}
+			s.media.Revoke(st.playID)
+			controlAction = "next"
 		}
-		if err := s.callRenderer(func() error { return s.devices.Stop(ctx, device.ID) }); err != nil {
-			return err
-		}
-		s.media.Revoke(st.playID)
-		controlAction = "next"
 	}
 	if !found {
 		return s.completeSuccess(command, successUpdate{state: StateStopped, setState: true, resetPosition: true, queueEntryID: st.currentEntryID, queueStatus: EntryCompleted, controlAction: controlAction})
@@ -346,7 +362,7 @@ func (s *Service) executePrevious(ctx context.Context, command commandRecord, st
 		s.completeFailure(command, "The queue has no current track.", false, "")
 		return nil
 	}
-	if st.positionMS > 5000 && device.Capabilities.Seek && st.currentSeekable {
+	if st.positionMS > 5000 && !recoveredPlaybackIntent(st) && device.Capabilities.Seek && st.currentSeekable {
 		if err := s.callRenderer(func() error { return s.devices.Seek(ctx, device.ID, 0) }); err != nil {
 			return err
 		}
@@ -368,15 +384,19 @@ func (s *Service) executePrevious(ctx context.Context, command commandRecord, st
 	}
 	controlAction := ""
 	if st.playID != "" {
-		if !device.Capabilities.Stop {
-			s.completeFailure(command, "Stop is required to restart a track, but this renderer does not support it.", false, "")
-			return nil
+		if recoveredPlaybackIntent(st) {
+			s.media.Revoke(st.playID)
+		} else {
+			if !device.Capabilities.Stop {
+				s.completeFailure(command, "Stop is required to restart a track, but this renderer does not support it.", false, "")
+				return nil
+			}
+			if err := s.callRenderer(func() error { return s.devices.Stop(ctx, device.ID) }); err != nil {
+				return err
+			}
+			s.media.Revoke(st.playID)
+			controlAction = "previous"
 		}
-		if err := s.callRenderer(func() error { return s.devices.Stop(ctx, device.ID) }); err != nil {
-			return err
-		}
-		s.media.Revoke(st.playID)
-		controlAction = "previous"
 	}
 	started, err := s.startEntry(ctx, device, target)
 	if err != nil {
@@ -705,8 +725,7 @@ func (s *Service) completeAdvanceFailure(command commandRecord, oldEntryID, targ
 	return err
 }
 
-func (s *Service) completeOfflineStop(command commandRecord, currentEntryID string) error {
-	const message = "Server playback stopped and media access was revoked, but the offline renderer could not confirm physical stop."
+func (s *Service) completeUnconfirmedStop(command commandRecord, currentEntryID, message string) error {
 	now := s.now().UTC().Format(time.RFC3339Nano)
 	s.opMu.Lock()
 	tx, err := s.db.BeginTx(context.Background(), nil)
@@ -744,6 +763,10 @@ func (s *Service) completeOfflineStop(command commandRecord, currentEntryID stri
 		s.notify("player")
 	}
 	return err
+}
+
+func recoveredPlaybackIntent(st storedState) bool {
+	return st.state == StateUnavailable && st.resumeRequired
 }
 
 func (s *Service) completeFailure(command commandRecord, message string, unavailable bool, entryID string) {

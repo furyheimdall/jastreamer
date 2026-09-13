@@ -87,7 +87,7 @@ ARG VERSION=0.2.0
 ARG REVISION
 ARG CREATED
 LABEL org.opencontainers.image.title="jastreamer Server" \
-      org.opencontainers.image.description="Self-hosted Web music library with UPnP/DLNA and AirPlay outputs" \
+      org.opencontainers.image.description="Self-hosted Web music library with UPnP/DLNA, Google Cast and AirPlay outputs" \
       org.opencontainers.image.vendor="jastreamer" \
       org.opencontainers.image.version="$VERSION" \
       org.opencontainers.image.revision="$REVISION" \
