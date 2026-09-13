@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import { api, ApiError } from "./api";
 import { useI18n, type Language, type MessageKey } from "./i18n";
+import InstallApp from "./InstallApp";
 import ServerPathPicker from "./ServerPathPicker";
 import type { ConfigDocument, ConfigRoot, FilesystemEntryKind, NetworkInterfacesDocument, ScanJob, ServerConfig } from "./types";
 
@@ -381,6 +382,7 @@ export default function Settings({ configRevision, libraryRevision, onNotice, on
       <section className="content-section settings-page" aria-labelledby="settings-heading">
         {settingsHeader}
         {languageSettings}
+        <InstallApp />
         <div className="loading-block" aria-live="polite">{t("settings.loading")}</div>
       </section>
     );
@@ -391,6 +393,7 @@ export default function Settings({ configRevision, libraryRevision, onNotice, on
       <section className="content-section settings-page" aria-labelledby="settings-heading">
         {settingsHeader}
         {languageSettings}
+        <InstallApp />
         <div className="inline-error" role="alert">
           <span>{error || t("settings.loadFailed")}</span>
           <button className="button button-ghost" type="button" onClick={() => void loadConfig()}>
@@ -427,6 +430,7 @@ export default function Settings({ configRevision, libraryRevision, onNotice, on
     <section className="content-section settings-page" aria-labelledby="settings-heading">
       {settingsHeader}
       {languageSettings}
+      <InstallApp />
 
       {error && <p className="error-text" role="alert">{error}</p>}
       {remoteConfigPending && (

@@ -1,0 +1,308 @@
+html[data-device="phone"] .phone-player-bar {
+  right: 0;
+  bottom: var(--phone-nav-height);
+  left: 0;
+  display: block;
+  width: 100%;
+  height: var(--player-height);
+  padding: 0.5rem max(0.5rem, env(safe-area-inset-right)) 0.5rem max(0.5rem, env(safe-area-inset-left));
+  background: #171b1df7;
+  backdrop-filter: none;
+}
+
+html[data-device="phone"] .phone-player-compact {
+  display: grid;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+html[data-device="phone"] .phone-player-summary {
+  min-width: 0;
+  gap: 0.4rem;
+}
+
+html[data-device="phone"] .phone-player-summary .player-artwork {
+  width: 3rem;
+  height: 3rem;
+  border-radius: 0.5rem;
+}
+
+html[data-device="phone"] .phone-player-summary .now-playing-copy {
+  gap: 0.05rem;
+}
+
+html[data-device="phone"] .phone-player-summary .now-playing-copy strong {
+  font-size: 0.78rem;
+}
+
+html[data-device="phone"] .phone-player-summary .now-playing-copy span {
+  font-size: 0.7rem;
+}
+
+html[data-device="phone"] .phone-player-summary .player-error {
+  max-width: 100%;
+  overflow: hidden;
+  font-size: 0.65rem;
+  line-height: 1.1;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+html[data-device="phone"] .phone-player-primary-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+html[data-device="phone"] .phone-player-primary-actions .icon-button,
+html[data-device="phone"] .phone-player-primary-actions .player-primary-control {
+  width: 2.75rem;
+  height: 2.75rem;
+}
+
+html[data-device="phone"] .phone-player-expanded {
+  position: fixed;
+  z-index: 1;
+  top: 0;
+  right: 0;
+  bottom: calc(var(--phone-nav-height) + var(--player-height));
+  left: 0;
+  display: grid;
+  min-width: 0;
+  padding: max(0.75rem, env(safe-area-inset-top)) max(0.875rem, env(safe-area-inset-right)) 1rem max(0.875rem, env(safe-area-inset-left));
+  overflow-x: hidden;
+  overflow-y: auto;
+  color: var(--text);
+  background: #15191bfc;
+  box-shadow: 0 -1rem 3rem #0008;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  align-content: start;
+  gap: 1rem;
+}
+
+html[data-device="phone"] .phone-player-expanded-header {
+  position: sticky;
+  z-index: 2;
+  top: calc(-1 * max(0.75rem, env(safe-area-inset-top)));
+  display: flex;
+  min-width: 0;
+  padding: max(0.75rem, env(safe-area-inset-top)) 0 0.6rem;
+  margin-top: calc(-1 * max(0.75rem, env(safe-area-inset-top)));
+  border-bottom: 1px solid var(--border);
+  background: #15191bfa;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+html[data-device="phone"] .phone-player-expanded-header .eyebrow,
+html[data-device="phone"] .phone-player-expanded-header h2 {
+  margin-bottom: 0;
+}
+
+html[data-device="phone"] .phone-player-expanded-header h2 {
+  font-size: 1.15rem;
+}
+
+html[data-device="phone"] .phone-player-collapse {
+  width: 2.75rem;
+  height: 2.75rem;
+}
+
+html[data-device="phone"] .phone-player-expanded-track {
+  display: grid;
+  min-width: 0;
+  padding: 0.8rem;
+  border: 1px solid var(--border);
+  border-radius: 0.8rem;
+  background: var(--panel);
+  gap: 0.25rem;
+}
+
+html[data-device="phone"] .phone-player-expanded-track strong,
+html[data-device="phone"] .phone-player-expanded-track span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+html[data-device="phone"] .phone-player-expanded-track span {
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+html[data-device="phone"] .phone-player-status {
+  min-height: 2.75rem;
+  padding: 0.55rem 0;
+  text-align: left;
+}
+
+html[data-device="phone"] .phone-player-expanded-transport {
+  display: grid;
+  min-width: 0;
+  padding: 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 0.8rem;
+  background: var(--panel);
+  gap: 0.65rem;
+}
+
+html[data-device="phone"] .phone-player-expanded-transport .transport-buttons {
+  grid-column: auto;
+  grid-row: auto;
+  gap: 1rem;
+}
+
+html[data-device="phone"] .phone-player-expanded-transport .transport-buttons .icon-button {
+  width: 3rem;
+  height: 3rem;
+  border-color: var(--border);
+  background: #ffffff08;
+}
+
+html[data-device="phone"] .phone-player-expanded-transport .seek-row {
+  grid-column: auto;
+  grid-row: auto;
+  grid-template-columns: 2.75rem minmax(0, 1fr) 2.75rem;
+  gap: 0.35rem;
+}
+
+html[data-device="phone"] .phone-player-expanded-transport .seek-slider {
+  min-height: 2.75rem;
+}
+
+html[data-device="phone"] .phone-player-expanded .output-picker {
+  display: grid;
+  min-width: 0;
+  padding: 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 0.8rem;
+  background: var(--panel);
+  grid-column: auto;
+  grid-row: auto;
+  grid-template-columns: 1fr;
+  justify-items: stretch;
+  gap: 0.55rem;
+}
+
+html[data-device="phone"] .phone-player-expanded .output-picker > label {
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+html[data-device="phone"] .phone-player-expanded .output-control {
+  width: 100%;
+  max-width: none;
+}
+
+html[data-device="phone"] .phone-player-expanded .output-control select,
+html[data-device="phone"] .phone-player-expanded .output-control .icon-button {
+  min-height: 2.75rem;
+}
+
+html[data-device="phone"] .phone-player-expanded .output-control .icon-button {
+  width: 2.75rem;
+  height: 2.75rem;
+}
+
+html[data-device="phone"] .phone-player-expanded .pairing-panel {
+  position: static;
+  width: 100%;
+  padding: 0.85rem;
+  margin-top: 0.2rem;
+  border-radius: 0.7rem;
+  background: var(--panel-raised);
+  box-shadow: none;
+  backdrop-filter: none;
+}
+
+html[data-device="phone"] .phone-player-expanded .pairing-form .button,
+html[data-device="phone"] .phone-player-expanded .pairing-start .button {
+  width: 100%;
+  min-height: 2.75rem;
+}
+
+html[data-device="phone"] .phone-player-expanded .playing-indicator {
+  display: inline;
+  justify-self: start;
+}
+
+html[data-device="phone"] .queue-page .queue-row {
+  padding: 0.65rem 0;
+  grid-template-columns: 1.25rem 3.25rem minmax(0, 1fr);
+  align-items: center;
+  gap: 0.5rem;
+}
+
+html[data-device="phone"] .queue-page .queue-artwork {
+  width: 3.25rem;
+  height: 3.25rem;
+}
+
+html[data-device="phone"] .queue-page .queue-artwork-info {
+  inset: auto 0.2rem 0.2rem auto;
+  width: 1.4rem;
+  height: 1.4rem;
+  border-radius: 999px;
+  background: #000c;
+  opacity: 1;
+}
+
+html[data-device="phone"] .queue-page .queue-artwork-info svg {
+  width: 0.9rem;
+  height: 0.9rem;
+}
+
+html[data-device="phone"] .queue-page .queue-track-copy {
+  align-self: stretch;
+  justify-content: center;
+}
+
+html[data-device="phone"] .queue-page .queue-track-title {
+  min-height: 44px;
+}
+
+html[data-device="phone"] .queue-page .queue-duration {
+  display: none;
+}
+
+html[data-device="phone"] .queue-page .queue-actions {
+  display: grid;
+  grid-column: 1 / -1;
+  width: 100%;
+  grid-template-columns: repeat(4, 2.75rem);
+  justify-content: end;
+  gap: 0.25rem;
+}
+
+html[data-device="phone"] .queue-page .queue-actions .icon-button {
+  width: 2.75rem;
+  height: 2.75rem;
+  border-color: var(--border);
+  background: #ffffff06;
+}
+
+html[data-device="phone"] .queue-page .queue-heading-row,
+html[data-device="phone"] .queue-page .save-queue {
+  grid-template-columns: 1fr;
+  align-items: stretch;
+}
+
+html[data-device="phone"] .queue-page .queue-heading-row {
+  flex-direction: column;
+}
+
+html[data-device="phone"] .queue-page .queue-heading-row > .button,
+html[data-device="phone"] .queue-page .save-queue > .button {
+  width: 100%;
+  min-height: 2.75rem;
+}
+
+html[data-device="phone"]:has(.phone-player-expanded) body {
+  overflow: hidden;
+}

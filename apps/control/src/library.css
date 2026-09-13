@@ -1039,6 +1039,141 @@
   }
 }
 
+html[data-device="phone"] :is(.library-heading-row, .playlist-page-heading) {
+  display: block;
+  margin-bottom: 1rem;
+}
+
+html[data-device="phone"] .library-search {
+  width: 100%;
+  margin-top: 1rem;
+}
+
+html[data-device="phone"] .library-tabs {
+  position: sticky;
+  z-index: 10;
+  top: var(--phone-header-height);
+  padding-block: 0.4rem;
+  margin-bottom: 1rem;
+  background: var(--bg);
+  overscroll-behavior-x: contain;
+}
+
+html[data-device="phone"] .library-tab {
+  min-height: 44px;
+  padding-inline: 0.85rem;
+}
+
+html[data-device="phone"] .library-album-grid {
+  grid-template-columns: repeat(auto-fill, minmax(min(8rem, 100%), 1fr));
+  gap: 1.1rem 0.75rem;
+}
+
+html[data-device="phone"] .library-name-grid {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+html[data-device="phone"] .library-track-row {
+  grid-template-columns: 44px minmax(0, 1fr) auto;
+  gap: 0.5rem;
+  padding: 0.75rem;
+}
+
+html[data-device="phone"] .library-track-number {
+  display: none;
+}
+
+html[data-device="phone"] .library-track-row .library-artwork-compact {
+  width: 44px;
+  min-width: 44px;
+  height: 44px;
+}
+
+html[data-device="phone"] .library-track-duration {
+  display: block;
+}
+
+html[data-device="phone"] .library-track-album {
+  display: none;
+}
+
+html[data-device="phone"] .library-track-album:has(small) {
+  display: block;
+  grid-column: 2 / -1;
+}
+
+html[data-device="phone"] .library-track-album > span {
+  display: none;
+}
+
+html[data-device="phone"] .library-track-actions {
+  display: flex;
+  grid-column: 1 / -1;
+  justify-content: flex-end;
+  gap: 0.25rem;
+  padding-top: 0.25rem;
+  border-top: 1px solid var(--border);
+}
+
+html[data-device="phone"] :is(.library-track-actions, .playlist-entry-actions) button {
+  width: 44px;
+  height: 44px;
+}
+
+html[data-device="phone"] .library-bulk-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+html[data-device="phone"] .library-bulk-actions .button {
+  min-width: 0;
+  padding-inline: 0.5rem;
+}
+
+html[data-device="phone"] .playlist-layout {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+html[data-device="phone"] .playlist-sidebar {
+  position: static;
+}
+
+html[data-device="phone"] .playlist-list {
+  display: flex;
+  max-height: none;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scroll-snap-type: x proximity;
+}
+
+html[data-device="phone"] .playlist-list-item {
+  flex: 0 0 min(14rem, 72vw);
+  scroll-snap-align: start;
+}
+
+html[data-device="phone"] .playlist-entry {
+  grid-template-columns: 1.5rem minmax(0, 1fr) auto;
+}
+
+html[data-device="phone"] .playlist-entry-duration {
+  display: block;
+}
+
+html[data-device="phone"] .playlist-entry-actions {
+  display: flex;
+  grid-column: 2 / -1;
+  justify-content: flex-end;
+}
+
+html[data-device="phone"] .playlist-entry-actions .playlist-remove-button {
+  width: 44px;
+  border-radius: 50%;
+}
+
+html[data-device="phone"] :is(.library-dialog-heading, .playlist-conflict, .playlist-danger-zone) {
+  flex-wrap: wrap;
+}
+
 @media (max-width: 380px) {
   .library-album-grid {
     gap: 0.8rem 0.6rem;

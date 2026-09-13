@@ -1,0 +1,23 @@
+{
+  "id": "/",
+  "name": "jastreamer",
+  "short_name": "jastreamer",
+  "description": "Music library and server-owned network audio playback",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#111315",
+  "theme_color": "#111315",
+  "icons": [
+    {
+      "src": "/icons/jastreamer-192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "/icons/jastreamer-512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}

@@ -1448,3 +1448,152 @@ body:has([aria-modal="true"]) {
     transition-duration: 0.01ms !important;
   }
 }
+
+html[data-device="phone"] {
+  --player-height: 80px;
+  --phone-nav-height: calc(3.75rem + env(safe-area-inset-bottom));
+  --phone-header-height: calc(3.5rem + env(safe-area-inset-top));
+  scroll-padding-top: calc(var(--phone-header-height) + 1rem);
+  scroll-padding-bottom: calc(var(--player-height) + var(--phone-nav-height) + 1rem);
+}
+
+html[data-device="phone"] :is(body, .app-shell, .auth-page, .splash-screen) {
+  min-height: 100dvh;
+}
+
+html[data-device="phone"] .sidebar {
+  display: none;
+}
+
+html[data-device="phone"] .main-content {
+  min-height: 100dvh;
+  margin-left: 0;
+  padding: calc(var(--phone-header-height) + 1.25rem)
+    max(0.75rem, env(safe-area-inset-right))
+    calc(var(--player-height) + var(--phone-nav-height) + 1.5rem)
+    max(0.75rem, env(safe-area-inset-left));
+}
+
+html[data-device="phone"] .mobile-header {
+  position: fixed;
+  z-index: 25;
+  inset: 0 0 auto;
+  display: flex;
+  height: var(--phone-header-height);
+  padding: env(safe-area-inset-top) max(0.75rem, env(safe-area-inset-right)) 0 max(0.75rem, env(safe-area-inset-left));
+  border-bottom: 1px solid var(--border);
+  background: #15191bf2;
+  backdrop-filter: blur(18px);
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+html[data-device="phone"] .mobile-header .brand {
+  padding: 0;
+  gap: 0.5rem;
+  font-size: 0.95rem;
+}
+
+html[data-device="phone"] .mobile-header .brand-mark {
+  width: 2rem;
+  height: 2rem;
+}
+
+html[data-device="phone"] .mobile-account {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+html[data-device="phone"] .mobile-account > span {
+  max-width: 6rem;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 0.75rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+html[data-device="phone"] .mobile-nav {
+  position: fixed;
+  z-index: 40;
+  inset: auto 0 0;
+  display: grid;
+  height: var(--phone-nav-height);
+  padding: 0.25rem max(0.35rem, env(safe-area-inset-right)) env(safe-area-inset-bottom) max(0.35rem, env(safe-area-inset-left));
+  border-top: 1px solid var(--border);
+  background: #15191bf7;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+html[data-device="phone"] .mobile-nav button {
+  display: grid;
+  min-width: 0;
+  min-height: 48px;
+  padding: 0.25rem;
+  border-radius: 0.65rem;
+  place-items: center;
+  align-content: center;
+  gap: 0.25rem;
+  font-size: 0.7rem;
+}
+
+html[data-device="phone"] .mobile-nav button.is-active {
+  background: #c8edb210;
+}
+
+html[data-device="phone"] .mobile-nav svg {
+  width: 1.3rem;
+  height: 1.3rem;
+}
+
+html[data-device="phone"] :is(.button, .icon-button, .input, select) {
+  min-height: 44px;
+}
+
+html[data-device="phone"] .icon-button {
+  min-width: 44px;
+}
+
+html[data-device="phone"] :is(input, select, textarea) {
+  font-size: 16px;
+}
+
+html[data-device="phone"] h1 {
+  font-size: 1.7rem;
+}
+
+html[data-device="phone"] .page-heading {
+  margin-bottom: 1.25rem;
+}
+
+html[data-device="phone"] :is(.toast, .settings-save-row) {
+  bottom: calc(var(--player-height) + var(--phone-nav-height) + 0.5rem);
+}
+
+html[data-device="phone"] .settings-save-row {
+  flex-wrap: wrap;
+}
+
+html[data-device="phone"] :is(.field-grid, .root-row, .password-form) {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+html[data-device="phone"] .auth-page {
+  padding: max(1rem, env(safe-area-inset-top)) max(1rem, env(safe-area-inset-right))
+    max(1rem, env(safe-area-inset-bottom)) max(1rem, env(safe-area-inset-left));
+}
+
+html[data-device="phone"] :is(.library-dialog-backdrop, .track-info-backdrop, .server-path-backdrop) {
+  padding: 0;
+  align-items: end;
+}
+
+html[data-device="phone"] :is(.library-dialog, .track-info-dialog, .server-path-dialog) {
+  width: 100%;
+  max-height: calc(100dvh - env(safe-area-inset-top) - 1rem);
+  padding-bottom: max(1rem, env(safe-area-inset-bottom));
+  border-radius: 1rem 1rem 0 0;
+}

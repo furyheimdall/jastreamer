@@ -1,10 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { api, ApiError } from "./api";
 import { useI18n, type MessageKey } from "./i18n";
+import { isPhone } from "./device";
 import type { Device, PairingRequest, PairingStatus, PlayerState, StatusWarning } from "./types";
 
 interface PlayerBarProps {
   revision: number;
+  phoneExpanded: boolean;
+  onPhoneExpandedChange: (expanded: boolean) => void;
   onNotice: (message: string, error?: boolean) => void;
   onStatusWarning: (warning: StatusWarning | null, reopen?: boolean) => void;
   onQueueChange: () => void;
@@ -42,7 +45,7 @@ function deviceLabel(device: Device, t: (key: MessageKey) => string): string {
   return `${device.name} [${protocolLabel(device.protocol, t)}]`;
 }
 
-function PlayerIcon({ name }: { name: "play" | "pause" | "stop" | "next" | "previous" | "music" | "refresh" }) {
+function PlayerIcon({ name }: { name: "play" | "pause" | "stop" | "next" | "previous" | "music" | "refresh" | "expand" | "collapse" }) {
   const paths = {
     play: <path d="m8 5 11 7-11 7Z" />,
     pause: <path d="M9 5v14M15 5v14" />,
@@ -51,11 +54,13 @@ function PlayerIcon({ name }: { name: "play" | "pause" | "stop" | "next" | "prev
     previous: <><path d="m18 6-8 6 8 6Z" /><path d="M6 6v12" /></>,
     music: <><path d="M9 18V5l10-2v13" /><circle cx="6" cy="18" r="3" /><circle cx="16" cy="16" r="3" /></>,
     refresh: <><path d="M20 7h-5V2" /><path d="M20 7a8 8 0 1 0 1 7" /></>,
+    expand: <path d="m7 14 5-5 5 5" />,
+    collapse: <path d="m7 10 5 5 5-5" />,
   };
   return <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">{paths[name]}</svg>;
 }
 
-export default function PlayerBar({ revision, onNotice, onStatusWarning, onQueueChange, onShowQueue }: PlayerBarProps) {
+export default function PlayerBar({ revision, phoneExpanded, onPhoneExpandedChange: setPhoneExpanded, onNotice, onStatusWarning, onQueueChange, onShowQueue }: PlayerBarProps) {
   const { locale, t } = useI18n();
   const [player, setPlayer] = useState<PlayerState | null>(null);
   const [devices, setDevices] = useState<Device[]>([]);
@@ -70,6 +75,8 @@ export default function PlayerBar({ revision, onNotice, onStatusWarning, onQueue
   const [pairingStatus, setPairingStatus] = useState<PairingStatus | null>(null);
   const [pairingError, setPairingError] = useState("");
   const [pairingStarted, setPairingStarted] = useState(false);
+  const phoneExpandRef = useRef<HTMLButtonElement>(null);
+  const phoneCollapseRef = useRef<HTMLButtonElement>(null);
   const observedPlayerError = useRef<{ revision: number; message: string } | null>(null);
 
   const applyError = useCallback((message: string, playerRevision: number) => {
@@ -117,6 +124,12 @@ export default function PlayerBar({ revision, onNotice, onStatusWarning, onQueue
   }, [load, revision]);
 
   useEffect(() => () => onStatusWarning(null), [onStatusWarning]);
+
+  useEffect(() => {
+    if (!isPhone || !phoneExpanded) return;
+    const focusFrame = window.requestAnimationFrame(() => phoneCollapseRef.current?.focus());
+    return () => window.cancelAnimationFrame(focusFrame);
+  }, [phoneExpanded]);
 
   useEffect(() => {
     if (!player || player.state !== "playing" || seeking) return;
@@ -295,6 +308,293 @@ export default function PlayerBar({ revision, onNotice, onStatusWarning, onQueue
   const canPause = player?.state === "playing" && player.capabilities.pause;
   const playing = player?.state === "playing" || player?.state === "starting";
   const duration = player?.duration_ms || player?.track?.duration_ms || 0;
+  const outputPicker = (
+    <div className="output-picker">
+      <label htmlFor="player-output">{t("player.output")}</label>
+      <div className="output-control">
+        <select
+          id="player-output"
+          value={player?.renderer_id || ""}
+          disabled={player?.state !== "stopped" || Boolean(player?.pending_command) || Boolean(busy)}
+          onChange={(event) => void selectOutput(event.target.value)}
+        >
+          <option value="">{t("player.selectOutput")}</option>
+          {missingSelectedDeviceLabel && player?.renderer_id && (
+            <option value={player.renderer_id} disabled>{missingSelectedDeviceLabel}</option>
+          )}
+          {devices.map((device) => (
+            <option key={device.id} value={device.id} disabled={!device.online}>
+              {deviceLabel(device, t)}{device.online ? "" : ` (${t("player.offline")})`}
+            </option>
+          ))}
+        </select>
+        <button
+          className="icon-button"
+          type="button"
+          aria-label={t("player.refreshOutputs")}
+          disabled={Boolean(busy)}
+          onClick={() => void refreshDevices()}
+        >
+          <PlayerIcon name="refresh" />
+        </button>
+      </div>
+      {pairingRequired && selectedDevice && (
+        <section className="pairing-panel" aria-labelledby="pairing-heading" aria-busy={busy === "pairing"}>
+          <h2 id="pairing-heading">{t("player.pairing.heading", { device: deviceLabel(selectedDevice, t) })}</h2>
+          <p className="pairing-prompt" aria-live="polite">
+            {pairingStatus?.prompt || (
+              busy === "pairing"
+                ? t("player.pairing.checking")
+                : selectedDevice.pairing_required && !pairingStarted
+                  ? t("player.pairing.startHint")
+                  : selectedDevice.pairing_required && selectedDevice.password_required
+                    ? t("player.pairing.pinAndPasswordPrompt")
+                    : selectedDevice.pairing_required
+                      ? t("player.pairing.pinPrompt")
+                      : t("player.pairing.passwordPrompt")
+            )}
+          </p>
+          {pairingAvailable ? (
+            selectedDevice.pairing_required && !pairingStarted ? (
+              <div className="pairing-start">
+                <button
+                  className="button button-primary"
+                  type="button"
+                  disabled={Boolean(busy)}
+                  onClick={() => void beginPairing()}
+                >
+                  {busy === "pairing" ? t("player.pairing.starting") : t("player.pairing.start")}
+                </button>
+              </div>
+            ) : (
+              <form className="pairing-form" autoComplete="off" onSubmit={(event) => void pairDevice(event)}>
+                {selectedDevice.pairing_required && (
+                  <label>
+                    <span className="field-label">{t("player.pairing.pin")}</span>
+                    <input
+                      className="input"
+                      type="text"
+                      inputMode="numeric"
+                      autoComplete="one-time-code"
+                      spellCheck={false}
+                      value={pairingPIN}
+                      required
+                      disabled={Boolean(busy)}
+                      onChange={(event) => setPairingPIN(event.target.value)}
+                    />
+                  </label>
+                )}
+                {selectedDevice.password_required && (
+                  <label>
+                    <span className="field-label">{t("player.pairing.password")}</span>
+                    <input
+                      className="input"
+                      type="password"
+                      autoComplete="off"
+                      spellCheck={false}
+                      value={pairingPassword}
+                      required
+                      disabled={Boolean(busy)}
+                      onChange={(event) => setPairingPassword(event.target.value)}
+                    />
+                  </label>
+                )}
+                <button className="button button-primary" type="submit" disabled={Boolean(busy)}>
+                  {busy === "pairing" ? t("player.pairing.inProgress") : t("player.pairing.submit")}
+                </button>
+              </form>
+            )
+          ) : (
+            <p className="pairing-stopped-message">{t("player.pairing.stoppedOnly")}</p>
+          )}
+          {pairingError && <p className="error-text pairing-error" role="alert">{pairingError}</p>}
+        </section>
+      )}
+      {playing && <span className="playing-indicator">{t("player.playing")}</span>}
+    </div>
+  );
+
+  function collapsePhonePlayer() {
+    setPhoneExpanded(false);
+    window.requestAnimationFrame(() => phoneExpandRef.current?.focus());
+  }
+
+  if (isPhone) {
+    return (
+      <footer
+        className="player-bar phone-player-bar"
+        aria-label={t("player.nowPlaying")}
+        onKeyDown={(event) => {
+          if (event.key !== "Escape" || event.defaultPrevented) return;
+          event.preventDefault();
+          event.stopPropagation();
+          collapsePhonePlayer();
+        }}
+      >
+        {phoneExpanded && (
+          <section
+            className="phone-player-expanded"
+            id="phone-player-panel"
+            role="region"
+            aria-labelledby="phone-player-heading"
+          >
+            <header className="phone-player-expanded-header">
+              <div>
+                <p className="eyebrow">{t("player.nowPlaying")}</p>
+                <h2 id="phone-player-heading">{t("player.expandedHeading")}</h2>
+              </div>
+              <button
+                ref={phoneCollapseRef}
+                className="icon-button phone-player-collapse"
+                type="button"
+                aria-label={t("player.collapseControls")}
+                title={t("player.collapseControls")}
+                onClick={collapsePhonePlayer}
+              >
+                <PlayerIcon name="collapse" />
+              </button>
+            </header>
+
+            <div className="phone-player-expanded-track">
+              <strong>{loading ? t("player.loading") : player?.track?.title || t("player.noTrack")}</strong>
+              <span>{player?.track?.artist || (selectedDevice ? deviceLabel(selectedDevice, t) : t("player.selectDevicePrompt"))}</span>
+              {error && (
+                <button className="player-error phone-player-status" type="button" onClick={() => onNotice(error, true)}>
+                  {t("player.errorDetails")}
+                </button>
+              )}
+              {!error && player?.status_warning && (
+                <button
+                  className="player-error phone-player-status"
+                  type="button"
+                  onClick={() => onStatusWarning(player.status_warning ?? null, true)}
+                >
+                  {t("player.statusWarningDetails")}
+                </button>
+              )}
+            </div>
+
+            <div className="transport phone-player-expanded-transport">
+              <div className="transport-buttons">
+                <button
+                  className="icon-button"
+                  type="button"
+                  aria-label={t("player.previousTrack")}
+                  disabled={!canUsePlayback || Boolean(busy)}
+                  onClick={() => void command("previous")}
+                >
+                  <PlayerIcon name="previous" />
+                </button>
+                <button
+                  className="icon-button"
+                  type="button"
+                  aria-label={t("player.nextTrack")}
+                  disabled={!canUsePlayback || Boolean(busy)}
+                  onClick={() => void command("next")}
+                >
+                  <PlayerIcon name="next" />
+                </button>
+              </div>
+              <div className="seek-row">
+                <span>{timeLabel(position, locale)}</span>
+                <input
+                  aria-label={t("player.seekPosition")}
+                  className="seek-slider"
+                  type="range"
+                  min={0}
+                  max={Math.max(duration, 1)}
+                  step={1000}
+                  value={Math.min(position, Math.max(duration, 1))}
+                  disabled={!player?.track || !player.capabilities.seek || duration <= 0 || Boolean(busy)}
+                  onChange={(event) => {
+                    setSeeking(true);
+                    seekingRef.current = true;
+                    setPosition(Number(event.target.value));
+                  }}
+                  onPointerUp={() => void seek()}
+                  onKeyUp={() => void seek()}
+                />
+                <span>{timeLabel(duration, locale)}</span>
+              </div>
+            </div>
+
+            {outputPicker}
+          </section>
+        )}
+
+        <div className="phone-player-compact">
+          <div className="now-playing phone-player-summary">
+            <button
+              className="player-artwork"
+              type="button"
+              aria-label={t("player.openQueue")}
+              title={t("player.openQueue")}
+              onClick={() => {
+                setPhoneExpanded(false);
+                onShowQueue();
+              }}
+            >
+              {player?.track?.artwork_id ? (
+                <img
+                  src={`/api/v1/artwork/${encodeURIComponent(player.track.artwork_id)}`}
+                  alt=""
+                />
+              ) : (
+                <PlayerIcon name="music" />
+              )}
+            </button>
+            <div className="now-playing-copy" aria-live="polite">
+              <strong>{loading ? t("player.loading") : player?.track?.title || t("player.noTrack")}</strong>
+              <span>{player?.track?.artist || (selectedDevice ? deviceLabel(selectedDevice, t) : t("player.selectDevicePrompt"))}</span>
+              {error && (
+                <button className="player-error" type="button" onClick={() => onNotice(error, true)}>
+                  {t("player.errorDetails")}
+                </button>
+              )}
+              {!error && player?.status_warning && (
+                <button className="player-error" type="button" onClick={() => onStatusWarning(player.status_warning ?? null, true)}>
+                  {t("player.statusWarningDetails")}
+                </button>
+              )}
+            </div>
+          </div>
+
+          <div className="phone-player-primary-actions">
+            <button
+              className="icon-button player-primary-control"
+              type="button"
+              aria-label={canPause ? t("player.pause") : t("player.play")}
+              disabled={!(canPause ? canControl : canUsePlayback) || Boolean(busy)}
+              onClick={() => void command(canPause ? "pause" : "play")}
+            >
+              <PlayerIcon name={canPause ? "pause" : "play"} />
+            </button>
+            <button
+              className="icon-button"
+              type="button"
+              aria-label={t("player.stop")}
+              disabled={!canControl || player?.state === "stopped" || Boolean(busy)}
+              onClick={() => void command("stop")}
+            >
+              <PlayerIcon name="stop" />
+            </button>
+            <button
+              ref={phoneExpandRef}
+              className="icon-button"
+              type="button"
+              aria-label={phoneExpanded ? t("player.collapseControls") : t("player.expandControls")}
+              title={phoneExpanded ? t("player.collapseControls") : t("player.expandControls")}
+              aria-controls="phone-player-panel"
+              aria-expanded={phoneExpanded}
+              onClick={phoneExpanded ? collapsePhonePlayer : () => setPhoneExpanded(true)}
+            >
+              <PlayerIcon name={phoneExpanded ? "collapse" : "expand"} />
+            </button>
+          </div>
+        </div>
+      </footer>
+    );
+  }
 
   return (
     <footer className="player-bar" aria-label={t("player.nowPlaying")}>
@@ -389,109 +689,7 @@ export default function PlayerBar({ revision, onNotice, onStatusWarning, onQueue
         </div>
       </div>
 
-      <div className="output-picker">
-        <label htmlFor="player-output">{t("player.output")}</label>
-        <div className="output-control">
-          <select
-            id="player-output"
-            value={player?.renderer_id || ""}
-            disabled={player?.state !== "stopped" || Boolean(player?.pending_command) || Boolean(busy)}
-            onChange={(event) => void selectOutput(event.target.value)}
-          >
-            <option value="">{t("player.selectOutput")}</option>
-            {missingSelectedDeviceLabel && player?.renderer_id && (
-              <option value={player.renderer_id} disabled>{missingSelectedDeviceLabel}</option>
-            )}
-            {devices.map((device) => (
-              <option key={device.id} value={device.id} disabled={!device.online}>
-                {deviceLabel(device, t)}{device.online ? "" : ` (${t("player.offline")})`}
-              </option>
-            ))}
-          </select>
-          <button
-            className="icon-button"
-            type="button"
-            aria-label={t("player.refreshOutputs")}
-            disabled={Boolean(busy)}
-            onClick={() => void refreshDevices()}
-          >
-            <PlayerIcon name="refresh" />
-          </button>
-        </div>
-        {pairingRequired && selectedDevice && (
-          <section className="pairing-panel" aria-labelledby="pairing-heading" aria-busy={busy === "pairing"}>
-            <h2 id="pairing-heading">{t("player.pairing.heading", { device: deviceLabel(selectedDevice, t) })}</h2>
-            <p className="pairing-prompt" aria-live="polite">
-              {pairingStatus?.prompt || (
-                busy === "pairing"
-                  ? t("player.pairing.checking")
-                  : selectedDevice.pairing_required && !pairingStarted
-                    ? t("player.pairing.startHint")
-                    : selectedDevice.pairing_required && selectedDevice.password_required
-                      ? t("player.pairing.pinAndPasswordPrompt")
-                      : selectedDevice.pairing_required
-                        ? t("player.pairing.pinPrompt")
-                        : t("player.pairing.passwordPrompt")
-              )}
-            </p>
-            {pairingAvailable ? (
-              selectedDevice.pairing_required && !pairingStarted ? (
-                <div className="pairing-start">
-                  <button
-                    className="button button-primary"
-                    type="button"
-                    disabled={Boolean(busy)}
-                    onClick={() => void beginPairing()}
-                  >
-                    {busy === "pairing" ? t("player.pairing.starting") : t("player.pairing.start")}
-                  </button>
-                </div>
-              ) : (
-                <form className="pairing-form" autoComplete="off" onSubmit={(event) => void pairDevice(event)}>
-                  {selectedDevice.pairing_required && (
-                    <label>
-                      <span className="field-label">{t("player.pairing.pin")}</span>
-                      <input
-                        className="input"
-                        type="text"
-                        inputMode="numeric"
-                        autoComplete="one-time-code"
-                        spellCheck={false}
-                        value={pairingPIN}
-                        required
-                        disabled={Boolean(busy)}
-                        onChange={(event) => setPairingPIN(event.target.value)}
-                      />
-                    </label>
-                  )}
-                  {selectedDevice.password_required && (
-                    <label>
-                      <span className="field-label">{t("player.pairing.password")}</span>
-                      <input
-                        className="input"
-                        type="password"
-                        autoComplete="off"
-                        spellCheck={false}
-                        value={pairingPassword}
-                        required
-                        disabled={Boolean(busy)}
-                        onChange={(event) => setPairingPassword(event.target.value)}
-                      />
-                    </label>
-                  )}
-                  <button className="button button-primary" type="submit" disabled={Boolean(busy)}>
-                    {busy === "pairing" ? t("player.pairing.inProgress") : t("player.pairing.submit")}
-                  </button>
-                </form>
-              )
-            ) : (
-              <p className="pairing-stopped-message">{t("player.pairing.stoppedOnly")}</p>
-            )}
-            {pairingError && <p className="error-text pairing-error" role="alert">{pairingError}</p>}
-          </section>
-        )}
-        {playing && <span className="playing-indicator">{t("player.playing")}</span>}
-      </div>
+      {outputPicker}
     </footer>
   );
 }

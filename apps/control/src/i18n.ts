@@ -3,11 +3,12 @@ import { appMessages } from "./locales/app";
 import { commonMessages } from "./locales/common";
 import { libraryMessages } from "./locales/library";
 import { playerMessages } from "./locales/player";
+import { pwaMessages } from "./locales/pwa";
 
 export type Language = "en" | "ko";
 const storageKey = "jastreamer.language";
 const cookieName = "jastreamer_language";
-const messages = { ...commonMessages, ...appMessages, ...libraryMessages, ...playerMessages };
+const messages = { ...commonMessages, ...appMessages, ...libraryMessages, ...playerMessages, ...pwaMessages };
 export type MessageKey = keyof typeof messages;
 
 function isLanguage(value: unknown): value is Language {
