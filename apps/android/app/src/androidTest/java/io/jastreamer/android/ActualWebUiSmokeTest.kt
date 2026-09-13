@@ -1,11 +1,15 @@
 package io.jastreamer.android
 
+import android.accessibilityservice.AccessibilityService
 import android.content.Context
 import android.content.ContentValues
 import android.content.pm.ActivityInfo
 import android.content.res.Configuration
 import android.graphics.Bitmap
+import android.os.SystemClock
 import android.provider.MediaStore
+import android.view.InputDevice
+import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
 import android.view.inputmethod.InputMethodManager
@@ -20,6 +24,7 @@ import androidx.test.platform.app.InstrumentationRegistry
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicReference
+import org.json.JSONArray
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -44,14 +49,7 @@ class ActualWebUiSmokeTest {
                 (activity.getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager)
                     .showSoftInput(address, InputMethodManager.SHOW_IMPLICIT)
             }
-            waitFor("native address keyboard") {
-                var visible = false
-                scenario.onActivity { activity ->
-                    visible = ViewCompat.getRootWindowInsets(activity.window.decorView)
-                        ?.isVisible(WindowInsetsCompat.Type.ime()) == true
-                }
-                visible
-            }
+            waitFor("native address keyboard") { keyboardVisible() }
             scenario.onActivity { activity ->
                 val address = activity.findViewById<EditText>(R.id.server_address)
                 val position = IntArray(2)
@@ -63,6 +61,21 @@ class ActualWebUiSmokeTest {
             screenshot("native-keyboard")
             connect(origin)
             waitFor("real first-account form") { evaluate("document.querySelectorAll('.auth-form input').length === 3") == "true" }
+            tapWebInput("input[autocomplete=username]")
+            waitFor("WebView account keyboard") { keyboardVisible() }
+            waitFor("focused account input above the keyboard") {
+                evaluate("""
+                    (() => {
+                        const input = document.querySelector('input[autocomplete=username]');
+                        const box = input.getBoundingClientRect();
+                        return document.activeElement === input && box.top >= 0 && box.bottom <= visualViewport.height + 1;
+                    })()
+                """.trimIndent()) == "true"
+            }
+            screenshot("web-account-keyboard")
+            assertTrue(instrumentation.uiAutomation.performGlobalAction(AccessibilityService.GLOBAL_ACTION_BACK))
+            waitFor("Back dismisses the keyboard") { !keyboardVisible() }
+            assertEquals("Keyboard Back must not leave the selected Server", "3", evaluate("document.querySelectorAll('.auth-form input').length"))
             evaluate(setInput("input[autocomplete=username]", "android-smoke"))
             scenario.onActivity { it.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE }
             waitFor("landscape layout") { orientation() == Configuration.ORIENTATION_LANDSCAPE }
@@ -109,10 +122,14 @@ class ActualWebUiSmokeTest {
             """.trimIndent())
             waitFor("Korean Web interface") { evaluate("document.documentElement.lang === 'ko'") == "true" }
             scenario.onActivity { it.findViewById<View>(R.id.change_server_button).performClick() }
+            val korean = Configuration(instrumentation.targetContext.resources.configuration).apply {
+                setLocale(java.util.Locale.KOREAN)
+            }
+            val koreanConnectLabel = instrumentation.targetContext.createConfigurationContext(korean).getString(R.string.verify_connect)
             waitFor("native language synchronization") {
                 var translated = false
                 scenario.onActivity { activity ->
-                    translated = activity.findViewById<android.widget.Button>(R.id.connect_button).text == "확인 후 연결"
+                    translated = activity.findViewById<android.widget.Button>(R.id.connect_button).text == koreanConnectLabel
                 }
                 translated
             }
@@ -132,6 +149,41 @@ class ActualWebUiSmokeTest {
             activity.findViewById<View>(R.id.connect_button).performClick()
         }
     }
+    private fun keyboardVisible(): Boolean {
+        var visible = false
+        scenario.onActivity { activity ->
+            visible = ViewCompat.getRootWindowInsets(activity.window.decorView)
+                ?.isVisible(WindowInsetsCompat.Type.ime()) == true
+        }
+        return visible
+    }
+
+    private fun tapWebInput(selector: String) {
+        val point = JSONArray(requireNotNull(evaluate("""
+            (() => {
+                const input = document.querySelector('$selector');
+                input.scrollIntoView({block:'center', behavior:'instant'});
+                const box = input.getBoundingClientRect();
+                return [(box.left + box.width / 2) * devicePixelRatio, (box.top + box.height / 2) * devicePixelRatio];
+            })()
+        """.trimIndent())))
+        val location = IntArray(2)
+        scenario.onActivity { activity -> requireNotNull(webView(activity.window.decorView)).getLocationOnScreen(location) }
+        val down = SystemClock.uptimeMillis()
+        for (action in intArrayOf(MotionEvent.ACTION_DOWN, MotionEvent.ACTION_UP)) {
+            val event = MotionEvent.obtain(
+                down, SystemClock.uptimeMillis(), action,
+                location[0] + point.getDouble(0).toFloat(), location[1] + point.getDouble(1).toFloat(), 0,
+            )
+            event.source = InputDevice.SOURCE_TOUCHSCREEN
+            try {
+                assertTrue("The account field must accept an actual Android touch", instrumentation.uiAutomation.injectInputEvent(event, true))
+            } finally {
+                event.recycle()
+            }
+        }
+    }
+
 
     private fun assertStopped() {
         evaluate("""

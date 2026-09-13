@@ -126,25 +126,7 @@ jobs:
           profile: pixel_6
           disable-animations: true
           enable-hw-keyboard: true
-          script: |
-            evidence="apps/android/app/build/androidTest-evidence"
-            mkdir -p "${evidence}"
-            printf '%s\n' "${GITHUB_SHA}" > "${evidence}/source-revision.txt"
-            adb logcat -c
-            adb shell settings put secure show_ime_with_hard_keyboard 1
-            set +e
-            tooling/qa/android-server-smoke.py \
-              apps/android/gradlew -p apps/android --no-daemon --stacktrace \
-              :app:connectedDebugAndroidTest \
-              -Pandroid.testInstrumentationRunnerArguments.serverUrl=http://10.0.2.2:18080
-            test_status=$?
-            mkdir -p "${evidence}/screenshots"
-            adb pull \
-              /sdcard/Pictures/jastreamer-android-smoke/. \
-              "${evidence}/screenshots/" > "${evidence}/screenshot-pull.txt" 2>&1 || true
-            adb logcat -b all -d > "${evidence}/logcat.txt" 2>&1 || true
-            adb exec-out screencap -p > "${evidence}/final-screen.png" 2>/dev/null || true
-            exit "${test_status}"
+          script: bash tooling/qa/android-instrumentation-smoke.sh
       - name: Require the instrumented APK bytes to match the packaged artifact
         shell: bash
         run: |
@@ -167,5 +149,7 @@ jobs:
             apps/android/app/build/androidTest-evidence/
             apps/android/app/build/outputs/androidTest-results/connected/
             apps/android/app/build/reports/androidTests/connected/
+            apps/android/app/build/test-results/testDebugUnitTest/
+            apps/android/app/build/reports/lint-results-*
           if-no-files-found: warn
           retention-days: 30
