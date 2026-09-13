@@ -1,12 +1,13 @@
 import assert from 'node:assert/strict';
 import { randomBytes } from 'node:crypto';
-import { spawn } from 'node:child_process';
+import { execFileSync, spawn } from 'node:child_process';
 import { once } from 'node:events';
 import { cp, mkdtemp, mkdir, rename, rm, writeFile } from 'node:fs/promises';
 import { createServer as createHTTPServer, request } from 'node:http';
 import { createServer as createTCPServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { _electron } from 'playwright-core';
 
 const [serverBinary, desktopBinary] = process.argv.slice(2).map((value) => path.resolve(value));
@@ -164,7 +165,23 @@ try {
   await closeApplication();
   assert.deepEqual(commands, [], 'Switching and closing must not send queue or playback commands');
   const moved = path.join(work, 'moved portable with spaces');
-  await rename(portable, moved);
+  try {
+    await rename(portable, moved);
+  } catch (error) {
+    if (process.platform === 'win32') {
+      try {
+        const locks = execFileSync('powershell.exe', [
+          '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass',
+          '-File', fileURLToPath(new URL('./diagnose-portable-locks.ps1', import.meta.url)),
+          '-Directory', portable,
+        ], { encoding: 'utf8', timeout: 15000, windowsHide: true });
+        console.error(`Portable relocation lock owners: ${locks.trim()}`);
+      } catch (diagnosticError) {
+        console.error(`Portable lock diagnostics failed: ${diagnosticError.message}`);
+      }
+    }
+    throw error;
+  }
   portable = moved;
   shell = await launch();
   assert.equal(await shell.locator("#language").inputValue(), "ko", "Portable restart must retain the language preference");
