@@ -125,6 +125,17 @@ def assert_port_unused() -> None:
     raise SystemExit(f"TCP port 18080 is already serving HTTP status {status}; native smoke requires this package's default port")
 
 
+def require_adjacent_directory(value: Any, expected: pathlib.Path, label: str) -> None:
+    # Windows TEMP and cmd.exe can name the same directory with 8.3 and long
+    # paths. Check the directory identity, not the spelling of its pathname.
+    try:
+        configured = pathlib.Path(value) if isinstance(value, str) else pathlib.Path()
+        matches = configured.is_absolute() and configured.is_dir() and configured.samefile(expected)
+    except OSError:
+        matches = False
+    require(matches, f"{label} is not executable-adjacent: configured={value!r}, expected={str(expected)!r}")
+
+
 def smoke(package_dir: pathlib.Path, source_revision: str) -> dict[str, Any]:
     require(sys.platform == "win32", "Windows Server native verifier must run on Windows")
     require(platform.machine().lower() in {"amd64", "x86_64"}, "Windows Server native verifier must run on x64 Windows")
@@ -162,9 +173,10 @@ def smoke(package_dir: pathlib.Path, source_revision: str) -> dict[str, Any]:
             music_path = package_root / "music"
             require(config_path.is_file() and data_path.is_dir() and music_path.is_dir(), "first launch did not create adjacent config/data/music")
             config = parse_json(config_path.read_bytes(), "first-launch config")
-            require(pathlib.Path(config.get("data_dir", "")) == data_path, "first-launch data path is not executable-adjacent")
+            require_adjacent_directory(config.get("data_dir"), data_path, "first-launch data path")
             roots = config.get("library_roots")
-            require(isinstance(roots, list) and len(roots) == 1 and pathlib.Path(roots[0].get("path", "")) == music_path, "first-launch music path is not executable-adjacent")
+            require(isinstance(roots, list) and len(roots) == 1, "first launch did not configure one music directory")
+            require_adjacent_directory(roots[0].get("path"), music_path, "first-launch music path")
             require(config.get("media") == {"base_url": "", "ffmpeg_path": "", "transcode": False}, "first-launch config unexpectedly enables or selects FFmpeg")
             require(config.get("airplay") == {"enabled": False, "helper_path": ""}, "first-launch config unexpectedly enables or selects AirPlay")
 
