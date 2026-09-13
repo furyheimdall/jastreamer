@@ -1,13 +1,12 @@
 import assert from 'node:assert/strict';
 import { randomBytes } from 'node:crypto';
-import { execFileSync, spawn } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import { once } from 'node:events';
 import { cp, mkdtemp, mkdir, rename, rm, writeFile } from 'node:fs/promises';
 import { createServer as createHTTPServer, request } from 'node:http';
 import { createServer as createTCPServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { _electron } from 'playwright-core';
 
 const [serverBinary, desktopBinary] = process.argv.slice(2).map((value) => path.resolve(value));
@@ -28,6 +27,27 @@ async function until(callback, message, timeout = 15000) {
     await sleep(50);
   }
   throw new Error(message);
+}
+async function withWindowsFileUnlock(operation) {
+  let lastLock;
+  try {
+    await until(async () => {
+      try {
+        await operation();
+        return true;
+      } catch (error) {
+        if (process.platform !== 'win32' || !['EPERM', 'EBUSY'].includes(error.code)) throw error;
+        // Hosted-runner processes can retain file handles after every app process exits.
+        if (!lastLock) console.log(JSON.stringify({ waitingForWindowsFileUnlock: error.code, path: error.path }));
+        lastLock = error;
+        return false;
+      }
+    }, 'Windows filesystem lock did not clear after application exit');
+  } catch (error) {
+    if (lastLock) error.cause = lastLock;
+    throw error;
+  }
+  if (lastLock) console.log(JSON.stringify({ windowsFileLockCleared: true }));
 }
 async function freePort() {
   const listener = createTCPServer();
@@ -110,12 +130,6 @@ async function username(page) {
 }
 async function closeApplication() {
   const processes = await application.evaluate(({ app }) => app.getAppMetrics().map(({ pid, type }) => ({ pid, type })));
-  const windowsProcesses = process.platform === 'win32' ? JSON.parse(execFileSync('powershell.exe', [
-    '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass',
-    '-File', fileURLToPath(new URL('./diagnose-portable-locks.ps1', import.meta.url)),
-    '-Directory', portable, '-ProcessesOnly',
-  ], { encoding: 'utf8', timeout: 15000, windowsHide: true })).desktopProcesses : [];
-  if (windowsProcesses.length) console.log(JSON.stringify({ electronMetrics: processes, windowsDesktopProcesses: windowsProcesses }));
   await application.close();
   application = null;
   const remaining = () => processes.filter(({ pid }) => {
@@ -130,10 +144,6 @@ async function closeApplication() {
   const exiting = remaining();
   if (exiting.length) console.log(JSON.stringify({ desktopProcessesStillExiting: exiting }));
   await until(() => remaining().length === 0, `Desktop processes did not exit: ${JSON.stringify(processes)}`);
-  const untracked = windowsProcesses.filter(({ pid }) => !processes.some((tracked) => tracked.pid === pid)).filter(({ pid }) => {
-    try { process.kill(pid, 0); return true; } catch (error) { if (error.code === 'ESRCH') return false; throw error; }
-  });
-  if (untracked.length) console.error(JSON.stringify({ untrackedDesktopProcessesAfterClose: untracked }));
 }
 try {
   await cp(path.dirname(desktopBinary), portable, { recursive: true, filter: (source) => path.basename(source) !== 'user-data' });
@@ -175,23 +185,7 @@ try {
   await closeApplication();
   assert.deepEqual(commands, [], 'Switching and closing must not send queue or playback commands');
   const moved = path.join(work, 'moved portable with spaces');
-  try {
-    await rename(portable, moved);
-  } catch (error) {
-    if (process.platform === 'win32') {
-      try {
-        const locks = execFileSync('powershell.exe', [
-          '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass',
-          '-File', fileURLToPath(new URL('./diagnose-portable-locks.ps1', import.meta.url)),
-          '-Directory', portable,
-        ], { encoding: 'utf8', timeout: 15000, windowsHide: true });
-        console.error(`Portable relocation lock owners: ${locks.trim()}`);
-      } catch (diagnosticError) {
-        console.error(`Portable lock diagnostics failed: ${diagnosticError.message}`);
-      }
-    }
-    throw error;
-  }
+  await withWindowsFileUnlock(() => rename(portable, moved));
   portable = moved;
   shell = await launch();
   assert.equal(await shell.locator("#language").inputValue(), "ko", "Portable restart must retain the language preference");
@@ -215,18 +209,5 @@ try {
       if (child.exitCode === null) child.kill('SIGKILL');
     }
   }
-  try {
-    await rm(work, { recursive: true, force: true });
-  } catch (error) {
-    if (process.platform === 'win32') {
-      try {
-        console.error(execFileSync('powershell.exe', [
-          '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass',
-          '-File', fileURLToPath(new URL('./diagnose-portable-locks.ps1', import.meta.url)),
-          '-Directory', portable,
-        ], { encoding: 'utf8', timeout: 15000, windowsHide: true }));
-      } catch (diagnosticError) { console.error(`Cleanup lock diagnostics failed: ${diagnosticError.message}`); }
-    }
-    throw error;
-  }
+  await withWindowsFileUnlock(() => rm(work, { recursive: true, force: true }));
 }
