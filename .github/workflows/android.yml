@@ -1,0 +1,151 @@
+name: Android CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: android-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Android build and real-Web-UI verification
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Check out source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - name: Set up JDK 17
+        uses: actions/setup-java@c5195efecf7bdfc987ee8bae7a71cb8b11521c00 # v4.7.1
+        with:
+          distribution: temurin
+          java-version: "17"
+      - name: Set up and validate Gradle Wrapper
+        uses: gradle/actions/setup-gradle@017a9effdb900e5b5b2fddfb590a105619dca3c3 # v4.4.2
+        with:
+          validate-wrappers: true
+      - name: Install pinned Android SDK components
+        shell: bash
+        run: sdkmanager "platforms;android-36" "build-tools;35.0.0"
+      - name: Run Android unit tests and lint; build debug and unsigned release APKs
+        working-directory: apps/android
+        run: >-
+          ./gradlew --no-daemon --stacktrace
+          :app:testDebugUnitTest
+          :app:lint
+          :app:assembleDebug
+          :app:assembleRelease
+      - name: Verify signing boundaries and record APK provenance
+        shell: bash
+        run: |
+          set -euo pipefail
+          debug_apk="apps/android/app/build/outputs/apk/debug/app-debug.apk"
+          release_apk="apps/android/app/build/outputs/apk/release/app-release-unsigned.apk"
+          apksigner="${ANDROID_HOME}/build-tools/35.0.0/apksigner"
+          test -f "${debug_apk}"
+          test -f "${release_apk}"
+          "${apksigner}" verify --verbose "${debug_apk}"
+          if "${apksigner}" verify "${release_apk}" >/dev/null 2>&1; then
+            echo "Release APK must remain unsigned" >&2
+            exit 1
+          fi
+          debug_cert_sha256="$("${apksigner}" verify --print-certs "${debug_apk}" | sed -n 's/^Signer #1 certificate SHA-256 digest: //p')"
+          test -n "${debug_cert_sha256}"
+          output="dist/android"
+          mkdir -p "${output}"
+          debug_name="jastreamer-android_0.2.0_${GITHUB_SHA}_debug-test-signed.apk"
+          release_name="jastreamer-android_0.2.0_${GITHUB_SHA}_release-unsigned.apk"
+          cp "${debug_apk}" "${output}/${debug_name}"
+          cp "${release_apk}" "${output}/${release_name}"
+          (
+            cd "${output}"
+            sha256sum "${debug_name}" "${release_name}" > SHA256SUMS
+          )
+          jq -n \
+            --arg source_revision "${GITHUB_SHA}" \
+            --arg version "0.2.0" \
+            --arg debug_apk "${debug_name}" \
+            --arg debug_signing "Android SDK generated debug/test certificate; not for release" \
+            --arg debug_certificate_sha256 "${debug_cert_sha256}" \
+            --arg release_apk "${release_name}" \
+            --arg release_signing "unsigned; not installable until explicitly signed; not a production release" \
+            '{sourceRevision: $source_revision, version: $version, artifacts: [
+              {file: $debug_apk, signing: $debug_signing, certificateSha256: $debug_certificate_sha256},
+              {file: $release_apk, signing: $release_signing}
+            ]}' > "${output}/provenance.json"
+      - name: Set up Go
+        uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5.5.0
+        with:
+          go-version-file: apps/server/go.mod
+          cache-dependency-path: apps/server/go.sum
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22.20.0
+          cache: npm
+          cache-dependency-path: apps/control/package-lock.json
+      - name: Build the actual Server with embedded Web UI
+        run: make build
+      - name: Enable KVM
+        shell: bash
+        run: |
+          sudo chown "$(id -u):$(id -g)" /dev/kvm
+          sudo chmod 0600 /dev/kvm
+      - name: Run every instrumented test against the actual Web UI
+        uses: reactivecircus/android-emulator-runner@1dcd0090116d15e7c562f8db72807de5e036a4ed # v2.34.0
+        with:
+          api-level: 36
+          target: google_apis
+          arch: x86_64
+          disable-animations: true
+          enable-hw-keyboard: true
+          script: |
+            evidence="apps/android/app/build/androidTest-evidence"
+            mkdir -p "${evidence}"
+            printf '%s\n' "${GITHUB_SHA}" > "${evidence}/source-revision.txt"
+            adb logcat -c
+            adb shell settings put secure show_ime_with_hard_keyboard 1
+            set +e
+            tooling/qa/android-server-smoke.py \
+              apps/android/gradlew -p apps/android --no-daemon --stacktrace \
+              :app:connectedDebugAndroidTest \
+              -Pandroid.testInstrumentationRunnerArguments.serverUrl=http://10.0.2.2:18080
+            test_status=$?
+            mkdir -p "${evidence}/screenshots"
+            adb pull \
+              /sdcard/Pictures/jastreamer-android-smoke/. \
+              "${evidence}/screenshots/" > "${evidence}/screenshot-pull.txt" 2>&1 || true
+            adb logcat -b all -d > "${evidence}/logcat.txt" 2>&1 || true
+            adb exec-out screencap -p > "${evidence}/final-screen.png" 2>/dev/null || true
+            exit "${test_status}"
+      - name: Require the instrumented APK bytes to match the packaged artifact
+        shell: bash
+        run: |
+          cmp apps/android/app/build/outputs/apk/debug/app-debug.apk \
+            "dist/android/jastreamer-android_0.2.0_${GITHUB_SHA}_debug-test-signed.apk"
+      - name: Upload verified non-production Android APKs
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: jastreamer-android-debug-test-signed-and-release-unsigned-${{ github.sha }}
+          path: dist/android/
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 30
+      - name: Upload instrumentation evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: jastreamer-android-api36-instrumentation-${{ github.sha }}
+          path: |
+            apps/android/app/build/androidTest-evidence/
+            apps/android/app/build/outputs/androidTest-results/connected/
+            apps/android/app/build/reports/androidTests/connected/
+          if-no-files-found: warn
+          retention-days: 30

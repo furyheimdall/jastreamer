@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name" translatable="false">jastreamer</string>
+    <string name="android_control">Android Control</string>
+    <string name="select_server">Select a server</string>
+    <string name="selection_detail">Choose a verified JASTREAMER Server on your network. Connections are always your choice; playback stays on the Server.</string>
+    <string name="server_address">Server address</string>
+    <string name="verify_connect">Verify and connect</string>
+    <string name="http_notice">Use HTTP only on a trusted private LAN. HTTPS certificate checks cannot be disabled.</string>
+    <string name="servers">Servers</string>
+    <string name="change_server">Change server</string>
+    <string name="language">Language / 언어</string>
+    <string name="discovered_servers">Discovered servers</string>
+    <string name="recent_servers">Recent servers</string>
+    <string name="no_discovered">Searching the local network. If no server appears, check Wi-Fi and multicast or enter its address.</string>
+    <string name="no_recent">No recently connected servers.</string>
+    <string name="available">Available</string>
+    <string name="unavailable">Unavailable</string>
+    <string name="checking">Checking</string>
+    <string name="remove_recent">Remove from recent servers</string>
+    <string name="retry">Try again</string>
+    <string name="verifying">Verifying the server</string>
+    <string name="error_endpoint">Enter an HTTP(S) server root address without credentials, a path, query, or fragment.</string>
+    <string name="error_unreachable">The server could not be reached. Check its address and the network.</string>
+    <string name="error_timeout">The connection timed out.</string>
+    <string name="error_tls">The HTTPS certificate could not be verified. Use a trusted certificate matching the server address.</string>
+    <string name="error_redirect">The server redirected discovery. Enter its final root address explicitly.</string>
+    <string name="error_http">The server returned an unsuccessful HTTP response.</string>
+    <string name="error_metadata">The server returned invalid discovery information.</string>
+    <string name="error_incompatible">This is not a compatible JASTREAMER Server.</string>
+    <string name="error_identity">The server identity changed. This saved connection was not opened.</string>
+    <string name="error_storage">App preferences could not be read or saved. The change was not applied.</string>
+    <string name="error_discovery">Local network discovery failed. Check Wi-Fi, multicast and app network access, or enter the server address.</string>
+    <string name="error_webview">This Android System WebView cannot isolate server sessions. Update Android System WebView or Chrome using your device settings or app store, then reopen jastreamer. No shared-session fallback is allowed.</string>
+    <string name="error_web_load">The server interface could not be loaded. Verify the connection again.</string>
+    <string name="error_navigation">Navigation outside the selected server is blocked. Copy reference links and open them in your browser yourself.</string>
+</resources>

@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="android_control">Android Control</string>
+    <string name="select_server">서버를 선택하세요</string>
+    <string name="selection_detail">같은 네트워크에서 확인된 JASTREAMER 서버를 직접 선택하세요. 자동으로 연결하지 않으며 재생은 서버가 관리합니다.</string>
+    <string name="server_address">서버 주소</string>
+    <string name="verify_connect">확인 후 연결</string>
+    <string name="http_notice">HTTP는 신뢰할 수 있는 사설 LAN에서만 사용하세요. HTTPS 인증서 검사는 끌 수 없습니다.</string>
+    <string name="servers">서버</string>
+    <string name="change_server">서버 변경</string>
+    <string name="language">Language / 언어</string>
+    <string name="discovered_servers">발견된 서버</string>
+    <string name="recent_servers">최근 서버</string>
+    <string name="no_discovered">로컬 네트워크를 검색하고 있습니다. 서버가 보이지 않으면 Wi-Fi와 멀티캐스트를 확인하거나 주소를 입력하세요.</string>
+    <string name="no_recent">최근에 연결한 서버가 없습니다.</string>
+    <string name="available">사용 가능</string>
+    <string name="unavailable">연결 안 됨</string>
+    <string name="checking">확인 중</string>
+    <string name="remove_recent">최근 서버 목록에서 제거</string>
+    <string name="retry">다시 시도</string>
+    <string name="verifying">서버 확인 중</string>
+    <string name="error_endpoint">계정 정보, 경로, query, fragment가 없는 HTTP(S) 서버 루트 주소를 입력하세요.</string>
+    <string name="error_unreachable">서버에 연결할 수 없습니다. 주소와 네트워크를 확인하세요.</string>
+    <string name="error_timeout">연결 시간이 초과되었습니다.</string>
+    <string name="error_tls">HTTPS 인증서를 검증하지 못했습니다. 서버 주소와 일치하는 신뢰할 수 있는 인증서를 사용하세요.</string>
+    <string name="error_redirect">서버 검색 요청이 리디렉션되었습니다. 최종 서버 루트 주소를 직접 입력하세요.</string>
+    <string name="error_http">서버가 실패 HTTP 응답을 반환했습니다.</string>
+    <string name="error_metadata">서버 검색 정보가 올바르지 않습니다.</string>
+    <string name="error_incompatible">호환되는 JASTREAMER 서버가 아닙니다.</string>
+    <string name="error_identity">서버 식별자가 변경되어 저장된 연결을 열지 않았습니다.</string>
+    <string name="error_storage">앱 설정을 읽거나 저장하지 못했습니다. 변경을 적용하지 않았습니다.</string>
+    <string name="error_discovery">로컬 네트워크 검색에 실패했습니다. Wi-Fi, 멀티캐스트, 앱 네트워크 접근을 확인하거나 서버 주소를 입력하세요.</string>
+    <string name="error_webview">현재 Android System WebView는 서버별 세션 격리를 지원하지 않습니다. 기기 설정 또는 앱 스토어에서 Android System WebView나 Chrome을 업데이트한 뒤 jastreamer를 다시 여세요. 공용 세션으로 대신 연결하지 않습니다.</string>
+    <string name="error_web_load">서버 화면을 불러오지 못했습니다. 연결을 다시 확인하세요.</string>
+    <string name="error_navigation">선택한 서버 밖으로 이동할 수 없습니다. 참고 링크는 복사한 뒤 브라우저에서 직접 여세요.</string>
+</resources>

@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <item name="server_address" type="id" />
+    <item name="connect_button" type="id" />
+    <item name="change_server_button" type="id" />
+    <item name="connection_error" type="id" />
+    <item name="remote_container" type="id" />
+</resources>
