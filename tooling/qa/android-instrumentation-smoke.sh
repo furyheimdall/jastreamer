@@ -4,6 +4,13 @@ set -euo pipefail
 evidence="apps/android/app/build/androidTest-evidence"
 mkdir -p "${evidence}"
 printf '%s\n' "${GITHUB_SHA}" > "${evidence}/source-revision.txt"
+if [[ "$(adb get-serialno)" != emulator-* ]]; then
+  echo 'Android smoke requires an isolated emulator, not a physical device' >&2
+  exit 65
+fi
+# Keep the real Server's Host/Origin guard intact instead of trusting the emulator's host alias.
+adb reverse tcp:18080 tcp:18080
+trap 'adb reverse --remove tcp:18080 >/dev/null 2>&1 || true' EXIT
 adb logcat -c
 adb shell settings put secure show_ime_with_hard_keyboard 1
 
@@ -11,7 +18,7 @@ test_status=0
 tooling/qa/android-server-smoke.py \
   apps/android/gradlew -p apps/android --no-daemon --stacktrace \
   :app:connectedDebugAndroidTest \
-  -Pandroid.testInstrumentationRunnerArguments.serverUrl=http://10.0.2.2:18080 \
+  -Pandroid.testInstrumentationRunnerArguments.serverUrl=http://127.0.0.1:18080 \
   || test_status=$?
 
 capture_status=0

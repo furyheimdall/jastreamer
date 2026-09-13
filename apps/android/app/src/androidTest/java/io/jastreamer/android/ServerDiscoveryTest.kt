@@ -24,7 +24,7 @@ import org.junit.runner.RunWith
 @RunWith(AndroidJUnit4::class)
 class ServerDiscoveryTest {
     @Test
-    fun nativeNsdPublishesOnlyVerifiedServerAndRemovesLostService() = runBlocking {
+    fun nativeNsdPublishesOnlyVerifiedServerAndRemovesLostService(): Unit = runBlocking {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val manager = context.getSystemService(Context.NSD_SERVICE) as NsdManager
         val identity = "c2b9fb5b-1c16-4e18-a237-f06e2f6e5918"

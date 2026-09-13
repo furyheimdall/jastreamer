@@ -204,6 +204,8 @@ Kotlin 앱은 `_jastreamer._tcp` Server를 검색하고 `/api/v1/discovery`로 �
 
 HTTP는 신뢰할 수 있는 사설 LAN에서만 사용하며 암호화되지 않습니다. HTTPS는 기기의 정상적인 시스템 인증서 저장소로 검증되어야 합니다. 현재 앱의 target은 API 36이며 위치나 target 37용 `ACCESS_LOCAL_NETWORK` 권한을 요청하지 않습니다. Android 17은 현재 이전 target에 LAN 접근을 암시적으로 허용하지만 접근이 차단되면 오류를 그대로 표시합니다. Wi-Fi 기기 격리, 멀티캐스트 차단이나 VPN 경로 때문에 검색이 안 될 수 있으며 주소 직접 입력은 계속 사용할 수 있습니다. 테스트를 통과시키려고 기기 호환성 플래그나 네트워크 권한을 임의로 바꾸지 마세요.
 
+자동 검색은 광고된 LAN IP 주소로 확인합니다. 유효한 HTTPS 인증서가 호스트 이름만 포함하면 그 이름을 수동으로 입력하세요. IP 주소와 인증서의 불일치를 무시하지 마세요.
+
 호환 APK를 덮어쓰면 앱 전용 설정과 Server UUID·origin별 프로필을 보존합니다. **최근 서버 목록에서 제거**는 목록만 지우며 로그아웃이나 WebView 프로필 삭제가 아닙니다. 필요하면 Server 화면 안에서 로그아웃하세요. Android 앱 제거·저장 공간 초기화는 모든 앱 프로필을 지우며 앱 데이터는 Android 클라우드·기기 이전 백업에서 제외됩니다. 프로필이나 세션 쿠키를 보고서에 복사하지 마세요.
 
 소스 개발은 필요한 호스트 도구 설치 승인을 받은 뒤 JDK 17, SDK platform 36, Build Tools 35.0.0과 `apps/android`의 고정된 Gradle Wrapper를 사용합니다. `./gradlew :app:testDebugUnitTest :app:lint :app:assembleDebug :app:assembleRelease`를 실행하세요. 전체 계측 검증은 `.github/workflows/android.yml`의 격리된 API 36 에뮬레이터와 실제 Server/Web fixture를 사용하며 사용자가 설치한 Server를 테스트하지 않습니다. 에뮬레이터 성공은 실물 휴대전화 네트워크나 수신기의 실제 소리를 입증하지 않습니다.
