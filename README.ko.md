@@ -48,7 +48,7 @@ Google Cast 자체에는 어느 Server 플랫폼에서도 Chrome이나 Python he
 
 manifest에 샘플 묶음이 포함된 릴리즈는 기존 파일을 덮어쓰지 않고 `jastreamer-samples`에 MP3 세 개를 둘 수 있습니다. 어느 Server 대상을 교체하든 기존 배포 경로, config, data와 원본 음악을 보존하고 음악 보관함 전체의 소유권·권한을 재귀적으로 바꾸거나 Server를 공용 인터넷에 직접 노출하지 마세요.
 
-수동 설정, 패키지 검증, Linux·Synology·Windows 설치, 샘플, PWA 설정, 백업·업데이트·복구 절차는 [한국어 설치 및 업데이트 안내서](INSTALL.ko.md)를, 에이전트 작업 지침은 [AGENTS.md](AGENTS.md)를 참고하세요. 일상적인 사용과 문제 해결은 [한국어 사용자 안내서](INSTRUCTION.ko.md)를 따르세요.
+수동 설정, 패키지 검증, Linux·Synology·Windows 설치, 샘플, PWA 설정, 업데이트·복구 절차는 [한국어 설치 및 업데이트 안내서](INSTALL.ko.md)를, 에이전트 작업 지침은 [AGENTS.md](AGENTS.md)를 참고하세요. 일상적인 사용과 문제 해결은 [한국어 사용자 안내서](INSTRUCTION.ko.md)를 따르세요.
 
 ## 선택 사항인 Google Cast
 
@@ -69,9 +69,9 @@ Cast도 다른 출력과 같은 Server 대기열 하나를 사용합니다. Cast
 
 Linux Server는 config·data 마운트를 보존하면서 컨테이너 이미지를 교체해 업데이트합니다. 네이티브 Windows Server는 새 ZIP을 검증해 별도 폴더에 푼 다음 기존 `server.json`, `data`, `music`을 보존하면서 기존 폴더의 패키지 소유 파일만 교체합니다. 어느 쪽도 앱을 다시 설치하거나 데이터를 초기화하지 않습니다. Server가 제공하는 Web 화면과 내장된 선택적 Google Cast 기능은 두 대상에서 함께 갱신되지만 FFmpeg와 AirPlay는 지원되는 Linux 컨테이너에만 포함됩니다. 선택 사항인 데스크톱 앱 실행 파일은 별도의 ZIP 또는 DEB로 업데이트합니다.
 
-현재 앱 내 새 버전 확인이나 자동 업데이트 기능은 없습니다. 정확한 검증 대상과 체크섬을 다운로드한 뒤 재생과 Server를 멈추고 영구 상태를 백업한 다음 교체하세요. 검증 후 기존 서버 주소로 접속해 Web 화면을 새로고침하면 됩니다. 재생은 자동으로 재개되지 않습니다.
+현재 앱 내 새 버전 확인이나 자동 업데이트 기능은 없습니다. 정확한 대상 패키지와 체크섬을 다운로드·검증한 뒤 재생과 Server를 멈추고, 기존 설정·데이터·음악 경로·마운트를 보존하며 패키지 소유 파일이나 이미지만 교체하세요. 검증 후 기존 서버 주소로 접속해 Web 화면을 새로고침하면 됩니다. 재생은 자동으로 재개되지 않습니다.
 
-Linux 컨테이너의 실제 절차와 업데이트 후 확인 사항은 [백업과 업데이트](INSTALL.ko.md#backup-and-upgrade)를, Windows의 최초 설치와 업데이트는 [네이티브 Windows x64 무설치 Server](INSTALL.ko.md#windows-server)를 참고하세요. 레지스트리 배포는 Linux 이미지에 적용되며 오프라인 패키지도 대안으로 사용할 수 있습니다.
+Linux 컨테이너의 실제 절차와 업데이트 후 확인 사항은 [업데이트](INSTALL.ko.md#upgrade)를, Windows의 최초 설치와 업데이트는 [네이티브 Windows x64 무설치 Server](INSTALL.ko.md#windows-server)를 참고하세요. 레지스트리 배포는 Linux 이미지에 적용되며 오프라인 패키지도 대안으로 사용할 수 있습니다.
 
 ## 호환성 범위
 

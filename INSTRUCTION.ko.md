@@ -2,7 +2,7 @@
 
 [English user guide](INSTRUCTION.md) · [설치 및 업데이트](INSTALL.ko.md) · [프로젝트 소개](README.ko.md)
 
-jastreamer는 Linux 또는 네이티브 Windows에서 Server를 실행합니다. 두 대상 모두 내장 Web 화면과 UPnP/DLNA 출력을 제공하며 Google Cast를 선택적으로 켤 수 있습니다. AirPlay 전송은 Linux 컨테이너 패키지에서만 사용할 수 있습니다. 선택 사항인 Windows·Linux 데스크톱 앱은 Server에 접속만 합니다. 요구 사항, 패키지 검증, Server·Desktop 설치와 백업·업데이트·롤백은 [한국어 설치 및 업데이트 안내서](INSTALL.ko.md)를 따르세요.
+jastreamer는 Linux 또는 네이티브 Windows에서 Server를 실행합니다. 두 대상 모두 내장 Web 화면과 UPnP/DLNA 출력을 제공하며 Google Cast를 선택적으로 켤 수 있습니다. AirPlay 전송은 Linux 컨테이너 패키지에서만 사용할 수 있습니다. 선택 사항인 Windows·Linux 데스크톱 앱은 Server에 접속만 합니다. 요구 사항, 패키지 검증, Server·Desktop 설치와 업데이트·롤백은 [한국어 설치 및 업데이트 안내서](INSTALL.ko.md)를 따르세요.
 
 ## 1. 최초 설정과 일상 사용
 
