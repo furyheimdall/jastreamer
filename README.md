@@ -48,7 +48,7 @@ Google Cast needs no Chrome or Python helper on either Server platform. Select t
 
 Releases whose manifest includes bundled samples can seed three MP3s under `jastreamer-samples` without overwriting existing files. When replacing either Server target, preserve existing deployment paths, config, data, and source music; never recursively change music ownership/permissions or expose Server directly to the public Internet.
 
-For manual setup, package verification, Linux/Synology/Windows installation, samples, PWA setup, backup, upgrade, and rollback, use the [installation guide](INSTALL.md). Agent instructions are in [AGENTS.md](AGENTS.md); everyday operation and troubleshooting are in the [user guide](INSTRUCTION.md).
+For manual setup, package verification, Linux/Synology/Windows installation, samples, PWA setup, upgrade, and rollback, use the [installation guide](INSTALL.md). Agent instructions are in [AGENTS.md](AGENTS.md); everyday operation and troubleshooting are in the [user guide](INSTRUCTION.md).
 
 ## Optional Google Cast
 
@@ -69,9 +69,9 @@ Send the following request to your AI agent. Before installation, review the pro
 
 Update Linux Server by replacing its container image while preserving the config/data mounts. For native Windows Server, verify and extract the new ZIP into a separate directory, then replace only package-owned files in the existing directory while preserving `server.json`, `data`, and `music`. Neither path reinstalls the application from scratch or resets its data. The Server-hosted Web interface and built-in optional Google Cast support are updated together on both targets; FFmpeg and AirPlay are included only in the supported Linux container. Optional desktop executables are updated separately through their ZIP or DEB.
 
-There is currently no in-app version check or automatic update. Download the exact artifacts and checksums to verify, stop playback and Server, back up persistent state, and then replace the package or image. After verification, reconnect to the existing Server address and refresh the Web interface. Playback does not resume automatically.
+There is currently no in-app version check or automatic update. Download and verify the exact artifacts and checksums, stop playback and Server, and replace only the package-owned files or image while preserving existing configuration, data, music paths and mounts. After verification, reconnect to the existing Server address and refresh the Web interface. Playback does not resume automatically.
 
-For Linux container procedures and post-update checks, see [backup and upgrade](INSTALL.md#backup-and-upgrade). For native Windows first installation and updates, see [Windows Server](INSTALL.md#windows-server). Registry distribution applies to Linux images; offline packages are also available.
+For Linux container procedures and post-update checks, see [upgrade](INSTALL.md#upgrade). For native Windows first installation and updates, see [Windows Server](INSTALL.md#windows-server). Registry distribution applies to Linux images; offline packages are also available.
 
 ## Compatibility scope
 

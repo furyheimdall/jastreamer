@@ -6,7 +6,7 @@ jastreamer runs a Server on Linux or native Windows. Both host the embedded Web 
 
 ## Installation and updates
 
-Use the [installation guide](INSTALL.md) for requirements, release verification, Linux/Synology or native Windows Server installation, optional clients, backup, upgrades, and rollback. For agent-assisted installation or updates, begin at [AGENTS.md](AGENTS.md); do not copy credentials into an agent prompt.
+Use the [installation guide](INSTALL.md) for requirements, release verification, Linux/Synology or native Windows Server installation, optional clients, upgrades, and rollback. For agent-assisted installation or updates, begin at [AGENTS.md](AGENTS.md); do not copy credentials into an agent prompt.
 
 ## 1. First setup and everyday use
 
