@@ -19,6 +19,7 @@ import (
 
 	"github.com/jastreamer/jastreamer-server/internal/airplay"
 	"github.com/jastreamer/jastreamer-server/internal/auth"
+	"github.com/jastreamer/jastreamer-server/internal/cast"
 	"github.com/jastreamer/jastreamer-server/internal/config"
 	"github.com/jastreamer/jastreamer-server/internal/database"
 	"github.com/jastreamer/jastreamer-server/internal/discovery"
@@ -73,6 +74,16 @@ func runServer(parent context.Context, value config.Config, configPath string) e
 		return err
 	}
 	backends := []output.Backend{{Protocol: output.ProtocolUPnP, Controller: upnp, Media: media}}
+	if value.Cast.Enabled {
+		castManager, castErr := cast.New(cast.Config{
+			Interfaces: value.Network.Interfaces, DiscoveryInterval: time.Duration(value.Network.DiscoveryIntervalSeconds) * time.Second,
+			Notify: hub.Publish,
+		})
+		if castErr != nil {
+			return castErr
+		}
+		backends = append(backends, output.Backend{Protocol: output.ProtocolCast, Controller: castManager, Media: media})
+	}
 	if value.AirPlay.Enabled {
 		airplayManager, airplayErr := airplay.New(db, catalog, airplay.Config{
 			Interfaces: value.Network.Interfaces, DiscoveryInterval: time.Duration(value.Network.DiscoveryIntervalSeconds) * time.Second,

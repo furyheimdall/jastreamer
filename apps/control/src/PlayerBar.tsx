@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { api, ApiError } from "./api";
-import { useI18n } from "./i18n";
+import { useI18n, type MessageKey } from "./i18n";
 import type { Device, PairingRequest, PairingStatus, PlayerState, StatusWarning } from "./types";
 
 interface PlayerBarProps {
@@ -25,9 +25,21 @@ function errorMessage(error: unknown, fallback: string): string {
   return error instanceof ApiError ? error.message : fallback;
 }
 
-function deviceLabel(device: Device): string {
-  const protocol = device.protocol === "airplay" ? "AirPlay" : "UPnP";
-  return `${device.name} [${protocol}]`;
+function protocolLabel(protocol: string, t: (key: MessageKey) => string): string {
+  switch (protocol) {
+    case "upnp":
+      return t("player.protocol.upnp");
+    case "airplay":
+      return t("player.protocol.airplay");
+    case "cast":
+      return t("player.protocol.cast");
+    default:
+      return t("player.protocol.unknown");
+  }
+}
+
+function deviceLabel(device: Device, t: (key: MessageKey) => string): string {
+  return `${device.name} [${protocolLabel(device.protocol, t)}]`;
 }
 
 function PlayerIcon({ name }: { name: "play" | "pause" | "stop" | "next" | "previous" | "music" | "refresh" }) {
@@ -120,7 +132,7 @@ export default function PlayerBar({ revision, onNotice, onStatusWarning, onQueue
   );
   const missingSelectedDeviceLabel = player?.renderer_id && !selectedDevice
     ? t("player.disconnectedOutput", {
-        protocol: player.renderer_id.startsWith("airplay:") ? "AirPlay" : "UPnP",
+        protocol: protocolLabel(player.renderer_id.startsWith("renderer-") ? "upnp" : player.renderer_id.split(":", 1)[0], t),
       })
     : "";
   const pairingRequired = Boolean(
@@ -230,7 +242,7 @@ export default function PlayerBar({ revision, onNotice, onStatusWarning, onQueue
             ? { ...device, pairing_required: false, password_required: false }
             : device
         )));
-        onNotice(t("player.pairing.complete", { device: deviceLabel(selectedDevice) }));
+        onNotice(t("player.pairing.complete", { device: deviceLabel(selectedDevice, t) }));
       }
       return next;
     } catch (requestError) {
@@ -305,7 +317,7 @@ export default function PlayerBar({ revision, onNotice, onStatusWarning, onQueue
         </button>
         <div className="now-playing-copy" aria-live="polite">
           <strong>{loading ? t("player.loading") : player?.track?.title || t("player.noTrack")}</strong>
-          <span>{player?.track?.artist || (selectedDevice ? deviceLabel(selectedDevice) : t("player.selectDevicePrompt"))}</span>
+          <span>{player?.track?.artist || (selectedDevice ? deviceLabel(selectedDevice, t) : t("player.selectDevicePrompt"))}</span>
           {error && <button className="player-error" type="button" onClick={() => onNotice(error, true)}>{t("player.errorDetails")}</button>}
           {!error && player?.status_warning && (
             <button className="player-error" type="button" onClick={() => onStatusWarning(player.status_warning ?? null, true)}>
@@ -392,7 +404,7 @@ export default function PlayerBar({ revision, onNotice, onStatusWarning, onQueue
             )}
             {devices.map((device) => (
               <option key={device.id} value={device.id} disabled={!device.online}>
-                {deviceLabel(device)}{device.online ? "" : ` (${t("player.offline")})`}
+                {deviceLabel(device, t)}{device.online ? "" : ` (${t("player.offline")})`}
               </option>
             ))}
           </select>
@@ -408,7 +420,7 @@ export default function PlayerBar({ revision, onNotice, onStatusWarning, onQueue
         </div>
         {pairingRequired && selectedDevice && (
           <section className="pairing-panel" aria-labelledby="pairing-heading" aria-busy={busy === "pairing"}>
-            <h2 id="pairing-heading">{t("player.pairing.heading", { device: deviceLabel(selectedDevice) })}</h2>
+            <h2 id="pairing-heading">{t("player.pairing.heading", { device: deviceLabel(selectedDevice, t) })}</h2>
             <p className="pairing-prompt" aria-live="polite">
               {pairingStatus?.prompt || (
                 busy === "pairing"

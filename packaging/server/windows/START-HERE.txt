@@ -33,6 +33,9 @@ those paths yourself before restarting.
 FEATURE SCOPE
 The package contains jastreamer-server.exe with its embedded Web UI. It contains
 no FFmpeg executable, AirPlay helper, Python runtime, Renderer, or desktop app.
-Original-file UPnP/DLNA streaming requires a receiver that supports the source
-format. FFmpeg transcoding and AirPlay are disabled by default and are not
-claimed as bundled features.
+Original-file UPnP/DLNA and optional Google Cast streaming require a receiver
+that supports the source format. Enable Google Cast in Settings, save, and
+restart the Server; it is disabled by default and needs no external helper.
+Cast needs LAN multicast UDP 5353, the receiver's advertised TCP port, and a
+Server media URL reachable by the receiver. FFmpeg conversion is disabled by
+default and requires a separately configured executable. AirPlay is Linux-only.

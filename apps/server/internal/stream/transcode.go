@@ -40,7 +40,7 @@ func newTranscoder(path string) *transcoder {
 	return &transcoder{path: path, slots: make(chan struct{}, maximumTranscodes)}
 }
 
-func (transcoder *transcoder) open(ctx context.Context, source *os.File) (io.ReadCloser, error) {
+func (transcoder *transcoder) open(ctx context.Context, source *os.File, format transcodeFormat) (io.ReadCloser, error) {
 	select {
 	case transcoder.slots <- struct{}{}:
 	case <-ctx.Done():
@@ -55,12 +55,21 @@ func (transcoder *transcoder) open(ctx context.Context, source *os.File) (io.Rea
 		}
 	}()
 
+	codec, muxer := "", ""
+	switch format {
+	case transcodeL16:
+		codec, muxer = "pcm_s16be", "s16be"
+	case transcodeWAV:
+		codec, muxer = "pcm_s16le", "wav"
+	default:
+		return nil, ErrTranscodeFailed
+	}
 	processContext, cancel := context.WithCancel(ctx)
 	command := exec.CommandContext(processContext, transcoder.path,
 		"-nostdin", "-hide_banner", "-loglevel", "error", "-xerror",
 		"-fd", "0", "-i", "fd:", "-map", "0:a:0",
 		"-vn", "-sn", "-dn", "-ac", "2", "-ar", "44100",
-		"-acodec", "pcm_s16be", "-f", "s16be", "pipe:1",
+		"-acodec", codec, "-f", muxer, "pipe:1",
 	)
 	command.Stdin = source
 	command.Stderr = io.Discard

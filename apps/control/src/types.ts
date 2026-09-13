@@ -97,7 +97,7 @@ export interface Capabilities {
   seek: boolean;
 }
 
-export type OutputProtocol = "upnp" | "airplay";
+export type OutputProtocol = "upnp" | "airplay" | "cast";
 
 export interface Device {
   id: string;
@@ -241,6 +241,9 @@ export interface ServerConfig {
   airplay: {
     enabled: boolean;
     helper_path: string;
+  };
+  cast: {
+    enabled: boolean;
   };
 }
 

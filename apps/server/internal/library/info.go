@@ -534,6 +534,7 @@ func inspectWAV(file *os.File, size int64, collector *tagCollector) AudioPropert
 		limit = declaredEnd
 	}
 	metadataRead := int64(0)
+	formatSeen := false
 	for offset, entries := int64(12), 0; offset <= limit-8 && entries < maximumMetadataEntries; entries++ {
 		var header [8]byte
 		if _, err := file.ReadAt(header[:], offset); err != nil {
@@ -547,10 +548,16 @@ func inspectWAV(file *os.File, size int64, collector *tagCollector) AudioPropert
 		}
 		switch string(header[:4]) {
 		case "fmt ":
-			if length >= 16 && length <= 1<<20 {
-				payload := make([]byte, int(length))
-				if _, err := file.ReadAt(payload, payloadOffset); err == nil {
-					audio = wavAudioProperties(payload)
+			if formatSeen {
+				return AudioProperties{}
+			}
+			formatSeen = true
+			if length >= 16 {
+				var payload [40]byte
+				count := min(length, int64(len(payload)))
+				metadataRead += count
+				if _, err := file.ReadAt(payload[:count], payloadOffset); err == nil {
+					audio = wavAudioProperties(payload[:count])
 				}
 			}
 		case "LIST":
@@ -857,6 +864,11 @@ func readMP4SampleDescription(file *os.File, start, limit int64, budget *mp4Info
 				audio.Codec = codec
 				audio.Channels = intPointer(channels)
 				audio.SampleRate = int64Pointer(rate)
+				if entry.kind == "mp4a" {
+					// Sample-entry channels/rate may be placeholders. Only the
+					// decoder configuration can verify the AAC output format.
+					*audio = AudioProperties{Codec: "AAC (unverified)"}
+				}
 				if lossless {
 					audio.BitsPerSample = intPointer(bits)
 				}
@@ -900,6 +912,7 @@ func mp4AudioCodec(kind string) (string, bool) {
 func readMP4AudioChildren(file *os.File, entry mp4Atom, fixedLength int64, audio *AudioProperties) {
 	start := entry.offset + entry.header + fixedLength
 	limit := entry.offset + entry.size
+	decoderSeen := false
 	for offset, children := start, 0; offset <= limit-8 && children < maximumMetadataEntries; children++ {
 		child, ok := readMP4Atom(file, offset, limit)
 		if !ok {
@@ -924,49 +937,23 @@ func readMP4AudioChildren(file *os.File, entry mp4Atom, fixedLength int64, audio
 				audio.SampleRate = int64Pointer(int64(binary.BigEndian.Uint32(config[20:24])))
 			}
 		case "esds":
-			if payloadLength > 4 && payloadLength <= 1<<20 {
+			if entry.kind != "mp4a" {
+				break
+			}
+			if decoderSeen {
+				*audio = AudioProperties{Codec: "AAC (unverified)"}
+				return
+			}
+			decoderSeen = true
+			if payloadLength > 4 && payloadLength <= 64<<10 {
 				payload := make([]byte, int(payloadLength))
 				if _, err := file.ReadAt(payload, payloadOffset); err == nil {
-					codec, bitRate := mp4ESDSProperties(payload[4:])
-					if codec != "" {
-						audio.Codec = codec
-					}
-					audio.BitRate = bitRate
+					*audio = mp4ESDSAudioProperties(payload[4:])
 				}
 			}
 		}
 		offset = child.offset + child.size
 	}
-}
-
-func mp4ESDSProperties(data []byte) (string, *int64) {
-	for offset := range data {
-		if data[offset] != 0x04 {
-			continue
-		}
-		length, headerLength, ok := mp4DescriptorLength(data[offset+1:])
-		payload := offset + 1 + headerLength
-		if !ok || length < 13 || payload > len(data) || length > len(data)-payload {
-			continue
-		}
-		decoder := data[payload : payload+length]
-		if decoder[0] == 0 || decoder[1]>>2 != 5 {
-			continue
-		}
-		codec := ""
-		switch decoder[0] {
-		case 0x40, 0x66, 0x67, 0x68:
-			codec = "AAC"
-		case 0x69, 0x6b:
-			codec = "MP3"
-		case 0xa5:
-			codec = "AC-3"
-		case 0xa6:
-			codec = "E-AC-3"
-		}
-		return codec, int64Pointer(int64(binary.BigEndian.Uint32(decoder[9:13])))
-	}
-	return "", nil
 }
 
 func mp4DescriptorLength(data []byte) (int, int, bool) {

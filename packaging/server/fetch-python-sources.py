@@ -6,8 +6,24 @@ import json
 import pathlib
 import shlex
 import sys
+import time
+import urllib.error
 import urllib.parse
 import urllib.request
+
+def _open_url(url, timeout):
+    for attempt in range(3):
+        try:
+            return urllib.request.urlopen(url, timeout=timeout)
+        except urllib.error.URLError as error:
+            if not isinstance(error.reason, TimeoutError) or attempt == 2:
+                raise
+        except TimeoutError:
+            if attempt == 2:
+                raise
+        print(f"Connection timed out for {url}; retrying ({attempt + 1}/2)", file=sys.stderr)
+        time.sleep(2 ** attempt)
+
 
 
 def fetch_sources(lock_path, destination):
@@ -20,7 +36,7 @@ def fetch_sources(lock_path, destination):
         name, version = fields[0].split("==", 1)
         hashes = {field.removeprefix("--hash=sha256:") for field in fields[1:]}
         metadata_url = f"https://pypi.org/pypi/{name}/{version}/json"
-        with urllib.request.urlopen(metadata_url, timeout=30) as response:
+        with _open_url(metadata_url, timeout=30) as response:
             assets = json.load(response)["urls"]
         sources = [asset for asset in assets if asset["packagetype"] == "sdist"]
         if len(sources) != 1:
@@ -35,7 +51,7 @@ def fetch_sources(lock_path, destination):
             raise ValueError("Invalid source archive filename")
         temporary = destination / (filename + ".partial")
         digest = hashlib.sha256()
-        with urllib.request.urlopen(source["url"], timeout=60) as response, temporary.open("wb") as target:
+        with _open_url(source["url"], timeout=60) as response, temporary.open("wb") as target:
             while chunk := response.read(128 * 1024):
                 digest.update(chunk)
                 target.write(chunk)

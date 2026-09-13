@@ -39,6 +39,7 @@ type fixtureLibrary struct {
 	artworkPath string
 	artworkMIME string
 	track       library.Track
+	audio       library.AudioProperties
 	mu          sync.Mutex
 	opens       int
 }
@@ -74,6 +75,22 @@ func (fixture *fixtureLibrary) Artwork(ctx context.Context, id string) (*os.File
 	return file, mime, err
 }
 
+func (fixture *fixtureLibrary) Info(ctx context.Context, id string) (library.TrackInfo, error) {
+	if err := context.Cause(ctx); err != nil {
+		return library.TrackInfo{}, err
+	}
+	fixture.mu.Lock()
+	defer fixture.mu.Unlock()
+	if id != fixture.track.ID {
+		return library.TrackInfo{}, os.ErrNotExist
+	}
+	return library.TrackInfo{Track: fixture.track, Audio: fixture.audio}, nil
+}
+
+func pointer[T any](value T) *T {
+	return &value
+}
+
 func (fixture *fixtureLibrary) setArtwork(id, path, mime string) {
 	fixture.mu.Lock()
 	fixture.track.ArtworkID = id
@@ -103,7 +120,13 @@ func newOriginalFixture(t *testing.T, content []byte) (*Service, *fixtureLibrary
 		DurationMS: 90_000, Format: "flac", Mime: "audio/flac", Available: true,
 		Size: info.Size(), ModifiedAt: info.ModTime().UTC().Format(time.RFC3339Nano),
 	}
-	fixture := &fixtureLibrary{path: path, track: track}
+	fixture := &fixtureLibrary{
+		path:  path,
+		track: track,
+		audio: library.AudioProperties{
+			Codec: "FLAC", SampleRate: pointer[int64](44_100), Channels: pointer(2), BitsPerSample: pointer(16),
+		},
+	}
 	service, err := newService(fixture, Config{BaseURL: func(output.Device) (string, error) {
 		return "http://192.0.2.10:8080", nil
 	}})
@@ -643,7 +666,7 @@ func TestTranscoder_context_cancellation_terminates_the_process(t *testing.T) {
 	defer source.Close()
 	t.Setenv(ffmpegHelperEnvironment, "wait")
 	ctx, cancel := context.WithCancel(context.Background())
-	stream, err := newTranscoder(executable).open(ctx, source)
+	stream, err := newTranscoder(executable).open(ctx, source, transcodeL16)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -662,21 +685,325 @@ func TestTranscoder_context_cancellation_terminates_the_process(t *testing.T) {
 
 func TestSelectRepresentation_honors_MIME_aliases_and_DLNA_profiles(t *testing.T) {
 	track := library.Track{Format: "mp3", Mime: "audio/mpeg"}
-	selected, err := selectRepresentation(track, []string{"http-get:*:audio/x-mp3:DLNA.ORG_PN=MP3"}, false)
+	selected, err := selectRepresentation(track, library.AudioProperties{}, output.ProtocolUPnP, []string{"http-get:*:audio/x-mp3:DLNA.ORG_PN=MP3"}, false)
 	if err != nil || selected.mime != "audio/x-mp3" || selected.transformed {
 		t.Fatalf("alias selection = %+v, %v", selected, err)
 	}
-	if _, err := selectRepresentation(track, []string{"http-get:*:audio/mpeg:DLNA.ORG_PN=AAC_ISO"}, false); !errors.Is(err, ErrUnsupportedMedia) {
+	if _, err := selectRepresentation(track, library.AudioProperties{}, output.ProtocolUPnP, []string{"http-get:*:audio/mpeg:DLNA.ORG_PN=AAC_ISO"}, false); !errors.Is(err, ErrUnsupportedMedia) {
 		t.Fatalf("mismatched profile error = %v", err)
 	}
-	if _, err := selectRepresentation(track, []string{"rtsp-rtp-udp:*:audio/mpeg:*"}, false); !errors.Is(err, ErrUnsupportedMedia) {
+	if _, err := selectRepresentation(track, library.AudioProperties{}, output.ProtocolUPnP, []string{"rtsp-rtp-udp:*:audio/mpeg:*"}, false); !errors.Is(err, ErrUnsupportedMedia) {
 		t.Fatalf("non-HTTP sink error = %v", err)
 	}
-	if _, err := selectRepresentation(track, []string{"http-get:*:audio/L16;rate=48000;channels=2:*"}, true); !errors.Is(err, ErrUnsupportedMedia) {
+	if _, err := selectRepresentation(track, library.AudioProperties{}, output.ProtocolUPnP, []string{"http-get:*:audio/L16;rate=48000;channels=2:*"}, true); !errors.Is(err, ErrUnsupportedMedia) {
 		t.Fatalf("incompatible L16 parameters error = %v", err)
 	}
 	m4a := library.Track{Format: "m4a", Mime: "audio/mp4"}
-	if _, err := selectRepresentation(m4a, []string{"http-get:*:audio/mp4:DLNA.ORG_PN=AAC_ISO"}, false); !errors.Is(err, ErrUnsupportedMedia) {
+	if _, err := selectRepresentation(m4a, library.AudioProperties{}, output.ProtocolUPnP, []string{"http-get:*:audio/mp4:DLNA.ORG_PN=AAC_ISO"}, false); !errors.Is(err, ErrUnsupportedMedia) {
 		t.Fatalf("unverified M4A codec profile error = %v", err)
+	}
+}
+
+func TestSelectRepresentation_CastUsesDocumentedNativeFormatsAndConservativeBounds(t *testing.T) {
+	tests := []struct {
+		name      string
+		track     library.Track
+		audio     library.AudioProperties
+		mime      string
+		supported bool
+	}{
+		{
+			name: "FLAC 96 kHz 24-bit", track: library.Track{Format: "flac", Mime: "audio/x-flac"},
+			audio: library.AudioProperties{Codec: "FLAC", SampleRate: pointer[int64](96_000), Channels: pointer(2), BitsPerSample: pointer(24)},
+			mime:  "audio/flac", supported: true,
+		},
+		{
+			name: "FLAC above 96 kHz", track: library.Track{Format: "flac", Mime: "audio/flac"},
+			audio: library.AudioProperties{Codec: "FLAC", SampleRate: pointer[int64](192_000), Channels: pointer(2), BitsPerSample: pointer(24)},
+		},
+		{
+			name: "FLAC above 24-bit", track: library.Track{Format: "flac", Mime: "audio/flac"},
+			audio: library.AudioProperties{Codec: "FLAC", SampleRate: pointer[int64](96_000), Channels: pointer(2), BitsPerSample: pointer(32)},
+		},
+		{
+			name: "FLAC metadata unavailable", track: library.Track{Format: "flac", Mime: "audio/flac"},
+			audio: library.AudioProperties{},
+		},
+		{
+			name: "MP3", track: library.Track{Format: "mp3", Mime: "audio/mpeg"},
+			audio: library.AudioProperties{Codec: "MP3", SampleRate: pointer[int64](48_000), Channels: pointer(2)},
+			mime:  "audio/mpeg", supported: true,
+		},
+		{
+			name: "MP3 above 48 kHz", track: library.Track{Format: "mp3", Mime: "audio/mpeg"},
+			audio: library.AudioProperties{Codec: "MP3", SampleRate: pointer[int64](96_000), Channels: pointer(2)},
+		},
+		{
+			name: "WAV LPCM", track: library.Track{Format: "wav", Mime: "audio/wav"},
+			audio: library.AudioProperties{Codec: "PCM", SampleRate: pointer[int64](48_000), Channels: pointer(2), BitsPerSample: pointer(16)},
+			mime:  wavMime, supported: true,
+		},
+		{
+			name: "WAV high resolution is not assumed", track: library.Track{Format: "wav", Mime: "audio/wav"},
+			audio: library.AudioProperties{Codec: "PCM", SampleRate: pointer[int64](96_000), Channels: pointer(2), BitsPerSample: pointer(24)},
+		},
+		{
+			name: "Ogg Vorbis", track: library.Track{Format: "ogg", Mime: "audio/ogg"},
+			audio: library.AudioProperties{Codec: "Vorbis", SampleRate: pointer[int64](48_000), Channels: pointer(2)},
+			mime:  "audio/ogg; codecs=vorbis", supported: true,
+		},
+		{
+			name: "Ogg Opus", track: library.Track{Format: "opus", Mime: "audio/ogg"},
+			audio: library.AudioProperties{Codec: "Opus", SampleRate: pointer[int64](48_000), Channels: pointer(2)},
+			mime:  "audio/ogg; codecs=opus", supported: true,
+		},
+		{
+			name: "M4A AAC", track: library.Track{Format: "m4a", Mime: "audio/mp4"},
+			audio: library.AudioProperties{Codec: "AAC", SampleRate: pointer[int64](48_000), Channels: pointer(2)},
+			mime:  "audio/mp4", supported: true,
+		},
+		{
+			name: "M4A ALAC is not documented", track: library.Track{Format: "m4a", Mime: "audio/mp4"},
+			audio: library.AudioProperties{Codec: "ALAC", SampleRate: pointer[int64](48_000), Channels: pointer(2), BitsPerSample: pointer(16)},
+		},
+		{
+			name: "multichannel is not assumed", track: library.Track{Format: "flac", Mime: "audio/flac"},
+			audio: library.AudioProperties{Codec: "FLAC", SampleRate: pointer[int64](48_000), Channels: pointer(6), BitsPerSample: pointer(16)},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			selected, err := selectRepresentation(test.track, test.audio, output.ProtocolCast, []string{"http-get:*:*:*"}, false)
+			if test.supported {
+				if err != nil || selected.mime != test.mime || selected.transformed {
+					t.Fatalf("selection = %+v, %v", selected, err)
+				}
+				return
+			}
+			if !errors.Is(err, ErrUnsupportedMedia) {
+				t.Fatalf("unsupported selection = %+v, %v", selected, err)
+			}
+		})
+	}
+}
+
+func TestPrepare_CastFallbackIsWAVAndUPnPSelectionIsUnchanged(t *testing.T) {
+	service, fixture, device, track := newOriginalFixture(t, []byte("source"))
+	device.Protocol = output.ProtocolCast
+	device.ProtocolInfo = []string{"http-get:*:audio/L16:DLNA.ORG_PN=LPCM"}
+	fixture.audio = library.AudioProperties{
+		Codec: "FLAC", SampleRate: pointer[int64](192_000), Channels: pointer(2), BitsPerSample: pointer(24),
+	}
+	_, err := service.Prepare(context.Background(), device, track, "cast-rejected")
+	if !errors.Is(err, ErrUnsupportedMedia) || !strings.Contains(err.Error(), "96 kHz") {
+		t.Fatalf("native Cast rejection = %v", err)
+	}
+
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	transcoding, err := newService(fixture, Config{
+		BaseURL:    func(output.Device) (string, error) { return "http://192.0.2.10:8080", nil },
+		FFmpegPath: executable,
+		Transcode:  true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	fallback, err := transcoding.Prepare(context.Background(), device, track, "cast-fallback")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fallback.Mime != wavMime || fallback.Seekable || fallback.Size != 0 {
+		t.Fatalf("Cast fallback = %+v", fallback)
+	}
+	defer transcoding.Revoke("cast-fallback")
+	t.Setenv(ffmpegHelperEnvironment, "copy")
+	for _, test := range []struct {
+		rangeHeader string
+		status      int
+	}{
+		{"bytes=0-", http.StatusOK},
+		{"bytes=4-", http.StatusRequestedRangeNotSatisfiable},
+	} {
+		request := httptest.NewRequest(http.MethodGet, fallback.URL, nil)
+		request.RemoteAddr = "192.0.2.1:7002"
+		request.Header.Set("Origin", "https://www.gstatic.com")
+		request.Header.Set("Range", test.rangeHeader)
+		response := httptest.NewRecorder()
+		transcoding.Handler().ServeHTTP(response, request)
+		if response.Code != test.status {
+			t.Fatalf("Cast fallback range %q: status=%d, want %d", test.rangeHeader, response.Code, test.status)
+		}
+	}
+
+	device.Protocol = output.ProtocolUPnP
+	device.ProtocolInfo = []string{"http-get:*:audio/x-flac:DLNA.ORG_PN=FLAC"}
+	original, err := service.Prepare(context.Background(), device, track, "upnp-original")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if original.Mime != "audio/x-flac" || !original.Seekable || original.Size != int64(len("source")) {
+		t.Fatalf("UPnP original = %+v", original)
+	}
+}
+
+func TestHandler_CastGrantSupportsRangesArtworkAndBoundCORS(t *testing.T) {
+	content := []byte("0123456789")
+	service, fixture, device, track := newOriginalFixture(t, content)
+	artwork := []byte("\xff\xd8cast-cover\xff\xd9")
+	artworkPath := filepath.Join(filepath.Dir(fixture.path), "cast-cover.jpg")
+	if err := os.WriteFile(artworkPath, artwork, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	fixture.setArtwork("cast-cover", artworkPath, "image/jpeg")
+	device.Protocol = output.ProtocolCast
+	device.ProtocolInfo = []string{"http-get:*:audio/L16:DLNA.ORG_PN=LPCM"}
+	resource, err := service.Prepare(context.Background(), device, track, "cast-play")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resource.Mime != "audio/flac" || resource.ArtworkURL == "" {
+		t.Fatalf("Cast resource = %+v", resource)
+	}
+	mediaURL, _ := url.Parse(resource.URL)
+	origin := "https://www.gstatic.com"
+
+	ranged := httptest.NewRequest(http.MethodGet, mediaURL.RequestURI(), nil)
+	ranged.RemoteAddr = "192.0.2.1:8100"
+	ranged.Header.Set("Origin", origin)
+	ranged.Header.Set("Range", "bytes=2-5")
+	rangedResponse := httptest.NewRecorder()
+	service.Handler().ServeHTTP(rangedResponse, ranged)
+	if rangedResponse.Code != http.StatusPartialContent || rangedResponse.Body.String() != "2345" ||
+		rangedResponse.Header().Get("Content-Type") != "audio/flac" ||
+		rangedResponse.Header().Get("Content-Range") != "bytes 2-5/10" ||
+		rangedResponse.Header().Get("Access-Control-Allow-Origin") != origin {
+		t.Fatalf("Cast range = %d headers=%v body=%q", rangedResponse.Code, rangedResponse.Header(), rangedResponse.Body.String())
+	}
+
+	artworkURL, _ := url.Parse(resource.ArtworkURL)
+	artworkRequest := httptest.NewRequest(http.MethodGet, artworkURL.RequestURI(), nil)
+	artworkRequest.RemoteAddr = "192.0.2.1:8101"
+	artworkRequest.Header.Set("Origin", origin)
+	artworkResponse := httptest.NewRecorder()
+	service.Handler().ServeHTTP(artworkResponse, artworkRequest)
+	if artworkResponse.Code != http.StatusOK || artworkResponse.Body.String() != string(artwork) ||
+		artworkResponse.Header().Get("Content-Type") != "image/jpeg" ||
+		artworkResponse.Header().Get("Access-Control-Allow-Origin") != origin {
+		t.Fatalf("Cast artwork = %d headers=%v body=%q", artworkResponse.Code, artworkResponse.Header(), artworkResponse.Body.String())
+	}
+
+	preflight := httptest.NewRequest(http.MethodOptions, mediaURL.RequestURI(), nil)
+	preflight.RemoteAddr = "192.0.2.1:8102"
+	preflight.Header.Set("Origin", origin)
+	preflight.Header.Set("Access-Control-Request-Method", http.MethodGet)
+	preflight.Header.Set("Access-Control-Request-Headers", "Range, Content-Type, Accept-Encoding")
+	preflightResponse := httptest.NewRecorder()
+	service.Handler().ServeHTTP(preflightResponse, preflight)
+	if preflightResponse.Code != http.StatusNoContent ||
+		preflightResponse.Header().Get("Access-Control-Allow-Origin") != origin ||
+		preflightResponse.Header().Get("Access-Control-Allow-Methods") != "GET, HEAD" ||
+		preflightResponse.Header().Get("Access-Control-Allow-Headers") != "Content-Type, Accept-Encoding, Range" {
+		t.Fatalf("Cast preflight = %d headers=%v", preflightResponse.Code, preflightResponse.Header())
+	}
+
+	badHeader := httptest.NewRequest(http.MethodOptions, mediaURL.RequestURI(), nil)
+	badHeader.RemoteAddr = "192.0.2.1:8103"
+	badHeader.Header.Set("Origin", origin)
+	badHeader.Header.Set("Access-Control-Request-Method", http.MethodGet)
+	badHeader.Header.Set("Access-Control-Request-Headers", "Authorization")
+	badHeaderResponse := httptest.NewRecorder()
+	service.Handler().ServeHTTP(badHeaderResponse, badHeader)
+	if badHeaderResponse.Code != http.StatusForbidden {
+		t.Fatalf("disallowed Cast preflight = %d", badHeaderResponse.Code)
+	}
+
+	post := httptest.NewRequest(http.MethodPost, mediaURL.RequestURI(), strings.NewReader("{}"))
+	post.RemoteAddr = "192.0.2.1:8104"
+	post.Header.Set("Origin", origin)
+	postResponse := httptest.NewRecorder()
+	service.Handler().ServeHTTP(postResponse, post)
+	if postResponse.Code != http.StatusMethodNotAllowed || postResponse.Header().Get("Access-Control-Allow-Origin") != "" {
+		t.Fatalf("Cast POST = %d headers=%v", postResponse.Code, postResponse.Header())
+	}
+
+	multipleOrigins := httptest.NewRequest(http.MethodGet, mediaURL.RequestURI(), nil)
+	multipleOrigins.RemoteAddr = "192.0.2.1:8104"
+	multipleOrigins.Header.Add("Origin", origin)
+	multipleOrigins.Header.Add("Origin", "https://example.invalid")
+	multipleOriginsResponse := httptest.NewRecorder()
+	service.Handler().ServeHTTP(multipleOriginsResponse, multipleOrigins)
+	if multipleOriginsResponse.Code != http.StatusForbidden {
+		t.Fatalf("multiple-origin Cast request = %d", multipleOriginsResponse.Code)
+	}
+
+	wrongIP := httptest.NewRequest(http.MethodGet, mediaURL.RequestURI(), nil)
+	wrongIP.RemoteAddr = "192.0.2.2:8105"
+	wrongIP.Header.Set("Origin", origin)
+	wrongIPResponse := httptest.NewRecorder()
+	service.Handler().ServeHTTP(wrongIPResponse, wrongIP)
+	if wrongIPResponse.Code != http.StatusForbidden || wrongIPResponse.Header().Get("Access-Control-Allow-Origin") != "" {
+		t.Fatalf("wrong-IP Cast request = %d headers=%v", wrongIPResponse.Code, wrongIPResponse.Header())
+	}
+
+	service.Revoke("cast-play")
+	revoked := httptest.NewRequest(http.MethodGet, mediaURL.RequestURI(), nil)
+	revoked.RemoteAddr = "192.0.2.1:8106"
+	revoked.Header.Set("Origin", origin)
+	revokedResponse := httptest.NewRecorder()
+	service.Handler().ServeHTTP(revokedResponse, revoked)
+	if revokedResponse.Code != http.StatusNotFound || revokedResponse.Header().Get("Access-Control-Allow-Origin") != "" {
+		t.Fatalf("revoked Cast request = %d headers=%v", revokedResponse.Code, revokedResponse.Header())
+	}
+}
+
+func TestHandler_UPnPMediaRetainsSameOriginPolicy(t *testing.T) {
+	service, _, device, track := newOriginalFixture(t, []byte("audio"))
+	device.Protocol = output.ProtocolUPnP
+	resource, err := service.Prepare(context.Background(), device, track, "upnp-origin")
+	if err != nil {
+		t.Fatal(err)
+	}
+	parsed, _ := url.Parse(resource.URL)
+
+	sameOrigin := httptest.NewRequest(http.MethodGet, parsed.RequestURI(), nil)
+	sameOrigin.Host = parsed.Host
+	sameOrigin.RemoteAddr = "192.0.2.1:8200"
+	sameOrigin.Header.Set("Origin", "http://"+parsed.Host)
+	sameOriginResponse := httptest.NewRecorder()
+	service.Handler().ServeHTTP(sameOriginResponse, sameOrigin)
+	if sameOriginResponse.Code != http.StatusOK || sameOriginResponse.Header().Get("Access-Control-Allow-Origin") != "" {
+		t.Fatalf("same-origin UPnP request = %d headers=%v", sameOriginResponse.Code, sameOriginResponse.Header())
+	}
+
+	for name, request := range map[string]*http.Request{
+		"cross-origin": func() *http.Request {
+			value := httptest.NewRequest(http.MethodGet, parsed.RequestURI(), nil)
+			value.Header.Set("Origin", "https://example.invalid")
+			return value
+		}(),
+		"cross-site-fetch": func() *http.Request {
+			value := httptest.NewRequest(http.MethodGet, parsed.RequestURI(), nil)
+			value.Header.Set("Sec-Fetch-Site", "cross-site")
+			return value
+		}(),
+		"preflight": func() *http.Request {
+			value := httptest.NewRequest(http.MethodOptions, parsed.RequestURI(), nil)
+			value.Header.Set("Origin", "http://"+parsed.Host)
+			value.Header.Set("Access-Control-Request-Method", http.MethodGet)
+			return value
+		}(),
+	} {
+		t.Run(name, func(t *testing.T) {
+			request.Host = parsed.Host
+			request.RemoteAddr = "192.0.2.1:8201"
+			response := httptest.NewRecorder()
+			service.Handler().ServeHTTP(response, request)
+			if response.Code != http.StatusForbidden || response.Header().Get("Access-Control-Allow-Origin") != "" {
+				t.Fatalf("UPnP rejection = %d headers=%v", response.Code, response.Header())
+			}
+		})
 	}
 }

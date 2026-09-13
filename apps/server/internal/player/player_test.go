@@ -554,6 +554,126 @@ func TestRestartMarksUnknownIntentWithoutReplay(t *testing.T) {
 	}
 }
 
+func TestRecoveredStopClearsServerIntentWithoutClaimingRendererAcknowledgement(t *testing.T) {
+	service, db, devices := newPlayerTestService(t)
+	ctx := context.Background()
+	queue, err := service.MutateQueue(ctx, QueueMutation{Action: "append", TrackIDs: []string{"a", "b"}, Revision: 0})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.Command(ctx, Command{Action: "play", EntryID: queue.Entries[0].ID}); err != nil {
+		t.Fatal(err)
+	}
+	runAcceptedCommand(t, service)
+	binding, err := service.loadState(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	recovered, err := newService(ctx, db, service.lib, devices, service.media, time.Second, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	devices.mu.Lock()
+	devices.fail["stop"] = output.NewActionError(output.ErrorUnsupported, "Stop", 0, errors.New("no owned media"))
+	beforeCalls := len(devices.calls)
+	devices.mu.Unlock()
+	if _, err := recovered.Command(ctx, Command{Action: "stop"}); err != nil {
+		t.Fatal(err)
+	}
+	runAcceptedCommand(t, recovered)
+	state := recovered.mustState(t)
+	if state.State != StateStopped || state.Error == "" || state.CurrentEntryID != queue.Entries[0].ID {
+		t.Fatalf("recovered stop did not leave a selectable cursor with an honest warning: %#v", state)
+	}
+	devices.mu.Lock()
+	afterCalls := len(devices.calls)
+	devices.mu.Unlock()
+	if afterCalls != beforeCalls {
+		t.Fatalf("recovered stop attempted an unowned renderer command: before=%d after=%d", beforeCalls, afterCalls)
+	}
+	finished, err := recovered.Queue(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(finished.Entries) != 2 || finished.Entries[0].ID != queue.Entries[0].ID ||
+		finished.Entries[0].Status != EntryPending || finished.Entries[1].ID != queue.Entries[1].ID ||
+		finished.Entries[1].Status != EntryPending {
+		t.Fatalf("recovered stop changed queue ownership: %#v", finished)
+	}
+	var outcome string
+	if err := db.QueryRow("SELECT status FROM player_commands WHERE action='stop' ORDER BY created_at DESC LIMIT 1").Scan(&outcome); err != nil {
+		t.Fatal(err)
+	}
+	if outcome != "unknown" {
+		t.Fatalf("unconfirmed recovered stop outcome=%q, want unknown", outcome)
+	}
+	media := service.media.(*fakeMedia)
+	media.mu.Lock()
+	revoked := append([]string(nil), media.revoked...)
+	media.mu.Unlock()
+	if len(revoked) != 1 || revoked[0] != binding.playID {
+		t.Fatalf("recovered stop did not revoke the stale media grant: %v", revoked)
+	}
+	if _, err := recovered.SelectOutput(ctx, "renderer"); err != nil {
+		t.Fatalf("recovered stop continued to block output selection: %v", err)
+	}
+}
+
+func TestRecoveredPlayReplacesServerIntentWithoutStoppingUnownedMedia(t *testing.T) {
+	service, db, devices := newPlayerTestService(t)
+	ctx := context.Background()
+	queue, err := service.MutateQueue(ctx, QueueMutation{Action: "append", TrackIDs: []string{"a", "b"}, Revision: 0})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.Command(ctx, Command{Action: "play", EntryID: queue.Entries[0].ID}); err != nil {
+		t.Fatal(err)
+	}
+	runAcceptedCommand(t, service)
+	binding, err := service.loadState(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	recovered, err := newService(ctx, db, service.lib, devices, service.media, time.Second, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	devices.mu.Lock()
+	devices.fail["stop"] = output.NewActionError(output.ErrorUnsupported, "Stop", 0, errors.New("no owned media"))
+	beforeCalls := len(devices.calls)
+	devices.mu.Unlock()
+	if _, err := recovered.Command(ctx, Command{Action: "play", EntryID: queue.Entries[1].ID}); err != nil {
+		t.Fatal(err)
+	}
+	runAcceptedCommand(t, recovered)
+	state := recovered.mustState(t)
+	if state.State != StateStarting || state.Error != "" || state.CurrentEntryID != queue.Entries[1].ID {
+		t.Fatalf("recovered play did not establish the requested queue binding: %#v", state)
+	}
+	devices.mu.Lock()
+	calls := append([]string(nil), devices.calls[beforeCalls:]...)
+	devices.mu.Unlock()
+	if len(calls) != 2 || calls[0] != "set_uri" || calls[1] != "play" {
+		t.Fatalf("recovered play renderer calls=%v, want new load and play without stop", calls)
+	}
+	finished, err := recovered.Queue(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(finished.Entries) != 2 || finished.Entries[0].ID != queue.Entries[0].ID ||
+		finished.Entries[0].Status != EntryPending || finished.Entries[1].ID != queue.Entries[1].ID ||
+		finished.Entries[1].Status != EntryPlaying {
+		t.Fatalf("recovered play changed queue ownership: %#v", finished)
+	}
+	media := service.media.(*fakeMedia)
+	media.mu.Lock()
+	revoked := append([]string(nil), media.revoked...)
+	media.mu.Unlock()
+	if len(revoked) != 1 || revoked[0] != binding.playID {
+		t.Fatalf("recovered play did not revoke the stale media grant: %v", revoked)
+	}
+}
+
 func TestNaturalEndRequiresReliableEvidenceAndAdvancesExactlyOnce(t *testing.T) {
 	service, db, _ := newPlayerTestService(t)
 	ctx := context.Background()
@@ -635,6 +755,119 @@ func TestQueueRunsBrowserIndependentlyThroughNaturalEnd(t *testing.T) {
 	}
 	if finished.Entries[0].Status != EntryCompleted || finished.Entries[1].Status != EntryCompleted {
 		t.Fatalf("queue completion statuses=%#v", finished.Entries)
+	}
+}
+
+func TestExplicitCompletionPreservesQueueOwnership(t *testing.T) {
+	for _, test := range []struct {
+		name      string
+		completed bool
+		nearEnd   bool
+		foreign   bool
+	}{
+		{name: "finished before first position observation", completed: true},
+		{name: "cancelled near end", nearEnd: true},
+		{name: "another session finished", completed: true, foreign: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			service, _, _ := newPlayerTestService(t)
+			ctx := context.Background()
+			queue, err := service.MutateQueue(ctx, QueueMutation{Action: "append", TrackIDs: []string{"a", "b"}, Revision: 0})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := service.Command(ctx, Command{Action: "play", EntryID: queue.Entries[0].ID}); err != nil {
+				t.Fatal(err)
+			}
+			runAcceptedCommand(t, service)
+			stored, err := service.loadState(ctx)
+			if err != nil {
+				t.Fatal(err)
+			}
+			now := time.Now().UTC()
+			if test.nearEnd {
+				service.applyObservation(ctx, output.Observation{
+					State: "playing", URI: stored.currentURI, HasURI: true,
+					PositionMS: 99000, DurationMS: 100000, HasPosition: true, ObservedAt: now,
+				})
+			}
+			uri := stored.currentURI
+			if test.foreign {
+				uri += "-another-session"
+			}
+			ended := output.Observation{
+				State: "stopped", URI: uri, HasURI: true, ObservedAt: now.Add(time.Second),
+				CompletionKnown: true, Completed: test.completed,
+			}
+			service.applyObservation(ctx, ended)
+			service.applyObservation(ctx, ended)
+			if test.completed && !test.foreign {
+				runAcceptedCommand(t, service)
+				state := service.mustState(t)
+				if state.CurrentEntryID != queue.Entries[1].ID || state.PendingCommand != "" {
+					t.Fatalf("owned completion did not start exactly one successor: %#v", state)
+				}
+				updated, err := service.Queue(ctx)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if updated.Entries[0].Status != EntryCompleted {
+					t.Fatalf("finished entry was not completed: %#v", updated)
+				}
+			} else {
+				state := service.mustState(t)
+				if state.CurrentEntryID != queue.Entries[0].ID || state.PendingCommand != "" {
+					t.Fatalf("non-completion advanced the queue: %#v", state)
+				}
+				updated, err := service.Queue(ctx)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if updated.Entries[0].Status == EntryCompleted || updated.Entries[1].Status != EntryPending {
+					t.Fatalf("non-completion consumed queue entries: %#v", updated)
+				}
+			}
+		})
+	}
+}
+
+func TestCompletionAwarePlaybackWaitsForExplicitFinish(t *testing.T) {
+	service, _, _ := newPlayerTestService(t)
+	ctx := context.Background()
+	now := time.Now().UTC()
+	service.now = func() time.Time { return now }
+	queue, err := service.MutateQueue(ctx, QueueMutation{Action: "append", TrackIDs: []string{"a", "b"}, Revision: 0})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.Command(ctx, Command{Action: "play"}); err != nil {
+		t.Fatal(err)
+	}
+	runAcceptedCommand(t, service)
+	stored, err := service.loadState(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	observation := output.Observation{
+		State: "playing", URI: stored.currentURI, HasURI: true,
+		PositionMS: 100000, DurationMS: 100000, HasPosition: true,
+		CompletionKnown: true, ObservedAt: now,
+	}
+	for range 4 {
+		service.applyObservation(ctx, observation)
+		now = now.Add(time.Second)
+		observation.ObservedAt = now
+	}
+	state := service.mustState(t)
+	if state.PendingCommand != "" || state.State != StatePlaying || state.CurrentEntryID != queue.Entries[0].ID {
+		t.Fatalf("position replaced explicit completion evidence: %#v", state)
+	}
+	observation.State = "stopped"
+	observation.Completed = true
+	service.applyObservation(ctx, observation)
+	runAcceptedCommand(t, service)
+	if service.mustState(t).CurrentEntryID != queue.Entries[1].ID {
+		t.Fatal("explicit FINISHED did not advance to the successor")
 	}
 }
 
