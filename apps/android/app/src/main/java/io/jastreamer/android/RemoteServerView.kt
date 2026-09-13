@@ -1,6 +1,5 @@
 package io.jastreamer.android
 
-import android.annotation.SuppressLint
 import android.content.Context
 import android.graphics.Bitmap
 import android.net.http.SslError
@@ -54,6 +53,7 @@ class RemoteServerView(
     private var pendingLanguage: String? = null
     private var cookieWriteInFlight = false
     private var phase = LoadPhase.IDLE
+    private var pausing = false
     @Volatile private var disposed = false
     @Volatile private var unusable = false
     private var lastBlockedUrl: String? = null
@@ -79,9 +79,19 @@ class RemoteServerView(
     @MainThread
     fun pause() {
         requireMainThread()
-        if (disposed || unusable) return
-        observeLanguageCookie()
-        webView.onPause()
+        if (disposed || unusable || pausing) return
+        pausing = true
+        try {
+            observeLanguageCookie()
+            if (!disposed && !unusable) {
+                webView.onPause()
+                cookieManager.flush()
+            }
+        } catch (failure: RuntimeException) {
+            onError(ClientException(ClientErrorCode.STORAGE, "Unable to persist WebView cookies", failure))
+        } finally {
+            pausing = false
+        }
     }
 
     @MainThread
@@ -111,6 +121,7 @@ class RemoteServerView(
     fun dispose() {
         requireMainThread()
         if (disposed) return
+        disposed = true
 
         if (!unusable) {
             observeLanguageCookie()
@@ -121,7 +132,6 @@ class RemoteServerView(
             }
         }
 
-        disposed = true
         generation++
         activeGeneration = null
         pendingLanguage = null
@@ -136,8 +146,6 @@ class RemoteServerView(
         removeAllViews()
     }
 
-    @SuppressLint("SetJavaScriptEnabled")
-    @Suppress("DEPRECATION")
     private fun initializeWebView() {
         val profileName = EndpointPolicy.profileName(server)
         if (!WebViewFeature.isFeatureSupported(WebViewFeature.MULTI_PROFILE)) {

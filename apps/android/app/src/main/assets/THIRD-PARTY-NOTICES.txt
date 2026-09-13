@@ -1,0 +1,28 @@
+jastreamer Android client
+
+This application includes runtime libraries from:
+- AndroidX, Android Open Source Project contributors
+- Kotlin standard library, kotlinx.coroutines, kotlinx.serialization, and JetBrains annotations, JetBrains contributors
+- OkHttp and Okio, Square contributors
+- Guava ListenableFuture, Google contributors
+- javax.inject, JSR-330 Expert Group contributors
+
+These libraries are distributed under the Apache License, Version 2.0.
+A copy is included in assets/LICENSE.txt. Their respective copyright,
+patent, trademark and attribution rights remain with their owners.
+
+Source projects:
+https://android.googlesource.com/platform/frameworks/support/
+https://github.com/JetBrains/kotlin
+https://github.com/Kotlin/kotlinx.coroutines
+https://github.com/Kotlin/kotlinx.serialization
+https://github.com/JetBrains/java-annotations
+https://github.com/square/okhttp
+https://github.com/square/okio
+https://github.com/google/guava
+https://github.com/javax-inject/javax-inject
+
+Android System WebView is supplied and updated by the device, not bundled
+in this APK. The Server supplies its Web interface under its own package
+notices. Gradle, Android build tools and instrumentation-only libraries
+are not part of the installed application runtime.

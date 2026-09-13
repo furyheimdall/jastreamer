@@ -258,11 +258,11 @@ class ServerDiscovery(
         private suspend fun resolve(serviceInfo: NsdServiceInfo): NsdServiceInfo =
             suspendCancellableCoroutine { continuation ->
                 val listener = object : NsdManager.ResolveListener {
-                    override fun onServiceResolved(resolved: NsdServiceInfo) {
+                    override fun onServiceResolved(resolved: NsdServiceInfo) = onMain {
                         continuation.succeed(resolved)
                     }
 
-                    override fun onResolveFailed(failed: NsdServiceInfo, errorCode: Int) {
+                    override fun onResolveFailed(failed: NsdServiceInfo, errorCode: Int) = onMain {
                         continuation.fail(ResolutionFailure(errorCode))
                     }
                 }
@@ -464,11 +464,11 @@ class ServerDiscovery(
         ): ClientException = ClientException(ClientErrorCode.DISCOVERY, "$detail ($errorCode)", cause)
 
         private fun CancellableContinuation<NsdServiceInfo>.succeed(value: NsdServiceInfo) {
-            tryResume(value)?.let(::completeResume)
+            if (isActive) resumeWith(Result.success(value))
         }
 
         private fun CancellableContinuation<NsdServiceInfo>.fail(error: Throwable) {
-            tryResumeWithException(error)?.let(::completeResume)
+            if (isActive) resumeWith(Result.failure(error))
         }
     }
 

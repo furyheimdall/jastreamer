@@ -3,6 +3,7 @@ package io.jastreamer.android
 import android.content.Context
 import android.content.ContentValues
 import android.content.pm.ActivityInfo
+import android.content.res.Configuration
 import android.graphics.Bitmap
 import android.provider.MediaStore
 import android.view.View
@@ -64,11 +65,11 @@ class ActualWebUiSmokeTest {
             waitFor("real first-account form") { evaluate("document.querySelectorAll('.auth-form input').length === 3") == "true" }
             evaluate(setInput("input[autocomplete=username]", "android-smoke"))
             scenario.onActivity { it.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE }
-            waitFor("landscape layout") { evaluate("innerWidth > innerHeight") == "true" }
+            waitFor("landscape layout") { orientation() == Configuration.ORIENTATION_LANDSCAPE }
             assertEquals("Rotation must preserve the unsaved username", "\"android-smoke\"", evaluate("document.querySelector('input[autocomplete=username]').value"))
             screenshot("web-login-landscape")
             scenario.onActivity { it.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT }
-            waitFor("portrait layout") { evaluate("innerHeight > innerWidth") == "true" }
+            waitFor("portrait layout") { orientation() == Configuration.ORIENTATION_PORTRAIT }
             evaluate("""
                 (() => {
                     const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
@@ -180,6 +181,12 @@ class ActualWebUiSmokeTest {
             }
         }
         return null
+    }
+
+    private fun orientation(): Int {
+        var current = Configuration.ORIENTATION_UNDEFINED
+        scenario.onActivity { current = it.resources.configuration.orientation }
+        return current
     }
 
     private fun screenshot(name: String) {

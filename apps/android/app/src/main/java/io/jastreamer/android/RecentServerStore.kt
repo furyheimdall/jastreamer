@@ -53,14 +53,14 @@ class RecentServerStore internal constructor(private val directory: File) {
 
     private fun readSnapshot(): Snapshot {
         try {
-            if (!file.exists()) return Snapshot()
+            if (Files.notExists(file.toPath())) return Snapshot()
             if (file.length() > MAX_STORE_BYTES) throw storageFailure("Client storage exceeds its size limit")
             val root = Json.parseToJsonElement(file.readText(Charsets.UTF_8)) as? JsonObject
                 ?: throw storageFailure("Client storage is invalid")
             val version = (root["version"] as? JsonPrimitive)?.takeUnless { it.isString }?.intOrNull
             val entries = root["recents"] as? JsonArray
             val language = root.string("language")
-            if (version != STORE_VERSION || entries == null || language !in listOf("en", "ko")) {
+            if (version != STORE_VERSION || entries == null || (language != "en" && language != "ko")) {
                 throw storageFailure("Client storage is invalid")
             }
             val unique = LinkedHashMap<String, ServerEndpoint>()
@@ -69,7 +69,7 @@ class RecentServerStore internal constructor(private val directory: File) {
                 unique.putIfAbsent(key(server), server)
                 if (unique.size == MAX_RECENT_SERVERS) break
             }
-            return Snapshot(language!!, unique.values.toList())
+            return Snapshot(language, unique.values.toList())
         } catch (failure: ClientException) {
             throw failure
         } catch (failure: Exception) {
@@ -102,6 +102,7 @@ class RecentServerStore internal constructor(private val directory: File) {
             // SharedPreferences.commit() changes its memory map even when disk persistence
             // fails. Read only this atomically replaced file, never an uncommitted map.
             Files.move(temporary.toPath(), file.toPath(), StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING)
+            temporary = null
         } catch (failure: Exception) {
             throw storageFailure("Unable to persist client preferences", failure)
         } finally {

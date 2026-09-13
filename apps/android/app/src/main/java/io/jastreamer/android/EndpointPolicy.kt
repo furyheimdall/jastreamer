@@ -13,11 +13,12 @@ object EndpointPolicy {
     private val dnsLabel = Regex("^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$")
 
     fun normalize(input: String): String {
-        if (input.isEmpty() || input.length > MAX_ENDPOINT_LENGTH || input.any(::isForbiddenCharacter)) {
+        val trimmed = input.trim()
+        if (trimmed.isEmpty() || trimmed.length > MAX_ENDPOINT_LENGTH || trimmed.any(::isForbiddenCharacter)) {
             invalid("Invalid server address")
         }
 
-        val candidate = if (explicitScheme.containsMatchIn(input)) input else "http://$input"
+        val candidate = if (explicitScheme.containsMatchIn(trimmed)) trimmed else "http://$trimmed"
         val address = candidate.substringAfter("://")
         val firstSlash = address.indexOf('/')
         val rawPath = if (firstSlash >= 0) address.substring(firstSlash) else ""

@@ -242,6 +242,7 @@ class MainActivity : ComponentActivity() {
                 )
                 remote = view
                 selected = server
+                retryTarget = server.origin to server.id
                 connecting = false
                 content.addView(view, FrameLayout.LayoutParams(-1, -1))
                 selector.visibility = View.GONE

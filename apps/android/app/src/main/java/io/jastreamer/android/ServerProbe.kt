@@ -179,11 +179,11 @@ class ServerProbe(client: OkHttpClient = OkHttpClient()) {
         throw ClientException(ClientErrorCode.INVALID_METADATA, detail)
 
     private fun CancellableContinuation<ServerEndpoint>.succeed(value: ServerEndpoint) {
-        tryResume(value)?.let(::completeResume)
+        if (isActive) resumeWith(Result.success(value))
     }
 
     private fun CancellableContinuation<ServerEndpoint>.fail(error: Throwable) {
-        tryResumeWithException(error)?.let(::completeResume)
+        if (isActive) resumeWith(Result.failure(error))
     }
 
     companion object {
