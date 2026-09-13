@@ -35,11 +35,13 @@ type Capabilities struct {
 }
 
 type Device struct {
-	ID               string       `json:"id"`
-	Name             string       `json:"name"`
-	Manufacturer     string       `json:"manufacturer"`
-	Model            string       `json:"model"`
-	Address          string       `json:"address"`
+	ID           string `json:"id"`
+	Name         string `json:"name"`
+	Manufacturer string `json:"manufacturer"`
+	Model        string `json:"model"`
+	Address      string `json:"address"`
+	// LocalAddress is the server interface used to reach this output, when known.
+	LocalAddress     string       `json:"-"`
 	Online           bool         `json:"online"`
 	LastSeen         string       `json:"last_seen"`
 	Capabilities     Capabilities `json:"capabilities"`

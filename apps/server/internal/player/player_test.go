@@ -123,6 +123,78 @@ func runAcceptedCommand(t *testing.T, service *Service) {
 	service.executeSafely(context.Background(), command)
 }
 
+type failingPreparation struct {
+	fakeMedia
+	err error
+}
+
+func (f *failingPreparation) Prepare(context.Context, output.Device, library.Track, string) (output.Resource, error) {
+	return output.Resource{}, f.err
+}
+
+func TestStartFailurePreservesSafeCauseAndQueue(t *testing.T) {
+	for _, test := range []struct {
+		name, command, stage, code, failedAction string
+	}{
+		{"media preparation", "play", "PrepareMedia", "MEDIA_STALE", ""},
+		{"URI rejection", "play", "SetAVTransportURI", "714", "set_uri"},
+		{"play rejection", "play", "Play", "701", "play"},
+		{"next rejection", "next", "SetAVTransportURI", "714", "set_uri"},
+		{"previous rejection", "previous", "SetAVTransportURI", "714", "set_uri"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			service, _, devices := newPlayerTestService(t)
+			ctx := context.Background()
+			queue, err := service.MutateQueue(ctx, QueueMutation{Action: "append", TrackIDs: []string{"a", "b", "a"}, Revision: 0})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if test.command != "play" {
+				current := 0
+				if test.command == "previous" {
+					current = 1
+				}
+				if _, err := service.Command(ctx, Command{Action: "play", EntryID: queue.Entries[current].ID}); err != nil {
+					t.Fatal(err)
+				}
+				runAcceptedCommand(t, service)
+			}
+			const privateCause = "http://private-endpoint/media/secret-grant"
+			if test.failedAction == "" {
+				service.media = &failingPreparation{err: fmt.Errorf("%s: %w", privateCause, fault.New(409, "MEDIA_STALE", "track changed since the last library scan"))}
+			} else {
+				code := 714
+				if test.failedAction == "play" {
+					code = 701
+				}
+				devices.fail[test.failedAction] = output.NewActionError(output.ErrorFault, test.stage, code, errors.New(privateCause))
+			}
+			if _, err := service.Command(ctx, Command{Action: test.command}); err != nil {
+				t.Fatal(err)
+			}
+			runAcceptedCommand(t, service)
+			state := service.mustState(t)
+			if state.State != StateError || !strings.Contains(state.Error, test.stage) || !strings.Contains(state.Error, test.code) {
+				t.Fatalf("start failure lost its actionable cause: %+v", state)
+			}
+			if strings.Contains(state.Error, privateCause) || strings.Contains(state.Error, "secret-grant") {
+				t.Fatalf("start failure exposed private transport details: %s", state.Error)
+			}
+			finished, err := service.Queue(ctx)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(finished.Entries) != len(queue.Entries) {
+				t.Fatalf("start failure changed the queue: %+v", finished)
+			}
+			for index, entry := range queue.Entries {
+				if finished.Entries[index].ID != entry.ID {
+					t.Fatalf("start failure reordered or replaced a queue entry: %+v", finished)
+				}
+			}
+		})
+	}
+}
 func TestObservationFailurePreservesOngoingPlaybackWithoutReplay(t *testing.T) {
 	service, _, devices := newPlayerTestService(t)
 	ctx := context.Background()

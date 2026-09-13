@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "server_name": "jastreamer Windows Server",
+  "data_dir": "",
+  "http": { "enabled": true, "address": ":18080" },
+  "https": { "enabled": false, "address": ":18443", "certificate_file": "", "private_key_file": "" },
+  "library_roots": [],
+  "network": { "interfaces": [], "discovery_interval_seconds": 30, "poll_interval_seconds": 1, "allowed_cidrs": [] },
+  "media": { "base_url": "", "ffmpeg_path": "", "transcode": false },
+  "airplay": { "enabled": false, "helper_path": "" }
+}

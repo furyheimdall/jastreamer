@@ -66,6 +66,8 @@ func New(options Options) http.Handler {
 	mux.HandleFunc("POST /api/v1/account/password", service.require(service.password))
 	mux.HandleFunc("GET /api/v1/config", service.require(service.getConfig))
 	mux.HandleFunc("PUT /api/v1/config", service.require(service.putConfig))
+	mux.HandleFunc("GET /api/v1/filesystem", service.require(service.filesystem))
+	mux.HandleFunc("GET /api/v1/network/interfaces", service.require(service.networkInterfaces))
 	for _, kind := range []string{"tracks", "albums", "artists", "genres", "folders"} {
 		mux.HandleFunc("GET /api/v1/library/"+kind, service.require(service.browse(kind)))
 	}

@@ -1,0 +1,19 @@
+UPDATING AN EXISTING PORTABLE WINDOWS SERVER
+
+1. Stop the existing Server with Ctrl+C and wait for its console to close.
+2. Back up the existing Server folder, especially server.json and data.
+3. Verify and extract the new ZIP into a separate temporary folder.
+4. Replace only package-owned files in the existing folder: the executable,
+   launcher, template, guidance, project license, notices, and third-party
+   licenses. Keep the existing server.json, data, music, and any user files.
+5. Run start-server.cmd from the existing folder and refresh the Web UI.
+
+The launcher detects an existing server.json, validates it, and starts with it
+without writing it. It does not reset accounts, migrate or delete existing data,
+re-register libraries, or change manually configured library/FFmpeg/helper
+paths. Never update while the Server is running. Do not replace the whole folder
+with the new extracted folder unless you first restore your existing config and
+data into it while the Server is stopped.
+
+This package does not bundle FFmpeg or AirPlay support. Updating it does not add,
+remove, or rewrite any manually configured external executable path.

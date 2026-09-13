@@ -37,11 +37,13 @@ EXPECTED_JOBS = {
     "Native Server container (linux/amd64)",
     "Native Server container (linux/arm64)",
     "Windows x64 portable desktop",
+    "Windows x64 portable Server",
     "Linux amd64 DEB desktop",
 }
 EXPECTED_ARTIFACTS = {
     "server-image-amd64",
     "server-image-arm64",
+    "jastreamer-server-windows-x64",
     "jastreamer-desktop-windows-x64",
     "jastreamer-desktop-linux-amd64",
 }
@@ -302,6 +304,10 @@ def stage_release(args: argparse.Namespace) -> None:
         "windows-x64": ci_artifact.verify_desktop_artifact(root / "jastreamer-desktop-windows-x64", "windows-x64", args.source_revision),
         "linux-amd64": ci_artifact.verify_desktop_artifact(root / "jastreamer-desktop-linux-amd64", "linux-amd64", args.source_revision),
     }
+    windows_server_receipt = ci_artifact.verify_windows_server_artifact(
+        root / "jastreamer-server-windows-x64",
+        args.source_revision,
+    )
     image_paths = {"amd64": pathlib.Path(args.amd64_raw), "arm64": pathlib.Path(args.arm64_raw)}
     published_images = {
         architecture: validate_registry_image(image_paths[architecture], server_manifests[architecture], architecture)
@@ -312,6 +318,13 @@ def stage_release(args: argparse.Namespace) -> None:
     output = pathlib.Path(args.output_dir)
     require(not output.exists() or not any(output.iterdir()), "release staging directory must be empty")
     output.mkdir(parents=True, exist_ok=True)
+    windows_server_source = root / "jastreamer-server-windows-x64"
+    windows_server_archive = ci_artifact.WINDOWS_SERVER_ARCHIVE
+    copy_regular(windows_server_source / windows_server_archive, output / windows_server_archive)
+    copy_regular(windows_server_source / f"{windows_server_archive}.sha256", output / f"{windows_server_archive}.sha256")
+    windows_server_prefix = f"jastreamer-server_{VERSION}_windows-x64"
+    copy_regular(windows_server_source / "manifest.json", output / f"{windows_server_prefix}.manifest.json")
+    copy_regular(windows_server_source / "verification.json", output / f"{windows_server_prefix}.verification.json")
     for target in ("windows-x64", "linux-amd64"):
         source = root / f"jastreamer-desktop-{target}"
         archive_name = ci_artifact.DESKTOP_TARGETS[target]["archive"]
@@ -361,6 +374,7 @@ def stage_release(args: argparse.Namespace) -> None:
         "ciArtifacts": provenance["artifacts"],
         "serverPublicationManifest": {"path": publication_name, "sha256": sha256_file(output / publication_name)},
         "desktop": desktop_receipts,
+        "windowsServer": windows_server_receipt,
         "prerelease": True,
         "latest": False,
         "productionQualified": False,

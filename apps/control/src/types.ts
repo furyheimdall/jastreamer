@@ -166,6 +166,46 @@ export interface PairingStatus {
   prompt: string;
 }
 
+export type FilesystemEntryKind = "directory" | "file";
+
+export interface FilesystemRoot {
+  name: string;
+  path: string;
+}
+
+export interface FilesystemEntry {
+  name: string;
+  path: string;
+  kind: FilesystemEntryKind;
+}
+
+export interface FilesystemPage {
+  path: string;
+  parent: string | null;
+  roots: FilesystemRoot[];
+  entries: FilesystemEntry[];
+  next_offset: number | null;
+}
+
+export interface NetworkInterfaceAddress {
+  address: string;
+  prefix_length: number;
+  upnp_usable: boolean;
+}
+
+export interface ServerNetworkInterface {
+  name: string;
+  index: number;
+  up: boolean;
+  multicast: boolean;
+  loopback: boolean;
+  addresses: NetworkInterfaceAddress[];
+}
+
+export interface NetworkInterfacesDocument {
+  interfaces: ServerNetworkInterface[];
+}
+
 export interface ConfigRoot {
   id: string;
   name: string;

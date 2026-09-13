@@ -132,6 +132,7 @@ func (manager *Manager) inspect(ctx context.Context, candidate advertisement) (i
 			ID: rendererID(candidate.udn), Name: name,
 			Manufacturer: strings.TrimSpace(value.Manufacturer), Model: strings.TrimSpace(value.ModelName),
 			Address: candidate.source.Addr().String(), Online: true,
+			LocalAddress: candidate.network.local.String(),
 			Capabilities: capabilities, ProtocolInfo: protocols, Protocol: output.ProtocolUPnP,
 		},
 		udn: candidate.udn, descriptionURL: candidate.location, controlURL: controlURL,

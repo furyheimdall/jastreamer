@@ -12,6 +12,8 @@ import stat
 import tarfile
 from typing import Any
 
+import windows_package
+
 VERSION = "0.2.0"
 SHA256 = re.compile(r"[0-9a-f]{64}")
 REVISION = re.compile(r"[0-9a-f]{40}")
@@ -44,6 +46,8 @@ DESKTOP_TARGETS = {
         ],
     },
 }
+
+WINDOWS_SERVER_ARCHIVE = windows_package.ARCHIVE_NAME
 
 
 def require(condition: bool, message: str) -> None:
@@ -326,6 +330,19 @@ def verify_desktop_artifact(directory: pathlib.Path, target: str, source_revisio
     return receipt
 
 
+def verify_windows_server_artifact(directory: pathlib.Path, source_revision: str) -> dict[str, Any]:
+    expected_files = {
+        WINDOWS_SERVER_ARCHIVE,
+        f"{WINDOWS_SERVER_ARCHIVE}.sha256",
+        "manifest.json",
+        "verification.json",
+    }
+    require(directory.is_dir(), f"Windows Server artifact directory not found: {directory}")
+    require({entry.name for entry in directory.iterdir()} == expected_files, "Windows Server artifact contains missing or unexpected files")
+    windows_package.verify_windows_package(directory, source_revision)
+    return read_json(directory / "verification.json")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -353,6 +370,11 @@ def main() -> None:
     verify_desktop_parser.add_argument("--target", choices=sorted(DESKTOP_TARGETS), required=True)
     verify_desktop_parser.add_argument("--source-revision", required=True)
     verify_desktop_parser.set_defaults(function=lambda args: print(json.dumps(verify_desktop_artifact(pathlib.Path(args.artifact_dir), args.target, args.source_revision), sort_keys=True)))
+
+    verify_windows_server_parser = subparsers.add_parser("verify-windows-server")
+    verify_windows_server_parser.add_argument("--artifact-dir", required=True)
+    verify_windows_server_parser.add_argument("--source-revision", required=True)
+    verify_windows_server_parser.set_defaults(function=lambda args: print(json.dumps(verify_windows_server_artifact(pathlib.Path(args.artifact_dir), args.source_revision), sort_keys=True)))
 
     args = parser.parse_args()
     if hasattr(args, "source_revision"):

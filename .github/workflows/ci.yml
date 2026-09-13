@@ -113,6 +113,74 @@ jobs:
           compression-level: 0
           retention-days: 30
 
+  server-windows:
+    name: Windows x64 portable Server
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: apps/server/go.mod
+          cache-dependency-path: apps/server/go.sum
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.20.0
+          cache: npm
+          cache-dependency-path: apps/control/package-lock.json
+      - name: Require native Windows x64
+        shell: pwsh
+        run: |
+          if ($env:PROCESSOR_ARCHITECTURE -ne "AMD64") {
+            throw "Windows Server packaging requires a native AMD64 runner"
+          }
+          if ((go env GOOS) -ne "windows" -or (go env GOARCH) -ne "amd64") {
+            throw "Go is not targeting native windows/amd64"
+          }
+      - name: Build embedded Web
+        working-directory: apps/control
+        run: npm ci && npm run build
+      - name: Build exact Windows x64 Server executable
+        working-directory: apps/server
+        env:
+          CGO_ENABLED: "0"
+        shell: pwsh
+        run: |
+          $version = (Get-Content VERSION -Raw).Trim()
+          New-Item -ItemType Directory -Force dist | Out-Null
+          go build -trimpath `
+            -ldflags "-s -w -X main.productVersion=$version -X main.sourceRevision=$env:GITHUB_SHA" `
+            -o dist/jastreamer-server.exe ./cmd/jastreamer-server
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Package unsigned Windows x64 portable Server
+        shell: pwsh
+        run: >-
+          py -3 packaging/server/windows_package.py package
+          --binary apps/server/dist/jastreamer-server.exe
+          --output-dir dist/server-windows-x64
+          --source-revision "$env:GITHUB_SHA"
+      - name: Verify native first install, existing data, Web, and restart
+        shell: pwsh
+        run: >-
+          py -3 packaging/server/windows_verify.py
+          --package-dir dist/server-windows-x64
+          --source-revision "$env:GITHUB_SHA"
+          --output dist/server-windows-x64/verification.json
+      - name: Require complete native Windows Server provenance
+        shell: pwsh
+        run: >-
+          py -3 packaging/server/ci_artifact.py verify-windows-server
+          --artifact-dir dist/server-windows-x64
+          --source-revision "$env:GITHUB_SHA"
+      - name: Upload exact verified Windows x64 Server
+        uses: actions/upload-artifact@v4
+        with:
+          name: jastreamer-server-windows-x64
+          path: dist/server-windows-x64/
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 30
+
   desktop-windows:
     name: Windows x64 portable desktop
     runs-on: windows-latest
