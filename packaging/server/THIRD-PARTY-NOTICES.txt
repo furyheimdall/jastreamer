@@ -98,6 +98,15 @@ Python dependencies
   The source archives allow inspecting, modifying, and rebuilding these
   components. The image does not restrict replacement of the helper or libraries.
 
+Sample music
+  Three optional CC0 1.0 Universal recordings and their complete provenance,
+  source links, original filenames, modification statements, byte lengths, and
+  SHA-256 digests are retained at:
+    /usr/share/jastreamer/samples/THIRD-PARTY-NOTICES.txt
+    /usr/share/jastreamer/samples/manifest.json
+  The packaged recordings are not played or copied into a music library
+  automatically by the Server.
+
 Base runtime
   The pinned official Python/Alpine base retains its Python, musl, OpenSSL,
   Alpine package, and other upstream licenses. Those components are not

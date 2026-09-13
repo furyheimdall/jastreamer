@@ -164,6 +164,57 @@ def smoke(package_dir: pathlib.Path, source_revision: str) -> dict[str, Any]:
         expected_version = f"jastreamer-server {windows_package.VERSION} ({source_revision})"
         require(version.stdout.strip() == expected_version and version.stderr == "", f"unexpected packaged Server version: {version.stdout!r} {version.stderr!r}")
 
+        conflict_extract = temporary / "sample conflict"
+        with zipfile.ZipFile(archive_path, "r") as archive:
+            archive.extractall(conflict_extract)
+        conflict_root = conflict_extract / windows_package.PACKAGE_ROOT
+        conflict_sample = conflict_root / "music" / "jastreamer-samples" / "sample-01.mp3"
+        conflict_sample.parent.mkdir(parents=True)
+        conflict_bytes = b"existing user sample must be preserved"
+        conflict_sample.write_bytes(conflict_bytes)
+        conflict_setup = subprocess.run(
+            [
+                "powershell.exe",
+                "-NoLogo",
+                "-NoProfile",
+                "-NonInteractive",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-File",
+                conflict_root / "initialize-first-install.ps1",
+            ],
+            cwd=conflict_root,
+            capture_output=True,
+            timeout=20,
+        )
+        require(conflict_setup.returncode != 0, "first-install setup accepted a conflicting sample file")
+        require(conflict_sample.read_bytes() == conflict_bytes, "first-install setup overwrote a conflicting sample file")
+        require(not (conflict_root / "server.json").exists(), "failed sample seeding created server.json")
+
+        junction_extract = temporary / "sample junction"
+        with zipfile.ZipFile(archive_path, "r") as archive:
+            archive.extractall(junction_extract)
+        junction_root = junction_extract / windows_package.PACKAGE_ROOT
+        junction_music = junction_root / "music"
+        junction_music.mkdir()
+        junction_destination = junction_music / "jastreamer-samples"
+        junction_outside = temporary / "outside sample root"
+        junction_outside.mkdir()
+        subprocess.run(
+            ["cmd.exe", "/d", "/c", "mklink", "/J", str(junction_destination), str(junction_outside)],
+            check=True, capture_output=True, timeout=20,
+        )
+        junction_setup = subprocess.run(
+            [
+                "powershell.exe", "-NoLogo", "-NoProfile", "-NonInteractive",
+                "-ExecutionPolicy", "Bypass", "-File", junction_root / "initialize-first-install.ps1",
+            ],
+            cwd=junction_root, capture_output=True, timeout=20,
+        )
+        require(junction_setup.returncode != 0, "first-install setup followed a sample-directory junction")
+        require(not any(junction_outside.iterdir()), "first-install setup wrote outside the approved sample root")
+        require(not (junction_root / "server.json").exists(), "failed junction seeding created server.json")
+
         log_path = temporary / "server.log"
         process, log = launch(package_root, log_path)
         try:
@@ -172,6 +223,14 @@ def smoke(package_dir: pathlib.Path, source_revision: str) -> dict[str, Any]:
             data_path = package_root / "data"
             music_path = package_root / "music"
             require(config_path.is_file() and data_path.is_dir() and music_path.is_dir(), "first launch did not create adjacent config/data/music")
+            seeded_samples: dict[str, bytes] = {}
+            sample_destination = music_path / "jastreamer-samples"
+            for relative in windows_package.SAMPLE_FILES:
+                name = pathlib.PurePosixPath(relative).name
+                target = sample_destination / name
+                require(target.is_file(), f"first launch did not seed sample payload: {name}")
+                seeded_samples[relative] = target.read_bytes()
+            windows_package.validate_sample_bundle(seeded_samples)
             config = parse_json(config_path.read_bytes(), "first-launch config")
             require_adjacent_directory(config.get("data_dir"), data_path, "first-launch data path")
             roots = config.get("library_roots")
@@ -204,12 +263,16 @@ def smoke(package_dir: pathlib.Path, source_revision: str) -> dict[str, Any]:
         config["airplay"]["helper_path"] = str(custom_helper)
         preserved = (json.dumps(config, ensure_ascii=False, indent=2) + "\n").encode("utf-8")
         config_path.write_bytes(preserved)
+        preserved_music_path = sample_destination / "THIRD-PARTY-NOTICES.txt"
+        preserved_music = b"existing music-side notice must not be replaced on upgrade"
+        preserved_music_path.write_bytes(preserved_music)
         database_path = data_path / "server.sqlite"
         require(database_path.is_file() and database_path.stat().st_size > 0, "first run did not create persistent Server state")
 
         process, log = launch(package_root, log_path)
         try:
             wait_ready(process, log_path)
+            require(preserved_music_path.read_bytes() == preserved_music, "launcher overwrote existing music for an existing configuration")
             require(config_path.read_bytes() == preserved, "launcher or Server overwrote the existing configuration")
             status, setup_body, _ = request("/api/v1/setup")
             require(status == 200 and parse_json(setup_body, "restart setup state") == {"required": False}, "restart lost administrator setup state")

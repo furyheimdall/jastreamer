@@ -1,0 +1,35 @@
+{
+  "schema": 1,
+  "tracks": [
+    {
+      "file": "sample-01.mp3",
+      "title": "Short piano jingle",
+      "artist": "Ondrosik",
+      "source_url": "https://freemusicarchive.org/music/Ondrosik/whispered/short-piano-jingle/",
+      "license": "CC0 1.0 Universal",
+      "license_url": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "sha256": "7d2da29a60106042686f7ef0e29a12e76ec7486f86a7c5fa86f7397a97e99858",
+      "bytes": 948622
+    },
+    {
+      "file": "sample-02.mp3",
+      "title": "Zero (microSong)",
+      "artist": "Steve Combs",
+      "source_url": "https://freemusicarchive.org/music/Steve_Combs/2015021275957958/05_Zero_microSong/",
+      "license": "CC0 1.0 Universal",
+      "license_url": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "sha256": "52986c9fffffe8d0d4cda74ca71f5286d56e6032f5af11c24f08331ebf722564",
+      "bytes": 818783
+    },
+    {
+      "file": "sample-03.mp3",
+      "title": "Free To Use 7",
+      "artist": "Monplaisir",
+      "source_url": "https://freemusicarchive.org/music/Monplaisir/Free_To_Use/Monplaisir_-_Free_To_Use_-_07_Free_To_Use_7/",
+      "license": "CC0 1.0 Universal",
+      "license_url": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "sha256": "93b6f921232022e3dd8d2ebb1e1ced0ec19381496134506a4452b7e3db23d34a",
+      "bytes": 2003517
+    }
+  ]
+}

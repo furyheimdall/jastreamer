@@ -27,12 +27,32 @@ BINARY_NAME = "jastreamer-server.exe"
 REVISION = re.compile(r"[0-9a-f]{40}")
 SHA256 = re.compile(r"[0-9a-f]{64}")
 ASSET_ROOT = pathlib.Path(__file__).with_name("windows")
+SAMPLE_ROOT = pathlib.Path(__file__).with_name("samples")
+SAMPLE_FILES = (
+    "samples/THIRD-PARTY-NOTICES.txt",
+    "samples/manifest.json",
+    "samples/sample-01.mp3",
+    "samples/sample-02.mp3",
+    "samples/sample-03.mp3",
+)
+SAMPLE_TRACK_FILES = ("sample-01.mp3", "sample-02.mp3", "sample-03.mp3")
+SAMPLE_FIELDS = {
+    "file",
+    "title",
+    "artist",
+    "source_url",
+    "license",
+    "license_url",
+    "sha256",
+    "bytes",
+}
 ASSET_FILES = (
     "LICENSE",
     "START-HERE.txt",
     "THIRD-PARTY-NOTICES.txt",
     "UPDATE.txt",
     "server.template.json",
+    "initialize-first-install.ps1",
     "start-server.cmd",
     "third-party-licenses/go/dustin-go-humanize.txt",
     "third-party-licenses/go/enbility-zeroconf.txt",
@@ -58,8 +78,11 @@ RECEIPT_CHECKS = {
     "nativeExecution": True,
     "versionCheck": True,
     "freshInstall": True,
+    "samplesSeeded": True,
+    "sampleConflictPreserved": True,
     "existingConfigPreserved": True,
     "httpUI": True,
+    "existingMusicPreserved": True,
     "restartPreservesState": True,
 }
 
@@ -92,6 +115,45 @@ def read_json(path: pathlib.Path) -> Any:
         return json.loads(path.read_text(encoding="utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError) as error:
         raise SystemExit(f"invalid JSON in {path}: {error}") from error
+
+
+def validate_sample_bundle(files: dict[str, bytes]) -> None:
+    require(set(files) == set(SAMPLE_FILES), "Windows sample bundle contains missing or unexpected files")
+    for relative in SAMPLE_FILES:
+        source = SAMPLE_ROOT / pathlib.PurePosixPath(relative).name
+        require(source.is_file() and not source.is_symlink(), f"missing regular sample source: {source}")
+        require(files[relative] == source.read_bytes(), f"Windows sample differs from shared source: {relative}")
+
+    try:
+        manifest = json.loads(files["samples/manifest.json"])
+    except (UnicodeDecodeError, json.JSONDecodeError) as error:
+        raise SystemExit(f"invalid sample manifest: {error}") from error
+    require(isinstance(manifest, dict) and set(manifest) == {"schema", "tracks"}, "invalid sample manifest")
+    require(type(manifest["schema"]) is int and manifest["schema"] == 1, "unsupported sample manifest schema")
+    tracks = manifest["tracks"]
+    require(isinstance(tracks, list) and len(tracks) == len(SAMPLE_TRACK_FILES), "sample manifest must contain exactly three tracks")
+    for expected_file, track in zip(SAMPLE_TRACK_FILES, tracks, strict=True):
+        require(isinstance(track, dict) and set(track) == SAMPLE_FIELDS, f"invalid sample manifest entry: {expected_file}")
+        require(track["file"] == expected_file, f"unexpected sample filename or order: {track.get('file')!r}")
+        for field in ("title", "artist", "source_url", "license", "license_url", "sha256"):
+            require(isinstance(track[field], str) and bool(track[field]), f"{expected_file}: invalid {field}")
+        require(track["source_url"].startswith("https://freemusicarchive.org/music/"), f"{expected_file}: unexpected source URL")
+        require(track["license"] == "CC0 1.0 Universal", f"{expected_file}: unexpected sample license")
+        require(
+            track["license_url"] == "https://creativecommons.org/publicdomain/zero/1.0/",
+            f"{expected_file}: unexpected sample license URL",
+        )
+        require(SHA256.fullmatch(track["sha256"]) is not None, f"{expected_file}: invalid SHA-256")
+        require(type(track["bytes"]) is int and track["bytes"] > 0, f"{expected_file}: invalid byte length")
+        value = files[f"samples/{expected_file}"]
+        require(len(value) == track["bytes"], f"{expected_file}: byte length mismatch")
+        require(sha256_bytes(value) == track["sha256"], f"{expected_file}: checksum mismatch")
+        header = value[:3]
+        require(
+            header == b"ID3" or (len(header) >= 2 and header[0] == 0xFF and header[1] & 0xE0 == 0xE0),
+            f"{expected_file}: not an MP3",
+        )
+    require(bool(files["samples/THIRD-PARTY-NOTICES.txt"]), "sample source and license notice is empty")
 
 
 def atomic_write(path: pathlib.Path, value: bytes) -> None:
@@ -166,6 +228,14 @@ def package_files(binary: pathlib.Path) -> dict[str, bytes]:
         source = pathlib.Path(__file__).resolve().parents[2] / "LICENSE" if relative == "LICENSE" else ASSET_ROOT / pathlib.PurePosixPath(relative)
         require(source.is_file() and not source.is_symlink(), f"missing Windows package asset: {source}")
         files[f"{PACKAGE_ROOT}/{relative}"] = source.read_bytes()
+    sample_files: dict[str, bytes] = {}
+    for relative in SAMPLE_FILES:
+        source = SAMPLE_ROOT / pathlib.PurePosixPath(relative).name
+        require(source.is_file() and not source.is_symlink(), f"missing Windows package sample: {source}")
+        value = source.read_bytes()
+        sample_files[relative] = value
+        files[f"{PACKAGE_ROOT}/{relative}"] = value
+    validate_sample_bundle(sample_files)
     return dict(sorted(files.items()))
 
 
@@ -296,7 +366,13 @@ def verify_windows_package(directory: pathlib.Path | str, source_revision: str) 
 
     inventory = manifest.get("inventory")
     require(isinstance(inventory, list), "Windows manifest inventory must be a list")
-    expected_names = sorted([f"{PACKAGE_ROOT}/{BINARY_NAME}", *(f"{PACKAGE_ROOT}/{name}" for name in ASSET_FILES)])
+    expected_names = sorted(
+        [
+            f"{PACKAGE_ROOT}/{BINARY_NAME}",
+            *(f"{PACKAGE_ROOT}/{name}" for name in ASSET_FILES),
+            *(f"{PACKAGE_ROOT}/{name}" for name in SAMPLE_FILES),
+        ]
+    )
     require([entry.get("path") if isinstance(entry, dict) else None for entry in inventory] == expected_names, "Windows archive inventory is incomplete or out of order")
     inventory_by_name: dict[str, dict[str, Any]] = {}
     for entry in inventory:
@@ -312,6 +388,7 @@ def verify_windows_package(directory: pathlib.Path | str, source_revision: str) 
             require(names == expected_names and len(set(names)) == len(names), "Windows ZIP contains missing, reordered, or duplicate members")
             require(package.comment == b"", "Windows ZIP has an unexpected comment")
             binary_bytes = b""
+            sample_files: dict[str, bytes] = {}
             for info in infos:
                 require(not info.is_dir() and not (info.flag_bits & 1), f"invalid Windows ZIP member: {info.filename}")
                 require(pathlib.PurePosixPath(info.filename).parts[0] == PACKAGE_ROOT and all(part not in ("", ".", "..") for part in pathlib.PurePosixPath(info.filename).parts), f"unsafe Windows ZIP member: {info.filename}")
@@ -322,6 +399,10 @@ def verify_windows_package(directory: pathlib.Path | str, source_revision: str) 
                 require(len(value) == entry["bytes"] and sha256_bytes(value) == entry["sha256"], f"Windows ZIP member differs from manifest: {info.filename}")
                 if info.filename == f"{PACKAGE_ROOT}/{BINARY_NAME}":
                     binary_bytes = value
+                sample_prefix = f"{PACKAGE_ROOT}/samples/"
+                if info.filename.startswith(sample_prefix):
+                    sample_files[f"samples/{info.filename.removeprefix(sample_prefix)}"] = value
+            validate_sample_bundle(sample_files)
     except (OSError, zipfile.BadZipFile, RuntimeError) as error:
         raise SystemExit(f"invalid Windows Server ZIP: {error}") from error
 

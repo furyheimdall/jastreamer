@@ -33,6 +33,8 @@ COPY --from=python-sources /sources/python/ /usr/share/jastreamer/sources/python
 COPY packaging/server/fetch-python-sources.py packaging/server/requirements-airplay-build.txt /usr/share/jastreamer/sources/
 COPY packaging/server/requirements-airplay.txt /usr/share/jastreamer/requirements-airplay.txt
 COPY packaging/server/THIRD-PARTY-NOTICES.txt /usr/share/jastreamer/THIRD-PARTY-NOTICES.txt
+COPY --chmod=755 packaging/server/seed-samples.py /usr/share/jastreamer/seed-samples.py
+COPY packaging/server/samples/ /usr/share/jastreamer/samples/
 
 FROM --platform=$BUILDPLATFORM node:22.20.0-alpine3.22@sha256:dbcedd8aeab47fbc0f4dd4bffa55b7c3c729a707875968d467aaaea42d6225af AS web-build
 WORKDIR /src/apps/control

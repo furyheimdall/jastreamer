@@ -6,6 +6,7 @@ jastreamer 0.2.0 is a self-hosted music server for a trusted private LAN. A Serv
 
 The interface supports English and Korean.
 
+- [Agent-assisted install or update](AGENTS.md)
 - [Install or update](INSTALL.md)
 - [English user guide](INSTRUCTION.md)
 - [한국어 README](README.ko.md)
@@ -25,18 +26,19 @@ The phone layout is selected automatically for iPhone and Android phone browsers
 
 ## Deployment model
 
-- **Linux Server:** one `amd64` or `arm64` container with the embedded Web interface, audio-only FFmpeg 8.1.2, and the pyatv 0.18.0 AirPlay sender. Synology Container Manager uses the supplied Compose definition.
+- **Linux Server:** one `amd64` or `arm64` container with the embedded Web interface, Python 3.12, audio-only FFmpeg 8.1.2, and the pyatv 0.18.0 AirPlay sender. Synology Container Manager uses the supplied Compose definition.
 - **Native Windows Server:** the unsigned x64 portable ZIP with the embedded Web interface, UPnP/DLNA, and optional Google Cast, but no bundled AirPlay sender, Renderer, or FFmpeg transcoder. It is not a Windows service.
 - **Optional desktop:** a Windows 10/11 x64 portable ZIP or Linux amd64 DEB that connects to a Server and displays its hosted Web interface. It is not a Server, Renderer, or local audio player. There is no ARM64 desktop package.
 
-Google Cast needs no Chrome or Python helper on either Server platform. Public previews are unsigned and not production-qualified; select one from [GitHub Releases](https://github.com/furyheimdall/jastreamer/releases), use its exact image digest or verified package and checksum, and read its limitations.
+Google Cast needs no Chrome or Python helper on either Server platform. Select the newest compatible published Server release from the complete [GitHub Releases listing](https://github.com/furyheimdall/jastreamer/releases), including correctly labelled previews; verify its provenance and pin its exact image digest or verify the package checksum. Never use mutable `latest` or assume `/releases/latest` includes previews.
 
-Keep writable config and data separate from the existing read-only music library. Preserve config and data during replacement, never recursively change ownership or permissions on music for jastreamer, and never expose the Server directly to the public Internet.
+On ordinary Linux, default the project/config/data to separate directories under the target user's `~/.config/jstreamer`, without assuming sudo. Ask for the music path; if none exists, obtain explicit consent before creating `~/music`. Empty music folders cannot play anything: add music and scan it. Verified releases can seed three test MP3s under `jastreamer-samples` without overwriting files. Preserve existing deployment paths, config, data and music; never recursively change music permissions or expose Server publicly. Full installation and upgrade procedures are in [INSTALL.md](INSTALL.md); agent rules are in [AGENTS.md](AGENTS.md).
 
 ## Install or update
 
 > Help me install or update jastreamer from https://github.com/furyheimdall/jastreamer.
 > Read [AGENTS.md](AGENTS.md) first, then follow my platform branch in [INSTALL.md](INSTALL.md) (or [INSTALL.ko.md](INSTALL.ko.md) in Korean).
+> Ask for my music path. If I have no music folder, ask permission before creating `~/music`, and explain where to add music and how to scan an empty library. Do not assume sudo or move an existing installation.
 
 For manual setup, package verification, platform-specific installation, PWA setup, backup, upgrade, and rollback, use the [installation guide](INSTALL.md). For everyday operation and troubleshooting, use the [user guide](INSTRUCTION.md).
 

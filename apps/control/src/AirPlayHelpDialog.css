@@ -1,0 +1,171 @@
+.airplay-help-backdrop {
+  position: fixed;
+  z-index: 180;
+  inset: 0;
+  display: grid;
+  padding: clamp(0.75rem, 3vw, 1.5rem);
+  overflow: hidden;
+  background: #000000b8;
+  place-items: center;
+}
+
+.airplay-help-dialog {
+  width: min(42rem, 100%);
+  max-height: calc(100dvh - clamp(1.5rem, 6vw, 3rem));
+  padding: clamp(1rem, 3vw, 1.5rem);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  border: 1px solid #ffffff1f;
+  border-radius: 0.9rem;
+  background: var(--panel-raised, #252b2f);
+  box-shadow: 0 1.5rem 4.5rem #000a;
+  scrollbar-width: thin;
+}
+
+.airplay-help-heading {
+  position: sticky;
+  z-index: 1;
+  top: calc(-1 * clamp(1rem, 3vw, 1.5rem));
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 1rem;
+  margin: calc(-1 * clamp(1rem, 3vw, 1.5rem)) calc(-1 * clamp(1rem, 3vw, 1.5rem)) 0;
+  padding: clamp(1rem, 3vw, 1.5rem);
+  border-bottom: 1px solid transparent;
+  background: color-mix(in srgb, var(--panel-raised, #252b2f) 94%, transparent);
+  backdrop-filter: blur(12px);
+}
+
+.airplay-help-heading h2 {
+  margin: 0.15rem 0 0;
+  font-size: clamp(1.2rem, 3vw, 1.55rem);
+  line-height: 1.2;
+}
+
+.airplay-help-eyebrow {
+  margin: 0;
+  color: var(--accent, #c8edb2);
+  font-size: 0.72rem;
+  font-weight: 750;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.airplay-help-close {
+  appearance: none;
+  display: grid;
+  flex: 0 0 auto;
+  width: 2.25rem;
+  height: 2.25rem;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--muted, #9aa3a6);
+  place-items: center;
+}
+
+.airplay-help-close:hover {
+  background: #ffffff0c;
+  color: var(--text, #f4f4ec);
+}
+
+.airplay-help-close svg {
+  width: 1.2rem;
+  height: 1.2rem;
+}
+
+.airplay-help-content {
+  display: grid;
+  gap: 1.25rem;
+  margin-top: 1.25rem;
+}
+
+.airplay-help-content > p,
+.airplay-help-content section p {
+  margin: 0;
+  color: var(--muted, #9aa3a6);
+  line-height: 1.6;
+}
+
+.airplay-help-content section {
+  min-width: 0;
+}
+
+.airplay-help-content h3 {
+  margin: 0 0 0.45rem;
+  font-size: 0.95rem;
+}
+
+.airplay-help-content code {
+  display: block;
+  margin-top: 0.65rem;
+  padding: 0.65rem 0.75rem;
+  overflow-wrap: anywhere;
+  border: 1px solid var(--border, #ffffff12);
+  border-radius: 0.55rem;
+  color: var(--text, #f4f4ec);
+  background: var(--panel, #1b1f22);
+  font-size: 0.8rem;
+}
+
+.airplay-help-warning {
+  padding: 0.85rem;
+  border: 1px solid color-mix(in srgb, var(--danger, #ff9b9b) 30%, transparent);
+  border-radius: 0.65rem;
+  background: color-mix(in srgb, var(--danger, #ff9b9b) 7%, transparent);
+}
+
+.airplay-help-links {
+  display: grid;
+  gap: 0.55rem;
+  margin: 0;
+  padding-left: 1.2rem;
+}
+
+.airplay-help-links a {
+  display: grid;
+  gap: 0.2rem;
+  color: var(--accent, #c8edb2);
+  overflow-wrap: anywhere;
+  text-underline-offset: 0.2em;
+}
+
+.airplay-help-url {
+  color: var(--muted, #9aa3a6);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.7rem;
+  word-break: break-word;
+}
+
+@media (max-width: 640px) {
+  .airplay-help-backdrop {
+    align-items: end;
+    padding: 0;
+  }
+
+  .airplay-help-dialog {
+    width: 100%;
+    max-height: calc(100dvh - 0.5rem);
+    padding: 1rem;
+    padding-bottom: calc(1rem + env(safe-area-inset-bottom, 0px));
+    border-radius: 0.9rem 0.9rem 0 0;
+  }
+
+  .airplay-help-close {
+    width: 44px;
+    height: 44px;
+  }
+
+  .airplay-help-links a {
+    min-height: 44px;
+    align-content: center;
+  }
+
+  .airplay-help-heading {
+    top: -1rem;
+    margin: -1rem -1rem 0;
+    padding: 1rem;
+  }
+}

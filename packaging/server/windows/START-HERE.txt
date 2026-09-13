@@ -8,11 +8,14 @@ FIRST START
 1. Verify the ZIP's adjacent .sha256 file, then extract the entire ZIP to a new
    local folder writable by your Windows account. Do not run it inside the ZIP.
 2. Run start-server.cmd. On first launch it creates server.json, data, and music
-   beside jastreamer-server.exe. It never replaces an existing server.json.
+   beside jastreamer-server.exe, then copies the three verified optional tracks,
+   their manifest, and source/license notice to music\jastreamer-samples. It
+   never replaces an existing server.json or a different existing sample file.
 3. Open http://127.0.0.1:18080 and create the first administrator account.
-4. Add files under music and scan the library in the Web UI, or stop the server
-   and edit library_roots in server.json to use an existing absolute path.
-   JSON accepts doubled backslashes or forward slashes (for example C:/Music).
+4. Scan the library in the Web UI. The samples never play automatically. You
+   can add files under music, or stop the server and edit library_roots in
+   server.json to use an existing absolute path. JSON accepts doubled
+   backslashes or forward slashes (for example C:/Music).
 5. Keep the server console open. Stop it with Ctrl+C before editing config,
    moving the folder, updating package-owned files, or backing up data.
 

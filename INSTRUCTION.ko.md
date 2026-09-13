@@ -8,7 +8,9 @@ jastreamer는 Linux 또는 네이티브 Windows에서 Server를 실행합니다.
 
 1. 설치한 Server의 완전한 사설 LAN 주소를 엽니다. 기본 Linux 리스너는 `http://<server-LAN-IP>:8080/`, 기본 네이티브 Windows 리스너는 같은 사설 LAN 주소의 18080 포트를 사용합니다. 신규 설치에서만 최초 관리자 계정을 만들며 비밀번호는 10자 이상이어야 합니다. 업데이트 후에는 기존 계정·세션을 사용하고 최초 설정을 반복하거나 데이터를 초기화하지 마세요.
 2. 기본 언어는 영어입니다. **Settings** 메뉴의 **Language / 언어**에서 **English** 또는 **한국어**를 선택하세요. 메뉴 이름은 두 언어 모두 **Settings**로 유지합니다. 언어 선택은 즉시 적용·저장되며 서버 설정 저장이나 재생 명령을 보내지 않습니다.
-3. **Settings**에서 음악 폴더 경로를 확인해 저장하고 **지금 스캔**을 선택하세요. 표준 Linux 컨테이너의 보관함 경로는 `/music`이며 Windows에서는 설치할 때 선택한 폴더를 사용합니다. FLAC, MP3, WAV/WAVE, Ogg/Vorbis, Opus, M4A를 원본 수정 없이 스캔하며 심볼릭 링크는 건너뜁니다.
+3. **Settings**에서 음악 폴더 경로를 확인해 저장하고 **지금 스캔**을 선택하세요. 표준 Linux 컨테이너의 보관함 경로는 `/music`입니다. 샘플을 포함한 새 설치는 `jastreamer-samples` 아래 MP3 세 개를 두며 이 명시적 스캔 뒤에만 보관함에 나타납니다. FLAC, MP3, WAV/WAVE, Ogg/Vorbis, Opus, M4A를 원본 수정 없이 스캔하며 샘플을 자동으로 대기열에 넣거나 재생하지 않습니다.
+   해당 호스트 음악 폴더가 비어 있으면 재생할 곡이 없습니다. 설치 때 확인한 실제 호스트 경로에 음악 파일을 넣고 다시 스캔하세요. 번들 샘플이 있다면 테스트용 곡일 뿐 개인 음악 보관함을 대신하지 않습니다.
+   **보관함 스캔**의 시작 버튼·진행 상태·기록은 Settings의 **음악 폴더** 바로 아래에 있습니다. 폴더 변경 저장과 스캔 시작은 별도 동작입니다.
 4. Google Cast를 사용하려면 **Settings**에서 **Google Cast 출력**을 켜고 저장한 뒤 Server를 재시작하세요. `cast.enabled`가 `false`이거나 이전 설정에 없으면 계속 꺼진 상태입니다. 수신기가 보인다는 이유만으로 임의로 켜지 마세요.
 5. 보관함을 탐색·검색해 곡이나 묶음 화면을 대기열에 추가하고, 재생이 정지된 상태에서 출력을 선택합니다. 방금 켠 수신기가 없으면 출력 목록을 새로 고치세요.
 6. 수신기가 지원할 때 하단 플레이 바에서 재생/일시 정지, 정지, 이전, 다음과 탐색을 사용합니다. AirPlay가 PIN·암호를 요구하면 정지 상태에서 페어링합니다.
@@ -36,11 +38,17 @@ Cast 제어는 지속 TLS 연결을 유지하고 자신이 실행한 애플리�
 
 ### 서버 경로와 네트워크 선택
 
-- 음악 폴더, 데이터 디렉터리, HTTPS 인증서·개인 키, FFmpeg와 AirPlay helper 옆 **찾아보기**는 브라우저 기기가 아닌 로그인한 **서버의 파일 시스템**을 엽니다. Windows는 접근 가능한 드라이브를 표시하며 절대 UNC 공유 경로를 입력할 수 있고, Linux/NAS는 `/`에서 시작합니다. 컨테이너에서는 마운트된 경로만 보입니다. 목록에서 심볼릭 링크와 Windows 재분석 지점은 제외하며 직접 경로 입력도 유지합니다.
+- 음악 폴더, 데이터 디렉터리, HTTPS 인증서·개인 키, FFmpeg와 **AirPlay 송신 프로그램 경로** 옆 **찾아보기**는 브라우저 기기가 아닌 로그인한 **서버의 파일 시스템**을 엽니다. Windows는 접근 가능한 드라이브를 표시하며 절대 UNC 공유 경로를 입력할 수 있고, Linux/NAS는 `/`에서 시작합니다. 컨테이너에서는 마운트된 경로만 보입니다. 목록에서 심볼릭 링크와 Windows 재분석 지점은 제외하며 직접 경로 입력도 유지합니다.
 - 루트, 상위 폴더 또는 절대 디렉터리 경로로 이동하세요. **선택**은 편집 중인 필드만 바꾸고 **취소**는 기존 값을 유지합니다. 설정을 명시적으로 저장한 뒤 음악 폴더를 스캔하세요. 데이터 디렉터리를 선택해도 기존 데이터베이스나 앨범 아트가 이동하지 않습니다. 저장 위치를 변경하고 재시작하기 전에 기존 데이터를 별도로 보존하세요.
 - **서버 네트워크 어댑터**에는 Server의 실제 어댑터 이름과 IP/프리픽스가 표시됩니다. 자동 모드는 `network.interfaces`를 비우며, 개별 선택은 직접 입력한 이름도 유지합니다. 사용할 수 없는 어댑터와 주소도 표시하지만 UPnP 또는 Google Cast 검색용으로 새로 선택할 수는 없습니다. Cast mDNS는 선택한 인터페이스의 UDP 5353을 사용합니다.
-- **서버 LAN 주소로 채우기**는 사용 가능한 IPv4 주소와 활성 리스너의 프로토콜·포트로 편집 가능한 `media.base_url`을 채웁니다. 리스너 바인딩은 변경하지 않으며 UPnP와 Cast 수신기에서 이 HTTP(S) 미디어 출처에 접근할 수 있어야 합니다. 자동 모드는 URL 재정의를 지우고, 무관한 VPN·기본 경로 대신 선택한 출력을 발견한 인터페이스 주소를 사용합니다. 명시적인 미디어 URL이나 리스너 주소가 있으면 그것이 우선합니다. Cast는 Server에서 수신기가 mDNS로 광고한 Cast TCP 포트로 접근할 수도 있어야 합니다.
+- **재생 기기가 음원을 가져올 Server URL**은 `media.base_url`이며 재생 기기가 Server에서 미디어를 가져올 주소입니다. 같은 주소에서 Web UI를 제공할 수도 있지만 이 설정은 수신 주소, 포트 또는 브라우저 URL을 변경하지 않습니다. 일반적으로 비워 두어 Server가 자동으로 선택하게 하세요. **서버의 네트워크 주소에서 선택**은 감지된 Server IP와 현재 활성화된 HTTP(S) 수신 포트를 조합해 초안만 채우며, 적용하려면 Settings를 저장해야 합니다. 목록은 수신기 접근 가능 여부를 검사한 결과가 아니므로 부적합한 VPN·컨테이너 주소를 고르면 안 됩니다. 직접 입력할 때는 수신기 LAN에서 접근할 수 있는 실제 Server 주소와 활성 수신 포트를 사용하세요. 원격 수신기에 `localhost`나 클라이언트 PC 주소를 사용하면 안 됩니다. 명시적인 값이나 리스너 주소가 있으면 그것이 우선하며, Cast는 Server에서 수신기가 mDNS로 광고한 Cast TCP 포트로 접근할 수도 있어야 합니다.
 - 경로 탐색이나 어댑터·IP 선택만으로 저장·재시작·스캔·재생하지 않습니다. 편집 내용을 명시적으로 저장하세요. 리스너·저장 위치·네트워크 변경은 재시작이 필요할 수 있습니다.
+
+### AirPlay 설정 도움말
+
+**AirPlay 송신 프로그램 경로** 옆 **AirPlay 설정 도움말**은 필요한 송신 프로그램을 설명할 뿐 소프트웨어를 설치하거나 AirPlay를 켜거나 임의의 경로를 검증하거나 수신기를 제어하지 않습니다. 지원되는 Linux `amd64`·`arm64` Server 컨테이너에는 `/usr/local/bin/jastreamer-airplay`, 고정된 pyatv 0.18.0을 사용하는 Python 3.12와 FFmpeg가 하나의 일치하는 실행 환경으로 들어 있습니다. 네이티브 Windows Server는 Linux 경로나 다른 임의 송신 프로그램 경로를 입력해도 AirPlay를 지원하지 않습니다.
+
+별도로 설치한 송신 프로그램에는 `main` 브랜치의 임의 버전이 아니라 설치한 Server와 같은 릴리즈의 어댑터 소스와 의존성 파일을 사용해야 합니다. jastreamer와 일치하는 어댑터·통신 규약과 호환 의존성이 필요하며 `atvremote`, Python 실행 파일, pyatv 단독 설치와 Shairport Sync 같은 수신기 소프트웨어로 대신할 수 없습니다. 팝업은 공식 [jastreamer AirPlay 어댑터 소스](https://github.com/furyheimdall/jastreamer/blob/main/apps/server/internal/airplay/helper.py), [고정된 AirPlay 의존성](https://github.com/furyheimdall/jastreamer/blob/main/packaging/server/requirements-airplay.txt), [pyatv 0.18.0 소스](https://github.com/postlund/pyatv/tree/v0.18.0)의 전체 참고 URL을 표시하며, `main` 링크가 설치한 릴리즈와의 호환성을 보장하지는 않습니다. 일반 브라우저에서는 링크를 따라갈 수 있지만 Desktop은 외부 창을 차단할 수 있으므로 열리지 않으면 표시된 전체 URL을 복사해 일반 브라우저에서 여세요. 지원되는 Linux 송신 프로그램 경로를 바꿨다면 저장한 뒤 Server를 재시작하세요.
 
 ### 저장한 설정 적용과 서버 재시작
 
@@ -70,11 +78,11 @@ UPnP·Google Cast·AirPlay 기능은 수신기마다 다릅니다. 실제 장비
 | PWA 설치 동작이 나타나지 않음 | **Settings**를 열고 [PWA 설치](INSTALL.ko.md#pwa)를 따름; 사설 LAN HTTP origin에는 신뢰할 수 있는 HTTPS 요구 사항이 표시됨 |
 | Windows에서 서버를 찾지 못함 | mDNS UDP 5353을 허용하거나 완전한 서버 URL 직접 입력 |
 | 출력이 보이지 않음 | UPnP는 SSDP UDP 1900 허용; Google Cast는 선택한 인터페이스의 mDNS UDP 5353과 Server에서 수신기가 광고한 Cast TCP 포트로의 접근 허용; Linux AirPlay는 mDNS UDP 5353과 호스트 네트워크도 필요; Wi-Fi 기기 격리 해제 |
-| 출력이 재생하지 못함 | Server→수신기 제어·스트림과 수신기→Server 미디어 HTTP(S) 통신 허용; 특정 접근 가능 출처가 필요할 때만 `media.base_url` 지정; Cast 원본이 지원되지 않으면 FFmpeg를 설정한 경우에만 변환 사용 |
+| 출력이 재생하지 못함 | Server→수신기 제어·스트림과 수신기→Server 미디어 HTTP(S) 통신 허용; **재생 기기가 음원을 가져올 Server URL**은 일반적으로 비워 두고 필요할 때만 수신기에서 접근할 수 있는 특정 Server 주소 지정; Cast 원본이 지원되지 않으면 FFmpeg를 설정한 경우에만 변환 사용 |
 | Cast FLAC이 EOF 부근 탐색 뒤 실패함 | 보고된 `BUFFERING`/`ERROR`를 보존; 독립 재현된 수신기 의존 실패이며 완료가 아니므로 대기열 항목을 건너뛰거나 소유 세션의 `FINISHED` 조건을 약화하지 않음 |
-| 보관함이 비어 있음 | Windows 폴더 또는 Linux `/music` 마운트가 설정된 보관함인지, Server 계정/UID 10001의 읽기·탐색 권한과 스캔 완료 여부 확인 |
+| 보관함이 비어 있음 | Windows 폴더 또는 Linux `/music` 마운트가 설정된 보관함인지, Server 계정/UID 10001의 읽기·탐색 권한과 스캔 완료 여부 확인; 포함된 `jastreamer-samples`도 명시적으로 스캔해야 함 |
 | 설정 저장 실패 | Windows 나란한 파일 또는 Linux config 폴더와 `server.json`을 Server 계정/UID 10001이 쓸 수 있는지 확인 |
-| AirPlay 인증 실패 | Linux Server 전용: 재생 정지, 표시된 PIN·암호 재입력, 패키지의 helper·FFmpeg 경로 유지; Windows Server에는 AirPlay가 포함되지 않음 |
+| AirPlay 인증 실패 | 지원되는 Linux Server 전용: 재생 정지, 표시된 PIN·암호 재입력, 패키지의 `/usr/local/bin/jastreamer-airplay`·FFmpeg 경로 유지; 네이티브 Windows는 다른 경로로 AirPlay를 활성화할 수 없음 |
 | 비밀번호 분실 | 서버를 멈추고 같은 config/data를 연결한 유지보수 컨테이너에서 `jastreamer-server --reset-password USER --config /etc/jastreamer/server.json` 실행; 새 비밀번호는 입력 프롬프트에만 입력 |
 
 문제를 보고할 때 Server 버전, 정확한 이미지 다이제스트 또는 Windows ZIP SHA-256, Server 플랫폼·아키텍처, 관련 로그와 수신기 모델을 포함하세요. 비밀번호, 쿠키, 인증서와 개인 키는 제거하고 원본 진단 문구는 그대로 보존하세요.
