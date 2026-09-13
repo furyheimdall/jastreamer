@@ -262,6 +262,10 @@ func TestStopRequiresValidMatchingSOAPResponse(t *testing.T) {
 			server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 				_, _ = io.Copy(io.Discard, request.Body)
 				writer.Header().Set("Content-Type", "text/xml")
+				if strings.Contains(request.Header.Get("SOAPAction"), "#GetTransportInfo") {
+					_, _ = io.WriteString(writer, soapResponseWithBody(service, "GetTransportInfo", "<CurrentTransportState>STOPPED</CurrentTransportState><CurrentTransportStatus>OK</CurrentTransportStatus>"))
+					return
+				}
 				writer.WriteHeader(test.status)
 				_, _ = io.WriteString(writer, test.body)
 			}))
@@ -285,6 +289,106 @@ func TestStopRequiresValidMatchingSOAPResponse(t *testing.T) {
 			}
 			if actionErr.Kind != test.wantKind || actionErr.Code != test.wantCode {
 				t.Fatalf("Stop error = (%s, %d), want (%s, %d)", actionErr.Kind, actionErr.Code, test.wantKind, test.wantCode)
+			}
+		})
+	}
+}
+
+func TestStopWaitsForObservedStoppedState(t *testing.T) {
+	const service = "urn:schemas-upnp-org:service:AVTransport:1"
+	var stopped atomic.Bool
+	var stopCalls, observations atomic.Int32
+	firstObservation := make(chan struct{})
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		_, _ = io.Copy(io.Discard, request.Body)
+		writer.Header().Set("Content-Type", "text/xml")
+		switch {
+		case strings.Contains(request.Header.Get("SOAPAction"), "#Stop"):
+			stopCalls.Add(1)
+			_, _ = io.WriteString(writer, soapResponse(service, "Stop"))
+		case strings.Contains(request.Header.Get("SOAPAction"), "#GetTransportInfo"):
+			state := "PLAYING"
+			if stopped.Load() {
+				state = "STOPPED"
+			}
+			if observations.Add(1) == 1 {
+				close(firstObservation)
+			}
+			_, _ = io.WriteString(writer, soapResponseWithBody(service, "GetTransportInfo", "<CurrentTransportState>"+state+"</CurrentTransportState><CurrentTransportStatus>OK</CurrentTransportStatus>"))
+		default:
+			http.Error(writer, "unexpected action", http.StatusBadRequest)
+		}
+	}))
+	defer server.Close()
+	manager := fixtureManager(server.Client())
+	deviceID := rendererID("uuid:delayed-stop")
+	manager.devices[deviceID] = fixtureRecord(deviceID, server.URL)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	done := make(chan error, 1)
+	go func() { done <- manager.Stop(ctx, deviceID) }()
+	select {
+	case err := <-done:
+		t.Fatalf("Stop completed before observing renderer state: %v", err)
+	case <-firstObservation:
+	case <-ctx.Done():
+		t.Fatal("Stop never queried the renderer state")
+	}
+	select {
+	case err := <-done:
+		t.Fatalf("Stop completed while the renderer was still playing: %v", err)
+	default:
+	}
+	stopped.Store(true)
+	if err := <-done; err != nil {
+		t.Fatalf("confirmed Stop failed: %v", err)
+	}
+	if stopCalls.Load() != 1 {
+		t.Fatalf("Stop was retransmitted while awaiting confirmation: %d calls", stopCalls.Load())
+	}
+}
+
+func TestStopRejectsUnconfirmedTransport(t *testing.T) {
+	const service = "urn:schemas-upnp-org:service:AVTransport:1"
+	for _, test := range []struct {
+		name, state, status string
+		fault               bool
+		wantKind            output.ErrorKind
+	}{
+		{name: "keeps playing", state: "PLAYING", status: "OK", wantKind: output.ErrorTimeout},
+		{name: "renderer error", state: "STOPPED", status: "ERROR_OCCURRED", wantKind: output.ErrorResponse},
+		{name: "missing status", state: "STOPPED", wantKind: output.ErrorResponse},
+		{name: "unknown state", state: "UNRECOGNIZED", status: "OK", wantKind: output.ErrorResponse},
+		{name: "query rejected", fault: true, wantKind: output.ErrorFault},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+				_, _ = io.Copy(io.Discard, request.Body)
+				writer.Header().Set("Content-Type", "text/xml")
+				if strings.Contains(request.Header.Get("SOAPAction"), "#Stop") {
+					_, _ = io.WriteString(writer, soapResponse(service, "Stop"))
+					return
+				}
+				if test.fault {
+					writer.WriteHeader(http.StatusInternalServerError)
+					_, _ = io.WriteString(writer, soapFault(701))
+					return
+				}
+				_, _ = io.WriteString(writer, soapResponseWithBody(service, "GetTransportInfo", "<CurrentTransportState>"+test.state+"</CurrentTransportState><CurrentTransportStatus>"+test.status+"</CurrentTransportStatus>"))
+			}))
+			defer server.Close()
+			manager := fixtureManager(server.Client())
+			deviceID := rendererID("uuid:unconfirmed-stop")
+			manager.devices[deviceID] = fixtureRecord(deviceID, server.URL)
+			ctx, cancel := context.WithTimeout(context.Background(), 250*time.Millisecond)
+			defer cancel()
+			err := manager.Stop(ctx, deviceID)
+			var actionErr *output.ActionError
+			if !errors.As(err, &actionErr) || actionErr.Kind != test.wantKind {
+				t.Fatalf("Stop error = %v, want %s instead of success", err, test.wantKind)
+			}
+			if test.fault && actionErr.Code != 701 {
+				t.Fatalf("Stop confirmation lost receiver fault code: %v", err)
 			}
 		})
 	}
