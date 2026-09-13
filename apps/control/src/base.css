@@ -866,6 +866,127 @@ textarea.input {
   gap: 0.75rem;
 }
 
+.server-interface-picker {
+  padding-top: 1rem;
+  margin-top: 1rem;
+  border-top: 1px solid var(--border);
+}
+
+.server-interface-heading {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.server-interface-heading h3 {
+  margin: 0;
+  font-size: 0.95rem;
+}
+
+.server-interface-heading p {
+  max-width: 48rem;
+  margin: 0.35rem 0 0;
+  color: var(--muted);
+  font-size: 0.78rem;
+  line-height: 1.5;
+}
+
+.server-interface-heading .button {
+  flex: 0 0 auto;
+}
+
+.server-interface-status {
+  margin: 1rem 0 0;
+  color: var(--muted);
+}
+
+.server-interface-picker > .inline-error {
+  margin-top: 1rem;
+}
+
+.server-interface-list {
+  display: grid;
+  padding: 0;
+  margin: 1rem 0 0;
+  border: 0;
+  gap: 0.5rem;
+}
+
+.server-interface-list legend {
+  padding: 0;
+  margin-bottom: 0.55rem;
+  color: var(--muted);
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+.server-interface-option {
+  display: grid;
+  min-width: 0;
+  padding: 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 0.7rem;
+  background: #ffffff05;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: start;
+  gap: 0.7rem;
+}
+
+.server-interface-option > input {
+  width: 1.1rem;
+  height: 1.1rem;
+  margin-top: 0.15rem;
+  accent-color: var(--accent);
+}
+
+.server-interface-option.is-unavailable:has(input:not(:checked)) {
+  opacity: 0.62;
+}
+
+.server-interface-copy,
+.server-interface-addresses {
+  display: grid;
+  min-width: 0;
+  gap: 0.3rem;
+}
+
+.server-interface-name,
+.server-interface-flags,
+.server-interface-addresses > span {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.35rem 0.6rem;
+}
+
+.server-interface-name em,
+.server-interface-addresses em {
+  color: var(--muted);
+  font-size: 0.7rem;
+  font-style: normal;
+}
+
+.server-interface-flags {
+  color: var(--danger);
+  font-size: 0.7rem;
+}
+
+.server-interface-addresses {
+  color: var(--muted);
+  font-size: 0.76rem;
+}
+
+.server-interface-addresses code {
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+
+.media-quick-url-label {
+  margin-top: 0.8rem;
+}
+
 .empty-inline {
   margin: 1rem 0 0;
   color: var(--muted);
@@ -1232,6 +1353,15 @@ body:has([aria-modal="true"]) {
 
   .queue-heading-row > .button,
   .settings-card-heading > .button {
+    width: 100%;
+  }
+
+  .server-interface-heading {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .server-interface-heading .button {
     width: 100%;
   }
 

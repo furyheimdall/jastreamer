@@ -2,7 +2,7 @@
 
 <img src="assets/jastreamer.svg" width="80" height="80" alt="jastreamer logo" />
 
-jastreamer 0.2.0 is a self-hosted music server for a trusted private LAN. A single Linux Server indexes administrator-approved local music, serves the Web interface, keeps the queue and playlists in SQLite, and sends audio to one selected network output. UPnP/DLNA is built in; AirPlay sending is available on the supported Linux container platforms.
+jastreamer 0.2.0 is a self-hosted music server for a trusted private LAN. A Server on Linux or Windows indexes administrator-approved local music, serves the Web interface, keeps the queue and playlists in SQLite, and sends audio to one selected network output. UPnP/DLNA is built in. AirPlay sending is available only in the supported Linux container packages.
 
 The interface supports English (the default) and Korean.
 
@@ -27,7 +27,7 @@ The optional desktop is a connection shell: a Windows 10/11 x64 portable ZIP or 
 
 ## Deployment model
 
-The Server package is a Linux container for `amd64` or `arm64`, including the Web interface, an audio-only FFmpeg 8.1.2 executable, and the pyatv 0.18.0 AirPlay sender. Synology Container Manager uses the supplied Compose definition. Select a published preview from [GitHub Releases](https://github.com/furyheimdall/jastreamer/releases) and use its exact `ghcr.io/furyheimdall/jastreamer-server@sha256:…` image reference. Public previews do not require registry login. They are not production-qualified releases; review the stated verification limits and verify downloaded files against the release checksums. Do not use a floating `latest` tag.
+The Server has two separate deployment targets. Linux `amd64` and `arm64` use a container that includes the embedded Web interface, an audio-only FFmpeg 8.1.2 executable, and the pyatv 0.18.0 AirPlay sender. Native Windows x64 uses the unsigned portable `jastreamer-server_0.2.0_windows-x64.zip`, with the embedded Web interface and UPnP/DLNA support but no bundled AirPlay sender, Renderer, or FFmpeg transcoder. Synology Container Manager uses the supplied Linux Compose definition. Select a published preview from [GitHub Releases](https://github.com/furyheimdall/jastreamer/releases), use its exact Linux image digest or verified Windows Server ZIP and checksum, and read the target-specific manifest and native verification receipt. Public previews do not require registry login. They are not production-qualified or signed releases; review the stated verification limits and verify downloaded files against the release checksums. Do not use a floating `latest` tag.
 
 Keep three storage areas separate:
 
@@ -35,7 +35,7 @@ Keep three storage areas separate:
 - **data:** writable SQLite database, artwork cache, and AirPlay state
 - **music:** the existing library, mounted read-only
 
-Preserve config and data across container replacement. Never recursively change ownership or permissions on the music library for jastreamer, and never expose the Server directly to the public Internet.
+Preserve config and data when replacing either Server target. Never recursively change ownership or permissions on the music library for jastreamer, and never expose the Server directly to the public Internet.
 
 See the [English user guide](INSTRUCTION.md) for artifact import, Docker and Synology setup, optional desktop clients, first use, language selection, upgrades, and troubleshooting.
 
@@ -53,11 +53,11 @@ Help me install jastreamer Server and its Web Control on my own server.
 Use https://github.com/furyheimdall/jastreamer and read README.md,
 INSTRUCTION.md, deploy/docker/server/compose.synology.yaml, and
 packaging/server/server.json from the revision matching my supplied image.
-The Web interface is embedded in the Server: deploy one Linux container,
-not a separate Web container or a Windows Server.
-Use the complete image, including FFmpeg, pyatv, and its Python runtime for
-the selected architecture; do not deploy only the Go executable or install
-these media dependencies separately on the host.
+The Web interface is embedded in the Server. For this Linux/NAS workflow,
+deploy one Linux container, not a separate Web container or the native
+Windows Server package. Use the complete Linux image, including FFmpeg,
+pyatv, and its Python runtime for the selected architecture; do not deploy
+only the Go executable or install these media dependencies on the host.
 Complete the setup with me; do not stop at general advice or ask me to
 write configuration files. Start with server access and the music path.
 Inspect the host to fill in technical details, propose safe defaults for
@@ -177,15 +177,15 @@ The prompt is an installation workflow, not an unattended installer or permissio
 
 ## Updating
 
-Update the Server by replacing its container image, not by reinstalling the application or clearing its data. The Web interface and packaged FFmpeg/AirPlay runtime are updated together; optional desktop executables have separate ZIP or DEB updates.
+Linux Server updates replace the container image while preserving its config and data mounts. Native Windows Server updates verify and extract a new portable ZIP separately, then replace only package-owned files in the existing folder while preserving `server.json`, `data`, and `music`. Neither update reinstalls the application or clears its data. The Server-hosted Web interface updates with either target; FFmpeg and AirPlay are bundled only with the supported Linux container. Optional desktop executables remain separate ZIP or DEB updates.
 
-There is currently no in-app update checker or automatic container updater. Review an available release, download its verified image, then stop playback and the Server, back up persistent state, and replace the image while keeping the same storage paths. After verification, open the existing Server URL and refresh the Web interface; playback does not resume automatically.
+There is currently no in-app update checker or automatic updater. Review an available release, download the exact verified target and its checksum, stop playback and the Server, and back up persistent state before replacement. After verification, open the existing Server URL and refresh the Web interface; playback does not resume automatically.
 
-See [backup and upgrade](INSTRUCTION.md#6-backup-and-upgrade) for the procedure, post-update checks, and a [copyable update prompt](INSTRUCTION.md#agent-assisted-update). Registry delivery is supported when an approved image reference is supplied; offline artifacts remain an alternative.
+See [backup and upgrade](INSTRUCTION.md#6-backup-and-upgrade) for the Linux container procedure and [native Windows x64 portable Server](INSTRUCTION.md#native-windows-x64-portable-server) for Windows first-install and update instructions. Registry delivery applies to the Linux images; offline artifacts remain an alternative.
 
 ## Compatibility scope
 
-Automatic discovery depends on multicast and on the Server, client, and output having suitable LAN routes. Output capabilities vary by device: a receiver may omit Pause or Seek, reject a format, or require authorization. The repaired AirPlay path has bounded protocol and integration coverage; that is not universal receiver certification, long-term hardware qualification, or a promise about listening quality on every device. Confirm discovery, authorization, controls, queue advance, and audible playback on the equipment you intend to use.
+Automatic discovery depends on multicast and on the Server, client, and output having suitable LAN routes. Output capabilities vary by device: a receiver may omit Pause or Seek, reject a format, or require authorization. Linux AirPlay has bounded protocol and integration coverage; native Windows Server supports UPnP/DLNA and does not bundle AirPlay. Native CI verification and functional operation on a tested Windows Server system are separate from code signing, production qualification, long-term hardware qualification, and universal receiver certification. Confirm discovery, controls, queue advance, and audible playback on the equipment you intend to use.
 
 ## License
 

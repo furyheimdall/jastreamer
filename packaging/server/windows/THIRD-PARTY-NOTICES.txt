@@ -1,0 +1,36 @@
+jastreamer Windows Server 0.2.0: third-party components
+
+The jastreamer application is licensed under Apache-2.0. Bundled components
+retain their own licenses; this notice does not relicense those components.
+
+Go server
+  The Server executable incorporates the Go 1.25.6 runtime. Application
+  modules declared by apps/server/go.mod are listed below. Complete license and
+  third-party notice files are retained under third-party-licenses/go/.
+    github.com/enbility/zeroconf/v3 v3.0.0-20260410070239-bf752832c353
+    github.com/google/uuid v1.6.0
+    github.com/miekg/dns v1.1.62
+    github.com/dustin/go-humanize v1.0.1
+    github.com/mattn/go-isatty v0.0.24
+    github.com/ncruces/go-strftime v1.0.0
+    github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec
+    golang.org/x/crypto v0.55.0
+    golang.org/x/mod v0.38.0
+    golang.org/x/net v0.57.0
+    golang.org/x/sync v0.22.0
+    golang.org/x/sys v0.47.0
+    golang.org/x/term v0.45.0
+    golang.org/x/text v0.41.0
+    golang.org/x/tools v0.48.0
+    modernc.org/libc v1.74.4
+    modernc.org/mathutil v1.7.1
+    modernc.org/memory v1.11.0
+    modernc.org/sqlite v1.57.0
+
+Embedded Web
+  React 19.1.1, React DOM 19.1.1, and Scheduler 0.26.0.
+  Copyright (c) Meta Platforms, Inc. and affiliates. MIT license.
+  License: third-party-licenses/web/react-react-dom-scheduler.txt
+
+No AirPlay helper, Python environment, FFmpeg executable, Renderer, or desktop
+application is included.

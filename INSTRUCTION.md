@@ -2,17 +2,18 @@
 
 [한국어 사용자 안내서](INSTRUCTION.ko.md) · [Project overview](README.md)
 
-jastreamer runs one Linux Server container that hosts the Web interface and sends music to UPnP/DLNA or AirPlay outputs. Optional Windows and Linux desktop clients only connect to that Server.
+jastreamer runs a Server on Linux or native Windows. Both host the embedded Web interface and send music to UPnP/DLNA outputs. AirPlay sending is available only in the Linux container package. Optional Windows and Linux desktop clients only connect to a Server.
 
 ## 1. Requirements and safety
 
-- Linux `amd64` or `arm64` with Docker Engine and Compose v2, or Synology DSM with Container Manager. `arm/v7` is not supported; DS918+ is `amd64`.
-- An exact image digest from a published jastreamer 0.2 preview, or a verified separately supplied offline artifact. Preview status and physical-device verification limits still apply.
+- For the Linux container: Linux `amd64` or `arm64` with Docker Engine and Compose v2, or Synology DSM with Container Manager. `arm/v7` is not supported; DS918+ is `amd64`.
+- For the native portable Server: Windows x64 and a writable local installation folder. It is not installed as a Windows service.
+- An exact image digest or Windows Server ZIP from a published jastreamer 0.2 preview, or a verified separately supplied offline artifact. Preview status and physical-device verification limits still apply.
 - A trusted private LAN between Server, browser/client, and outputs. Automatic discovery needs multicast.
-- Separate config and data directories writable by container UID/GID `10001:10001`.
-- An existing music directory readable by UID 10001 and mounted read-only.
+- On Linux, separate config and data directories writable by container UID/GID `10001:10001`, plus an existing music directory readable by UID 10001 and mounted read-only.
+- On Windows, music paths readable by the account running the Server. The default adjacent `server.json`, `data`, and `music` must remain writable by that account.
 
-Do not use `chmod 777` or recursively change ownership of the music library. HTTP port 8080 does not encrypt credentials or audio; use built-in HTTPS with your own PEM certificate/key when the LAN path is not fully trusted. Never expose the Server directly to the public Internet.
+Do not use `chmod 777` or recursively change ownership of a music library. HTTP does not encrypt credentials or audio; use built-in HTTPS with your own PEM certificate/key when the LAN path is not fully trusted. Never expose the Server directly to the public Internet.
 
 ## 2. Obtain and verify a release
 
@@ -28,7 +29,7 @@ docker pull "$JASTREAMER_SERVER_IMAGE"
 docker image inspect --format '{{.Os}}/{{.Architecture}} {{.Id}}' "$JASTREAMER_SERVER_IMAGE"
 ```
 
-The multi-platform image selects `amd64` or `arm64` for the host. Keep the exact digest in the deployment's persistent environment settings; do not install FFmpeg or Python separately on the host. Download desktop files and their checksums only from the same release.
+The multi-platform Linux image selects `amd64` or `arm64` for the host. Keep the exact digest in the deployment's persistent environment settings; do not install FFmpeg or Python separately on the host. Download the Windows Server or desktop files and their checksums only from the same release.
 
 ### Supplied offline artifacts
 
@@ -55,7 +56,28 @@ docker image inspect --format '{{.Id}}' jastreamer-server:0.2.0
 
 Compare the new TAR checksum after transfer. Use the printed `sha256:...` local image ID as `JASTREAMER_SERVER_IMAGE`.
 
-## 3. Install with Compose
+## 3. Install a Server
+
+### Native Windows x64 portable Server
+
+Download `jastreamer-server_0.2.0_windows-x64.zip` and its `.sha256`, manifest, and verification receipt from the selected preview. The ZIP is unsigned and not production-qualified. Compare its bytes with the sidecar before extracting:
+
+```powershell
+$file = '.\jastreamer-server_0.2.0_windows-x64.zip'
+$expected = (Get-Content "$file.sha256" -Raw).Split()[0].ToLowerInvariant()
+$actual = (Get-FileHash $file -Algorithm SHA256).Hash.ToLowerInvariant()
+if ($actual -ne $expected) { throw 'Windows Server ZIP checksum mismatch' }
+```
+
+Extract the complete ZIP to a new writable local folder, then run `start-server.cmd` as the ordinary account that will operate the Server. Do not run inside the ZIP, copy only the EXE, run as Administrator, or weaken SmartScreen/Defender globally. On first launch only, the launcher atomically creates an absent `server.json` and adjacent `data` and `music` directories, records their absolute paths, validates the configuration, and starts the Server. It never replaces an existing `server.json`. Keep the console open and use Ctrl+C to stop.
+
+Open `http://127.0.0.1:18080` on that computer, or use the Windows computer's private LAN address and port 18080 from another client. If Windows Firewall prompts, allow the executable on private networks only; do not disable the firewall. TCP 18080 is needed for Web/media access and SSDP UDP 1900 for UPnP discovery. Put test music in the adjacent `music` folder, or stop the Server and set an existing absolute Windows folder in `library_roots`; JSON paths may use `C:/Music` or escaped backslashes.
+
+This package is the native Server, not the optional Windows desktop. It provides UPnP/DLNA network output and does not install a Renderer, play through local PC speakers, or bundle FFmpeg, an AirPlay helper, or Python. Transcoding and AirPlay therefore default to disabled. Native CI verifies package bytes, first install, the HTTP UI, account persistence, restart, and preservation of an existing configuration; that does not make the unsigned preview production-qualified or certify every Windows system or receiver.
+
+To update an existing portable installation, stop it with Ctrl+C and back up its complete folder, including `server.json`, `data`, and `music`, while stopped. Verify and extract the new ZIP to a separate temporary folder, then replace the package-owned payload in the existing installation, including its program, launcher, template, notices, licenses, and build information. Do not replace `server.json` or delete/move `data` or `music`: their absolute paths and existing account, library, artwork, queue, playlist, and session state must remain intact. Run `start-server.cmd`, confirm it validates the unchanged configuration, and check the existing URL and state after restart. Keep the previous verified package and matching backup for rollback.
+
+### Linux or Synology with Compose
 
 Use the repository's `deploy/docker/server/compose.synology.yaml` on either Linux or Synology. It applies host networking, a read-only container filesystem, a temporary `/tmp`, and the required UID/GID.
 
@@ -115,6 +137,14 @@ In Synology Container Manager, the same Compose file and four environment variab
 
 The queue is Server-wide, preserves order and duplicates, and survives restarts. A Server restart does not automatically resume playback.
 
+### Server path and network selection
+
+- **Browse** beside music folders, the data directory, HTTPS certificate/key files, FFmpeg and the AirPlay helper opens the authenticated **Server filesystem**, not this browser's computer. Windows lists accessible drives and accepts an absolute UNC share path; Linux/NAS starts at `/`. Containers expose only their mounted filesystem. Listings omit symbolic links and Windows reparse points; manual path inputs remain available.
+- Navigate with roots, parent folder or an absolute directory path. **Choose** changes only the draft field; **Cancel** leaves it unchanged. Save settings explicitly, then scan music folders. Choosing a data directory does not move the existing database or artwork: preserve that data separately before changing storage and restarting.
+- **Server network adapters** lists actual Server adapter names and IP/prefixes. Automatic leaves `network.interfaces` empty; explicit selections retain manually entered names. Unavailable adapters and addresses remain visible but cannot be newly selected for UPnP.
+- **Fill from a server LAN address** fills the editable `media.base_url` with an eligible IPv4 address and an enabled listener's scheme/port. It does not change listener binding. The receiver must be able to reach that origin. Automatic clears the URL override and uses the interface on which that UPnP output was discovered, rather than an unrelated VPN/default route. An explicit media URL or explicit listener address retains precedence.
+- Browsing and adapter/IP selection never save, restart, scan or start playback by themselves. Apply the draft explicitly; listener, storage and network changes may require a restart.
+
 ### Artwork and Queue actions
 
 - Footer album artwork navigates to **Queue**; it does not show track information or start playback.
@@ -122,6 +152,8 @@ The queue is Server-wide, preserves order and duplicates, and survives restarts.
 - The triangular Play button is the first action on the right of each Queue row. Only that button starts the entry.
 
 An isolated renderer-status query failure does not restart playback or open a popup. A status warning appears after three consecutive failed queries and closes automatically when a query succeeds. Dismissing it suppresses repeat popups during the same failure streak. Playback-command failures and confirmed disconnections are still reported immediately.
+
+Playback-start errors identify the failed stage (`LoadTrack`, `PrepareMedia`, `SetURI`, or `Play`) and include a safe error code when available. For UPnP rejections, retain the action name and numeric fault code when reporting the error. Do not reset the queue or disable the firewall to clear a generic failure; timeout/transport failures still mean the command outcome is unknown.
 
 UPnP/AirPlay capabilities vary by receiver. Confirm audible playback and the controls you need on your equipment.
 
@@ -160,7 +192,7 @@ Recent Servers, language, cookies, and sessions use `$XDG_CONFIG_HOME/jastreamer
 
 ## 6. Backup and upgrade
 
-There is currently no in-app update checker or automatic updater. Updating means replacing the Server container with a verified image, not running first-account setup again. The image includes the Web interface, FFmpeg, and the AirPlay runtime for its supported architecture. Do not mount the Docker socket into the Server or grant it host-management privileges to make it update itself.
+For the Linux container target, updating means replacing the Server container with a verified image, not running first-account setup again. The image includes the Web interface, FFmpeg, and the AirPlay runtime for its supported architecture. Do not mount the Docker socket into the Server or grant it host-management privileges to make it update itself. For native Windows, follow the separate portable update procedure in section 3; do not apply the Compose steps below.
 
 ### Update procedure
 
@@ -244,13 +276,13 @@ desktop just to update the Server-hosted Web interface.
 
 | Problem | Check |
 |---|---|
-| Web page unavailable | `/healthz`, Compose logs, configured listener, and firewall access to TCP 8080/8443 |
+| Web page unavailable | Windows Server console and TCP 18080, or Linux `/healthz`, Compose logs, configured listener, and TCP 8080/8443 firewall access |
 | Windows cannot discover Server | Allow mDNS UDP 5353 or enter the full Server URL manually |
-| No output appears | Keep host networking; allow SSDP UDP 1900 for UPnP and mDNS UDP 5353 for AirPlay; disable client isolation |
+| No output appears | Allow SSDP UDP 1900 for UPnP; on Linux AirPlay also needs mDNS UDP 5353 and host networking; disable client isolation |
 | Output cannot play | Permit Server-to-receiver control/stream traffic and receiver-to-Server media traffic; set `media.base_url` only for a required reachable origin |
-| Library is empty | Confirm the host directory is mounted at `/music`, UID 10001 can read/traverse it, and a scan completed |
-| Settings cannot save | Confirm config directory and `server.json` are writable by UID/GID 10001 |
-| AirPlay authorization fails | Stop playback, repeat the displayed PIN/password flow, and keep the packaged helper/FFmpeg paths |
+| Library is empty | Confirm the Windows folder or Linux `/music` mount is the configured library root, the Server account/UID 10001 can read it, and a scan completed |
+| Settings cannot save | Confirm Windows adjacent files or Linux config directory and `server.json` are writable by the Server account/UID 10001 |
+| AirPlay authorization fails | Linux Server only: stop playback, repeat the displayed PIN/password flow, and keep the packaged helper/FFmpeg paths; Windows Server does not bundle AirPlay |
 | Password lost | Stop the Server, then run `jastreamer-server --reset-password USER --config /etc/jastreamer/server.json` in a maintenance container with the same config/data mounts; enter the new password only at the prompt |
 
-When reporting a problem, include Server version, exact image digest, host architecture, relevant logs, and receiver model. Remove passwords, cookies, certificates, and private keys; preserve raw diagnostic wording.
+When reporting a problem, include Server version, exact image digest or Windows ZIP SHA-256, Server platform/architecture, relevant logs, and receiver model. Remove passwords, cookies, certificates, and private keys; preserve raw diagnostic wording.

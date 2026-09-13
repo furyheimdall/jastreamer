@@ -301,7 +301,7 @@ func (s *Service) executePlay(ctx context.Context, command commandRecord, st sto
 		if rendererOutcomeUnknown(err) {
 			return err
 		}
-		s.completeFailure(command, commandFailureMessage("play"), false, target.id)
+		s.completeFailure(command, rendererFailureMessage("play", err), false, target.id)
 		return nil
 	}
 	oldStatus := EntryPending
@@ -336,7 +336,7 @@ func (s *Service) executeNext(ctx context.Context, command commandRecord, st sto
 		if rendererOutcomeUnknown(err) {
 			return err
 		}
-		return s.completeAdvanceFailure(command, st.currentEntryID, target.id)
+		return s.completeAdvanceFailure(command, st.currentEntryID, target.id, rendererFailureMessage("next", err))
 	}
 	return s.completeStart(command, st.currentEntryID, EntryCompleted, started, controlAction)
 }
@@ -383,7 +383,7 @@ func (s *Service) executePrevious(ctx context.Context, command commandRecord, st
 		if rendererOutcomeUnknown(err) {
 			return err
 		}
-		s.completeFailure(command, commandFailureMessage("previous"), false, target.id)
+		s.completeFailure(command, rendererFailureMessage("previous", err), false, target.id)
 		return nil
 	}
 	return s.completeStart(command, st.currentEntryID, EntryPending, started, controlAction)
@@ -391,28 +391,31 @@ func (s *Service) executePrevious(ctx context.Context, command commandRecord, st
 
 func (s *Service) startEntry(ctx context.Context, device output.Device, entry queueRecord) (startResult, error) {
 	track, err := s.lib.Track(ctx, entry.trackID)
-	if err != nil || !track.Available {
-		return startResult{}, fault.New(409, "TRACK_UNAVAILABLE", "The selected track is unavailable.")
+	if err != nil {
+		return startResult{}, &playbackStartError{stage: "LoadTrack", cause: err}
+	}
+	if !track.Available {
+		return startResult{}, &playbackStartError{stage: "LoadTrack", cause: fault.New(409, "TRACK_UNAVAILABLE", "The selected track is unavailable.")}
 	}
 	playID, err := randomID("play")
 	if err != nil {
-		return startResult{}, err
+		return startResult{}, &playbackStartError{stage: "CreatePlayID", cause: err}
 	}
 	resource, err := s.media.Prepare(ctx, device, track, playID)
 	if err != nil {
-		return startResult{}, err
+		return startResult{}, &playbackStartError{stage: "PrepareMedia", cause: err}
 	}
 	err = func() error {
 		s.rendererMu.Lock()
 		defer s.rendererMu.Unlock()
 		if setErr := s.devices.SetURI(ctx, device.ID, resource); setErr != nil {
-			return setErr
+			return &playbackStartError{stage: "SetURI", cause: setErr}
 		}
 		if playErr := s.devices.Play(ctx, device.ID); playErr != nil {
 			stopCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 			_ = s.devices.Stop(stopCtx, device.ID)
 			cancel()
-			return playErr
+			return &playbackStartError{stage: "Play", cause: playErr}
 		}
 		return nil
 	}()
@@ -446,6 +449,23 @@ type safeRendererError interface {
 	SafeRendererError() string
 }
 
+type playbackStartError struct {
+	stage string
+	cause error
+}
+
+func (err *playbackStartError) Error() string { return err.SafeRendererError() }
+
+func (err *playbackStartError) Unwrap() error { return err.cause }
+
+func (err *playbackStartError) SafeRendererError() string {
+	message := err.stage + " failed."
+	if detail := safeRendererErrorDetail(err.cause); detail != "" {
+		message += " " + detail
+	}
+	return message
+}
+
 func rendererUnknownOutcomeMessage(err error) string {
 	message := "The renderer did not confirm the command; its outcome is unknown."
 	var actionError *output.ActionError
@@ -470,6 +490,14 @@ func safeRendererErrorDetail(err error) string {
 	var detail safeRendererError
 	if errors.As(err, &detail) {
 		return detail.SafeRendererError()
+	}
+	var actionError *output.ActionError
+	if errors.As(err, &actionError) {
+		return actionError.Error()
+	}
+	var publicError *fault.Error
+	if errors.As(err, &publicError) {
+		return publicError.Code + ": " + publicError.Message
 	}
 	return ""
 }
@@ -647,9 +675,8 @@ func (s *Service) completeStart(command commandRecord, oldEntryID, oldStatus str
 	return nil
 }
 
-func (s *Service) completeAdvanceFailure(command commandRecord, oldEntryID, targetEntryID string) error {
+func (s *Service) completeAdvanceFailure(command commandRecord, oldEntryID, targetEntryID, message string) error {
 	now := s.now().UTC().Format(time.RFC3339Nano)
-	message := commandFailureMessage("next")
 	s.opMu.Lock()
 	tx, err := s.db.BeginTx(context.Background(), nil)
 	if err == nil && oldEntryID != "" {

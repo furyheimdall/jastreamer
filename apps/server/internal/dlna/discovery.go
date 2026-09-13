@@ -94,7 +94,7 @@ func resolveNetworks(names []string) ([]localNetwork, error) {
 		}
 		for _, raw := range addresses {
 			prefix, parseErr := netip.ParsePrefix(raw.String())
-			if parseErr != nil || !prefix.Addr().Is4() || !allowedLocalAddress(prefix.Addr()) || !allowedLocalPrefix(prefix.Masked()) {
+			if parseErr != nil || !SupportsNetworkAddress(prefix) {
 				continue
 			}
 			key := iface.Name + "\x00" + prefix.Addr().String()
@@ -113,6 +113,11 @@ func resolveNetworks(names []string) ([]localNetwork, error) {
 
 func allowedLocalAddress(address netip.Addr) bool {
 	return address.Is4() && (address.IsPrivate() || address.IsLinkLocalUnicast() || address.IsLoopback())
+}
+
+// SupportsNetworkAddress reports whether an interface prefix is permitted for DLNA discovery and media.
+func SupportsNetworkAddress(prefix netip.Prefix) bool {
+	return prefix.IsValid() && allowedLocalAddress(prefix.Addr()) && allowedLocalPrefix(prefix.Masked())
 }
 
 func allowedLocalPrefix(prefix netip.Prefix) bool {

@@ -2,17 +2,18 @@
 
 [English user guide](INSTRUCTION.md) · [프로젝트 소개](README.ko.md)
 
-jastreamer는 Web 화면을 제공하고 음악을 UPnP/DLNA 또는 AirPlay 출력으로 보내는 Linux 서버 컨테이너 하나로 실행됩니다. 선택 사항인 Windows·Linux 데스크톱 앱은 이 서버에 접속만 합니다.
+jastreamer는 Linux 또는 네이티브 Windows에서 Server를 실행합니다. 두 대상 모두 내장 Web 화면을 제공하고 UPnP/DLNA 출력으로 음악을 전송합니다. AirPlay 전송은 Linux 컨테이너 패키지에서만 사용할 수 있습니다. 선택 사항인 Windows·Linux 데스크톱 앱은 Server에 접속만 합니다.
 
 ## 1. 요구 사항과 안전 주의
 
-- Docker Engine과 Compose v2가 있는 Linux `amd64`·`arm64` 또는 Container Manager가 있는 Synology DSM. `arm/v7`은 지원하지 않으며 DS918+는 `amd64`입니다.
-- 게시된 jastreamer 0.2 프리뷰의 정확한 이미지 다이제스트 또는 별도로 전달받아 검증한 오프라인 패키지. 프리뷰 및 실장비 검증 한계는 그대로 적용됩니다.
-- 서버, 브라우저·앱과 출력이 연결된 신뢰할 수 있는 사설 LAN. 자동 검색에는 멀티캐스트가 필요합니다.
-- 컨테이너 UID/GID `10001:10001`이 쓸 수 있는 분리된 config·data 폴더.
-- UID 10001이 읽을 수 있고 읽기 전용으로 연결된 기존 음악 폴더.
+- Linux 컨테이너: Docker Engine과 Compose v2가 있는 Linux `amd64`·`arm64` 또는 Container Manager가 있는 Synology DSM. `arm/v7`은 지원하지 않으며 DS918+는 `amd64`입니다.
+- 네이티브 무설치 Server: Windows x64와 현재 사용자가 쓸 수 있는 로컬 설치 폴더. Windows 서비스로 설치되지 않습니다.
+- 게시된 jastreamer 0.2 프리뷰의 정확한 이미지 다이제스트 또는 Windows Server ZIP, 또는 별도로 전달받아 검증한 오프라인 패키지. 프리뷰 및 실장비 검증 한계는 그대로 적용됩니다.
+- Server, 브라우저·앱과 출력이 연결된 신뢰할 수 있는 사설 LAN. 자동 검색에는 멀티캐스트가 필요합니다.
+- Linux에서는 컨테이너 UID/GID `10001:10001`이 쓸 수 있는 분리된 config·data 폴더와 UID 10001이 읽을 수 있도록 읽기 전용 연결한 기존 음악 폴더.
+- Windows에서는 Server 실행 계정이 읽을 수 있는 음악 경로. 기본으로 나란히 생성되는 `server.json`, `data`, `music`은 그 계정이 계속 쓸 수 있어야 합니다.
 
-`chmod 777`을 사용하거나 음악 보관함 전체의 소유권을 변경하지 마세요. HTTP 8080은 자격 증명과 오디오를 암호화하지 않습니다. LAN 경로 전체를 신뢰할 수 없다면 직접 준비한 PEM 인증서·키로 내장 HTTPS를 사용하세요. 서버를 공용 인터넷에 직접 노출하지 마세요.
+`chmod 777`을 사용하거나 음악 보관함 전체의 소유권을 재귀적으로 바꾸지 마세요. HTTP는 자격 증명과 오디오를 암호화하지 않습니다. LAN 경로 전체를 신뢰할 수 없다면 직접 준비한 PEM 인증서·키로 내장 HTTPS를 사용하세요. Server를 공용 인터넷에 직접 노출하지 마세요.
 
 ## 2. 릴리즈 확보와 검증
 
@@ -28,7 +29,7 @@ docker pull "$JASTREAMER_SERVER_IMAGE"
 docker image inspect --format '{{.Os}}/{{.Architecture}} {{.Id}}' "$JASTREAMER_SERVER_IMAGE"
 ```
 
-멀티아키텍처 이미지에서 호스트에 맞는 `amd64` 또는 `arm64`가 선택됩니다. 정확한 다이제스트를 영구 배포 환경 설정에 보관하고, 호스트에 FFmpeg나 Python을 따로 설치하지 마세요. 데스크톱 파일과 체크섬도 같은 릴리즈에서 받으세요.
+멀티아키텍처 Linux 이미지에서 호스트에 맞는 `amd64` 또는 `arm64`가 선택됩니다. 정확한 다이제스트를 영구 배포 환경 설정에 보관하고, 호스트에 FFmpeg나 Python을 따로 설치하지 마세요. Windows Server 또는 데스크톱 파일과 체크섬도 같은 릴리즈에서 받으세요.
 
 ### 별도로 전달받은 오프라인 패키지
 
@@ -55,7 +56,28 @@ docker image inspect --format '{{.Id}}' jastreamer-server:0.2.0
 
 파일을 전송했다면 새 TAR의 체크섬을 비교하세요. 출력된 `sha256:...` 로컬 이미지 ID를 `JASTREAMER_SERVER_IMAGE`로 사용합니다.
 
-## 3. Compose로 설치
+## 3. Server 설치
+
+### 네이티브 Windows x64 무설치 Server
+
+선택한 프리뷰에서 `jastreamer-server_0.2.0_windows-x64.zip`과 `.sha256`, manifest, 검증 receipt를 받으세요. ZIP은 미서명이며 production 검증을 마치지 않았습니다. 압축을 풀기 전에 sidecar와 실제 바이트를 비교합니다.
+
+```powershell
+$file = '.\jastreamer-server_0.2.0_windows-x64.zip'
+$expected = (Get-Content "$file.sha256" -Raw).Split()[0].ToLowerInvariant()
+$actual = (Get-FileHash $file -Algorithm SHA256).Hash.ToLowerInvariant()
+if ($actual -ne $expected) { throw 'Windows Server ZIP checksum mismatch' }
+```
+
+ZIP 전체를 현재 사용자가 쓸 수 있는 새 로컬 폴더에 풀고, Server를 운영할 일반 사용자 계정으로 `start-server.cmd`를 실행하세요. ZIP 안에서 실행하거나 EXE만 복사하거나 관리자 권한으로 실행하거나 SmartScreen·Defender 전체를 약화하지 마세요. 최초 실행에서만 launcher가 없는 `server.json`과 나란한 `data`, `music` 폴더를 원자적으로 만들고 절대 경로를 기록한 뒤 설정을 검증하고 Server를 시작합니다. 기존 `server.json`은 절대 교체하지 않습니다. 콘솔 창을 열어 두고 Ctrl+C로 종료하세요.
+
+같은 컴퓨터에서 `http://127.0.0.1:18080`을 열거나, 다른 클라이언트에서는 Windows 컴퓨터의 사설 LAN 주소와 18080 포트를 사용합니다. Windows 방화벽이 물으면 해당 실행 파일을 사설 네트워크에서만 허용하고 방화벽을 끄지 마세요. Web·미디어 접근에는 TCP 18080, UPnP 검색에는 SSDP UDP 1900이 필요합니다. 나란한 `music` 폴더에 테스트 음악을 넣거나 Server를 멈추고 `library_roots`에 기존 Windows 절대 경로를 설정하세요. JSON 경로는 `C:/Music` 또는 이중 역슬래시를 사용할 수 있습니다.
+
+이 패키지는 네이티브 Server이며 선택 사항인 Windows 데스크톱 앱이 아닙니다. UPnP/DLNA 네트워크 출력을 제공하지만 Renderer를 설치하거나 PC 스피커에서 재생하지 않으며 FFmpeg, AirPlay helper 또는 Python을 포함하지 않습니다. 따라서 변환과 AirPlay의 기본값은 꺼짐입니다. 네이티브 CI는 패키지 바이트, 최초 설치, HTTP UI, 계정 유지, 재시작과 기존 설정 보존을 검증하지만 미서명 프리뷰를 production 검증 완료로 만들거나 모든 Windows 시스템·수신기를 인증하지는 않습니다.
+
+기존 무설치 설치를 업데이트할 때는 Ctrl+C로 종료한 상태에서 `server.json`, `data`, `music`을 포함한 전체 폴더를 백업하세요. 새 ZIP을 검증해 별도 임시 폴더에 푼 다음 프로그램, launcher, 템플릿, 고지, 라이선스와 빌드 정보를 포함한 패키지 소유 파일만 기존 설치에서 교체합니다. `server.json`을 교체하거나 `data`·`music`을 삭제·이동하지 마세요. 그 안의 절대 경로와 기존 계정, 보관함, 앨범 아트, 대기열, 플레이리스트, 세션 상태를 유지해야 합니다. `start-server.cmd`를 실행해 변경하지 않은 설정 검증과 재시작 뒤 기존 URL·상태를 확인하세요. 롤백용 이전 검증 패키지와 그에 맞는 백업을 보관하세요.
+
+### Linux 또는 Synology Compose
 
 Linux와 Synology 모두 저장소의 `deploy/docker/server/compose.synology.yaml`을 사용합니다. 이 파일은 호스트 네트워크, 읽기 전용 컨테이너 파일 시스템, 임시 `/tmp`와 필요한 UID/GID를 적용합니다.
 
@@ -115,6 +137,14 @@ Synology Container Manager에서는 같은 Compose 파일과 네 환경 변수�
 
 대기열은 서버 전체에서 공유되며 순서와 중복을 보존하고 재시작 뒤에도 남습니다. 서버 재시작 뒤 재생은 자동으로 이어지지 않습니다.
 
+### 서버 경로와 네트워크 선택
+
+- 음악 폴더, 데이터 디렉터리, HTTPS 인증서·개인 키, FFmpeg와 AirPlay helper 옆 **찾아보기**는 브라우저 기기가 아닌 로그인한 **서버의 파일 시스템**을 엽니다. Windows는 접근 가능한 드라이브를 표시하며 절대 UNC 공유 경로를 입력할 수 있고, Linux/NAS는 `/`에서 시작합니다. 컨테이너에서는 마운트된 경로만 보입니다. 목록에서 심볼릭 링크와 Windows 재분석 지점은 제외하며 직접 경로 입력도 유지합니다.
+- 루트, 상위 폴더 또는 절대 디렉터리 경로로 이동하세요. **선택**은 편집 중인 필드만 바꾸고 **취소**는 기존 값을 유지합니다. 설정을 명시적으로 저장한 뒤 음악 폴더를 스캔하세요. 데이터 디렉터리를 선택해도 기존 데이터베이스나 앨범 아트가 이동하지 않습니다. 저장 위치를 변경하고 재시작하기 전에 기존 데이터를 별도로 보존하세요.
+- **서버 네트워크 어댑터**에는 서버의 실제 어댑터 이름과 IP/프리픽스가 표시됩니다. 자동 모드는 `network.interfaces`를 비우며, 개별 선택은 직접 입력한 이름도 유지합니다. 사용할 수 없는 어댑터와 주소도 표시하지만 UPnP용으로 새로 선택할 수는 없습니다.
+- **서버 LAN 주소로 채우기**는 사용 가능한 IPv4 주소와 활성 리스너의 프로토콜·포트로 편집 가능한 `media.base_url`을 채웁니다. 리스너 바인딩은 변경하지 않으므로 수신기가 그 주소에 접근할 수 있어야 합니다. 자동 모드는 URL 재정의를 지우고, 무관한 VPN·기본 경로 대신 해당 UPnP 출력을 발견한 인터페이스 주소를 사용합니다. 명시적인 미디어 URL이나 리스너 주소가 있으면 그것이 우선합니다.
+- 경로 탐색이나 어댑터·IP 선택만으로 저장·재시작·스캔·재생하지 않습니다. 편집 내용을 명시적으로 저장하세요. 리스너·저장 위치·네트워크 변경은 재시작이 필요할 수 있습니다.
+
 ### 앨범 아트와 대기열 동작
 
 - 하단 플레이 바의 앨범 아트를 누르면 **대기열**로 이동합니다. 곡 정보를 열거나 재생을 시작하지 않습니다.
@@ -122,6 +152,8 @@ Synology Container Manager에서는 같은 Compose 파일과 네 환경 변수�
 - 대기열 행 오른쪽 동작 버튼 중 맨 앞의 삼각형 재생 버튼만 해당 항목을 재생합니다.
 
 재생 기기 상태 조회가 한 번 실패해도 재생을 다시 시작하거나 팝업을 띄우지 않습니다. 조회가 세 번 연속 실패하면 상태 경고를 표시하고, 다음 조회가 성공하면 자동으로 닫습니다. 경고를 직접 닫으면 같은 실패가 이어지는 동안 다시 띄우지 않습니다. 재생 명령 실패와 확인된 연결 끊김은 즉시 표시합니다.
+
+재생 시작 오류에는 실패 단계(`LoadTrack`, `PrepareMedia`, `SetURI`, `Play`)와 제공 가능한 안전한 오류 코드를 표시합니다. UPnP 명령 거부라면 액션 이름과 숫자 오류 코드까지 포함해 알려주세요. 오류를 지우려고 대기열을 초기화하거나 방화벽을 끄지 마세요. 시간 초과·전송 실패는 여전히 명령 결과 미확정 상태로 처리합니다.
 
 UPnP/AirPlay 기능은 수신기마다 다릅니다. 실제 장비에서 소리와 필요한 제어 기능을 확인하세요.
 
@@ -160,7 +192,7 @@ sudo apt install ./jastreamer-desktop_0.2.0_linux-amd64.deb
 
 ## 6. 백업과 업데이트
 
-현재 앱 내 새 버전 확인이나 자동 업데이트 기능은 없습니다. 업데이트는 최초 계정 생성을 다시 하는 것이 아니라, 검증된 이미지로 기존 서버 컨테이너를 교체하는 작업입니다. 이미지에는 해당 아키텍처의 Web 화면, FFmpeg와 AirPlay 실행 환경이 포함됩니다. 서버가 자신을 업데이트하도록 Docker 소켓을 연결하거나 호스트 관리 권한을 부여하지 마세요.
+Linux 컨테이너 대상은 최초 계정 생성을 다시 하는 대신 검증된 Server 컨테이너 이미지를 교체해 업데이트합니다. 이미지에는 해당 아키텍처의 Web 화면, FFmpeg와 AirPlay 실행 환경이 포함됩니다. Server가 자신을 업데이트하도록 Docker 소켓을 연결하거나 호스트 관리 권한을 부여하지 마세요. 네이티브 Windows는 3절의 별도 무설치 업데이트 절차를 따르고 아래 Compose 절차를 적용하지 마세요.
 
 ### 업데이트 절차
 
@@ -245,13 +277,13 @@ user-data 또는 Linux의 사용자별 프로필을 보존해.
 
 | 문제 | 확인할 항목 |
 |---|---|
-| 웹 화면이 열리지 않음 | `/healthz`, Compose 로그, 수신 주소 설정, TCP 8080/8443 방화벽 |
+| 웹 화면이 열리지 않음 | Windows Server 콘솔과 TCP 18080, 또는 Linux `/healthz`, Compose 로그, 수신 주소 설정과 TCP 8080/8443 방화벽 확인 |
 | Windows에서 서버를 찾지 못함 | mDNS UDP 5353을 허용하거나 완전한 서버 URL 직접 입력 |
-| 출력이 보이지 않음 | 호스트 네트워크 유지, UPnP용 SSDP UDP 1900, AirPlay용 mDNS UDP 5353, Wi-Fi 기기 격리 해제 |
+| 출력이 보이지 않음 | UPnP용 SSDP UDP 1900 허용; Linux AirPlay는 mDNS UDP 5353과 호스트 네트워크도 필요; Wi-Fi 기기 격리 해제 |
 | 출력이 재생하지 못함 | 서버→수신기 제어·스트림과 수신기→서버 미디어 통신 허용; 필요한 경우에만 수신기가 접근할 주소로 `media.base_url` 지정 |
-| 보관함이 비어 있음 | 음악 폴더가 `/music`에 연결되었는지, UID 10001 읽기·탐색 권한과 스캔 완료 여부 |
-| 설정 저장 실패 | config 폴더와 `server.json`을 UID/GID 10001이 쓸 수 있는지 |
-| AirPlay 인증 실패 | 재생 정지, 표시된 PIN·암호 재입력, 패키지의 helper·FFmpeg 경로 유지 |
+| 보관함이 비어 있음 | Windows 폴더 또는 Linux `/music` 마운트가 설정된 보관함인지, Server 계정/UID 10001의 읽기·탐색 권한과 스캔 완료 여부 확인 |
+| 설정 저장 실패 | Windows 나란한 파일 또는 Linux config 폴더와 `server.json`을 Server 계정/UID 10001이 쓸 수 있는지 확인 |
+| AirPlay 인증 실패 | Linux Server 전용: 재생 정지, 표시된 PIN·암호 재입력, 패키지의 helper·FFmpeg 경로 유지; Windows Server에는 AirPlay가 포함되지 않음 |
 | 비밀번호 분실 | 서버를 멈추고 같은 config/data를 연결한 유지보수 컨테이너에서 `jastreamer-server --reset-password USER --config /etc/jastreamer/server.json` 실행; 새 비밀번호는 입력 프롬프트에만 입력 |
 
-문제를 보고할 때 서버 버전, 정확한 이미지 다이제스트, 서버 아키텍처, 관련 로그와 수신기 모델을 포함하세요. 비밀번호, 쿠키, 인증서와 개인 키는 제거하고 원본 진단 문구는 그대로 보존하세요.
+문제를 보고할 때 Server 버전, 정확한 이미지 다이제스트 또는 Windows ZIP SHA-256, Server 플랫폼·아키텍처, 관련 로그와 수신기 모델을 포함하세요. 비밀번호, 쿠키, 인증서와 개인 키는 제거하고 원본 진단 문구는 그대로 보존하세요.

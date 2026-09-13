@@ -278,12 +278,9 @@ func mediaOrigin(value config.Config) func(output.Device) (string, error) {
 		if parseErr != nil {
 			return "", fault.New(409, "RENDERER_ADDRESS_UNKNOWN", "재생 기기의 네트워크 주소를 확인하지 못했습니다.")
 		}
-		connection, dialErr := net.DialUDP("udp", nil, &net.UDPAddr{IP: net.IP(ip.AsSlice()), Port: 1900})
-		if dialErr != nil {
-			return "", fault.New(409, "RENDERER_UNREACHABLE", "재생 기기로 연결되는 네트워크가 없습니다.")
-		}
-		local := connection.LocalAddr().(*net.UDPAddr).IP.String()
-		_ = connection.Close()
+		// Reuse the interface bound by discovery/control instead of an unrelated
+		// default (for example VPN) route when the output backend provides it.
+		local := device.LocalAddress
 		if listenHost != "" && listenHost != "0.0.0.0" && listenHost != "::" {
 			if bound, err := netip.ParseAddr(listenHost); err == nil {
 				if bound.IsLoopback() && !ip.IsLoopback() {
@@ -293,6 +290,14 @@ func mediaOrigin(value config.Config) func(output.Device) (string, error) {
 			} else {
 				local = listenHost
 			}
+		}
+		if local == "" {
+			connection, dialErr := net.DialUDP("udp", nil, &net.UDPAddr{IP: net.IP(ip.AsSlice()), Port: 1900})
+			if dialErr != nil {
+				return "", fault.New(409, "RENDERER_UNREACHABLE", "재생 기기로 연결되는 네트워크가 없습니다.")
+			}
+			local = connection.LocalAddr().(*net.UDPAddr).IP.String()
+			_ = connection.Close()
 		}
 		return scheme + "://" + net.JoinHostPort(local, port), nil
 	}

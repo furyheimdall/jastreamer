@@ -2,7 +2,7 @@
 
 <img src="assets/jastreamer.svg" width="80" height="80" alt="jastreamer 로고" />
 
-jastreamer 0.2.0은 신뢰하는 사설 LAN에서 사용하는 자체 호스팅 음악 서버입니다. Linux Server 하나가 관리자가 승인한 로컬 음악을 색인하고 Web 화면을 제공하며, 대기열과 플레이리스트를 SQLite에 보관하고 선택한 네트워크 출력 하나로 오디오를 전송합니다. UPnP/DLNA는 기본으로 제공되며 지원되는 Linux 컨테이너 플랫폼에서는 AirPlay 전송도 사용할 수 있습니다.
+jastreamer 0.2.0은 신뢰하는 사설 LAN에서 사용하는 자체 호스팅 음악 서버입니다. Linux 또는 Windows Server가 관리자가 승인한 로컬 음악을 색인하고 Web 화면을 제공하며, 대기열과 플레이리스트를 SQLite에 보관하고 선택한 네트워크 출력 하나로 오디오를 전송합니다. UPnP/DLNA는 기본으로 제공됩니다. AirPlay 전송은 지원되는 Linux 컨테이너 패키지에서만 사용할 수 있습니다.
 
 영어를 기본으로 한국어 UI를 지원합니다.
 
@@ -27,7 +27,7 @@ jastreamer 0.2.0은 신뢰하는 사설 LAN에서 사용하는 자체 호스팅 
 
 ## 배포 방식
 
-서버는 `amd64` 또는 `arm64`용 Linux 컨테이너로 배포하며, Web 화면, 오디오 전용 FFmpeg 8.1.2와 pyatv 0.18.0 AirPlay 송신 프로그램을 포함합니다. Synology Container Manager에서는 제공된 Compose 파일을 사용합니다. [GitHub Releases](https://github.com/furyheimdall/jastreamer/releases)에 게시된 프리뷰를 선택하고, 해당 릴리즈의 정확한 `ghcr.io/furyheimdall/jastreamer-server@sha256:…` 이미지 주소를 사용하세요. 공개 프리뷰는 레지스트리 로그인이 필요하지 않습니다. 정식 production 검증을 마친 릴리즈는 아니므로 명시된 검증 범위를 확인하고, 다운로드한 파일을 릴리즈 체크섬과 비교하세요. 가변 `latest` 태그는 사용하지 마세요.
+Server 배포 대상은 서로 구분됩니다. Linux `amd64`·`arm64` 컨테이너에는 내장 Web 화면, 오디오 전용 FFmpeg 8.1.2와 pyatv 0.18.0 AirPlay 송신 프로그램이 포함됩니다. 네이티브 Windows x64는 미서명 무설치 `jastreamer-server_0.2.0_windows-x64.zip`이며, 내장 Web 화면과 UPnP/DLNA를 제공하지만 AirPlay 송신 프로그램, Renderer 또는 FFmpeg 변환기는 포함하지 않습니다. Synology Container Manager에서는 제공된 Linux Compose 파일을 사용합니다. [GitHub Releases](https://github.com/furyheimdall/jastreamer/releases)에 게시된 프리뷰를 선택하고, Linux는 정확한 이미지 다이제스트를, Windows Server는 검증된 ZIP과 체크섬을 사용하며 대상별 manifest와 네이티브 검증 receipt를 확인하세요. 공개 프리뷰는 레지스트리 로그인이 필요하지 않지만 정식 production 검증이나 서명을 마친 릴리즈가 아닙니다. 명시된 검증 범위를 확인하고 다운로드한 파일을 릴리즈 체크섬과 비교하세요. 가변 `latest` 태그는 사용하지 마세요.
 
 저장소 세 종류를 분리하세요.
 
@@ -35,7 +35,7 @@ jastreamer 0.2.0은 신뢰하는 사설 LAN에서 사용하는 자체 호스팅 
 - **data:** 쓰기 가능한 SQLite 데이터베이스, 앨범 아트 캐시와 AirPlay 상태
 - **music:** 읽기 전용으로 연결하는 기존 음악 보관함
 
-컨테이너를 교체할 때 config와 data를 보존해야 합니다. jastreamer를 위해 음악 보관함 전체의 소유권이나 권한을 재귀적으로 바꾸지 말고, 서버를 공용 인터넷에 직접 노출하지 마세요.
+어느 Server 대상을 교체하든 config와 data를 보존해야 합니다. jastreamer를 위해 음악 보관함 전체의 소유권이나 권한을 재귀적으로 바꾸지 말고, 서버를 공용 인터넷에 직접 노출하지 마세요.
 
 패키지 확인, Docker·Synology 설치, 선택적 데스크톱 앱, 최초 사용, 언어 선택, 업데이트와 문제 해결은 [한국어 사용자 안내서](INSTRUCTION.ko.md)를 참고하세요.
 
@@ -54,11 +54,11 @@ https://github.com/furyheimdall/jastreamer 를 기준으로, 전달받은
 이미지와 일치하는 리비전의 README.ko.md, INSTRUCTION.ko.md,
 deploy/docker/server/compose.synology.yaml,
 packaging/server/server.json을 먼저 읽어줘.
-Web 화면은 Server에 내장되어 있으므로 Linux 컨테이너 하나만 구성해.
-별도 Web 컨테이너나 Windows용 서버를 설치하지 마.
-선택한 아키텍처의 FFmpeg, pyatv와 Python 실행 환경을 포함한
-전체 이미지를 사용해. Go 실행 파일만 배포하거나 이 미디어 의존성을
-호스트에 별도로 설치하지 마.
+Web 화면은 Server에 내장되어 있어. 이 Linux/NAS 절차에서는 별도 Web
+컨테이너나 네이티브 Windows Server 패키지 대신 Linux 컨테이너 하나를
+구성해. 선택한 아키텍처의 FFmpeg, pyatv와 Python 실행 환경을 포함한
+전체 Linux 이미지를 사용해. Go 실행 파일만 배포하거나 이 미디어
+의존성을 호스트에 별도로 설치하지 마.
 일반적인 조언만 하고 끝내거나 설정 파일 작성을 내게 맡기지 말고
 설치를 끝까지 함께 진행해줘. 처음에는 서버 접속 정보와 음악 경로를
 확인하고, 기술 정보는 서버를 조사해 채워줘. 나머지는 안전한 기본값을
@@ -180,15 +180,15 @@ Web 화면은 Server에 내장되어 있으므로 Linux 컨테이너 하나만 �
 
 ## 업데이트
 
-서버 업데이트는 앱을 다시 설치하거나 데이터를 초기화하는 대신 컨테이너 이미지를 교체하는 방식입니다. Web 화면과 패키지에 포함된 FFmpeg·AirPlay 실행 환경도 함께 갱신됩니다. 선택 사항인 데스크톱 앱 실행 파일은 별도의 ZIP 또는 DEB로 업데이트합니다.
+Linux Server는 config·data 마운트를 보존하면서 컨테이너 이미지를 교체해 업데이트합니다. 네이티브 Windows Server는 새 ZIP을 검증해 별도 폴더에 푼 다음 기존 `server.json`, `data`, `music`을 보존하면서 기존 폴더의 패키지 소유 파일만 교체합니다. 어느 쪽도 앱을 다시 설치하거나 데이터를 초기화하지 않습니다. Server가 제공하는 Web 화면은 함께 갱신되지만 FFmpeg와 AirPlay는 지원되는 Linux 컨테이너에만 포함됩니다. 선택 사항인 데스크톱 앱 실행 파일은 별도의 ZIP 또는 DEB로 업데이트합니다.
 
-현재 앱 내 새 버전 확인이나 컨테이너 자동 업데이트 기능은 없습니다. 배포된 버전의 변경 사항과 검증된 이미지를 확인·다운로드한 뒤, 재생과 서버를 멈추고 상태를 백업하여 같은 저장 경로로 이미지를 교체하세요. 검증 후 기존 서버 주소로 접속해 Web 화면을 새로고침하면 됩니다. 재생은 자동으로 재개되지 않습니다.
+현재 앱 내 새 버전 확인이나 자동 업데이트 기능은 없습니다. 정확한 검증 대상과 체크섬을 다운로드한 뒤 재생과 Server를 멈추고 영구 상태를 백업한 다음 교체하세요. 검증 후 기존 서버 주소로 접속해 Web 화면을 새로고침하면 됩니다. 재생은 자동으로 재개되지 않습니다.
 
-실제 절차와 업데이트 후 확인 사항은 [백업과 업데이트](INSTRUCTION.ko.md#6-백업과-업데이트), 에이전트에게 맡길 때는 [복사 가능한 업데이트 프롬프트](INSTRUCTION.ko.md#에이전트와-업데이트하기)를 참고하세요. 승인된 이미지 주소가 제공되면 레지스트리에서 내려받을 수 있으며, 오프라인 패키지도 대안으로 사용할 수 있습니다.
+Linux 컨테이너의 실제 절차와 업데이트 후 확인 사항은 [백업과 업데이트](INSTRUCTION.ko.md#6-백업과-업데이트)를, Windows의 최초 설치와 업데이트는 [네이티브 Windows x64 무설치 Server](INSTRUCTION.ko.md#네이티브-windows-x64-무설치-server)를 참고하세요. 레지스트리 배포는 Linux 이미지에 적용되며 오프라인 패키지도 대안으로 사용할 수 있습니다.
 
 ## 호환성 범위
 
-자동 검색에는 멀티캐스트와 서버·앱·출력 사이의 올바른 LAN 경로가 필요합니다. 출력 기능은 기기마다 다릅니다. 일부 수신기는 일시 정지나 탐색을 제공하지 않거나 특정 형식을 거부하거나 인증을 요구할 수 있습니다. 한정된 검증 결과가 모든 수신기나 장시간 재생의 품질을 보장하지는 않습니다. 실제 사용할 장비에서 검색, 인증, 제어, 대기열 진행과 소리를 확인하세요.
+자동 검색에는 멀티캐스트와 서버·앱·출력 사이의 올바른 LAN 경로가 필요합니다. 출력 기능은 기기마다 다르며 일부 수신기는 일시 정지나 탐색을 제공하지 않거나 특정 형식을 거부하거나 인증을 요구할 수 있습니다. Linux AirPlay 검증 범위는 한정되어 있고 네이티브 Windows Server는 UPnP/DLNA만 지원하며 AirPlay를 포함하지 않습니다. 네이티브 CI 검증과 특정 Windows Server 장비에서 확인한 기능 동작은 코드 서명, production 검증, 장시간 실장비 검증 또는 모든 수신기 인증과 별개입니다. 실제 사용할 장비에서 검색, 제어, 대기열 진행과 소리를 확인하세요.
 
 ## 라이선스
 

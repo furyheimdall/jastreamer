@@ -1,0 +1,38 @@
+jastreamer Windows x64 portable Server 0.2.0
+
+This is the server, not the Windows desktop connection application. It is an
+unsigned public-preview build and is not production-qualified. It does not
+install a Windows service and does not require administrator privileges.
+
+FIRST START
+1. Verify the ZIP's adjacent .sha256 file, then extract the entire ZIP to a new
+   local folder writable by your Windows account. Do not run it inside the ZIP.
+2. Run start-server.cmd. On first launch it creates server.json, data, and music
+   beside jastreamer-server.exe. It never replaces an existing server.json.
+3. Open http://127.0.0.1:18080 and create the first administrator account.
+4. Add files under music and scan the library in the Web UI, or stop the server
+   and edit library_roots in server.json to use an existing absolute path.
+   JSON accepts doubled backslashes or forward slashes (for example C:/Music).
+5. Keep the server console open. Stop it with Ctrl+C before editing config,
+   moving the folder, updating package-owned files, or backing up data.
+
+NETWORK SAFETY
+Use the Server only on a trusted private LAN. Do not expose port 18080 through
+Internet port forwarding. If Windows Firewall asks, allow this executable only
+on private networks needed for your LAN. Do not disable Defender, SmartScreen,
+the firewall, or PowerShell execution policy. The launcher makes no permanent
+system or policy changes.
+
+PORTABLE DATA
+server.json records absolute paths for the extracted location. The data folder
+contains accounts and Server state; preserve and back it up. The launcher does
+not overwrite config, reset accounts, migrate data, or alter manually configured
+library, FFmpeg, or helper paths. If the folder moves, stop the Server and update
+those paths yourself before restarting.
+
+FEATURE SCOPE
+The package contains jastreamer-server.exe with its embedded Web UI. It contains
+no FFmpeg executable, AirPlay helper, Python runtime, Renderer, or desktop app.
+Original-file UPnP/DLNA streaming requires a receiver that supports the source
+format. FFmpeg transcoding and AirPlay are disabled by default and are not
+claimed as bundled features.

@@ -129,7 +129,7 @@ func (service *Service) Prepare(ctx context.Context, device output.Device, track
 	}
 	file, openedTrack, err := service.library.Open(ctx, track.ID)
 	if err != nil {
-		return output.Resource{}, fmt.Errorf("%w: open selected track", ErrTrackUnavailable)
+		return output.Resource{}, fmt.Errorf("%w: open selected track: %w", ErrTrackUnavailable, err)
 	}
 	info, statErr := file.Stat()
 	closeErr := file.Close()
@@ -215,7 +215,7 @@ func (service *Service) Revoke(playID string) {
 func (service *Service) resourceBaseURL(device output.Device) (*url.URL, error) {
 	value, err := service.baseURL(device)
 	if err != nil {
-		return nil, fmt.Errorf("%w: resolve renderer media origin", ErrInvalidConfig)
+		return nil, fmt.Errorf("%w: resolve renderer media origin: %w", ErrInvalidConfig, err)
 	}
 	base, err := url.Parse(value)
 	if err != nil || (base.Scheme != "http" && base.Scheme != "https") || base.Host == "" || base.User != nil ||

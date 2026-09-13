@@ -1,8 +1,10 @@
-.PHONY: verify web-verify go-verify build web-build server-build server-build-only browser-smoke browser-smoke-only desktop-verify desktop-package package package-verify clean
+.PHONY: verify web-verify go-verify build web-build server-build server-build-only browser-smoke browser-smoke-only desktop-verify desktop-package package package-verify windows-server-package clean
 
 VERSION := $(shell cat apps/server/VERSION)
 SOURCE_REVISION ?= $(shell git rev-parse --verify HEAD)
 SOURCE_DATE_EPOCH ?= $(shell git show -s --format=%ct $(SOURCE_REVISION))
+WINDOWS_SERVER_BINARY ?= apps/server/dist/jastreamer-server.exe
+
 
 verify: web-build
 	$(MAKE) go-verify
@@ -42,5 +44,11 @@ package:
 package-verify:
 	packaging/server/verify.sh dist/release
 
+windows-server-package:
+	SOURCE_DATE_EPOCH=$(SOURCE_DATE_EPOCH) python3 packaging/server/windows_package.py package \
+		--binary "$(WINDOWS_SERVER_BINARY)" \
+		--output-dir dist/server-windows-x64 \
+		--source-revision "$(SOURCE_REVISION)"
+
 clean:
-	rm -rf apps/server/dist apps/server/web/ui/dist dist/release
+	rm -rf apps/server/dist apps/server/web/ui/dist dist/release dist/server-windows-x64
