@@ -64,6 +64,17 @@ jobs:
           test -n "${debug_cert_sha256}"
           output="dist/android"
           mkdir -p "${output}"
+          for apk in "${debug_apk}" "${release_apk}"; do
+            unzip -t "${apk}"
+            test "$(apkanalyzer manifest min-sdk "${apk}")" = "29"
+            test "$(apkanalyzer manifest target-sdk "${apk}")" = "36"
+            test "$(apkanalyzer manifest version-code "${apk}")" = "20000"
+            unzip -p "${apk}" assets/LICENSE.txt | cmp LICENSE
+          done
+          test "$(apkanalyzer manifest application-id "${debug_apk}")" = "io.jastreamer.android.debug"
+          test "$(apkanalyzer manifest application-id "${release_apk}")" = "io.jastreamer.android"
+          apkanalyzer manifest print "${debug_apk}" > "${output}/debug-manifest.xml"
+          apkanalyzer manifest print "${release_apk}" > "${output}/release-manifest.xml"
           debug_name="jastreamer-android_0.2.0_${GITHUB_SHA}_debug-test-signed.apk"
           release_name="jastreamer-android_0.2.0_${GITHUB_SHA}_release-unsigned.apk"
           cp "${debug_apk}" "${output}/${debug_name}"
@@ -78,11 +89,15 @@ jobs:
             --arg debug_apk "${debug_name}" \
             --arg debug_signing "Android SDK generated debug/test certificate; not for release" \
             --arg debug_certificate_sha256 "${debug_cert_sha256}" \
+            --arg debug_sha256 "$(sha256sum "${debug_apk}" | cut -d ' ' -f 1)" \
+            --argjson debug_size "$(stat -c %s "${debug_apk}")" \
             --arg release_apk "${release_name}" \
             --arg release_signing "unsigned; not installable until explicitly signed; not a production release" \
-            '{sourceRevision: $source_revision, version: $version, artifacts: [
-              {file: $debug_apk, signing: $debug_signing, certificateSha256: $debug_certificate_sha256},
-              {file: $release_apk, signing: $release_signing}
+            --arg release_sha256 "$(sha256sum "${release_apk}" | cut -d ' ' -f 1)" \
+            --argjson release_size "$(stat -c %s "${release_apk}")" \
+            '{sourceRevision: $source_revision, version: $version, productionQualified: false, artifacts: [
+              {file: $debug_apk, sha256: $debug_sha256, size: $debug_size, signing: $debug_signing, certificateSha256: $debug_certificate_sha256},
+              {file: $release_apk, sha256: $release_sha256, size: $release_size, signing: $release_signing}
             ]}' > "${output}/provenance.json"
       - name: Set up Go
         uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5.5.0

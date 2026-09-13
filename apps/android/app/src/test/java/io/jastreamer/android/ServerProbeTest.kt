@@ -1,16 +1,15 @@
 package io.jastreamer.android
 
-import java.util.concurrent.TimeUnit
+import java.net.InetAddress
+import java.net.ServerSocket
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
-import okhttp3.mockwebserver.SocketPolicy
 import org.junit.After
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNotNull
-import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
 import org.junit.Test
 
@@ -73,16 +72,26 @@ class ServerProbeTest {
     }
 
     @Test
-    fun `caller cancellation cancels an in-flight network call`() = runBlocking {
-        server.enqueue(MockResponse().setSocketPolicy(SocketPolicy.NO_RESPONSE))
-        val job = launch {
-            ServerProbe().probe(server.url("/").toString())
+    fun `cancelling a probe closes its server connection before the probe timeout`() = runBlocking {
+        ServerSocket(0, 1, InetAddress.getByName("127.0.0.1")).use { listener ->
+            listener.soTimeout = 2_000
+            val job = launch(start = CoroutineStart.UNDISPATCHED) {
+                ServerProbe().probe("http://127.0.0.1:${listener.localPort}")
+            }
+            try {
+                listener.accept().use { connection ->
+                    connection.soTimeout = 1_500
+                    val input = connection.getInputStream().bufferedReader()
+                    var line = input.readLine()
+                    while (!line.isNullOrEmpty()) line = input.readLine()
+                    assertEquals("The request must arrive before cancellation", "", line)
+                    job.cancelAndJoin()
+                    assertEquals("Cancellation must close the peer socket, not leave it until timeout", -1, input.read())
+                }
+            } finally {
+                job.cancelAndJoin()
+            }
         }
-
-        assertNotNull(server.takeRequest(1, TimeUnit.SECONDS))
-        job.cancelAndJoin()
-
-        assertTrue(job.isCancelled)
     }
 
     private suspend fun expectClientFailure(block: suspend () -> Unit): ClientException {

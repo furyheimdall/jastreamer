@@ -17,7 +17,6 @@ import java.util.Locale
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executor
 import java.util.concurrent.atomic.AtomicBoolean
-import kotlinx.coroutines.CancellableContinuation
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -30,11 +29,8 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.buffer
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.Semaphore
-import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.sync.withPermit
-import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 
 class ServerDiscovery(
@@ -64,7 +60,6 @@ class ServerDiscovery(
         private val mainExecutor = Executor { command -> mainHandler.post(command) }
         private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
         private val active = AtomicBoolean(true)
-        private val resolveMutex = Mutex()
         private val probeSemaphore = Semaphore(MAX_PARALLEL_PROBES)
         private val candidates = LinkedHashMap<String, Candidate>()
         private val candidateErrors = LinkedHashMap<String, ClientException>()
@@ -203,7 +198,7 @@ class ServerDiscovery(
 
         private suspend fun resolveAndProbe(key: String, expectedGeneration: Long, serviceInfo: NsdServiceInfo) {
             try {
-                val resolved = resolveMutex.withLock { resolve(serviceInfo) }
+                val resolved = resolve(serviceInfo)
                 if (!isCurrent(key, expectedGeneration)) return
                 val advertised = parseResolvedService(resolved)
                 if (advertised == null) {
@@ -256,38 +251,20 @@ class ServerDiscovery(
         }
 
         private suspend fun resolve(serviceInfo: NsdServiceInfo): NsdServiceInfo =
-            suspendCancellableCoroutine { continuation ->
+            resolutionGate.resolve { complete ->
                 val listener = object : NsdManager.ResolveListener {
-                    override fun onServiceResolved(resolved: NsdServiceInfo) = onMain {
-                        continuation.succeed(resolved)
+                    override fun onServiceResolved(resolved: NsdServiceInfo) {
+                        complete(Result.success(resolved))
                     }
 
-                    override fun onResolveFailed(failed: NsdServiceInfo, errorCode: Int) = onMain {
-                        continuation.fail(ResolutionFailure(errorCode))
+                    override fun onResolveFailed(failed: NsdServiceInfo, errorCode: Int) {
+                        complete(Result.failure(ResolutionFailure(errorCode)))
                     }
                 }
-
-                continuation.invokeOnCancellation {
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-                        mainHandler.post {
-                            try {
-                                nsdManager.stopServiceResolution(listener)
-                            } catch (_: IllegalArgumentException) {
-                            } catch (_: RuntimeException) {
-                            }
-                        }
-                    }
-                }
-
-                try {
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                        nsdManager.resolveService(serviceInfo, mainExecutor, listener)
-                    } else {
-                        @Suppress("DEPRECATION")
-                        nsdManager.resolveService(serviceInfo, listener)
-                    }
-                } catch (error: RuntimeException) {
-                    continuation.fail(error)
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                    nsdManager.resolveService(serviceInfo, mainExecutor, listener)
+                } else {
+                    nsdManager.resolveService(serviceInfo, listener)
                 }
             }
 
@@ -315,16 +292,11 @@ class ServerDiscovery(
 
             val addresses = resolvedAddresses(service).filter(::isEligibleLanAddress)
             if (addresses.isEmpty()) return null
-            val localHosts = addresses.mapNotNull { address ->
-                val hostname = address.hostName
-                hostname.takeIf(::isLocalHostname)
-            }.distinct()
             val addressHosts = addresses.mapNotNull { address ->
                 val host = address.hostAddress ?: return@mapNotNull null
                 host.takeUnless { '%' in it }
             }.distinct()
-            val hosts = if (scheme == "https") localHosts + addressHosts else addressHosts + localHosts
-            val origins = hosts.asSequence()
+            val origins = addressHosts.asSequence()
                 .mapNotNull { host -> endpointForHost(scheme, host, port) }
                 .distinct()
                 .take(MAX_ORIGINS_PER_SERVICE)
@@ -362,11 +334,6 @@ class ServerDiscovery(
             }
         }
 
-        private fun isLocalHostname(host: String): Boolean {
-            val normalized = host.lowercase(Locale.US).removeSuffix(".")
-            return normalized.endsWith(".local") && normalized.length <= 253 &&
-                normalized.none { it.isWhitespace() || it.isISOControl() }
-        }
 
         private fun Map<String, ByteArray>.text(key: String): String? {
             val bytes = this[key] ?: return null
@@ -463,13 +430,6 @@ class ServerDiscovery(
             cause: Throwable? = null,
         ): ClientException = ClientException(ClientErrorCode.DISCOVERY, "$detail ($errorCode)", cause)
 
-        private fun CancellableContinuation<NsdServiceInfo>.succeed(value: NsdServiceInfo) {
-            if (isActive) resumeWith(Result.success(value))
-        }
-
-        private fun CancellableContinuation<NsdServiceInfo>.fail(error: Throwable) {
-            if (isActive) resumeWith(Result.failure(error))
-        }
     }
 
     private data class Candidate(
@@ -486,6 +446,7 @@ class ServerDiscovery(
     private class ResolutionFailure(val errorCode: Int) : Exception("NSD resolution failed: $errorCode")
 
     companion object {
+        private val resolutionGate = NsdResolutionGate()
         private const val SERVICE_TYPE = "_jastreamer._tcp."
         private const val MULTICAST_LOCK_TAG = "jastreamer-discovery"
         private const val MAX_DISCOVERED_SERVICES = 64
