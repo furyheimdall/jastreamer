@@ -34,15 +34,13 @@ jastreamer 0.2.0은 신뢰하는 사설 LAN에서 사용하는 자체 호스팅 
 
 Server 배포 대상은 서로 구분됩니다. Linux `amd64`·`arm64` 컨테이너에는 내장 Web 화면, Python 3.12, 오디오 전용 FFmpeg 8.1.2와 pyatv 0.18.0 AirPlay 송신 프로그램이 포함됩니다. 네이티브 Windows x64 무설치 ZIP은 내장 Web 화면, UPnP/DLNA와 선택적 Google Cast를 제공하지만 AirPlay 송신 프로그램, Renderer 또는 FFmpeg 변환기를 포함하지 않습니다. Google Cast 자체에는 어느 플랫폼에서도 Chrome이나 Python helper가 필요하지 않습니다. 전체 [GitHub Releases 목록](https://github.com/furyheimdall/jastreamer/releases)에서 올바르게 표시된 프리뷰까지 포함해 가장 최근의 호환되는 게시 Server 릴리즈를 선택하고 provenance와 패키지 checksum 또는 정확한 이미지 다이제스트를 검증하세요. 가변 `latest`를 사용하거나 `/releases/latest`가 프리뷰를 포함한다고 가정하지 마세요.
 
-일반 Linux에서는 sudo를 가정하지 않고 대상 사용자의 `~/.config/jstreamer` 아래 프로젝트와 config·data를 분리합니다. 음악 경로는 반드시 물어보고, 폴더가 없다면 `~/music`을 만들어도 되는지 동의를 받은 뒤 생성하세요. 빈 음악 폴더에는 재생할 곡이 없으므로 음악을 넣고 스캔해야 한다고 안내합니다. 기존 설치 경로는 별도 승인 없이 옮기지 마세요.
-
 - **config:** 쓰기 가능한 `server.json`과 선택적 HTTPS PEM 파일
 - **data:** 쓰기 가능한 SQLite 데이터베이스, 앨범 아트 cache와 AirPlay 상태
 - **music:** 읽기 전용 기존 절대 음악 루트 또는 사용자가 생성·사용에 명시적으로 동의한 새 음악 루트
 
 manifest에 샘플 묶음이 포함된 릴리즈는 기존 파일을 덮어쓰지 않고 `jastreamer-samples`에 MP3 세 개를 둘 수 있습니다. 어느 Server 대상을 교체하든 config, data와 원본 음악을 보존하고 음악 보관함 전체의 소유권·권한을 재귀적으로 바꾸거나 Server를 공용 인터넷에 직접 노출하지 마세요.
 
-음악 경로 질문과 생성 동의, Linux·Synology·Windows의 새 설치, 샘플과 업데이트 절차는 [한국어 설치 및 업데이트 안내서](INSTALL.ko.md)를, 에이전트가 실제 설정 파일을 준비하게 하려면 [AGENTS.md](AGENTS.md)를 참고하세요. 최초 사용과 문제 해결은 [한국어 사용자 안내서](INSTRUCTION.ko.md)를 따르세요.
+Linux·Synology·Windows 설치와 업데이트 절차는 [한국어 설치 및 업데이트 안내서](INSTALL.ko.md)를, 에이전트 작업 지침은 [AGENTS.md](AGENTS.md)를 참고하세요. 최초 사용과 문제 해결은 [한국어 사용자 안내서](INSTRUCTION.ko.md)를 따르세요.
 
 ## 선택 사항인 Google Cast
 
@@ -57,8 +55,7 @@ Cast도 다른 출력과 같은 Server 대기열 하나를 사용합니다. Cast
 에이전트에게 다음 요청을 보내세요. 설치 전에는 제안한 경로와 서비스 변경을 직접 검토하고 비밀번호·개인 키·토큰을 프롬프트에 넣지 마세요.
 
 > https://github.com/furyheimdall/jastreamer 에서 jastreamer를 설치하거나 업데이트하도록 도와줘.  
-> 저장소 루트의 [AGENTS.md](AGENTS.md)를 먼저 읽고, 내 대상에 맞는 [INSTALL.ko.md](INSTALL.ko.md) 분기를 선택해 따라줘.
-> 음악 경로를 반드시 물어보고, 폴더가 없으면 `~/music`을 만들어도 되는지 먼저 동의를 받아줘. 빈 폴더에 음악을 넣을 위치와 스캔 방법을 안내하고, sudo를 가정하거나 기존 설치를 임의로 옮기지 마.
+> 저장소 루트의 [AGENTS.md](AGENTS.md)를 먼저 읽고 따라줘.
 
 ## 업데이트
 

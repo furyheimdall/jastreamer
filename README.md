@@ -1,5 +1,11 @@
 # jastreamer
 
+[![CI](https://github.com/furyheimdall/jastreamer/actions/workflows/ci.yml/badge.svg?branch=main&event=push)](https://github.com/furyheimdall/jastreamer/actions/workflows/ci.yml)
+[![Go](https://img.shields.io/badge/Go-00ADD8?logo=go&logoColor=white)](https://go.dev/)
+[![TypeScript](https://img.shields.io/badge/TypeScript-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
+[![Python](https://img.shields.io/badge/Python-3776AB?logo=python&logoColor=white)](https://www.python.org/)
+[![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
+
 <img src="assets/jastreamer.svg" width="80" height="80" alt="jastreamer logo" />
 
 jastreamer 0.2.0 is a self-hosted music server for a trusted private LAN. A Server on Linux or Windows indexes administrator-approved local music, serves the Web interface, keeps the queue and playlists in SQLite, and sends audio to one selected network output. UPnP/DLNA is built in, Google Cast can be enabled on either platform, and AirPlay sending is available in the supported Linux container only.
@@ -32,13 +38,12 @@ The phone layout is selected automatically for iPhone and Android phone browsers
 
 Google Cast needs no Chrome or Python helper on either Server platform. Select the newest compatible published Server release from the complete [GitHub Releases listing](https://github.com/furyheimdall/jastreamer/releases), including correctly labelled previews; verify its provenance and pin its exact image digest or verify the package checksum. Never use mutable `latest` or assume `/releases/latest` includes previews.
 
-On ordinary Linux, default the project/config/data to separate directories under the target user's `~/.config/jstreamer`, without assuming sudo. Ask for the music path; if none exists, obtain explicit consent before creating `~/music`. Empty music folders cannot play anything: add music and scan it. Verified releases can seed three test MP3s under `jastreamer-samples` without overwriting files. Preserve existing deployment paths, config, data and music; never recursively change music permissions or expose Server publicly. Full installation and upgrade procedures are in [INSTALL.md](INSTALL.md); agent rules are in [AGENTS.md](AGENTS.md).
+Verified releases can seed three test MP3s under `jastreamer-samples` without overwriting files. Preserve existing deployment paths, config, data and music; never recursively change music permissions or expose Server publicly. Full installation and upgrade procedures are in [INSTALL.md](INSTALL.md); agent rules are in [AGENTS.md](AGENTS.md).
 
 ## Install or update
 
 > Help me install or update jastreamer from https://github.com/furyheimdall/jastreamer.
-> Read [AGENTS.md](AGENTS.md) first, then follow my platform branch in [INSTALL.md](INSTALL.md) (or [INSTALL.ko.md](INSTALL.ko.md) in Korean).
-> Ask for my music path. If I have no music folder, ask permission before creating `~/music`, and explain where to add music and how to scan an empty library. Do not assume sudo or move an existing installation.
+> Read and follow the repository's [AGENTS.md](AGENTS.md) first.
 
 For manual setup, package verification, platform-specific installation, PWA setup, backup, upgrade, and rollback, use the [installation guide](INSTALL.md). For everyday operation and troubleshooting, use the [user guide](INSTRUCTION.md).
 
