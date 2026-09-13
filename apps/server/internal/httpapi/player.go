@@ -20,7 +20,14 @@ func (service *server) renderers(w http.ResponseWriter, r *http.Request) {
 }
 
 func (service *server) refreshRenderers(w http.ResponseWriter, r *http.Request) {
-	go func() { _ = service.options.Devices.Refresh(service.options.Context) }()
+	if !service.mutations.enter() {
+		writeError(w, fault.New(http.StatusConflict, "RESTART_IN_PROGRESS", "A server restart is already in progress."))
+		return
+	}
+	go func() {
+		defer service.mutations.leave()
+		_ = service.options.Devices.Refresh(service.options.Context)
+	}()
 	reply(w, 202, map[string]string{"status": "searching"})
 }
 

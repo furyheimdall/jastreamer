@@ -48,6 +48,70 @@ func (s *Service) Command(ctx context.Context, command Command) (State, error) {
 	return s.Snapshot(ctx)
 }
 
+// StopForRestart stops active playback and waits for the renderer command to
+// reach a durable terminal result. A restart must not tear down the runtime
+// while the physical renderer outcome is still unknown.
+func (s *Service) StopForRestart(ctx context.Context) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	commandID, err := randomID("command")
+	if err != nil {
+		return fmt.Errorf("player: create restart stop identity: %w", err)
+	}
+	now := s.now().UTC().Format(time.RFC3339Nano)
+	s.opMu.Lock()
+	st, err := s.loadState(ctx)
+	var active int
+	if err == nil {
+		err = s.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM player_commands WHERE service_epoch=? AND status IN ('pending','running')", s.epoch).Scan(&active)
+	}
+	if err == nil && active != 0 {
+		err = fault.New(409, "COMMAND_IN_PROGRESS", "Wait for the active playback command to finish.")
+	}
+	if err == nil && st.state == StateStopped {
+		if st.rendererID != "" && st.resumeRequired {
+			err = fmt.Errorf("player: previous renderer stop is unconfirmed: %s", st.errorMessage)
+		} else {
+			s.opMu.Unlock()
+			return nil
+		}
+	}
+	if err == nil {
+		err = s.acceptCommandLocked(ctx, commandID, now, Command{Action: "stop"})
+	}
+	s.opMu.Unlock()
+	if err != nil {
+		return err
+	}
+	s.notify("player")
+	s.signalWorker()
+
+	ticker := time.NewTicker(25 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		var status, message string
+		err = s.db.QueryRowContext(ctx, "SELECT status,error FROM player_commands WHERE command_id=?", commandID).Scan(&status, &message)
+		if err != nil {
+			return fmt.Errorf("player: inspect restart stop: %w", err)
+		}
+		switch status {
+		case "succeeded":
+			return nil
+		case "failed", "unknown":
+			if message == "" {
+				message = "The renderer stop did not produce a confirmed result."
+			}
+			return fmt.Errorf("player: restart stop was not confirmed: %s", message)
+		}
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("player: wait for restart stop: %w", ctx.Err())
+		case <-ticker.C:
+		}
+	}
+}
+
 func validCommand(command Command) error {
 	switch command.Action {
 	case "play", "pause", "stop", "next", "previous":

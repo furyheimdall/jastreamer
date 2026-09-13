@@ -92,3 +92,36 @@ test("first-account form, session restoration, logout, and login work in the rea
   await page.getByRole("button", { name: "Sign in", exact: true }).click();
   await expect(page.getByLabel("Output device", { exact: true })).toBeVisible();
 });
+
+test("a later configuration change restores restart controls without remounting Settings", async ({ page, context }) => {
+  await page.goto(origin, { waitUntil: "domcontentloaded" });
+  await expect(page.getByLabel("Username", { exact: true })).toBeVisible();
+  const needsSetup = await page.getByLabel("Confirm password", { exact: true }).count() > 0;
+  await page.getByLabel("Username", { exact: true }).fill("browser-smoke");
+  await page.getByLabel("Password", { exact: true }).fill("browser-smoke-password");
+  if (needsSetup) await page.getByLabel("Confirm password", { exact: true }).fill("browser-smoke-password");
+  await page.getByRole("button", { name: needsSetup ? "Create account" : "Sign in", exact: true }).click();
+  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  await page.locator("#server-name").fill("First restart");
+  await page.getByRole("button", { name: "Save settings", exact: true }).click();
+  await page.getByRole("button", { name: "Restart server", exact: true }).click();
+  await page.getByRole("button", { name: "Restart now", exact: true }).click();
+  await expect(page.locator(".restart-result.is-success")).toBeVisible();
+
+  const other = await context.newPage();
+  try {
+    await other.goto(origin, { waitUntil: "domcontentloaded" });
+    await other.getByRole("button", { name: "Settings", exact: true }).click();
+    await other.locator("#server-name").fill("Second Control change");
+    await other.getByRole("button", { name: "Save settings", exact: true }).click();
+
+    await expect(page.locator("#server-name")).toHaveValue("Second Control change");
+    await expect(page.getByRole("button", { name: "Restart server", exact: true })).toBeEnabled();
+    await expect(page.locator(".restart-result.is-success")).toHaveCount(0);
+    await page.getByRole("button", { name: "Restart server", exact: true }).click();
+    await page.getByRole("button", { name: "Restart now", exact: true }).click();
+    await expect(page.locator(".restart-result.is-success")).toBeVisible();
+  } finally {
+    await other.close();
+  }
+});

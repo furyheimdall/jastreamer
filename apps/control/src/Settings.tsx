@@ -3,7 +3,7 @@ import { api, ApiError } from "./api";
 import { useI18n, type Language, type MessageKey } from "./i18n";
 import InstallApp from "./InstallApp";
 import ServerPathPicker from "./ServerPathPicker";
-import type { ConfigDocument, ConfigRoot, FilesystemEntryKind, NetworkInterfacesDocument, ScanJob, ServerConfig } from "./types";
+import type { ConfigDocument, ConfigRoot, FilesystemEntryKind, NetworkInterfacesDocument, RestartResponse, ScanJob, ServerConfig } from "./types";
 
 interface SettingsProps {
   configRevision: number;
@@ -22,6 +22,14 @@ interface OpenPathPicker {
   value: string;
   target: PathPickerTarget;
 }
+
+type RestartStatus =
+  | { kind: "idle" }
+  | { kind: "requesting" }
+  | { kind: "reconnecting" }
+  | { kind: "success" }
+  | { kind: "handoff"; url: string }
+  | { kind: "error"; message: string };
 
 interface PathFieldProps {
   id: string;
@@ -85,6 +93,18 @@ function listenerPort(address: string): string | null {
   return port >= 1 && port <= 65_535 ? match[1] : null;
 }
 
+const restartRequestTimeoutMS = 15_000;
+const restartPollTimeoutMS = 45_000;
+const restartPollIntervalMS = 750;
+
+function reconnectURL(value: string): URL | null {
+  try {
+    const parsed = new URL(value);
+    return parsed.protocol === "http:" || parsed.protocol === "https:" ? parsed : null;
+  } catch {
+    return null;
+  }
+}
 
 export default function Settings({ configRevision, libraryRevision, onNotice, onSignedOut }: SettingsProps) {
   const { language, locale, t, setLanguage } = useI18n();
@@ -96,7 +116,9 @@ export default function Settings({ configRevision, libraryRevision, onNotice, on
   const [scanBusy, setScanBusy] = useState("");
   const [error, setError] = useState("");
   const [remoteConfigPending, setRemoteConfigPending] = useState(false);
-  const [restartRequired, setRestartRequired] = useState(false);
+  const [restartArmed, setRestartArmed] = useState(false);
+  const [restartStatus, setRestartStatus] = useState<RestartStatus>({ kind: "idle" });
+  const [restartRetryBlocked, setRestartRetryBlocked] = useState(false);
   const [interfacesText, setInterfacesText] = useState("");
   const [cidrsText, setCidrsText] = useState("");
   const [currentPassword, setCurrentPassword] = useState("");
@@ -109,8 +131,24 @@ export default function Settings({ configRevision, libraryRevision, onNotice, on
   const [networkInterfacesLoading, setNetworkInterfacesLoading] = useState(true);
   const [networkInterfacesError, setNetworkInterfacesError] = useState("");
   const [networkInterfacesRequest, setNetworkInterfacesRequest] = useState(0);
+  const mountedRef = useRef(true);
   const configDirtyRef = useRef(false);
-  configDirtyRef.current = Boolean(
+  const restartInFlightRef = useRef(false);
+  const restartControllerRef = useRef<AbortController | null>(null);
+  const restartBannerRef = useRef<HTMLDivElement | null>(null);
+  const restartFocusFrameRef = useRef<number | null>(null);
+  const restartButtonRef = useRef<HTMLButtonElement | null>(null);
+  const cancelRestartConfirmation = useCallback(() => {
+    setRestartArmed(false);
+    if (restartFocusFrameRef.current !== null) {
+      window.cancelAnimationFrame(restartFocusFrameRef.current);
+    }
+    restartFocusFrameRef.current = window.requestAnimationFrame(() => {
+      restartFocusFrameRef.current = null;
+      restartButtonRef.current?.focus();
+    });
+  }, []);
+  const configDirty = Boolean(
     document
     && draft
     && (
@@ -119,6 +157,10 @@ export default function Settings({ configRevision, libraryRevision, onNotice, on
       || cidrsText !== listText(document.config.network.allowed_cidrs)
     ),
   );
+  const restartInFlight = restartStatus.kind === "requesting" || restartStatus.kind === "reconnecting";
+  configDirtyRef.current = configDirty;
+  restartInFlightRef.current = restartInFlight;
+  const restartMutationsDisabled = restartInFlight || restartStatus.kind === "handoff";
 
   const loadConfig = useCallback(async () => {
     try {
@@ -129,6 +171,9 @@ export default function Settings({ configRevision, libraryRevision, onNotice, on
       setCidrsText(listText(next.config.network.allowed_cidrs));
       setError("");
       setRemoteConfigPending(false);
+      setRestartArmed(false);
+      setRestartRetryBlocked(false);
+      setRestartStatus((current) => next.restart_required && current.kind === "success" ? { kind: "idle" } : current);
     } catch (requestError) {
       setError(requestMessage(requestError, t));
     } finally {
@@ -141,11 +186,12 @@ export default function Settings({ configRevision, libraryRevision, onNotice, on
       const result = await api<{ items: ScanJob[] }>("/library/scans");
       setScans(result.items ?? []);
     } catch (requestError) {
-      setError(requestMessage(requestError, t));
+      if (!restartInFlightRef.current) setError(requestMessage(requestError, t));
     }
   }, [t]);
 
   useEffect(() => {
+    if (restartInFlightRef.current) return;
     if (configDirtyRef.current) {
       setRemoteConfigPending(true);
       return;
@@ -154,14 +200,15 @@ export default function Settings({ configRevision, libraryRevision, onNotice, on
   }, [configRevision, loadConfig]);
 
   useEffect(() => {
+    if (restartMutationsDisabled) return;
     void loadScans();
-  }, [libraryRevision, loadScans]);
+  }, [libraryRevision, loadScans, restartMutationsDisabled]);
 
   useEffect(() => {
-    if (!scans.some((scan) => scan.status === "queued" || scan.status === "running")) return;
+    if (restartMutationsDisabled || !scans.some((scan) => scan.status === "queued" || scan.status === "running")) return;
     const timer = window.setInterval(() => void loadScans(), 2500);
     return () => window.clearInterval(timer);
-  }, [loadScans, scans]);
+  }, [loadScans, restartMutationsDisabled, scans]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -184,6 +231,29 @@ export default function Settings({ configRevision, libraryRevision, onNotice, on
       controller.abort();
     };
   }, [networkInterfacesRequest, t]);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      restartControllerRef.current?.abort();
+      if (restartFocusFrameRef.current !== null) {
+        window.cancelAnimationFrame(restartFocusFrameRef.current);
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!restartArmed) return;
+    function cancelWithEscape(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        cancelRestartConfirmation();
+      }
+    }
+    window.document.addEventListener("keydown", cancelWithEscape);
+    return () => window.document.removeEventListener("keydown", cancelWithEscape);
+  }, [cancelRestartConfirmation, restartArmed]);
 
   function updateDraft(update: (config: ServerConfig) => ServerConfig) {
     setDraft((current) => (current ? update(current) : current));
@@ -234,7 +304,7 @@ export default function Settings({ configRevision, libraryRevision, onNotice, on
 
   async function saveConfig(event: FormEvent) {
     event.preventDefault();
-    if (!document || !draft) return;
+    if (!document || !draft || restartInFlightRef.current || restartStatus.kind === "handoff") return;
     setSaving(true);
     try {
       const next = await api<ConfigDocument>("/config", {
@@ -246,9 +316,27 @@ export default function Settings({ configRevision, libraryRevision, onNotice, on
       setDraft(structuredClone(next.config));
       setInterfacesText(listText(next.config.network.interfaces));
       setCidrsText(listText(next.config.network.allowed_cidrs));
-      setRestartRequired(Boolean(next.restart_required));
       setError("");
       setRemoteConfigPending(false);
+      setRestartArmed(false);
+      setRestartStatus({ kind: "idle" });
+      setRestartRetryBlocked(false);
+      if (restartFocusFrameRef.current !== null) {
+        window.cancelAnimationFrame(restartFocusFrameRef.current);
+        restartFocusFrameRef.current = null;
+      }
+      if (next.restart_required) {
+        restartFocusFrameRef.current = window.requestAnimationFrame(() => {
+          restartFocusFrameRef.current = null;
+          const banner = restartBannerRef.current;
+          if (!banner) return;
+          banner.focus({ preventScroll: true });
+          banner.scrollIntoView({
+            behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth",
+            block: "center",
+          });
+        });
+      }
       onNotice(t(next.restart_required ? "settings.savedRestart" : "settings.saved"));
     } catch (requestError) {
       const conflict = requestError instanceof ApiError && requestError.status === 409;
@@ -261,6 +349,165 @@ export default function Settings({ configRevision, libraryRevision, onNotice, on
     } finally {
       setSaving(false);
     }
+  }
+
+  async function restartServer() {
+    if (
+      !document
+      || !document.restart_required
+      || !document.restart_supported
+      || !document.runtime_id
+      || configDirtyRef.current
+      || remoteConfigPending
+      || restartInFlightRef.current
+      || restartRetryBlocked
+    ) {
+      return;
+    }
+
+    const acceptedRevision = document.revision;
+    restartInFlightRef.current = true;
+    setRestartArmed(false);
+    setRestartRetryBlocked(false);
+    setRestartStatus({ kind: "requesting" });
+
+    const requestController = new AbortController();
+    restartControllerRef.current?.abort();
+    restartControllerRef.current = requestController;
+    let requestTimedOut = false;
+    const requestTimer = window.setTimeout(() => {
+      requestTimedOut = true;
+      requestController.abort();
+    }, restartRequestTimeoutMS);
+
+    let accepted: RestartResponse;
+    try {
+      accepted = await api<RestartResponse>("/restart", {
+        method: "POST",
+        body: JSON.stringify({ revision: acceptedRevision }),
+        signal: requestController.signal,
+      });
+    } catch (requestError) {
+      if (!mountedRef.current) return;
+      const ambiguous = requestTimedOut
+        || (requestError instanceof ApiError && requestError.status === 0)
+        || (requestError instanceof DOMException && requestError.name === "AbortError");
+      restartInFlightRef.current = false;
+      setRestartRetryBlocked(ambiguous);
+      const message = ambiguous ? t("settings.restart.ambiguous") : requestMessage(requestError, t);
+      setRestartStatus({ kind: "error", message });
+      onNotice(message, true);
+      return;
+    } finally {
+      window.clearTimeout(requestTimer);
+      if (restartControllerRef.current === requestController) restartControllerRef.current = null;
+    }
+
+    const target = reconnectURL(accepted.reconnect_url);
+    if (!accepted.runtime_id || !target) {
+      restartInFlightRef.current = false;
+      setRestartRetryBlocked(true);
+      const message = t("settings.restart.invalidResponse");
+      setRestartStatus({ kind: "error", message });
+      onNotice(message, true);
+      return;
+    }
+
+    if (target.origin !== window.location.origin) {
+      restartInFlightRef.current = false;
+      setRestartStatus({ kind: "handoff", url: target.href });
+      return;
+    }
+
+    setRestartStatus({ kind: "reconnecting" });
+    const pollController = new AbortController();
+    restartControllerRef.current = pollController;
+    const pollTimer = window.setTimeout(() => {
+      pollController.abort();
+      restartInFlightRef.current = false;
+      setRestartRetryBlocked(true);
+      if (restartControllerRef.current === pollController) restartControllerRef.current = null;
+      if (!mountedRef.current) return;
+      const message = t("settings.restart.timeout");
+      setRestartStatus({ kind: "error", message });
+      onNotice(message, true);
+    }, restartPollTimeoutMS);
+    let nextPollTimer: number | null = null;
+    pollController.signal.addEventListener("abort", () => {
+      window.clearTimeout(pollTimer);
+      if (nextPollTimer !== null) window.clearTimeout(nextPollTimer);
+    }, { once: true });
+
+    async function pollNewRuntime() {
+      nextPollTimer = null;
+      if (pollController.signal.aborted) return;
+      try {
+        const next = await api<ConfigDocument>("/config", { signal: pollController.signal });
+        if (!mountedRef.current || pollController.signal.aborted) return;
+        if (next.restart_error && next.runtime_id && next.runtime_id !== accepted.runtime_id) {
+          restartInFlightRef.current = false;
+          setRestartRetryBlocked(false);
+          window.clearTimeout(pollTimer);
+          if (restartControllerRef.current === pollController) restartControllerRef.current = null;
+          setDocument(next);
+          const message = next.restart_error;
+          setRestartStatus({ kind: "error", message });
+          onNotice(message, true);
+          return;
+        }
+        if (
+          next.runtime_id
+          && next.runtime_id !== accepted.runtime_id
+          && !next.restart_required
+        ) {
+          restartInFlightRef.current = false;
+          setRestartRetryBlocked(false);
+          window.clearTimeout(pollTimer);
+          if (restartControllerRef.current === pollController) restartControllerRef.current = null;
+          setDocument(next);
+          if (!configDirtyRef.current) {
+            setDraft(structuredClone(next.config));
+            setInterfacesText(listText(next.config.network.interfaces));
+            setCidrsText(listText(next.config.network.allowed_cidrs));
+            setRemoteConfigPending(false);
+          }
+          setError("");
+          setRestartStatus({ kind: "success" });
+          onNotice(t("settings.restart.success"));
+          return;
+        }
+      } catch (requestError) {
+        if (
+          !mountedRef.current
+          || pollController.signal.aborted
+          || (requestError instanceof DOMException && requestError.name === "AbortError")
+        ) {
+          return;
+        }
+        const transient = requestError instanceof ApiError
+          && (
+            requestError.status === 0
+            || requestError.status === 502
+            || requestError.status === 503
+            || requestError.status === 504
+          );
+        if (!transient) {
+          restartInFlightRef.current = false;
+          setRestartRetryBlocked(false);
+          window.clearTimeout(pollTimer);
+          pollController.abort();
+          if (restartControllerRef.current === pollController) restartControllerRef.current = null;
+          const message = requestMessage(requestError, t);
+          setRestartStatus({ kind: "error", message });
+          onNotice(message, true);
+          return;
+        }
+        // Network loss and gateway unavailability are expected while the listener is rebuilt.
+      }
+      nextPollTimer = window.setTimeout(() => void pollNewRuntime(), restartPollIntervalMS);
+    }
+
+    void pollNewRuntime();
   }
 
   function addRoot() {
@@ -292,6 +539,7 @@ export default function Settings({ configRevision, libraryRevision, onNotice, on
   }
 
   async function startScan() {
+    if (restartInFlightRef.current || restartStatus.kind === "handoff") return;
     setScanBusy("new");
     try {
       const job = await api<ScanJob>("/library/scans", {
@@ -308,6 +556,7 @@ export default function Settings({ configRevision, libraryRevision, onNotice, on
   }
 
   async function cancelScan(id: string) {
+    if (restartInFlightRef.current || restartStatus.kind === "handoff") return;
     setScanBusy(id);
     try {
       await api<void>(`/library/scans/${encodeURIComponent(id)}`, { method: "DELETE" });
@@ -322,6 +571,7 @@ export default function Settings({ configRevision, libraryRevision, onNotice, on
 
   async function changePassword(event: FormEvent) {
     event.preventDefault();
+    if (restartInFlightRef.current || restartStatus.kind === "handoff") return;
     if (newPassword !== confirmPassword) {
       onNotice(t("settings.account.passwordMismatch"), true);
       return;
@@ -426,6 +676,17 @@ export default function Settings({ configRevision, libraryRevision, onNotice, on
       ? draft.media.base_url
       : "__manual__";
 
+  const restartRequired = Boolean(document?.restart_required);
+  const restartSupported = Boolean(document?.restart_supported);
+  const restartActionDisabled = configDirty
+    || remoteConfigPending
+    || saving
+    || restartInFlight
+    || !document?.runtime_id
+    || restartRetryBlocked;
+  const showRestartPanel = restartRequired
+    || Boolean(document?.restart_error)
+    || restartStatus.kind !== "idle";
   return (
     <section className="content-section settings-page" aria-labelledby="settings-heading">
       {settingsHeader}
@@ -441,9 +702,89 @@ export default function Settings({ configRevision, libraryRevision, onNotice, on
           </button>
         </div>
       )}
-      {restartRequired && (
-        <div className="restart-banner" role="status">
-          {t("settings.restartRequired")}
+      {showRestartPanel && (
+        <div ref={restartBannerRef} className="restart-banner" role="status" aria-live="polite" tabIndex={-1}>
+          <div className="restart-banner-copy">
+            {restartRequired && <span id="restart-required-description">{t("settings.restartRequired")}</span>}
+            {document?.restart_error && restartStatus.kind === "idle" && (
+              <p className="restart-result is-error" role="alert">
+                {t("settings.restart.previousError", { message: document.restart_error })}
+              </p>
+            )}
+            {restartSupported && restartRequired && remoteConfigPending && (
+              <p className="restart-guidance" id="restart-blocked-remote">{t("settings.restart.blockedRemote")}</p>
+            )}
+            {restartSupported && restartRequired && !remoteConfigPending && configDirty && (
+              <p className="restart-guidance" id="restart-blocked-dirty">{t("settings.restart.blockedDirty")}</p>
+            )}
+            {restartStatus.kind === "requesting" && (
+              <p className="restart-result" role="status">{t("settings.restart.requesting")}</p>
+            )}
+            {restartStatus.kind === "reconnecting" && (
+              <p className="restart-result" role="status">{t("settings.restart.reconnecting")}</p>
+            )}
+            {restartStatus.kind === "success" && (
+              <p className="restart-result is-success" role="status">{t("settings.restart.success")}</p>
+            )}
+            {restartStatus.kind === "error" && (
+              <div className="restart-result is-error" role="alert">
+                <strong>{t("settings.restart.failed")}</strong>
+                <span>{restartStatus.message}</span>
+              </div>
+            )}
+            {restartStatus.kind === "handoff" && (
+              <div className="restart-handoff" role="status">
+                <p>{t("settings.restart.handoff")}</p>
+                <code>{restartStatus.url}</code>
+                <a className="button button-primary" href={restartStatus.url}>
+                  {t("settings.restart.handoffLink")}
+                </a>
+              </div>
+            )}
+          </div>
+          {restartSupported && restartRequired && !restartArmed && restartStatus.kind !== "success" && restartStatus.kind !== "handoff" && (
+            <button
+              ref={restartButtonRef}
+              className="button button-primary restart-button"
+              type="button"
+              disabled={restartActionDisabled}
+              aria-describedby={remoteConfigPending
+                ? "restart-required-description restart-blocked-remote"
+                : configDirty
+                  ? "restart-required-description restart-blocked-dirty"
+                  : "restart-required-description"}
+              onClick={() => {
+                setRestartStatus({ kind: "idle" });
+                setRestartArmed(true);
+              }}
+            >
+              {t("settings.restart.action")}
+            </button>
+          )}
+          {restartSupported && restartRequired && restartArmed && (
+            <div
+              className="restart-confirmation"
+              role="group"
+              aria-labelledby="restart-confirmation-title"
+              aria-describedby="restart-confirmation-description"
+            >
+              <strong id="restart-confirmation-title">{t("settings.restart.confirmTitle")}</strong>
+              <p id="restart-confirmation-description">{t("settings.restart.confirmDescription")}</p>
+              <div className="restart-confirmation-actions">
+                <button className="button button-ghost" type="button" autoFocus onClick={cancelRestartConfirmation}>
+                  {t("common.cancel")}
+                </button>
+                <button
+                  className="button button-primary"
+                  type="button"
+                  disabled={restartActionDisabled}
+                  onClick={() => void restartServer()}
+                >
+                  {t("settings.restart.confirmAction")}
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
@@ -908,7 +1249,7 @@ export default function Settings({ configRevision, libraryRevision, onNotice, on
           <button
             className="button button-ghost"
             type="button"
-            disabled={saving}
+            disabled={saving || restartMutationsDisabled}
             onClick={() => {
               setDraft(structuredClone(document?.config ?? draft));
               setInterfacesText(listText((document?.config ?? draft).network.interfaces));
@@ -918,7 +1259,11 @@ export default function Settings({ configRevision, libraryRevision, onNotice, on
           >
             {t("settings.discard")}
           </button>
-          <button className="button button-primary" type="submit" disabled={saving}>
+          <button
+            className="button button-primary"
+            type="submit"
+            disabled={saving || restartMutationsDisabled}
+          >
             {saving ? t("settings.saving") : t("settings.save")}
           </button>
         </div>
@@ -933,7 +1278,7 @@ export default function Settings({ configRevision, libraryRevision, onNotice, on
           <button
             className="button button-primary"
             type="button"
-            disabled={Boolean(scanBusy) || scans.some((scan) => scan.status === "queued" || scan.status === "running")}
+            disabled={restartMutationsDisabled || Boolean(scanBusy) || scans.some((scan) => scan.status === "queued" || scan.status === "running")}
             onClick={() => void startScan()}
           >
             {t(scanBusy === "new" ? "settings.scan.starting" : "settings.scan.start")}
@@ -964,7 +1309,7 @@ export default function Settings({ configRevision, libraryRevision, onNotice, on
                     <button
                       className="button button-ghost danger-button"
                       type="button"
-                      disabled={scanBusy === scan.id}
+                      disabled={restartMutationsDisabled || scanBusy === scan.id}
                       onClick={() => void cancelScan(scan.id)}
                     >
                       {t("settings.scan.cancel")}
@@ -1016,7 +1361,11 @@ export default function Settings({ configRevision, libraryRevision, onNotice, on
               onChange={(event) => setConfirmPassword(event.target.value)}
             />
           </label>
-          <button className="button button-primary" type="submit" disabled={passwordBusy}>
+          <button
+            className="button button-primary"
+            type="submit"
+            disabled={passwordBusy || restartMutationsDisabled}
+          >
             {passwordBusy ? t("settings.account.changing") : t("settings.account.change")}
           </button>
         </form>

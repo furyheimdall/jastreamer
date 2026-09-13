@@ -585,6 +585,9 @@ func TestRecoveredStopClearsServerIntentWithoutClaimingRendererAcknowledgement(t
 	if state.State != StateStopped || state.Error == "" || state.CurrentEntryID != queue.Entries[0].ID {
 		t.Fatalf("recovered stop did not leave a selectable cursor with an honest warning: %#v", state)
 	}
+	if err := recovered.StopForRestart(ctx); err == nil {
+		t.Fatal("server restart accepted a prior unconfirmed physical stop")
+	}
 	devices.mu.Lock()
 	afterCalls := len(devices.calls)
 	devices.mu.Unlock()
@@ -1834,4 +1837,37 @@ func faultCode(err error) string {
 		return public.Code
 	}
 	return ""
+}
+
+func TestStopForRestartRejectsUnconfirmedRendererStop(t *testing.T) {
+	service, _, devices := newPlayerTestService(t)
+	ctx := context.Background()
+	queue, err := service.MutateQueue(ctx, QueueMutation{Action: "append", TrackIDs: []string{"a"}, Revision: 0})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = service.Command(ctx, Command{Action: "play", EntryID: queue.Entries[0].ID}); err != nil {
+		t.Fatal(err)
+	}
+	runAcceptedCommand(t, service)
+	devices.fail["stop"] = output.NewActionError(output.ErrorFault, "Stop", 701, errors.New("renderer rejected stop"))
+	runCtx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		_ = service.Run(runCtx)
+	}()
+	stopCtx, stopCancel := context.WithTimeout(context.Background(), 2*time.Second)
+	err = service.StopForRestart(stopCtx)
+	stopCancel()
+	if err == nil || !strings.Contains(err.Error(), "Stop") || !strings.Contains(err.Error(), "701") {
+		t.Fatalf("restart accepted an unconfirmed renderer stop: %v", err)
+	}
+	select {
+	case <-done:
+		t.Fatal("failed restart stop terminated the running player service")
+	default:
+	}
+	cancel()
+	<-done
 }

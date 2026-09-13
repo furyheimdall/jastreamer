@@ -26,6 +26,40 @@ func roots(value config.Config) []library.Root {
 	return result
 }
 
+func restartRequired(active, saved config.Config) bool {
+	return !reflect.DeepEqual(active, saved)
+}
+
+func (service *server) activeConfigValue() config.Config {
+	service.activeMu.RLock()
+	defer service.activeMu.RUnlock()
+	return service.activeConfig
+}
+
+func (service *server) setActiveRoots(value []config.Root) {
+	service.activeMu.Lock()
+	if value == nil {
+		service.activeConfig.LibraryRoots = nil
+	} else {
+		service.activeConfig.LibraryRoots = append(make([]config.Root, 0, len(value)), value...)
+	}
+	service.activeMu.Unlock()
+}
+
+func (service *server) configResponse(value config.Config) map[string]any {
+	result := map[string]any{
+		"config":            value,
+		"revision":          configRevision(value),
+		"restart_required":  restartRequired(service.activeConfigValue(), value),
+		"restart_supported": service.options.Restart != nil && service.options.Restart.Prepare != nil && service.options.Restart.Commit != nil,
+		"runtime_id":        service.options.RuntimeID,
+	}
+	if service.options.RestartError != "" {
+		result["restart_error"] = service.options.RestartError
+	}
+	return result
+}
+
 func (service *server) getConfig(w http.ResponseWriter, r *http.Request) {
 	service.configMu.Lock()
 	defer service.configMu.Unlock()
@@ -34,7 +68,7 @@ func (service *server) getConfig(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
-	reply(w, 200, map[string]any{"config": value, "revision": configRevision(value)})
+	reply(w, http.StatusOK, service.configResponse(value))
 }
 
 func (service *server) putConfig(w http.ResponseWriter, r *http.Request) {
@@ -64,7 +98,7 @@ func (service *server) putConfig(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
-	if !reflect.DeepEqual(previous.LibraryRoots, body.Config.LibraryRoots) {
+	if !reflect.DeepEqual(service.activeConfigValue().LibraryRoots, body.Config.LibraryRoots) {
 		if err = service.options.Library.SetRoots(roots(body.Config)); err != nil {
 			if restoreErr := config.Save(service.options.ConfigPath, previous); restoreErr != nil {
 				writeError(w, fault.New(500, "CONFIG_RESTART_REQUIRED", "설정은 저장되었으나 라이브러리에 적용하지 못했습니다. 서버를 재시작하세요."))
@@ -74,9 +108,7 @@ func (service *server) putConfig(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	runtime := service.options.Config
-	runtime.LibraryRoots = body.Config.LibraryRoots
-	restart := !reflect.DeepEqual(runtime, body.Config)
+	service.setActiveRoots(body.Config.LibraryRoots)
 	service.options.Events.Publish("config")
-	reply(w, 200, map[string]any{"config": body.Config, "revision": configRevision(body.Config), "restart_required": restart})
+	reply(w, http.StatusOK, service.configResponse(body.Config))
 }

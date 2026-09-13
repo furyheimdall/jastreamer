@@ -370,6 +370,83 @@ textarea.input {
 .restart-banner {
   color: #f8ddb0;
   background: #3c301d;
+  align-items: flex-start;
+  flex-wrap: wrap;
+}
+
+.restart-banner:focus {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+.restart-banner-copy {
+  display: grid;
+  min-width: 0;
+  flex: 1 1 auto;
+  gap: 0.55rem;
+}
+
+.restart-banner-copy :is(p, code) {
+  margin: 0;
+}
+
+.restart-button {
+  flex: 0 0 auto;
+}
+
+.restart-guidance {
+  color: #f3c986;
+  font-size: 0.8rem;
+}
+
+.restart-result {
+  display: grid;
+  color: #f8ddb0;
+  gap: 0.25rem;
+}
+
+.restart-result.is-error {
+  color: #ffb8b8;
+}
+
+.restart-result.is-success {
+  color: #c8edb2;
+}
+
+.restart-confirmation,
+.restart-handoff {
+  display: grid;
+  padding-top: 0.75rem;
+  border-top: 1px solid #f8ddb02e;
+  gap: 0.65rem;
+}
+
+.restart-confirmation {
+  flex: 1 0 100%;
+}
+
+.restart-confirmation p,
+.restart-handoff p {
+  line-height: 1.55;
+}
+
+.restart-confirmation-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.55rem;
+}
+
+.restart-handoff code {
+  padding: 0.55rem 0.65rem;
+  border-radius: 0.45rem;
+  color: var(--text);
+  background: #0004;
+  overflow-wrap: anywhere;
+}
+
+.restart-handoff .button {
+  justify-self: start;
 }
 
 .offline-banner {
@@ -1354,6 +1431,22 @@ body:has([aria-modal="true"]) {
   .queue-heading-row > .button,
   .settings-card-heading > .button {
     width: 100%;
+  }
+
+  .restart-banner {
+    flex-direction: column;
+  }
+
+  .restart-button,
+  .restart-confirmation-actions,
+  .restart-confirmation-actions .button,
+  .restart-handoff .button {
+    width: 100%;
+  }
+
+  .restart-confirmation-actions {
+    display: grid;
+    grid-template-columns: 1fr;
   }
 
   .server-interface-heading {
