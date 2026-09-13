@@ -33,5 +33,8 @@
   "airplay": {
     "enabled": true,
     "helper_path": "/usr/local/bin/jastreamer-airplay"
+  },
+  "cast": {
+    "enabled": false
   }
 }

@@ -59,6 +59,10 @@ type AirPlay struct {
 	HelperPath string `json:"helper_path"`
 }
 
+type Cast struct {
+	Enabled bool `json:"enabled"`
+}
+
 type Config struct {
 	Version      int     `json:"version"`
 	DataDir      string  `json:"data_dir"`
@@ -69,6 +73,7 @@ type Config struct {
 	Network      Network `json:"network"`
 	Media        Media   `json:"media"`
 	AirPlay      AirPlay `json:"airplay"`
+	Cast         Cast    `json:"cast"`
 }
 
 func Default() Config {
@@ -86,6 +91,7 @@ func Default() Config {
 		},
 		Media:   Media{},
 		AirPlay: AirPlay{},
+		Cast:    Cast{},
 	}
 }
 

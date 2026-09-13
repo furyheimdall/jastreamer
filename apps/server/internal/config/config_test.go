@@ -1,8 +1,10 @@
 package config_test
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
+	"reflect"
 	"runtime"
 	"strings"
 	"testing"
@@ -100,6 +102,47 @@ func TestValidateAirPlayRequiresExecutableHelperAndFFmpeg(t *testing.T) {
 	value.Media.FFmpegPath = ffmpeg
 	if err := config.Validate(value); err != nil {
 		t.Fatalf("enabled AirPlay with executable helper and FFmpeg rejected: %v", err)
+	}
+}
+
+func TestLoadLegacyConfigDefaultsCastWithoutChangingState(t *testing.T) {
+	directory := t.TempDir()
+	path := filepath.Join(directory, "server.json")
+	expected := config.Default()
+	expected.DataDir = filepath.Join(directory, "data")
+	expected.ServerName = "Legacy server"
+	expected.LibraryRoots = []config.Root{{
+		ID:   "music",
+		Name: "Music",
+		Path: filepath.Join(directory, "music"),
+	}}
+	expected.Network.Interfaces = []string{"ethernet0"}
+	expected.Network.AllowedCIDRs = []string{"192.168.0.0/16"}
+	expected.AirPlay.HelperPath = filepath.Join(directory, "airplay-helper")
+
+	encoded, err := json.Marshal(expected)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var legacy map[string]json.RawMessage
+	if err := json.Unmarshal(encoded, &legacy); err != nil {
+		t.Fatal(err)
+	}
+	delete(legacy, "cast")
+	encoded, err = json.Marshal(legacy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, encoded, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	loaded, err := config.Load(path)
+	if err != nil {
+		t.Fatalf("load config without cast field: %v", err)
+	}
+	if !reflect.DeepEqual(loaded, expected) {
+		t.Fatalf("legacy config state changed:\nloaded:   %#v\nexpected: %#v", loaded, expected)
 	}
 }
 

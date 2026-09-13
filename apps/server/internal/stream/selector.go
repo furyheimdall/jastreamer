@@ -5,14 +5,28 @@ import (
 	"mime"
 	"strings"
 
+	"github.com/jastreamer/jastreamer-server/internal/fault"
 	"github.com/jastreamer/jastreamer-server/internal/library"
+	"github.com/jastreamer/jastreamer-server/internal/output"
 )
 
-const l16Mime = "audio/L16;rate=44100;channels=2"
+const (
+	l16Mime = "audio/L16;rate=44100;channels=2"
+	wavMime = "audio/wav"
+)
+
+type transcodeFormat uint8
+
+const (
+	transcodeNone transcodeFormat = iota
+	transcodeL16
+	transcodeWAV
+)
 
 type representation struct {
 	mime        string
 	transformed bool
+	transcode   transcodeFormat
 }
 
 type sourceSpec struct {
@@ -21,18 +35,96 @@ type sourceSpec struct {
 	aliases   []string
 }
 
-func selectRepresentation(track library.Track, protocolInfo []string, transcode bool) (representation, error) {
+func selectRepresentation(track library.Track, audio library.AudioProperties, protocol string, protocolInfo []string, transcode bool) (representation, error) {
 	spec, err := trackSourceSpec(track)
 	if err != nil {
 		return representation{}, err
+	}
+	if protocol == output.ProtocolCast {
+		if selected, reason := supportedCastOriginal(spec, audio); selected != "" {
+			return representation{mime: selected}, nil
+		} else if transcode {
+			return representation{mime: wavMime, transformed: true, transcode: transcodeWAV}, nil
+		} else {
+			return representation{}, fmt.Errorf("%w: %w", ErrUnsupportedMedia,
+				fault.New(415, "MEDIA_UNSUPPORTED", fmt.Sprintf("Google Cast cannot play %s natively: %s", spec.canonical, reason)))
+		}
 	}
 	if selected, ok := supportedOriginal(spec, protocolInfo); ok {
 		return representation{mime: selected}, nil
 	}
 	if transcode && supportsL16(protocolInfo) {
-		return representation{mime: l16Mime, transformed: true}, nil
+		return representation{mime: l16Mime, transformed: true, transcode: transcodeL16}, nil
 	}
 	return representation{}, fmt.Errorf("%w: renderer advertises no compatible sink for %s", ErrUnsupportedMedia, spec.canonical)
+}
+
+func supportedCastOriginal(spec sourceSpec, audio library.AudioProperties) (string, string) {
+	codec := strings.ToLower(strings.TrimSpace(audio.Codec))
+	if audio.SampleRate == nil || *audio.SampleRate <= 0 {
+		return "", "sample rate metadata is unavailable"
+	}
+	if audio.Channels == nil || *audio.Channels < 1 || *audio.Channels > 2 {
+		return "", "channel metadata is unavailable or exceeds stereo"
+	}
+	switch spec.format {
+	case "flac":
+		if codec != "flac" {
+			return "", "the source is not verified FLAC"
+		}
+		if *audio.SampleRate > 96_000 {
+			return "", "FLAC sample rate exceeds 96 kHz"
+		}
+		if audio.BitsPerSample == nil || *audio.BitsPerSample < 1 || *audio.BitsPerSample > 24 {
+			return "", "FLAC bit depth is unavailable or exceeds 24-bit"
+		}
+		return "audio/flac", ""
+	case "mp3":
+		if codec != "mp3" {
+			return "", "the source is not verified MP3"
+		}
+		if *audio.SampleRate > 48_000 {
+			return "", "MP3 sample rate exceeds 48 kHz"
+		}
+		return "audio/mpeg", ""
+	case "wav":
+		if codec != "pcm" {
+			return "", "the WAV source is not verified LPCM"
+		}
+		if *audio.SampleRate > 48_000 {
+			return "", "WAV sample rate exceeds 48 kHz"
+		}
+		if audio.BitsPerSample == nil || *audio.BitsPerSample < 1 || *audio.BitsPerSample > 16 {
+			return "", "WAV bit depth is unavailable or exceeds the conservative 16-bit native limit"
+		}
+		return wavMime, ""
+	case "ogg":
+		if codec != "vorbis" {
+			return "", "the Ogg source is not verified Vorbis"
+		}
+		if *audio.SampleRate > 48_000 {
+			return "", "Vorbis sample rate exceeds 48 kHz"
+		}
+		return "audio/ogg; codecs=vorbis", ""
+	case "opus":
+		if codec != "opus" {
+			return "", "the Ogg source is not verified Opus"
+		}
+		if *audio.SampleRate > 48_000 {
+			return "", "Opus sample rate exceeds 48 kHz"
+		}
+		return "audio/ogg; codecs=opus", ""
+	case "m4a":
+		if codec != "aac" {
+			return "", "the MP4 source is not verified AAC"
+		}
+		if *audio.SampleRate > 48_000 {
+			return "", "AAC sample rate exceeds 48 kHz"
+		}
+		return "audio/mp4", ""
+	default:
+		return "", "the source container is unsupported"
+	}
 }
 
 func trackSourceSpec(track library.Track) (sourceSpec, error) {

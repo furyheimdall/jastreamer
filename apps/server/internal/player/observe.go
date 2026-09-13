@@ -423,7 +423,7 @@ func (s *Service) commitInterruptedObservation(ctx context.Context, tx *sql.Tx, 
 }
 
 func (s *Service) observeTerminalPosition(st storedState, observation output.Observation, idle bool) bool {
-	if !idle || st.resumeRequired || st.state != StatePlaying || st.playID == "" ||
+	if !idle || observation.CompletionKnown || st.resumeRequired || st.state != StatePlaying || st.playID == "" ||
 		normalizeObservedState(observation.State) != "playing" ||
 		!observation.HasURI || observation.URI != st.currentURI || !observation.HasPosition ||
 		observation.DurationMS <= 0 || observation.PositionMS < observation.DurationMS ||
@@ -513,6 +513,12 @@ func (s *Service) commitNaturalEnd(ctx context.Context, tx *sql.Tx, st storedSta
 }
 
 func reliableNaturalEnd(st storedState, observation output.Observation) bool {
+	if observation.CompletionKnown {
+		return observation.Completed && normalizeObservedState(observation.State) == "stopped" &&
+			st.playID != "" && st.currentEntryID != "" && st.currentURI != "" &&
+			observation.HasURI && observation.URI == st.currentURI &&
+			!strings.EqualFold(strings.TrimSpace(observation.TransportStatus), "ERROR_OCCURRED")
+	}
 	if st.playID == "" || st.currentEntryID == "" || normalizeObservedState(st.lastObservedState) != "playing" || !st.lastObservedHasPosition {
 		return false
 	}

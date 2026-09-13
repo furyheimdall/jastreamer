@@ -274,7 +274,7 @@ func (manager *Manager) backendForID(id string) (Backend, Device, error) {
 }
 
 func validBackend(backend Backend) bool {
-	return backend.Controller != nil && (backend.Protocol == ProtocolUPnP || backend.Protocol == ProtocolAirPlay)
+	return backend.Controller != nil && (backend.Protocol == ProtocolUPnP || backend.Protocol == ProtocolAirPlay || backend.Protocol == ProtocolCast)
 }
 
 func (manager *Manager) valid() bool {

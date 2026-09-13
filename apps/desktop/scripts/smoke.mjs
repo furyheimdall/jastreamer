@@ -28,6 +28,27 @@ async function until(callback, message, timeout = 15000) {
   }
   throw new Error(message);
 }
+async function withWindowsFileUnlock(operation) {
+  let lastLock;
+  try {
+    await until(async () => {
+      try {
+        await operation();
+        return true;
+      } catch (error) {
+        if (process.platform !== 'win32' || !['EPERM', 'EBUSY'].includes(error.code)) throw error;
+        // Hosted-runner processes can retain file handles after every app process exits.
+        if (!lastLock) console.log(JSON.stringify({ waitingForWindowsFileUnlock: error.code, path: error.path }));
+        lastLock = error;
+        return false;
+      }
+    }, 'Windows filesystem lock did not clear after application exit');
+  } catch (error) {
+    if (lastLock) error.cause = lastLock;
+    throw error;
+  }
+  if (lastLock) console.log(JSON.stringify({ windowsFileLockCleared: true }));
+}
 async function freePort() {
   const listener = createTCPServer();
   listener.listen(0, '127.0.0.1');
@@ -164,7 +185,7 @@ try {
   await closeApplication();
   assert.deepEqual(commands, [], 'Switching and closing must not send queue or playback commands');
   const moved = path.join(work, 'moved portable with spaces');
-  await rename(portable, moved);
+  await withWindowsFileUnlock(() => rename(portable, moved));
   portable = moved;
   shell = await launch();
   assert.equal(await shell.locator("#language").inputValue(), "ko", "Portable restart must retain the language preference");
@@ -188,5 +209,5 @@ try {
       if (child.exitCode === null) child.kill('SIGKILL');
     }
   }
-  await rm(work, { recursive: true, force: true });
+  await withWindowsFileUnlock(() => rm(work, { recursive: true, force: true }));
 }

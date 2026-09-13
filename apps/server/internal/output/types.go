@@ -11,6 +11,7 @@ import (
 const (
 	ProtocolUPnP    = "upnp"
 	ProtocolAirPlay = "airplay"
+	ProtocolCast    = "cast"
 )
 
 type Resource struct {
@@ -60,6 +61,9 @@ type Observation struct {
 	HasPosition     bool      `json:"has_position"`
 	ObservedAt      time.Time `json:"observed_at"`
 	TransportStatus string    `json:"transport_status"`
+	// Explicit completion evidence is meaningful only for the observed owned URI.
+	CompletionKnown bool `json:"-"`
+	Completed       bool `json:"-"`
 }
 
 type ErrorKind string

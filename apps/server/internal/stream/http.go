@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -26,11 +27,6 @@ func (service *Service) Handler() http.Handler {
 
 func (service *Service) serveHTTP(writer http.ResponseWriter, request *http.Request) {
 	writer.Header().Set("X-Content-Type-Options", "nosniff")
-	if request.Method != http.MethodGet && request.Method != http.MethodHead {
-		writer.Header().Set("Allow", "GET, HEAD")
-		writeStreamError(writer, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED")
-		return
-	}
 	token, artwork, ok := mediaRequest(request.URL.Path)
 	if !ok {
 		writeStreamError(writer, http.StatusNotFound, "MEDIA_NOT_FOUND")
@@ -46,6 +42,31 @@ func (service *Service) serveHTTP(writer http.ResponseWriter, request *http.Requ
 	remoteIP, err := rendererIP(request.RemoteAddr)
 	if err != nil || remoteIP != value.sourceIP {
 		writeStreamError(writer, http.StatusForbidden, "MEDIA_FORBIDDEN")
+		return
+	}
+	if artwork && value.artwork == nil {
+		writeStreamError(writer, http.StatusNotFound, "MEDIA_NOT_FOUND")
+		return
+	}
+	if value.cast {
+		if !serveCastCORS(writer, request) {
+			return
+		}
+	} else if !allowSameOriginMediaRequest(request) {
+		writeStreamError(writer, http.StatusForbidden, "ORIGIN_NOT_ALLOWED")
+		return
+	}
+	if request.Method == http.MethodOptions {
+		writer.WriteHeader(http.StatusNoContent)
+		return
+	}
+	if request.Method != http.MethodGet && request.Method != http.MethodHead {
+		allowed := "GET, HEAD"
+		if value.cast {
+			allowed += ", OPTIONS"
+		}
+		writer.Header().Set("Allow", allowed)
+		writeStreamError(writer, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED")
 		return
 	}
 	ctx, cancel := context.WithCancel(request.Context())
@@ -75,10 +96,90 @@ func (service *Service) serveHTTP(writer http.ResponseWriter, request *http.Requ
 
 	writer.Header().Set("Cache-Control", "private, no-store")
 	if value.representation.transformed {
-		service.serveTransformed(writer, request, ctx, file, value.representation.mime)
+		service.serveTransformed(writer, request, ctx, file, value.representation)
 		return
 	}
 	service.serveOriginal(writer, request, ctx, file, track.Size, value.representation.mime)
+}
+
+func serveCastCORS(writer http.ResponseWriter, request *http.Request) bool {
+	origin, present, valid := corsOrigin(request)
+	if !valid {
+		writeStreamError(writer, http.StatusForbidden, "ORIGIN_NOT_ALLOWED")
+		return false
+	}
+	if request.Method == http.MethodOptions {
+		if !present || !validCastPreflight(request) {
+			writeStreamError(writer, http.StatusForbidden, "ORIGIN_NOT_ALLOWED")
+			return false
+		}
+		writer.Header().Set("Allow", "GET, HEAD, OPTIONS")
+		writer.Header().Set("Access-Control-Allow-Methods", "GET, HEAD")
+		writer.Header().Set("Access-Control-Allow-Headers", "Content-Type, Accept-Encoding, Range")
+		writer.Header().Set("Access-Control-Max-Age", "600")
+	} else if request.Method != http.MethodGet && request.Method != http.MethodHead {
+		return true
+	}
+	if present {
+		writer.Header().Set("Access-Control-Allow-Origin", origin)
+		writer.Header().Add("Vary", "Origin")
+		writer.Header().Set("Access-Control-Expose-Headers", "Accept-Ranges, Content-Length, Content-Range, Content-Type")
+	}
+	return true
+}
+
+func validCastPreflight(request *http.Request) bool {
+	methods := request.Header.Values("Access-Control-Request-Method")
+	if len(methods) != 1 || (methods[0] != http.MethodGet && methods[0] != http.MethodHead) {
+		return false
+	}
+	for _, line := range request.Header.Values("Access-Control-Request-Headers") {
+		for value := range strings.SplitSeq(line, ",") {
+			switch strings.ToLower(strings.TrimSpace(value)) {
+			case "content-type", "accept-encoding", "range":
+			default:
+				return false
+			}
+		}
+	}
+	return true
+}
+
+func allowSameOriginMediaRequest(request *http.Request) bool {
+	if request.Method == http.MethodOptions || request.Header.Get("Sec-Fetch-Site") == "cross-site" {
+		return false
+	}
+	origin, present, valid := corsOrigin(request)
+	if !valid || !present {
+		return valid
+	}
+	scheme := "http"
+	if request.TLS != nil {
+		scheme = "https"
+	}
+	parsed, _ := url.Parse(origin)
+	return parsed.Scheme == scheme && strings.EqualFold(parsed.Host, request.Host)
+}
+
+func corsOrigin(request *http.Request) (string, bool, bool) {
+	values := request.Header.Values("Origin")
+	if len(values) == 0 {
+		return "", false, true
+	}
+	if len(values) != 1 {
+		return "", true, false
+	}
+	origin := strings.TrimSpace(values[0])
+	if origin == "" || strings.Contains(origin, ",") {
+		return "", true, false
+	}
+	parsed, err := url.Parse(origin)
+	if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" ||
+		parsed.User != nil || parsed.Path != "" || parsed.RawPath != "" || parsed.RawQuery != "" ||
+		parsed.ForceQuery || parsed.Fragment != "" || parsed.Opaque != "" {
+		return "", true, false
+	}
+	return origin, true, true
 }
 
 func interruptWriteOnCancel(ctx context.Context, writer http.ResponseWriter) func() {
@@ -209,17 +310,20 @@ func (service *Service) serveOriginal(writer http.ResponseWriter, request *http.
 	_ = copyFileRange(ctx, writer, file, selected.length)
 }
 
-func (service *Service) serveTransformed(writer http.ResponseWriter, request *http.Request, ctx context.Context, file *os.File, mime string) {
-	if request.Header.Get("Range") != "" {
+func (service *Service) serveTransformed(writer http.ResponseWriter, request *http.Request, ctx context.Context, file *os.File, selected representation) {
+	// Chromium opens even nonseekable media with a byte-zero range. A complete
+	// 200 response is valid for that initial stream; nonzero seeks remain denied.
+	initialCastRange := selected.transcode == transcodeWAV && request.Header.Get("Range") == "bytes=0-"
+	if request.Header.Get("Range") != "" && !initialCastRange {
 		writeStreamError(writer, http.StatusRequestedRangeNotSatisfiable, "MEDIA_RANGE_UNSUPPORTED")
 		return
 	}
-	writer.Header().Set("Content-Type", mime)
+	writer.Header().Set("Content-Type", selected.mime)
 	if request.Method == http.MethodHead {
 		writer.WriteHeader(http.StatusOK)
 		return
 	}
-	stream, err := service.ffmpeg.open(ctx, file)
+	stream, err := service.ffmpeg.open(ctx, file, selected.transcode)
 	if err != nil {
 		writeStreamError(writer, streamErrorStatus(err), streamErrorCode(err))
 		return
