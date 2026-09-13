@@ -242,6 +242,23 @@ class ActualWebUiSmokeTest {
     }
 
     private fun screenshot(name: String) {
+        val committed = CountDownLatch(1)
+        scenario.onActivity { activity ->
+            val root = activity.window.decorView
+            val commitFrame = {
+                root.viewTreeObserver.registerFrameCommitCallback { committed.countDown() }
+                root.invalidate()
+            }
+            val browser = webView(root)
+            if (browser == null) {
+                commitFrame()
+            } else {
+                browser.postVisualStateCallback(0, object : WebView.VisualStateCallback() {
+                    override fun onComplete(requestId: Long) { commitFrame() }
+                })
+            }
+        }
+        assertTrue("Rendered Android frame did not commit", committed.await(10, TimeUnit.SECONDS))
         instrumentation.waitForIdleSync()
         val bitmap = requireNotNull(instrumentation.uiAutomation.takeScreenshot()) { "Emulator screenshot unavailable" }
         val resolver = instrumentation.targetContext.contentResolver
