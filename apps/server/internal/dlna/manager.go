@@ -240,7 +240,36 @@ func (manager *Manager) Stop(ctx context.Context, id string) error {
 	if err != nil {
 		return err
 	}
-	return manager.control(ctx, record, "Stop", []soapArgument{{name: "InstanceID", value: "0"}})
+	actionContext, cancel := context.WithTimeout(ctx, actionTimeout)
+	defer cancel()
+	if _, err := manager.soap(actionContext, record, "Stop", []soapArgument{{name: "InstanceID", value: "0"}}); err != nil {
+		return err
+	}
+	// A successful SOAP response accepts Stop; it need not mean the renderer
+	// has stopped yet. Keep the command pending until its transport confirms it.
+	ticker := time.NewTicker(100 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		observation, err := manager.observeTransport(actionContext, record)
+		if err != nil {
+			return err
+		}
+		if !strings.EqualFold(observation.TransportStatus, "OK") {
+			return output.NewActionError(output.ErrorResponse, "Stop", 0, ErrInvalidResponse)
+		}
+		switch observation.State {
+		case "stopped":
+			return nil
+		case "playing", "paused", "transitioning":
+		default:
+			return output.NewActionError(output.ErrorResponse, "Stop", 0, ErrInvalidResponse)
+		}
+		select {
+		case <-actionContext.Done():
+			return classifyActionError(actionContext, "Stop", actionContext.Err())
+		case <-ticker.C:
+		}
+	}
 }
 
 func (manager *Manager) Seek(ctx context.Context, id string, positionMS int64) error {
@@ -256,14 +285,8 @@ func (manager *Manager) Seek(ctx context.Context, id string, positionMS int64) e
 	})
 }
 
-func (manager *Manager) Observe(ctx context.Context, id string) (output.Observation, error) {
-	record, err := manager.controlRecord(id, "GetTransportInfo")
-	if err != nil {
-		return output.Observation{}, err
-	}
-	observeContext, cancel := context.WithTimeout(ctx, actionTimeout)
-	defer cancel()
-	transportData, err := manager.soap(observeContext, record, "GetTransportInfo", []soapArgument{{name: "InstanceID", value: "0"}})
+func (manager *Manager) observeTransport(ctx context.Context, record deviceRecord) (output.Observation, error) {
+	data, err := manager.soap(ctx, record, "GetTransportInfo", []soapArgument{{name: "InstanceID", value: "0"}})
 	if err != nil {
 		return output.Observation{}, err
 	}
@@ -271,13 +294,26 @@ func (manager *Manager) Observe(ctx context.Context, id string) (output.Observat
 		State  string `xml:"Body>GetTransportInfoResponse>CurrentTransportState"`
 		Status string `xml:"Body>GetTransportInfoResponse>CurrentTransportStatus"`
 	}
-	if err := decodeSafeXML(bytes.NewReader(transportData), &transport); err != nil || strings.TrimSpace(transport.State) == "" {
+	if err := decodeSafeXML(bytes.NewReader(data), &transport); err != nil || strings.TrimSpace(transport.State) == "" {
 		return output.Observation{}, output.NewActionError(output.ErrorResponse, "GetTransportInfo", 0, ErrInvalidResponse)
 	}
-	observation := output.Observation{
+	return output.Observation{
 		State:           normalizeTransportState(transport.State),
 		TransportStatus: strings.TrimSpace(transport.Status),
 		ObservedAt:      manager.now(),
+	}, nil
+}
+
+func (manager *Manager) Observe(ctx context.Context, id string) (output.Observation, error) {
+	record, err := manager.controlRecord(id, "GetTransportInfo")
+	if err != nil {
+		return output.Observation{}, err
+	}
+	observeContext, cancel := context.WithTimeout(ctx, actionTimeout)
+	defer cancel()
+	observation, err := manager.observeTransport(observeContext, record)
+	if err != nil {
+		return output.Observation{}, err
 	}
 	hasDuration := false
 	if record.queries["GetPositionInfo"] {
