@@ -2,7 +2,7 @@
 
 [한국어 사용자 안내서](INSTRUCTION.ko.md) · [Project overview](README.md)
 
-jastreamer runs a Server on Linux or native Windows. Both host the embedded Web interface and send music to UPnP/DLNA outputs. AirPlay sending is available only in the Linux container package. Optional Windows and Linux desktop clients only connect to a Server.
+jastreamer runs a Server on Linux or native Windows. Both host the embedded Web interface, send music to UPnP/DLNA outputs, and can optionally enable Google Cast. AirPlay sending is available only in the Linux container package. Optional Windows and Linux desktop clients only connect to a Server.
 
 ## 1. Requirements and safety
 
@@ -29,7 +29,7 @@ docker pull "$JASTREAMER_SERVER_IMAGE"
 docker image inspect --format '{{.Os}}/{{.Architecture}} {{.Id}}' "$JASTREAMER_SERVER_IMAGE"
 ```
 
-The multi-platform Linux image selects `amd64` or `arm64` for the host. Keep the exact digest in the deployment's persistent environment settings; do not install FFmpeg or Python separately on the host. Download the Windows Server or desktop files and their checksums only from the same release.
+The multi-platform Linux image selects `amd64` or `arm64` for the host. Keep the exact digest in the deployment's persistent environment settings; do not install FFmpeg or Python separately on the host. Google Cast itself needs no Chrome or Python helper. Download the Windows Server or desktop files and their checksums only from the same release.
 
 ### Supplied offline artifacts
 
@@ -71,9 +71,9 @@ if ($actual -ne $expected) { throw 'Windows Server ZIP checksum mismatch' }
 
 Extract the complete ZIP to a new writable local folder, then run `start-server.cmd` as the ordinary account that will operate the Server. Do not run inside the ZIP, copy only the EXE, run as Administrator, or weaken SmartScreen/Defender globally. On first launch only, the launcher atomically creates an absent `server.json` and adjacent `data` and `music` directories, records their absolute paths, validates the configuration, and starts the Server. It never replaces an existing `server.json`. Keep the console open and use Ctrl+C to stop.
 
-Open `http://127.0.0.1:18080` on that computer, or use the Windows computer's private LAN address and port 18080 from another client. If Windows Firewall prompts, allow the executable on private networks only; do not disable the firewall. TCP 18080 is needed for Web/media access and SSDP UDP 1900 for UPnP discovery. Put test music in the adjacent `music` folder, or stop the Server and set an existing absolute Windows folder in `library_roots`; JSON paths may use `C:/Music` or escaped backslashes.
+Open `http://127.0.0.1:18080` on that computer, or use the Windows computer's private LAN address and port 18080 from another client. If Windows Firewall prompts, allow the executable on private networks only; do not disable the firewall. TCP 18080 is needed for Web/media access, SSDP UDP 1900 for UPnP discovery, and mDNS UDP 5353 on the selected interfaces for optional Google Cast discovery. Cast also requires Server TCP access to the port each receiver advertises and receiver access to the Server media HTTP(S) URL. Put test music in the adjacent `music` folder, or stop the Server and set an existing absolute Windows folder in `library_roots`; JSON paths may use `C:/Music` or escaped backslashes.
 
-This package is the native Server, not the optional Windows desktop. It provides UPnP/DLNA network output and does not install a Renderer, play through local PC speakers, or bundle FFmpeg, an AirPlay helper, or Python. Transcoding and AirPlay therefore default to disabled. Native CI verifies package bytes, first install, the HTTP UI, account persistence, restart, and preservation of an existing configuration; that does not make the unsigned preview production-qualified or certify every Windows system or receiver.
+This package is the native Server, not the optional Windows desktop. It provides UPnP/DLNA and optional Google Cast network output and does not install a Renderer or play through local PC speakers. Google Cast needs no Chrome or Python helper, but the package does not bundle FFmpeg or the Linux-only AirPlay helper. Transcoding and AirPlay therefore default to disabled; Cast can stream supported original formats directly, while its fallback requires an operator-configured FFmpeg and enabled media transcoding. Native CI verifies package bytes, first install, the HTTP UI, account persistence, restart, and preservation of an existing configuration; that does not make the unsigned preview production-qualified or certify every Windows system or receiver.
 
 To update an existing portable installation, stop it with Ctrl+C and back up its complete folder, including `server.json`, `data`, and `music`, while stopped. Verify and extract the new ZIP to a separate temporary folder, then replace the package-owned payload in the existing installation, including its program, launcher, template, notices, licenses, and build information. Do not replace `server.json` or delete/move `data` or `music`: their absolute paths and existing account, library, artwork, queue, playlist, and session state must remain intact. Run `start-server.cmd`, confirm it validates the unchanged configuration, and check the existing URL and state after restart. Keep the previous verified package and matching backup for rollback.
 
@@ -111,6 +111,7 @@ Review the copied `server.json`:
 - keep packaged paths `/usr/local/bin/ffmpeg` and `/usr/local/bin/jastreamer-airplay`;
 - optionally set `server_name`, disable AirPlay if unused, or configure built-in HTTPS with PEM files placed in the config directory;
 - leave `media.base_url` empty unless the output must use a specific Server HTTP(S) origin.
+- keep `cast.enabled` false unless Google Cast is wanted; an absent value in an older config also defaults to false, and Cast needs no helper path;
 
 The Web Settings page atomically replaces `server.json`, so both the file and config directory must remain writable by UID 10001.
 
@@ -132,17 +133,24 @@ In Synology Container Manager, the same Compose file and four environment variab
 1. Open `http://<server-LAN-IP>:8080/` and create the first administrator account. The password must have at least 10 characters.
 2. English is the default. Open **Settings**, then choose **English** or **한국어** under **Language / 언어**. The menu name remains **Settings** in both languages. The change is immediate and remembered; it does not save Server configuration or send playback commands.
 3. In **Settings**, confirm that the music root is `/music`, save, then choose **Scan now**. Scanning supports FLAC, MP3, WAV/WAVE, Ogg/Vorbis, Opus, and M4A without modifying source files. Symlinks are skipped.
-4. Browse or search Library, add tracks or grouped views to Queue, and select an output while playback is stopped. Refresh outputs if a newly powered receiver is missing.
-5. Use the footer controls for Play/Pause, Stop, Previous, Next, and Seek when supported by the receiver. AirPlay may require a PIN/password; pair only while stopped.
+4. To use Google Cast, enable **Google Cast output** in **Settings**, save, and restart the Server. It remains disabled when `cast.enabled` is false or absent from an older configuration. Do not enable it merely because a receiver is present.
+5. Browse or search Library, add tracks or grouped views to Queue, and select an output while playback is stopped. Refresh outputs if a newly powered receiver is missing.
+6. Use the footer controls for Play/Pause, Stop, Previous, Next, and Seek when supported by the receiver. AirPlay may require a PIN/password; pair only while stopped.
 
-The queue is Server-wide, preserves order and duplicates, and survives restarts. A Server restart does not automatically resume playback.
+The queue is Server-wide, preserves order and duplicates, and survives restarts. A Server restart does not automatically resume playback. Cast uses that same single queue, loads media with Cast autoplay disabled, and sends Play explicitly. Receiver groups and gapless playback are not supported.
+
+### Google Cast media and completion boundaries
+
+Direct Cast streaming is selected conservatively from inspected codec, sample-rate, channel, and, where applicable, bit-depth metadata. Every direct source must have a matching verified codec, a positive sample rate, and mono or stereo channels: FLAC is accepted through 96 kHz with 1–24-bit depth; MP3, Ogg/Vorbis, Ogg/Opus, and M4A/AAC through 48 kHz; and LPCM WAV through 48 kHz with 1–16-bit depth. Missing or mismatched metadata and sources outside those limits are not assumed compatible. With media transcoding enabled and FFmpeg configured, they instead use a nonseekable 44.1 kHz stereo 16-bit WAV stream. The source file is unchanged. Direct streaming avoids this conversion but does not promise bit-perfect receiver output.
+
+Cast control keeps a persistent TLS connection and owns the application and media session it launches. Queue advance requires an explicit `FINISHED` status for that owned media; EOF, an empty status, `BUFFERING`, or `ERROR` is not treated as completion. Pause, seek, and accepted media still depend on the receiver.
 
 ### Server path and network selection
 
 - **Browse** beside music folders, the data directory, HTTPS certificate/key files, FFmpeg and the AirPlay helper opens the authenticated **Server filesystem**, not this browser's computer. Windows lists accessible drives and accepts an absolute UNC share path; Linux/NAS starts at `/`. Containers expose only their mounted filesystem. Listings omit symbolic links and Windows reparse points; manual path inputs remain available.
 - Navigate with roots, parent folder or an absolute directory path. **Choose** changes only the draft field; **Cancel** leaves it unchanged. Save settings explicitly, then scan music folders. Choosing a data directory does not move the existing database or artwork: preserve that data separately before changing storage and restarting.
-- **Server network adapters** lists actual Server adapter names and IP/prefixes. Automatic leaves `network.interfaces` empty; explicit selections retain manually entered names. Unavailable adapters and addresses remain visible but cannot be newly selected for UPnP.
-- **Fill from a server LAN address** fills the editable `media.base_url` with an eligible IPv4 address and an enabled listener's scheme/port. It does not change listener binding. The receiver must be able to reach that origin. Automatic clears the URL override and uses the interface on which that UPnP output was discovered, rather than an unrelated VPN/default route. An explicit media URL or explicit listener address retains precedence.
+- **Server network adapters** lists actual Server adapter names and IP/prefixes. Automatic leaves `network.interfaces` empty; explicit selections retain manually entered names. Unavailable adapters and addresses remain visible but cannot be newly selected for UPnP or Google Cast discovery. Cast mDNS uses UDP 5353 on these selected interfaces.
+- **Fill from a server LAN address** fills the editable `media.base_url` with an eligible IPv4 address and an enabled listener's scheme/port. It does not change listener binding. UPnP and Cast receivers must be able to reach that HTTP(S) media origin. Automatic clears the URL override and uses the interface on which the selected output was discovered, rather than an unrelated VPN/default route. An explicit media URL or explicit listener address retains precedence. For Cast, also permit Server TCP access to the receiver's mDNS-advertised Cast port.
 - Browsing and adapter/IP selection never save, restart, scan or start playback by themselves. Apply the draft explicitly; listener, storage and network changes may require a restart.
 
 ### Artwork and Queue actions
@@ -153,9 +161,9 @@ The queue is Server-wide, preserves order and duplicates, and survives restarts.
 
 An isolated renderer-status query failure does not restart playback or open a popup. A status warning appears after three consecutive failed queries and closes automatically when a query succeeds. Dismissing it suppresses repeat popups during the same failure streak. Playback-command failures and confirmed disconnections are still reported immediately.
 
-Playback-start errors identify the failed stage (`LoadTrack`, `PrepareMedia`, `SetURI`, or `Play`) and include a safe error code when available. For UPnP rejections, retain the action name and numeric fault code when reporting the error. Do not reset the queue or disable the firewall to clear a generic failure; timeout/transport failures still mean the command outcome is unknown.
+Playback-start errors identify the failed stage (`LoadTrack`, `PrepareMedia`, `SetURI`, or `Play`) and include a safe error code when available. For UPnP rejections, retain the action name and numeric fault code when reporting the error; for Cast, retain the action, player state, idle reason, and error text. Do not reset the queue or disable the firewall to clear a generic failure; timeout/transport failures still mean the command outcome is unknown.
 
-UPnP/AirPlay capabilities vary by receiver. Confirm audible playback and the controls you need on your equipment.
+UPnP, Google Cast, and AirPlay capabilities vary by receiver. Confirm audible playback and the controls you need on your equipment.
 
 ## 5. Optional desktop clients
 
@@ -201,7 +209,7 @@ Use the **existing** Compose project name, project directory, Compose files, and
 1. **Review the target version.** Read its changes, configuration/database compatibility notes, and any required intermediate versions. Record the current image identity, architecture, service URL, mounts, and persistent settings. Confirm backup space and a rollback plan before modifying anything.
 2. **Download before downtime.** Pull the exact target digest from the selected public release; no registry login is required. Use existing Docker credentials or private interactive authentication only for an explicitly chosen private registry. Do not paste tokens into chat or configuration files. The multi-platform image selects the host architecture automatically; confirm `amd64` or `arm64`. For an offline artifact, follow section 2 to verify and import the correct platform. Do not use a floating `latest` tag, invent a registry address, or delete the old image.
 3. **Agree on the interruption.** Stop playback and confirm it is stopped. Stop only `jastreamer-server` in the existing Compose project before backing up its state. Do not stop unrelated services, remove volumes, or use `down -v`.
-4. **Back up consistently.** With the Server stopped, back up the complete config and data directories, the Compose files, and their environment file; record the corresponding old image identity. Confirm the backup can be read and contains the expected files. Protect it as private data because it includes account, session, AirPlay, and possibly TLS credentials. The read-only source music is not application state and must not be overwritten or modified.
+4. **Back up consistently.** With the Server stopped, back up the complete config and data directories, the Compose files, and their environment file; record the corresponding old image identity. Confirm the backup can be read and contains the expected files. Protect it as private data because it includes account, session, AirPlay, Google Cast enablement, and possibly TLS configuration or credentials. The read-only source music is not application state and must not be overwritten or modified.
 5. **Change the saved image reference.** Set `JASTREAMER_SERVER_IMAGE` in the deployment's persistent settings to the verified target digest or imported local image ID. Preserve all other settings and mounts unless the release explicitly requires a reviewed migration. Do not replace `server.json` with a new-install template. Keep UID/GID `10001:10001`, host networking, read-only rootfs/music, writable config/data, and the other Compose security restrictions. Render the proposed configuration with `docker compose config` and validate the existing configuration with the target image's `--check-config` command before starting it.
 6. **Recreate only the Server.** Use the existing project with `up -d --no-deps jastreamer-server`. Confirm the running image matches the intended digest/platform, inspect container state and logs, and verify `/healthz` and the Web page from the client LAN. Do not declare success from container creation alone.
 7. **Open and test.** Give the user the actual, previously used HTTP(S) URL including its port. Refresh the browser or the desktop's hosted Web view. Check login, library/artwork, queue order, playlists, settings, and output discovery against the pre-update state. Playback must remain stopped until the user explicitly starts it. Invite the user to play a chosen track, confirm audible sound, try pause/seek where supported, and stop playback. If a check fails, report which step failed and its error text without secrets.
@@ -235,11 +243,13 @@ Do not invent a published image, use latest, or substitute another build.
 Show the current and target versions, expected interruption, state to
 preserve, backup location, validation steps, and rollback plan for approval.
 Keep the existing URL, settings, accounts, library, artwork, queue order,
-playlists, and AirPlay state unless a documented migration is approved.
+playlists, AirPlay state, and Google Cast enablement unless a documented
+migration is approved. Never enable Cast merely because a receiver appears.
 Download and verify the full image for this architecture before downtime,
-including its FFmpeg and AirPlay runtime. Public GHCR images need no login;
-use private authentication only for an explicitly chosen private registry,
-or follow the documented offline import. Never collect secrets in chat or logs.
+including its FFmpeg and AirPlay runtime. Google Cast needs no Chrome or
+Python helper. Public GHCR images need no login; use private authentication
+only for an explicitly chosen private registry, or follow the documented
+offline import. Never collect secrets in chat or logs.
 
 After approval, confirm playback is stopped and stop only this Server.
 Back up complete config/data and deployment settings with the service
@@ -278,8 +288,9 @@ desktop just to update the Server-hosted Web interface.
 |---|---|
 | Web page unavailable | Windows Server console and TCP 18080, or Linux `/healthz`, Compose logs, configured listener, and TCP 8080/8443 firewall access |
 | Windows cannot discover Server | Allow mDNS UDP 5353 or enter the full Server URL manually |
-| No output appears | Allow SSDP UDP 1900 for UPnP; on Linux AirPlay also needs mDNS UDP 5353 and host networking; disable client isolation |
-| Output cannot play | Permit Server-to-receiver control/stream traffic and receiver-to-Server media traffic; set `media.base_url` only for a required reachable origin |
+| No output appears | Allow SSDP UDP 1900 for UPnP; Google Cast needs mDNS UDP 5353 on the selected interfaces plus Server TCP access to the receiver's advertised Cast port; Linux AirPlay also needs mDNS UDP 5353 and host networking; disable client isolation |
+| Output cannot play | Permit Server-to-receiver control/stream traffic and receiver-to-Server media HTTP(S) traffic; set `media.base_url` only when a specific reachable origin is required; for unsupported Cast originals, enable conversion only with a configured FFmpeg |
+| Cast FLAC fails after seeking near EOF | Preserve the reported `BUFFERING`/`ERROR`; this receiver-dependent failure was independently reproduced and is not completion, so do not skip the queue entry or weaken the owned `FINISHED` requirement |
 | Library is empty | Confirm the Windows folder or Linux `/music` mount is the configured library root, the Server account/UID 10001 can read it, and a scan completed |
 | Settings cannot save | Confirm Windows adjacent files or Linux config directory and `server.json` are writable by the Server account/UID 10001 |
 | AirPlay authorization fails | Linux Server only: stop playback, repeat the displayed PIN/password flow, and keep the packaged helper/FFmpeg paths; Windows Server does not bundle AirPlay |

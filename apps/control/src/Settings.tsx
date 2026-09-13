@@ -774,6 +774,27 @@ export default function Settings({ configRevision, libraryRevision, onNotice, on
         <section className="settings-card protocol-settings">
           <div className="settings-card-heading">
             <div>
+              <h2>{t("settings.cast.title")}</h2>
+              <p className="muted">{t("settings.cast.description")}</p>
+            </div>
+            <label className="switch-label">
+              <input
+                type="checkbox"
+                checked={draft.cast.enabled}
+                onChange={(event) => updateDraft((config) => ({
+                  ...config,
+                  cast: { ...config.cast, enabled: event.target.checked },
+                }))}
+              />
+              {t("settings.protocol.enabled")}
+            </label>
+          </div>
+          <p className="field-help">{t("settings.cast.help")}</p>
+        </section>
+
+        <section className="settings-card protocol-settings">
+          <div className="settings-card-heading">
+            <div>
               <h2>{t("settings.airplay.title")}</h2>
               <p className="muted">{t("settings.airplay.description")}</p>
             </div>

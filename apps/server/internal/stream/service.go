@@ -40,6 +40,7 @@ type Config struct {
 type libraryOpener interface {
 	Open(context.Context, string) (*os.File, library.Track, error)
 	Artwork(context.Context, string) (*os.File, string, error)
+	Info(context.Context, string) (library.TrackInfo, error)
 }
 
 type Service struct {
@@ -65,6 +66,7 @@ type binding struct {
 	trackID        string
 	sourceIP       netip.Addr
 	representation representation
+	cast           bool
 	artwork        *boundArtwork
 	fileInfo       os.FileInfo
 	ctx            context.Context
@@ -136,7 +138,18 @@ func (service *Service) Prepare(ctx context.Context, device output.Device, track
 	if statErr != nil || closeErr != nil || !info.Mode().IsRegular() || openedTrack.ID != track.ID || !openedTrack.Available || openedTrack.Size != info.Size() {
 		return output.Resource{}, ErrTrackUnavailable
 	}
-	representation, err := selectRepresentation(openedTrack, device.ProtocolInfo, service.ffmpeg != nil)
+	var audio library.AudioProperties
+	if device.Protocol == output.ProtocolCast {
+		details, infoErr := service.library.Info(ctx, openedTrack.ID)
+		if err := context.Cause(ctx); err != nil {
+			return output.Resource{}, err
+		}
+		if infoErr != nil || !matchingTrackSnapshot(openedTrack, details.Track) {
+			return output.Resource{}, fmt.Errorf("%w: inspect selected track", ErrTrackUnavailable)
+		}
+		audio = details.Audio
+	}
+	representation, err := selectRepresentation(openedTrack, audio, device.Protocol, device.ProtocolInfo, service.ffmpeg != nil)
 	if err != nil {
 		return output.Resource{}, err
 	}
@@ -159,6 +172,7 @@ func (service *Service) Prepare(ctx context.Context, device output.Device, track
 		trackID:        openedTrack.ID,
 		sourceIP:       sourceIP,
 		representation: representation,
+		cast:           device.Protocol == output.ProtocolCast,
 		artwork:        artwork,
 		fileInfo:       info,
 		ctx:            bindingContext,
@@ -199,6 +213,13 @@ func (service *Service) Prepare(ctx context.Context, device output.Device, track
 		resource.ArtworkURL = base.String()
 	}
 	return resource, nil
+}
+
+func matchingTrackSnapshot(opened, inspected library.Track) bool {
+	return inspected.ID == opened.ID && inspected.RootID == opened.RootID && inspected.Path == opened.Path &&
+		inspected.Available == opened.Available && inspected.Size == opened.Size &&
+		inspected.ModifiedAt == opened.ModifiedAt && inspected.Format == opened.Format &&
+		inspected.Mime == opened.Mime
 }
 
 func (service *Service) Revoke(playID string) {

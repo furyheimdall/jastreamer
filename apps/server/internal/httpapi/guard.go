@@ -57,6 +57,12 @@ func (service *server) guard(next http.Handler) http.Handler {
 			writeError(w, fault.New(403, "HOST_NOT_ALLOWED", "서버의 실제 주소로 접속하세요."))
 			return
 		}
+		// Media grants authenticate the exact receiver IP and implement their own
+		// protocol-specific origin policy; administrative APIs remain same-origin.
+		if strings.HasPrefix(r.URL.Path, "/media/") {
+			next.ServeHTTP(w, r)
+			return
+		}
 		origin := r.Header.Get("Origin")
 		if origin != "" {
 			parsed, err := url.Parse(origin)
