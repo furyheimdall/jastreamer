@@ -20,10 +20,11 @@ type commandRecord struct {
 }
 
 type startResult struct {
-	entry    queueRecord
-	track    library.Track
-	playID   string
-	resource output.Resource
+	entry              queueRecord
+	track              library.Track
+	playID             string
+	resource           output.Resource
+	playAcknowledgedAt time.Time
 }
 
 func (s *Service) Command(ctx context.Context, command Command) (State, error) {
@@ -287,10 +288,20 @@ func (s *Service) executePlay(ctx context.Context, command commandRecord, st sto
 		return s.completeSuccess(command, successUpdate{queueEntryID: target.id, queueStatus: EntryPlaying})
 	}
 	if st.state == StatePaused && !st.resumeRequired && target.id == st.currentEntryID {
-		if err := s.callRenderer(func() error { return s.devices.Play(ctx, device.ID) }); err != nil {
+		var playAcknowledgedAt time.Time
+		if err := s.callRenderer(func() error {
+			err := s.devices.Play(ctx, device.ID)
+			if err == nil {
+				playAcknowledgedAt = s.now()
+			}
+			return err
+		}); err != nil {
 			return err
 		}
-		return s.completeSuccess(command, successUpdate{state: StateStarting, setState: true, queueEntryID: target.id, queueStatus: EntryPlaying})
+		return s.completeSuccess(command, successUpdate{
+			state: StateStarting, setState: true, queueEntryID: target.id, queueStatus: EntryPlaying,
+			startup: startupObservationEvidence{playID: st.playID, deadline: playAcknowledgedAt.Add(commandTimeout)},
+		})
 	}
 	controlAction := ""
 	if st.playID != "" {
@@ -425,6 +436,7 @@ func (s *Service) startEntry(ctx context.Context, device output.Device, entry qu
 	if err != nil {
 		return startResult{}, &playbackStartError{stage: "PrepareMedia", cause: err}
 	}
+	var playAcknowledgedAt time.Time
 	err = func() error {
 		s.rendererMu.Lock()
 		defer s.rendererMu.Unlock()
@@ -437,13 +449,14 @@ func (s *Service) startEntry(ctx context.Context, device output.Device, entry qu
 			cancel()
 			return &playbackStartError{stage: "Play", cause: playErr}
 		}
+		playAcknowledgedAt = s.now()
 		return nil
 	}()
 	if err != nil {
 		s.media.Revoke(playID)
 		return startResult{}, err
 	}
-	return startResult{entry: entry, track: track, playID: playID, resource: resource}, nil
+	return startResult{entry: entry, track: track, playID: playID, resource: resource, playAcknowledgedAt: playAcknowledgedAt}, nil
 }
 
 func (s *Service) callRenderer(call func() error) error {
@@ -607,6 +620,7 @@ type successUpdate struct {
 	queueEntryID  string
 	queueStatus   string
 	controlAction string
+	startup       startupObservationEvidence
 }
 
 func (s *Service) completeSuccess(command commandRecord, update successUpdate) error {
@@ -642,6 +656,13 @@ func (s *Service) completeSuccess(command commandRecord, update successUpdate) e
 		}
 		if err == nil {
 			err = tx.Commit()
+		}
+	}
+	if err == nil {
+		if update.setState && update.state == StateStopped {
+			s.startup = startupObservationEvidence{}
+		} else if update.startup.playID != "" {
+			s.startup = update.startup
 		}
 	}
 	if err != nil && tx != nil {
@@ -682,6 +703,11 @@ func (s *Service) completeStart(command commandRecord, oldEntryID, oldStatus str
 	if err == nil {
 		err = tx.Commit()
 	}
+	if err == nil {
+		s.startup = startupObservationEvidence{
+			playID: started.playID, deadline: started.playAcknowledgedAt.Add(commandTimeout),
+		}
+	}
 	if err != nil && tx != nil {
 		_ = tx.Rollback()
 	}
@@ -713,6 +739,9 @@ func (s *Service) completeAdvanceFailure(command commandRecord, oldEntryID, targ
 	}
 	if err == nil {
 		err = tx.Commit()
+	}
+	if err == nil {
+		s.startup = startupObservationEvidence{}
 	}
 	if err != nil && tx != nil {
 		_ = tx.Rollback()
@@ -751,6 +780,9 @@ func (s *Service) completeUnconfirmedStop(command commandRecord, currentEntryID,
 	}
 	if err == nil {
 		err = tx.Commit()
+	}
+	if err == nil {
+		s.startup = startupObservationEvidence{}
 	}
 	if err != nil && tx != nil {
 		_ = tx.Rollback()
@@ -820,6 +852,9 @@ func (s *Service) completeFailure(command commandRecord, message string, unavail
 	if err == nil {
 		err = tx.Commit()
 	}
+	if err == nil {
+		s.startup = startupObservationEvidence{}
+	}
 	if err != nil && tx != nil {
 		_ = tx.Rollback()
 	}
@@ -863,6 +898,9 @@ func (s *Service) completeUnknown(command commandRecord, message string) {
 	}
 	if err == nil {
 		err = tx.Commit()
+	}
+	if err == nil {
+		s.startup = startupObservationEvidence{}
 	}
 	if err != nil && tx != nil {
 		_ = tx.Rollback()

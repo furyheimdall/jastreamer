@@ -1292,9 +1292,468 @@ func TestPlaybackStartInterruptsSlowObservationSchedule(t *testing.T) {
 	}
 }
 
+func TestStartupStoppedObservationRetainsGrantUntilPlaybackConfirmed(t *testing.T) {
+	t.Run("fresh start", func(t *testing.T) {
+		service, _, devices := newPlayerTestService(t)
+		service.pollInterval = 300 * time.Second
+		ctx := context.Background()
+		now := time.Date(2026, time.September, 13, 12, 0, 0, 0, time.UTC)
+		service.now = func() time.Time { return now }
+		queue, err := service.MutateQueue(ctx, QueueMutation{Action: "append", TrackIDs: []string{"a"}, Revision: 0})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := service.Command(ctx, Command{Action: "play"}); err != nil {
+			t.Fatal(err)
+		}
+		runAcceptedCommand(t, service)
+		binding, err := service.loadState(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		now = now.Add(time.Second)
+		devices.observation = output.Observation{
+			State: "stopped", URI: binding.currentURI, HasURI: true,
+			TransportStatus: "OK", ObservedAt: now,
+		}
+		service.observeSelected(ctx)
+		retained, err := service.loadState(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		state := service.mustState(t)
+		pending, err := service.Queue(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if state.State != StateStarting && state.State != StateUnavailable {
+			t.Fatalf("startup stop was published as a confirmed state: %#v", state)
+		}
+		if retained.playID != binding.playID || retained.currentURI != binding.currentURI ||
+			state.CurrentEntryID != queue.Entries[0].ID || pending.Entries[0].Status != EntryPlaying {
+			t.Fatalf("startup stop discarded the owned playback intent: state=%#v queue=%#v", state, pending)
+		}
+		media := service.media.(*fakeMedia)
+		media.mu.Lock()
+		revoked := append([]string(nil), media.revoked...)
+		media.mu.Unlock()
+		if len(revoked) != 0 {
+			t.Fatalf("startup stop revoked the media grant: %v", revoked)
+		}
+
+		now = now.Add(time.Second)
+		devices.observation = output.Observation{
+			State: "playing", URI: binding.currentURI, HasURI: true, ObservedAt: now,
+		}
+		service.observeSelected(ctx)
+		confirmed, err := service.loadState(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		state = service.mustState(t)
+		devices.mu.Lock()
+		calls := append([]string(nil), devices.calls...)
+		devices.mu.Unlock()
+		if state.State != StatePlaying || confirmed.playID != binding.playID || confirmed.currentURI != binding.currentURI {
+			t.Fatalf("playing observation did not confirm the retained binding: %#v", state)
+		}
+		if strings.Join(calls, ",") != "set_uri,play" {
+			t.Fatalf("startup confirmation replayed the renderer command: %v", calls)
+		}
+		if delay := service.nextObservationDelay(ctx); delay != service.pollInterval {
+			t.Fatalf("playing observation did not clear startup evidence: %s", delay)
+		}
+	})
+
+	t.Run("paused resume", func(t *testing.T) {
+		service, _, devices := newPlayerTestService(t)
+		service.pollInterval = 300 * time.Second
+		ctx := context.Background()
+		now := time.Date(2026, time.September, 13, 12, 0, 0, 0, time.UTC)
+		service.now = func() time.Time { return now }
+		if _, err := service.MutateQueue(ctx, QueueMutation{Action: "append", TrackIDs: []string{"a"}, Revision: 0}); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := service.Command(ctx, Command{Action: "play"}); err != nil {
+			t.Fatal(err)
+		}
+		runAcceptedCommand(t, service)
+		binding, err := service.loadState(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		devices.observation = output.Observation{
+			State: "paused", URI: binding.currentURI, HasURI: true, ObservedAt: now,
+		}
+		service.observeSelected(ctx)
+		if delay := service.nextObservationDelay(ctx); delay != service.pollInterval {
+			t.Fatalf("paused observation did not confirm startup: %s", delay)
+		}
+		now = now.Add(time.Minute)
+		if _, err := service.Command(ctx, Command{Action: "play"}); err != nil {
+			t.Fatal(err)
+		}
+		runAcceptedCommand(t, service)
+
+		now = now.Add(time.Second)
+		devices.observation = output.Observation{
+			State: "stopped", URI: binding.currentURI, HasURI: true,
+			TransportStatus: "OK", ObservedAt: now,
+		}
+		service.observeSelected(ctx)
+		resumed, err := service.loadState(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		state := service.mustState(t)
+		media := service.media.(*fakeMedia)
+		media.mu.Lock()
+		revoked := append([]string(nil), media.revoked...)
+		media.mu.Unlock()
+		if (state.State != StateStarting && state.State != StateUnavailable) ||
+			resumed.playID != binding.playID || resumed.currentURI != binding.currentURI || len(revoked) != 0 {
+			t.Fatalf("stopped status discarded a genuinely resumed binding: state=%#v revoked=%v", state, revoked)
+		}
+		devices.mu.Lock()
+		calls := append([]string(nil), devices.calls...)
+		devices.mu.Unlock()
+		if strings.Join(calls, ",") != "set_uri,play,play" {
+			t.Fatalf("paused resume sent an unexpected renderer command: %v", calls)
+		}
+	})
+}
+
+func TestStartupDeadlineIsFixedAndPreservesQueueForExplicitReplay(t *testing.T) {
+	service, _, devices := newPlayerTestService(t)
+	service.pollInterval = 300 * time.Second
+	ctx := context.Background()
+	startedAt := time.Date(2026, time.September, 13, 12, 0, 0, 0, time.UTC)
+	now := startedAt
+	service.now = func() time.Time { return now }
+	queue, err := service.MutateQueue(ctx, QueueMutation{Action: "append", TrackIDs: []string{"a", "b"}, Revision: 0})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.Command(ctx, Command{Action: "play"}); err != nil {
+		t.Fatal(err)
+	}
+	runAcceptedCommand(t, service)
+	binding, err := service.loadState(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if delay := service.nextObservationDelay(ctx); delay <= 0 || delay > commandTimeout {
+		t.Fatalf("300-second polling missed the startup confirmation deadline: %s", delay)
+	}
+
+	for _, elapsed := range []time.Duration{time.Second, 3 * time.Second} {
+		now = startedAt.Add(elapsed)
+		devices.observation = output.Observation{
+			State: "stopped", URI: binding.currentURI, HasURI: true,
+			TransportStatus: "OK", ObservedAt: now,
+		}
+		service.observeSelected(ctx)
+	}
+	now = startedAt.Add(5 * time.Second)
+	if _, err := service.Command(ctx, Command{Action: "pause"}); err != nil {
+		t.Fatal(err)
+	}
+	runAcceptedCommand(t, service)
+	now = startedAt.Add(9 * time.Second)
+	if _, err := service.Command(ctx, Command{Action: "seek", PositionMS: 1000}); err != nil {
+		t.Fatal(err)
+	}
+	runAcceptedCommand(t, service)
+	now = startedAt.Add(12 * time.Second)
+	if _, err := service.Command(ctx, Command{Action: "play"}); err != nil {
+		t.Fatal(err)
+	}
+	runAcceptedCommand(t, service)
+	now = startedAt.Add(13 * time.Second)
+	devices.observation = output.Observation{
+		State: "stopped", URI: binding.currentURI, HasURI: true,
+		TransportStatus: "OK", ObservedAt: now,
+	}
+	service.observeSelected(ctx)
+	afterCommands, err := service.loadState(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	media := service.media.(*fakeMedia)
+	media.mu.Lock()
+	revoked := append([]string(nil), media.revoked...)
+	media.mu.Unlock()
+	if afterCommands.playID != binding.playID || afterCommands.currentURI != binding.currentURI || len(revoked) != 0 {
+		t.Fatalf("pause, seek, or no-op play discarded startup grace: state=%#v revoked=%v", afterCommands, revoked)
+	}
+	now = startedAt.Add(15 * time.Second)
+	devices.observation = output.Observation{
+		State: "transitioning", URI: binding.currentURI, HasURI: true, ObservedAt: now,
+	}
+	service.observeSelected(ctx)
+	if delay := service.nextObservationDelay(ctx); delay <= 0 || delay > 5*time.Second {
+		t.Fatalf("transitioning observation lost or refreshed the startup deadline: %s", delay)
+	}
+	now = startedAt.Add(19 * time.Second)
+	devices.fail["observe"] = output.NewActionError(output.ErrorTimeout, "Observe", 0, context.DeadlineExceeded)
+	service.observeSelected(ctx)
+	uncertain, err := service.loadState(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	media.mu.Lock()
+	revoked = append(revoked[:0], media.revoked...)
+	media.mu.Unlock()
+	if uncertain.playID != binding.playID || uncertain.currentURI != binding.currentURI || len(revoked) != 0 {
+		t.Fatalf("status-query failure discarded startup grace: state=%#v revoked=%v", uncertain, revoked)
+	}
+	if delay := service.nextObservationDelay(ctx); delay <= 0 || delay > time.Second {
+		t.Fatalf("query failure lost or refreshed the startup deadline: %s", delay)
+	}
+
+	now = startedAt.Add(commandTimeout + time.Second)
+	delete(devices.fail, "observe")
+	devices.observation = output.Observation{
+		State: "stopped", URI: binding.currentURI, HasURI: true,
+		TransportStatus: "OK", ObservedAt: now,
+	}
+	service.observeSelected(ctx)
+	expired, err := service.loadState(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	state := service.mustState(t)
+	preserved, err := service.Queue(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	media.mu.Lock()
+	revoked = append(revoked[:0], media.revoked...)
+	media.mu.Unlock()
+	devices.mu.Lock()
+	calls := append([]string(nil), devices.calls...)
+	devices.mu.Unlock()
+	if state.State != StateStopped || state.CurrentEntryID != queue.Entries[0].ID ||
+		state.PendingCommand != "" || state.Error == "" || expired.playID != "" || expired.currentURI != "" {
+		t.Fatalf("expired startup did not require explicit replay: %#v", state)
+	}
+	if preserved.Entries[0].ID != queue.Entries[0].ID || preserved.Entries[0].Status != EntryPending ||
+		preserved.Entries[1].ID != queue.Entries[1].ID || preserved.Entries[1].Status != EntryPending {
+		t.Fatalf("expired startup changed the pending queue: %#v", preserved.Entries)
+	}
+	if len(revoked) != 1 || revoked[0] != binding.playID {
+		t.Fatalf("expired startup did not revoke exactly its media grant: %v", revoked)
+	}
+	if strings.Join(calls, ",") != "set_uri,play,pause,seek:1000" {
+		t.Fatalf("startup evidence caused an unexpected renderer action: %v", calls)
+	}
+	if delay := service.nextObservationDelay(ctx); delay != service.pollInterval {
+		t.Fatalf("expired startup left a busy observation loop: %s", delay)
+	}
+
+	if _, err := service.Command(ctx, Command{Action: "play"}); err != nil {
+		t.Fatal(err)
+	}
+	runAcceptedCommand(t, service)
+	replayed, err := service.loadState(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resumedQueue, err := service.Queue(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	devices.mu.Lock()
+	calls = append([]string(nil), devices.calls...)
+	devices.mu.Unlock()
+	if replayed.playID == "" || replayed.playID == binding.playID || replayed.currentEntryID != queue.Entries[0].ID ||
+		resumedQueue.Entries[0].Status != EntryPlaying || resumedQueue.Entries[1].Status != EntryPending {
+		t.Fatalf("explicit replay did not restore the preserved cursor: state=%#v queue=%#v", replayed, resumedQueue)
+	}
+	if strings.Join(calls, ",") != "set_uri,play,pause,seek:1000,set_uri,play" {
+		t.Fatalf("expired startup replayed without an explicit fresh start: %v", calls)
+	}
+}
+
+func TestStartupGraceDoesNotDelayDefinitiveObservations(t *testing.T) {
+	tests := []struct {
+		name        string
+		observation func(storedState, time.Time) output.Observation
+		wantState   string
+	}{
+		{
+			name: "renderer error",
+			observation: func(binding storedState, now time.Time) output.Observation {
+				return output.Observation{
+					State: "stopped", URI: binding.currentURI, HasURI: true,
+					TransportStatus: "ERROR_OCCURRED", ObservedAt: now,
+				}
+			},
+			wantState: StateError,
+		},
+		{
+			name: "foreign URI",
+			observation: func(_ storedState, now time.Time) output.Observation {
+				return output.Observation{
+					State: "playing", URI: "http://10.0.0.2/media/foreign", HasURI: true, ObservedAt: now,
+				}
+			},
+			wantState: StateUnavailable,
+		},
+		{
+			name: "cleared URI",
+			observation: func(_ storedState, now time.Time) output.Observation {
+				return output.Observation{State: "stopped", URI: "", HasURI: true, ObservedAt: now}
+			},
+			wantState: StateStopped,
+		},
+		{
+			name: "explicit cancellation",
+			observation: func(binding storedState, now time.Time) output.Observation {
+				return output.Observation{
+					State: "stopped", URI: binding.currentURI, HasURI: true,
+					CompletionKnown: true, Completed: false, ObservedAt: now,
+				}
+			},
+			wantState: StateStopped,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			service, _, devices := newPlayerTestService(t)
+			ctx := context.Background()
+			now := time.Date(2026, time.September, 13, 12, 0, 0, 0, time.UTC)
+			service.now = func() time.Time { return now }
+			queue, err := service.MutateQueue(ctx, QueueMutation{Action: "append", TrackIDs: []string{"a", "b"}, Revision: 0})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := service.Command(ctx, Command{Action: "play"}); err != nil {
+				t.Fatal(err)
+			}
+			runAcceptedCommand(t, service)
+			binding, err := service.loadState(ctx)
+			if err != nil {
+				t.Fatal(err)
+			}
+			now = now.Add(time.Second)
+			devices.observation = test.observation(binding, now)
+			service.observeSelected(ctx)
+
+			interrupted, err := service.loadState(ctx)
+			if err != nil {
+				t.Fatal(err)
+			}
+			state := service.mustState(t)
+			preserved, err := service.Queue(ctx)
+			if err != nil {
+				t.Fatal(err)
+			}
+			media := service.media.(*fakeMedia)
+			media.mu.Lock()
+			revoked := append([]string(nil), media.revoked...)
+			media.mu.Unlock()
+			if state.State != test.wantState || state.CurrentEntryID != queue.Entries[0].ID ||
+				state.PendingCommand != "" || interrupted.playID != "" || interrupted.currentURI != "" {
+				t.Fatalf("definitive observation was deferred by startup grace: %#v", state)
+			}
+			if preserved.Entries[0].Status != EntryPending || preserved.Entries[1].Status != EntryPending {
+				t.Fatalf("definitive observation consumed the queue: %#v", preserved.Entries)
+			}
+			if len(revoked) != 1 || revoked[0] != binding.playID {
+				t.Fatalf("definitive observation retained its media grant: %v", revoked)
+			}
+		})
+	}
+
+	t.Run("explicit completion", func(t *testing.T) {
+		service, _, devices := newPlayerTestService(t)
+		ctx := context.Background()
+		now := time.Date(2026, time.September, 13, 12, 0, 0, 0, time.UTC)
+		service.now = func() time.Time { return now }
+		queue, err := service.MutateQueue(ctx, QueueMutation{Action: "append", TrackIDs: []string{"a", "b"}, Revision: 0})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := service.Command(ctx, Command{Action: "play"}); err != nil {
+			t.Fatal(err)
+		}
+		runAcceptedCommand(t, service)
+		binding, err := service.loadState(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		now = now.Add(time.Second)
+		devices.observation = output.Observation{
+			State: "stopped", URI: binding.currentURI, HasURI: true,
+			CompletionKnown: true, Completed: true, ObservedAt: now,
+		}
+		service.observeSelected(ctx)
+		state := service.mustState(t)
+		advanced, err := service.Queue(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		media := service.media.(*fakeMedia)
+		media.mu.Lock()
+		revoked := append([]string(nil), media.revoked...)
+		media.mu.Unlock()
+		if state.State != StateStarting || state.CurrentEntryID != queue.Entries[1].ID || state.PendingCommand == "" ||
+			advanced.Entries[0].Status != EntryCompleted || advanced.Entries[1].Status != EntryPending {
+			t.Fatalf("explicit completion was deferred by startup grace: state=%#v queue=%#v", state, advanced)
+		}
+		if len(revoked) != 1 || revoked[0] != binding.playID {
+			t.Fatalf("explicit completion retained its media grant: %v", revoked)
+		}
+	})
+
+	t.Run("explicit stop", func(t *testing.T) {
+		service, _, _ := newPlayerTestService(t)
+		ctx := context.Background()
+		now := time.Date(2026, time.September, 13, 12, 0, 0, 0, time.UTC)
+		service.now = func() time.Time { return now }
+		queue, err := service.MutateQueue(ctx, QueueMutation{Action: "append", TrackIDs: []string{"a"}, Revision: 0})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := service.Command(ctx, Command{Action: "play"}); err != nil {
+			t.Fatal(err)
+		}
+		runAcceptedCommand(t, service)
+		binding, err := service.loadState(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		now = now.Add(time.Second)
+		if _, err := service.Command(ctx, Command{Action: "stop"}); err != nil {
+			t.Fatal(err)
+		}
+		runAcceptedCommand(t, service)
+		state := service.mustState(t)
+		preserved, err := service.Queue(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		media := service.media.(*fakeMedia)
+		media.mu.Lock()
+		revoked := append([]string(nil), media.revoked...)
+		media.mu.Unlock()
+		if state.State != StateStopped || state.CurrentEntryID != queue.Entries[0].ID ||
+			state.PendingCommand != "" || preserved.Entries[0].Status != EntryPending {
+			t.Fatalf("explicit stop was deferred by startup grace: state=%#v queue=%#v", state, preserved)
+		}
+		if len(revoked) != 1 || revoked[0] != binding.playID {
+			t.Fatalf("explicit stop retained its media grant: %v", revoked)
+		}
+	})
+}
+
 func TestNewPlaybackDoesNotReusePriorTrackEOFEvidence(t *testing.T) {
 	service, _, _ := newPlayerTestService(t)
 	ctx := context.Background()
+	now := time.Date(2026, time.September, 13, 12, 0, 0, 0, time.UTC)
+	service.now = func() time.Time { return now }
 	queue, err := service.MutateQueue(ctx, QueueMutation{Action: "append", TrackIDs: []string{"a", "b"}, Revision: 0})
 	if err != nil {
 		t.Fatal(err)
@@ -1309,7 +1768,7 @@ func TestNewPlaybackDoesNotReusePriorTrackEOFEvidence(t *testing.T) {
 	}
 	service.applyObservation(ctx, output.Observation{
 		State: "playing", URI: first.currentURI, HasURI: true,
-		PositionMS: 99000, DurationMS: 100000, HasPosition: true, ObservedAt: time.Now().UTC(),
+		PositionMS: 99000, DurationMS: 100000, HasPosition: true, ObservedAt: now,
 	})
 	if _, err := service.Command(ctx, Command{Action: "next"}); err != nil {
 		t.Fatal(err)
@@ -1322,16 +1781,34 @@ func TestNewPlaybackDoesNotReusePriorTrackEOFEvidence(t *testing.T) {
 	if second.currentEntryID != queue.Entries[1].ID || second.lastObservedState != "" || second.lastObservedHasPosition {
 		t.Fatalf("new binding retained prior EOF evidence: %#v", second)
 	}
+	now = now.Add(time.Second)
 	stopped := service.applyObservation(ctx, output.Observation{
-		State: "stopped", URI: second.currentURI, HasURI: true,
-		DurationMS: 90000, ObservedAt: time.Now().UTC(),
+		State: "stopped", TransportStatus: "OK", URI: second.currentURI, HasURI: true,
+		DurationMS: 90000, ObservedAt: now,
+	})
+	if stopped.commandQueued {
+		t.Fatal("ambiguous startup stop reused prior EOF evidence to queue automatic playback")
+	}
+	retained, err := service.loadState(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if retained.playID != second.playID || retained.currentURI != second.currentURI ||
+		(retained.state != StateStarting && retained.state != StateUnavailable) {
+		t.Fatalf("new binding was not retained during its startup grace: %#v", retained)
+	}
+
+	now = now.Add(commandTimeout)
+	stopped = service.applyObservation(ctx, output.Observation{
+		State: "stopped", TransportStatus: "OK", URI: second.currentURI, HasURI: true,
+		DurationMS: 90000, ObservedAt: now,
 	})
 	if stopped.commandQueued {
 		t.Fatal("ambiguous stop of the new entry queued automatic playback")
 	}
 	state := service.mustState(t)
 	if state.State != StateStopped || state.CurrentEntryID != queue.Entries[1].ID || state.PendingCommand != "" || state.Error == "" {
-		t.Fatalf("ambiguous stop did not preserve the new entry for explicit replay: %#v", state)
+		t.Fatalf("expired ambiguous stop did not preserve the new entry for explicit replay: %#v", state)
 	}
 	finished, err := service.Queue(ctx)
 	if err != nil {

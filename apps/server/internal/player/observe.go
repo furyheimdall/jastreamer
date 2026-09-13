@@ -33,11 +33,20 @@ func (s *Service) observationLoop(ctx context.Context) {
 }
 
 func (s *Service) nextObservationDelay(ctx context.Context) time.Duration {
+	s.opMu.Lock()
+	defer s.opMu.Unlock()
 	st, err := s.loadState(ctx)
 	if err != nil {
 		return s.pollInterval
 	}
-	return adaptiveObservationDelay(s.pollInterval, st)
+	delay := adaptiveObservationDelay(s.pollInterval, st)
+	if s.startup.playID != "" && s.startup.playID == st.playID {
+		remaining := s.startup.deadline.Sub(s.now())
+		if remaining > 0 && remaining < delay {
+			return remaining
+		}
+	}
+	return delay
 }
 
 func adaptiveObservationDelay(configured time.Duration, st storedState) time.Duration {
@@ -220,6 +229,7 @@ func (s *Service) applyRendererUnavailable(ctx context.Context, message string) 
 	if err := tx.Commit(); err != nil {
 		return "", false
 	}
+	s.startup = startupObservationEvidence{}
 	return playID, true
 }
 
@@ -326,13 +336,18 @@ func (s *Service) applyObservation(ctx context.Context, observation output.Obser
 			}
 			return result
 		}
-		if reliableNaturalEnd(st, observation) {
-			return s.commitNaturalEnd(ctx, tx, st, observation, position, duration, observedAt)
-		}
 		if normalized == "stopped" {
 			if strings.EqualFold(strings.TrimSpace(observation.TransportStatus), "ERROR_OCCURRED") {
 				return s.commitInterruptedObservation(ctx, tx, st, observation, position, duration, observedAt, StateError, "The renderer reported a playback error. Press Play to resume.")
 			}
+			if s.withinStartupGrace(st, observation) {
+				return s.commitStartupStoppedObservation(ctx, tx, st, observation, position, duration, observedAt)
+			}
+		}
+		if reliableNaturalEnd(st, observation) {
+			return s.commitNaturalEnd(ctx, tx, st, observation, position, duration, observedAt)
+		}
+		if normalized == "stopped" {
 			return s.commitInterruptedObservation(ctx, tx, st, observation, position, duration, observedAt, StateStopped, "Playback stopped on the renderer. Press Play to resume.")
 		}
 		return s.commitExternalObservation(ctx, tx, st, observation, position, duration, observedAt, "The renderer cleared the current media without reliable end-of-track evidence. Press Play to resume.")
@@ -369,6 +384,9 @@ func (s *Service) applyObservation(ctx context.Context, observation output.Obser
 		if err != nil {
 			return observationResult{}
 		}
+		if normalized != "transitioning" {
+			s.startup = startupObservationEvidence{}
+		}
 		result.queueChanged = queueChanged
 		return result
 	}
@@ -387,6 +405,29 @@ func (s *Service) applyObservation(ctx context.Context, observation output.Obser
 	}
 
 	return s.commitExternalObservation(ctx, tx, st, observation, position, duration, observedAt, "The renderer reported an unavailable playback state. Press Play to resume.")
+}
+
+func (s *Service) withinStartupGrace(st storedState, observation output.Observation) bool {
+	return s.startup.playID != "" && s.startup.playID == st.playID &&
+		s.now().Before(s.startup.deadline) &&
+		!observation.CompletionKnown &&
+		normalizeObservedState(observation.State) == "stopped" &&
+		strings.EqualFold(strings.TrimSpace(observation.TransportStatus), "OK") &&
+		observation.HasURI && st.currentURI != "" && observation.URI == st.currentURI
+}
+
+func (s *Service) commitStartupStoppedObservation(ctx context.Context, tx *sql.Tx, st storedState, observation output.Observation, position, duration int64, observedAt string) observationResult {
+	result := observationResult{
+		positionChanged: observation.HasPosition && (position != st.positionMS || duration != st.durationMS),
+	}
+	_, err := tx.ExecContext(ctx, observationEvidenceRevisionSQL, boolInt(result.positionChanged), position, duration, observedAt, observation.State, observation.URI, observation.PositionMS, observation.DurationMS, boolInt(observation.HasPosition), observedAt)
+	if err == nil {
+		err = tx.Commit()
+	}
+	if err != nil {
+		return observationResult{}
+	}
+	return result
 }
 
 const observationEvidenceSQL = `UPDATE player_state SET position_ms=?,duration_ms=?,observed_at=?,last_observed_state=?,last_observed_uri=?,last_observed_position_ms=?,last_observed_duration_ms=?,last_observed_has_position=?,last_observed_at=? WHERE singleton=1`
@@ -418,6 +459,7 @@ func (s *Service) commitInterruptedObservation(ctx context.Context, tx *sql.Tx, 
 	if err := tx.Commit(); err != nil {
 		return observationResult{}
 	}
+	s.startup = startupObservationEvidence{}
 	result.queueChanged = queueChanged
 	return result
 }
@@ -509,6 +551,7 @@ func (s *Service) commitNaturalEnd(ctx context.Context, tx *sql.Tx, st storedSta
 	if err := tx.Commit(); err != nil {
 		return observationResult{}
 	}
+	s.startup = startupObservationEvidence{}
 	return result
 }
 

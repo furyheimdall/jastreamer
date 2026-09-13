@@ -43,6 +43,11 @@ type terminalPositionEvidence struct {
 	since      time.Time
 }
 
+type startupObservationEvidence struct {
+	playID   string
+	deadline time.Time
+}
+
 type Service struct {
 	db                 *sql.DB
 	lib                libraryAPI
@@ -59,8 +64,9 @@ type Service struct {
 	running            bool
 	stopped            bool
 	now                func() time.Time
-	terminal           terminalPositionEvidence // guarded by opMu; never restored after restart
-	observationFailure observationFailure       // guarded by opMu; scoped to the current renderer/playback
+	terminal           terminalPositionEvidence   // guarded by opMu; never restored after restart
+	startup            startupObservationEvidence // guarded by opMu; never restored after restart
+	observationFailure observationFailure         // guarded by opMu; scoped to the current renderer/playback
 }
 
 type storedState struct {
@@ -346,6 +352,9 @@ func (s *Service) SelectOutput(ctx context.Context, rendererID string) (State, e
 			err = fmt.Errorf("player: select renderer: %w", err)
 		}
 	}
+	if err == nil {
+		s.startup = startupObservationEvidence{}
+	}
 	s.opMu.Unlock()
 	s.rendererMu.Unlock()
 	if err != nil {
@@ -484,6 +493,9 @@ func (s *Service) markInterruptedCommands() {
 	}
 	if err == nil {
 		err = tx.Commit()
+	}
+	if err == nil && interrupted > 0 {
+		s.startup = startupObservationEvidence{}
 	}
 	if err != nil && tx != nil {
 		_ = tx.Rollback()
