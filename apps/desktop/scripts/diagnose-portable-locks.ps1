@@ -1,10 +1,11 @@
-param([Parameter(Mandatory=$true)][string]$Directory)
+param([Parameter(Mandatory=$true)][string]$Directory, [switch]$ProcessesOnly)
 $ErrorActionPreference = 'Stop'
 $desktopProcesses = @(Get-CimInstance Win32_Process -Filter "Name='jastreamer-desktop.exe'" | ForEach-Object {
   $type = [regex]::Match($_.CommandLine, '--type=([^\s"]+)').Groups[1].Value
   [pscustomobject]@{pid=$_.ProcessId; parent=$_.ParentProcessId; executable=$_.ExecutablePath; type=$type}
 })
 [pscustomobject]@{desktopProcesses=$desktopProcesses; directoryAttributes=(Get-Item -LiteralPath $Directory).Attributes.ToString(); currentDirectory=[Environment]::CurrentDirectory} | ConvertTo-Json -Depth 5 -Compress
+if ($ProcessesOnly) { exit 0 }
 Add-Type -TypeDefinition @'
 using System;
 using System.Runtime.InteropServices;

@@ -110,6 +110,12 @@ async function username(page) {
 }
 async function closeApplication() {
   const processes = await application.evaluate(({ app }) => app.getAppMetrics().map(({ pid, type }) => ({ pid, type })));
+  const windowsProcesses = process.platform === 'win32' ? JSON.parse(execFileSync('powershell.exe', [
+    '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass',
+    '-File', fileURLToPath(new URL('./diagnose-portable-locks.ps1', import.meta.url)),
+    '-Directory', portable, '-ProcessesOnly',
+  ], { encoding: 'utf8', timeout: 15000, windowsHide: true })).desktopProcesses : [];
+  if (windowsProcesses.length) console.log(JSON.stringify({ electronMetrics: processes, windowsDesktopProcesses: windowsProcesses }));
   await application.close();
   application = null;
   const remaining = () => processes.filter(({ pid }) => {
@@ -124,6 +130,10 @@ async function closeApplication() {
   const exiting = remaining();
   if (exiting.length) console.log(JSON.stringify({ desktopProcessesStillExiting: exiting }));
   await until(() => remaining().length === 0, `Desktop processes did not exit: ${JSON.stringify(processes)}`);
+  const untracked = windowsProcesses.filter(({ pid }) => !processes.some((tracked) => tracked.pid === pid)).filter(({ pid }) => {
+    try { process.kill(pid, 0); return true; } catch (error) { if (error.code === 'ESRCH') return false; throw error; }
+  });
+  if (untracked.length) console.error(JSON.stringify({ untrackedDesktopProcessesAfterClose: untracked }));
 }
 try {
   await cp(path.dirname(desktopBinary), portable, { recursive: true, filter: (source) => path.basename(source) !== 'user-data' });
@@ -205,5 +215,18 @@ try {
       if (child.exitCode === null) child.kill('SIGKILL');
     }
   }
-  await rm(work, { recursive: true, force: true });
+  try {
+    await rm(work, { recursive: true, force: true });
+  } catch (error) {
+    if (process.platform === 'win32') {
+      try {
+        console.error(execFileSync('powershell.exe', [
+          '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass',
+          '-File', fileURLToPath(new URL('./diagnose-portable-locks.ps1', import.meta.url)),
+          '-Directory', portable,
+        ], { encoding: 'utf8', timeout: 15000, windowsHide: true }));
+      } catch (diagnosticError) { console.error(`Cleanup lock diagnostics failed: ${diagnosticError.message}`); }
+    }
+    throw error;
+  }
 }
