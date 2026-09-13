@@ -2,7 +2,7 @@
 
 [프로젝트 소개](README.ko.md) · [한국어 사용자 안내서](INSTRUCTION.ko.md) · [English installation guide](INSTALL.md)
 
-실제로 사용할 패키지와 플랫폼에 맞는 아래 분기를 선택하세요. Server가 Web 화면을 제공하며, 선택 사항인 Desktop과 휴대전화 PWA는 기존 Server의 클라이언트이지 Server나 로컬 오디오 Renderer가 아닙니다.
+실제로 사용할 패키지와 플랫폼에 맞는 아래 분기를 선택하세요. Server가 Web 화면을 제공하며, 선택 사항인 Desktop·네이티브 Android·휴대전화 PWA는 기존 Server의 클라이언트이지 로컬 오디오 Renderer가 아닙니다.
 
 공개 프리뷰는 미서명이며 production 검증을 마친 릴리즈가 아닙니다. 선택한 릴리즈의 제한을 읽고 내려받은 모든 파일을 검증한 뒤 실제 네트워크와 수신기에서 동작을 확인하세요. 설치 후 화면 사용법과 문제 해결은 [한국어 사용자 안내서](INSTRUCTION.ko.md)를 참고하세요.
 
@@ -11,6 +11,7 @@
 | Linux 또는 Synology에서 Server 실행 | [Linux Server](#linux-server) |
 | Windows에서 Server 실행 | [Windows Server](#windows-server) |
 | 기존 Server에 접속할 데스크톱 앱 추가 | [Windows ZIP](#desktop-windows) 또는 [Linux DEB](#desktop-linux) |
+| 네이티브 Android 클라이언트 추가 | [Android APK](#android) |
 | 휴대전화 사용 또는 홈 화면 앱 설치 | [휴대전화 PWA](#pwa) |
 | 기존 설치 업데이트 또는 복구 | [업데이트](#upgrade) 또는 [롤백](#rollback) |
 
@@ -21,6 +22,7 @@
 - 네이티브 무설치 Server: Windows x64와 현재 사용자가 쓸 수 있는 로컬 설치 폴더. Windows 서비스로 설치되지 않습니다.
 - Windows 데스크톱 앱: Windows 10/11 x64. Windows ARM64 데스크톱 패키지는 없습니다.
 - Linux 데스크톱 앱: 그래픽 환경이 있는 Linux `amd64`. Ubuntu 24.04 amd64가 네이티브 설치·sandbox 검증 대상이며 Linux ARM64 데스크톱 패키지는 없습니다.
+- Android 클라이언트: Android 10/API 29 이상과 `MULTI_PROFILE`을 지원하는 Android System WebView. OS 버전만으로 지원이 보장되지는 않으며 앱이 실행 중 기능을 확인하고 공용 세션으로 대신 연결하지 않습니다.
 - 전체 [GitHub Releases 목록](https://github.com/furyheimdall/jastreamer/releases)에서 올바르게 프리뷰로 표시된 항목까지 포함해 고른, 대상과 호환되는 가장 최근의 게시된 non-draft Server 릴리즈 또는 별도로 전달받아 검증한 오프라인 패키지. 프리뷰 및 실장비 검증 한계는 그대로 적용됩니다.
 - Server, 브라우저·앱과 출력이 연결된 신뢰할 수 있는 사설 LAN. 자동 검색에는 멀티캐스트가 필요합니다.
 - Linux에서는 컨테이너 UID/GID `10001:10001`이 쓸 수 있는 분리된 config·data 폴더. 음악은 UID 10001이 읽을 수 있는 기존 절대 호스트 루트 또는 아래의 의도적인 샘플 전용 루트 중 하나를 고르고 읽기 전용으로 연결합니다.
@@ -187,8 +189,29 @@ sudo apt install ./jastreamer-desktop_0.2.0_linux-amd64.deb
 
 최근 서버, 언어, 쿠키와 로그인 상태는 root 소유 설치 폴더가 아닌 `$XDG_CONFIG_HOME/jastreamer-desktop`, 보통 `~/.config/jastreamer-desktop`에 저장됩니다. 새 DEB를 설치하기 전에 완전히 종료하고 이 프로필은 제자리에 유지하세요. 패키지 버전이 같은 프리뷰를 교체한다면 `sudo apt install --reinstall ./jastreamer-desktop_0.2.0_linux-amd64.deb`을 사용합니다. 롤백용 이전 검증 DEB를 보관하고, 업데이트를 위해 프로필을 삭제하지 마세요.
 
+<a id="android"></a>
+## 7. 선택 사항인 네이티브 Android 클라이언트
+
+Kotlin 앱은 `_jastreamer._tcp` Server를 검색하고 `/api/v1/discovery`로 확인한 뒤 선택한 Server의 기존 Web 화면을 엽니다. 폐기한 Flutter Controller나 Android 오디오 Renderer가 아닙니다. PWA 추가 설치, 로컬 음악 접근 권한이나 위치 권한은 필요하지 않습니다.
+
+현재 배포는 성공한 [Android CI 실행](https://github.com/furyheimdall/jastreamer/actions/workflows/android.yml)의 **개발·테스트 산출물**입니다. 의도한 소스 리비전을 고르고 `jastreamer-android-debug-test-signed-and-release-unsigned-<revision>` artifact를 받으세요. 설치 전에 `SHA256SUMS`, `provenance.json`, 소스 리비전, application ID와 서명 인증서를 검증합니다. PR 산출물은 보호된 main의 릴리즈가 아닙니다.
+
+- `*_debug-test-signed.apk`는 설치 가능한 테스트 APK이며 application ID가 `io.jastreamer.android.debug`이고 생성된 debug 인증서를 사용합니다. production application ID `io.jastreamer.android`와 분리되어 있습니다.
+- `*_release-unsigned.apk`는 서명 전에는 설치할 수 없습니다. Production 서명 키 보관, 승인된 배포와 안정적인 업데이트 인증서는 별도 전제이며 개인 키를 포함하지 않습니다.
+- CI 실행마다 debug 인증서가 달라질 수 있습니다. 설치된 APK와 인증서가 다르면 앱 제거·데이터 초기화로 강행하지 말고 중단하세요. 그렇게 하면 로컬 세션과 설정이 사라집니다. 일반적인 덮어쓰기 업데이트에는 같은 application ID·인증서와 호환되는 같거나 높은 version code가 필요합니다.
+
+명시적으로 승인한 테스트 설치에서는 검증한 debug APK를 Android 기기로 옮겨 열고, 필요할 때만 파일을 여는 앱에 **알 수 없는 앱 설치**를 허용하세요. 설치 후 해당 설치 출처 권한을 해제합니다. Play Protect, 인증서 검사나 기기 보안을 끄지 마세요. 이미 승인한 ADB 연결이 있으면 `adb install -r <검증한-debug-apk>`를 사용할 수도 있습니다. 디버깅을 임의로 허용하거나 호스트 SDK 도구를 승인 없이 설치하지 마세요.
+
+HTTP는 신뢰할 수 있는 사설 LAN에서만 사용하며 암호화되지 않습니다. HTTPS는 기기의 정상적인 시스템 인증서 저장소로 검증되어야 합니다. 현재 앱의 target은 API 36이며 위치나 target 37용 `ACCESS_LOCAL_NETWORK` 권한을 요청하지 않습니다. Android 17은 현재 이전 target에 LAN 접근을 암시적으로 허용하지만 접근이 차단되면 오류를 그대로 표시합니다. Wi-Fi 기기 격리, 멀티캐스트 차단이나 VPN 경로 때문에 검색이 안 될 수 있으며 주소 직접 입력은 계속 사용할 수 있습니다. 테스트를 통과시키려고 기기 호환성 플래그나 네트워크 권한을 임의로 바꾸지 마세요.
+
+호환 APK를 덮어쓰면 앱 전용 설정과 Server UUID·origin별 프로필을 보존합니다. **최근 서버 목록에서 제거**는 목록만 지우며 로그아웃이나 WebView 프로필 삭제가 아닙니다. 필요하면 Server 화면 안에서 로그아웃하세요. Android 앱 제거·저장 공간 초기화는 모든 앱 프로필을 지우며 앱 데이터는 Android 클라우드·기기 이전 백업에서 제외됩니다. 프로필이나 세션 쿠키를 보고서에 복사하지 마세요.
+
+소스 개발은 필요한 호스트 도구 설치 승인을 받은 뒤 JDK 17, SDK platform 36, Build Tools 35.0.0과 `apps/android`의 고정된 Gradle Wrapper를 사용합니다. `./gradlew :app:testDebugUnitTest :app:lint :app:assembleDebug :app:assembleRelease`를 실행하세요. 전체 계측 검증은 `.github/workflows/android.yml`의 격리된 API 36 에뮬레이터와 실제 Server/Web fixture를 사용하며 사용자가 설치한 Server를 테스트하지 않습니다. 에뮬레이터 성공은 실물 휴대전화 네트워크나 수신기의 실제 소리를 입증하지 않습니다.
+
+서버 선택, 뒤로 가기, 언어와 수명주기 동작은 [Android 화면](INSTRUCTION.ko.md#android-controls)을 참고하세요.
+
 <a id="pwa"></a>
-## 7. 선택 사항인 휴대전화 Web 앱(PWA)
+## 8. 선택 사항인 휴대전화 Web 앱(PWA)
 
 설치형 휴대전화 Web 앱은 Server가 제공하는 화면을 다른 형태로 여는 클라이언트이며, 선택 사항인 Desktop 앱에는 필요하지 않습니다.
 
@@ -205,7 +228,7 @@ PWA 설치에는 해당 휴대전화와 브라우저가 신뢰하는 인증서�
 설치는 launcher만 추가합니다. service worker나 미디어 cache를 사용하지 않으며 오프라인 재생, 알림, 앱 스토어 배포를 제공하지 않습니다. 앱을 열고 제어하려면 항상 jastreamer Server에 네트워크로 연결할 수 있어야 하며 재생 상태와 제어는 Server가 계속 관리합니다. 설치 후 휴대전화 화면 사용법은 [최초 설정과 일상 사용](INSTRUCTION.ko.md#1-최초-설정과-일상-사용)을 참고하세요.
 
 <a id="upgrade"></a>
-## 8. 업데이트
+## 9. 업데이트
 
 Linux 컨테이너 대상은 최초 계정 생성을 다시 하는 대신 검증된 Server 컨테이너 이미지를 교체해 업데이트합니다. 이미지에는 해당 아키텍처의 Web 화면, FFmpeg와 AirPlay 실행 환경이 포함됩니다. Server가 자신을 업데이트하도록 Docker 소켓을 연결하거나 호스트 관리 권한을 부여하지 마세요. 네이티브 Windows는 [별도 무설치 업데이트 절차](#windows-server)를 따르고 아래 Compose 절차를 적용하지 마세요.
 
@@ -229,7 +252,7 @@ Linux 컨테이너 대상은 최초 계정 생성을 다시 하는 대신 검증
 서버가 제공하는 Web 화면과 휴대전화·PWA UI를 갱신하는 데 데스크톱 패키지 교체가 필요한 것은 아닙니다. 앱 실행 파일도 변경된 릴리즈라면 [Windows 데스크톱 앱](#desktop-windows) 또는 [Linux 데스크톱 앱](#desktop-linux)의 별도 절차를 따르고, Windows는 EXE 옆 `user-data`, Linux는 사용자별 프로필을 보존하세요.
 
 <a id="rollback"></a>
-## 9. 롤백
+## 10. 롤백
 
 시작이나 검증이 실패하면 새 서버를 멈추고 로그·상태를 보존하세요. 이전 검증 이미지로 되돌리기 전에 현재 설정과 데이터베이스를 지원하는지 확인합니다. 데이터베이스 마이그레이션 이후에는 이미지만 되돌려도 정상 동작하지 않을 수 있습니다. 호환성이 불명확하거나 이전 버전으로의 전환을 지원하지 않으면 Server를 정지한 채 필요한 마이그레이션 결정을 보고하고 데이터를 초기화하거나 다시 쓰지 마세요. 호환성이 확인되고 승인된 롤백은 저장된 이미지 참조만 바꾼 뒤 같은 설정과 마운트로 Server를 재생성합니다. 원래 접속 주소와 상태 보존을 다시 검증하고 재생은 자동으로 시작하지 마세요. 업데이트나 롤백 중 원본 음악을 삭제하거나 변경하면 안 됩니다.
 
