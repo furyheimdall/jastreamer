@@ -1,5 +1,11 @@
 # jastreamer
 
+[![CI](https://github.com/furyheimdall/jastreamer/actions/workflows/ci.yml/badge.svg?branch=main&event=push)](https://github.com/furyheimdall/jastreamer/actions/workflows/ci.yml)
+[![Go](https://img.shields.io/badge/Go-00ADD8?logo=go&logoColor=white)](https://go.dev/)
+[![TypeScript](https://img.shields.io/badge/TypeScript-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
+[![Python](https://img.shields.io/badge/Python-3776AB?logo=python&logoColor=white)](https://www.python.org/)
+[![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
+
 <img src="assets/jastreamer.svg" width="80" height="80" alt="jastreamer 로고" />
 
 jastreamer 0.2.0은 신뢰하는 사설 LAN에서 사용하는 자체 호스팅 음악 서버입니다. Linux 또는 Windows Server가 관리자가 승인한 로컬 음악을 색인하고 Web 화면을 제공하며, 대기열과 플레이리스트를 SQLite에 보관하고 선택한 네트워크 출력 하나로 오디오를 전송합니다. UPnP/DLNA는 기본으로 제공되고 Google Cast는 두 플랫폼에서 선택적으로 켤 수 있습니다. AirPlay 전송은 지원되는 Linux 컨테이너 패키지에서만 사용할 수 있습니다.
@@ -20,7 +26,7 @@ jastreamer 0.2.0은 신뢰하는 사설 LAN에서 사용하는 자체 호스팅 
 - 저장된 태그와 확인된 오디오·파일 정보를 필요할 때 표시
 - 플레이리스트와 중복 곡을 보존하는 서버 전역 대기열 유지
 - 호환되는 네트워크 출력의 재생과 탐색 제어
-- LAN의 UPnP/DLNA, 선택적 Google Cast 및 AirPlay 출력 검색
+- LAN의 UPnP/DLNA, 선택적 Google Cast 및 Linux AirPlay 출력 검색
 - 수신기가 요구할 때 AirPlay PIN·암호 인증
 - 최초 계정 생성, 비밀번호 로그인·변경·복구와 로그인 상태 유지
 - 기본 사설 LAN HTTP와 운영자가 제공한 PEM 인증서·키를 사용하는 선택적 내장 HTTPS
@@ -28,19 +34,21 @@ jastreamer 0.2.0은 신뢰하는 사설 LAN에서 사용하는 자체 호스팅 
 
 휴대전화 화면은 iPhone과 Android 휴대전화 브라우저에서만 자동으로 사용되며 iPad와 다른 태블릿은 기존 화면을 유지합니다. PWA는 Server의 네트워크 클라이언트일 뿐 보관함 cache나 오프라인 재생을 제공하지 않습니다.
 
-선택 사항인 데스크톱 앱은 Windows 10/11 x64 무설치 ZIP 또는 Linux amd64 DEB로 제공되는 서버 접속용 앱입니다. jastreamer 서버를 찾거나 HTTP(S) 주소를 입력받아 서버의 Web 화면을 표시합니다. 두 패키지 모두 서버나 로컬 오디오 플레이어가 아니며, Linux arm64 클라이언트는 브라우저를 사용할 수 있습니다.
-
 ## 배포 방식
 
-Server 배포 대상은 서로 구분됩니다. Linux `amd64`·`arm64` 컨테이너에는 내장 Web 화면, Python 3.12, 오디오 전용 FFmpeg 8.1.2와 pyatv 0.18.0 AirPlay 송신 프로그램이 포함됩니다. 네이티브 Windows x64 무설치 ZIP은 내장 Web 화면, UPnP/DLNA와 선택적 Google Cast를 제공하지만 AirPlay 송신 프로그램, Renderer 또는 FFmpeg 변환기를 포함하지 않습니다. Google Cast 자체에는 어느 플랫폼에서도 Chrome이나 Python helper가 필요하지 않습니다. 전체 [GitHub Releases 목록](https://github.com/furyheimdall/jastreamer/releases)에서 올바르게 표시된 프리뷰까지 포함해 가장 최근의 호환되는 게시 Server 릴리즈를 선택하고 provenance와 패키지 checksum 또는 정확한 이미지 다이제스트를 검증하세요. 가변 `latest`를 사용하거나 `/releases/latest`가 프리뷰를 포함한다고 가정하지 마세요.
+- **Linux Server:** 내장 Web 화면, Python 3.12, 오디오 전용 FFmpeg 8.1.2와 pyatv 0.18.0 AirPlay 송신 프로그램을 포함하는 `amd64`·`arm64` 컨테이너입니다. Synology Container Manager에서는 제공된 Compose 정의를 사용합니다.
+- **네이티브 Windows Server:** 내장 Web 화면, UPnP/DLNA와 선택적 Google Cast를 제공하는 미서명 x64 무설치 ZIP입니다. AirPlay 송신 프로그램, Renderer 또는 FFmpeg 변환기를 포함하지 않으며 Windows 서비스가 아닙니다.
+- **선택 사항인 데스크톱 앱:** Windows 10/11 x64 무설치 ZIP 또는 Linux amd64 DEB로 제공됩니다. Server를 찾거나 HTTP(S) 주소를 입력받아 Server의 Web 화면을 표시하며, Server나 Renderer 또는 로컬 오디오 플레이어가 아닙니다. ARM64 데스크톱 패키지는 없으며 Linux arm64 클라이언트는 브라우저를 사용할 수 있습니다.
+
+Google Cast 자체에는 어느 Server 플랫폼에서도 Chrome이나 Python helper가 필요하지 않습니다. 전체 [GitHub Releases 목록](https://github.com/furyheimdall/jastreamer/releases)에서 올바르게 표시된 프리뷰까지 포함해 가장 최근의 호환되는 게시 Server 릴리즈를 선택하고 provenance와 패키지 checksum 또는 정확한 이미지 다이제스트를 검증하세요. 가변 `latest`를 사용하거나 `/releases/latest`가 프리뷰를 포함한다고 가정하지 마세요.
 
 - **config:** 쓰기 가능한 `server.json`과 선택적 HTTPS PEM 파일
 - **data:** 쓰기 가능한 SQLite 데이터베이스, 앨범 아트 cache와 AirPlay 상태
 - **music:** 읽기 전용 기존 절대 음악 루트 또는 사용자가 생성·사용에 명시적으로 동의한 새 음악 루트
 
-manifest에 샘플 묶음이 포함된 릴리즈는 기존 파일을 덮어쓰지 않고 `jastreamer-samples`에 MP3 세 개를 둘 수 있습니다. 어느 Server 대상을 교체하든 config, data와 원본 음악을 보존하고 음악 보관함 전체의 소유권·권한을 재귀적으로 바꾸거나 Server를 공용 인터넷에 직접 노출하지 마세요.
+manifest에 샘플 묶음이 포함된 릴리즈는 기존 파일을 덮어쓰지 않고 `jastreamer-samples`에 MP3 세 개를 둘 수 있습니다. 어느 Server 대상을 교체하든 기존 배포 경로, config, data와 원본 음악을 보존하고 음악 보관함 전체의 소유권·권한을 재귀적으로 바꾸거나 Server를 공용 인터넷에 직접 노출하지 마세요.
 
-Linux·Synology·Windows 설치와 업데이트 절차는 [한국어 설치 및 업데이트 안내서](INSTALL.ko.md)를, 에이전트 작업 지침은 [AGENTS.md](AGENTS.md)를 참고하세요. 최초 사용과 문제 해결은 [한국어 사용자 안내서](INSTRUCTION.ko.md)를 따르세요.
+수동 설정, 패키지 검증, Linux·Synology·Windows 설치, 샘플, PWA 설정, 백업·업데이트·복구 절차는 [한국어 설치 및 업데이트 안내서](INSTALL.ko.md)를, 에이전트 작업 지침은 [AGENTS.md](AGENTS.md)를 참고하세요. 일상적인 사용과 문제 해결은 [한국어 사용자 안내서](INSTRUCTION.ko.md)를 따르세요.
 
 ## 선택 사항인 Google Cast
 
@@ -67,7 +75,9 @@ Linux 컨테이너의 실제 절차와 업데이트 후 확인 사항은 [백업
 
 ## 호환성 범위
 
-자동 검색에는 멀티캐스트와 Server·앱·출력 사이의 올바른 LAN 경로가 필요합니다. UPnP는 SSDP UDP 1900을 사용하고 Google Cast와 Linux AirPlay는 mDNS UDP 5353을 사용합니다. 출력 기능은 기기마다 다르며 일부 수신기는 일시 정지나 탐색을 제공하지 않거나 특정 형식을 거부하거나 인증을 요구할 수 있습니다. Google Cast는 Linux와 네이티브 Windows에서 사용할 수 있지만 기본값은 꺼짐이며 AirPlay는 Linux 전용입니다. 실제 사용할 장비에서 검색, 제어, 대기열 진행과 소리를 확인하세요.
+자동 검색에는 멀티캐스트와 Server·앱·출력 사이의 올바른 LAN 경로가 필요합니다. UPnP는 SSDP UDP 1900을 사용하고 Google Cast와 Linux AirPlay는 mDNS UDP 5353을 사용합니다. 출력 기능은 기기마다 다르며 일부 수신기는 일시 정지나 탐색을 제공하지 않거나 특정 형식을 거부하거나 인증을 요구할 수 있습니다. Google Cast는 Linux와 네이티브 Windows에서 사용할 수 있지만 기본값은 꺼짐이며 AirPlay는 Linux 전용입니다. 실제 사용할 장비에서 검색, 제어, 대기열 진행과 소리를 확인하세요. 검색 성공이나 정상적인 Server 상태만으로 실제 소리가 나는지는 입증되지 않습니다.
+
+사설 LAN HTTP는 인증 정보나 오디오를 암호화하지 않습니다. 필요한 경우 운영자가 제공한 신뢰할 수 있는 PEM 인증서와 키로 Server의 내장 HTTPS 수신 주소를 사용하세요. 휴대전화 PWA는 localhost 개발 주소를 제외하면 신뢰할 수 있는 HTTPS가 필요합니다. 인증서 경고를 우회하거나 NAS를 공용 인터넷에 노출하지 마세요.
 
 ## 라이선스
 
