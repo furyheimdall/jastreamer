@@ -1,0 +1,2 @@
+# Redistributed sample assets must retain identical bytes on every platform.
+/packaging/server/samples/** -text
