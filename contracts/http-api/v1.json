@@ -25,7 +25,10 @@
     "autoplay": "never on enqueue, startup, reconnect, scan, or output selection",
     "observation_failure": "mark status uncertain without revoking an existing stream; status_warning appears after three consecutive failed observations, retains its id within the failure streak, and clears on the next successful observation; error remains for immediate command or confirmed playback failures; confirmed disconnection requires explicit resume",
     "natural_end": "correlated completion, or an owned terminal position repeatedly held for two seconds; the latter requires acknowledged Stop before advancement",
-    "events": "invalidation only; clients refetch on open, gap, resync, and reconnect"
+    "events": "invalidation only; clients refetch on open, gap, resync, and reconnect",
+    "restart": "explicit authenticated request for the saved config revision; confirms playback stop before teardown, preserves persistent state without autoplay, and reinitializes services in-process; 202 is acceptance, not completion",
+    "restart_confirmation": "same-origin clients refetch config until runtime_id changes and restart_required clears; restart_error reports recovery after failed startup; changed origins require explicit navigation without cross-origin authenticated API requests",
+    "restart_storage": "data_dir changes require separate data migration and manual restart; the Control restart operation does not migrate or initialize replacement storage"
   },
   "routes": [
     {"method":"GET","path":"/healthz","auth":false,"response":{"status":"ready"}},
@@ -36,8 +39,9 @@
     {"method":"POST","path":"/api/v1/login","auth":false,"request":{"username":"string","password":"string"},"response":{"user":"User"}},
     {"method":"POST","path":"/api/v1/logout","auth":true,"request":{},"status":204},
     {"method":"POST","path":"/api/v1/account/password","auth":true,"request":{"current_password":"string","new_password":"string"},"status":204},
-    {"method":"GET","path":"/api/v1/config","auth":true,"response":{"config":"ServerConfig","revision":"string"}},
-    {"method":"PUT","path":"/api/v1/config","auth":true,"request":{"config":"ServerConfig","revision":"string"},"response":{"config":"ServerConfig","revision":"string","restart_required":"boolean"}},
+    {"method":"GET","path":"/api/v1/config","auth":true,"response":"ConfigDocument"},
+    {"method":"PUT","path":"/api/v1/config","auth":true,"request":{"config":"ServerConfig","revision":"string"},"response":"ConfigDocument"},
+    {"method":"POST","path":"/api/v1/restart","auth":true,"request":{"revision":"string"},"status":202,"response":{"runtime_id":"old runtime id","reconnect_url":"absolute HTTP(S) client URL for the target listener"}},
     {"method":"GET","path":"/api/v1/filesystem","auth":true,"query":["path","kind","offset"],"response":"FilesystemPage"},
     {"method":"GET","path":"/api/v1/network/interfaces","auth":true,"response":{"interfaces":"NetworkInterface[]"}},
     {"method":"GET","path":"/api/v1/library/{tracks|albums|artists|genres|folders}","auth":true,"query":["q","album_id","artist","genre","root_id","path","sort","offset","limit"],"response":"Page"},
@@ -66,6 +70,7 @@
     "User":{"id":"string","username":"string"},
     "Discovery":{"product":"jastreamer","protocol":1,"id":"stable UUID","name":"configured server_name or hostname","version":"product version"},
     "Session":{"authenticated":"boolean","user":"User?"},
+    "ConfigDocument":{"config":"ServerConfig","revision":"string","restart_required":"boolean; saved config differs from active runtime after accounting for live-applied library roots","restart_supported":"boolean","runtime_id":"string; changes on each runtime reinitialization","restart_error":"string?; failure that caused recovery to previous runtime"},
     "Root":{"id":"string","name":"string","path":"absolute path in Server configuration only"},
     "FilesystemRoot":{"name":"string","path":"native absolute server directory path"},
     "FilesystemEntry":{"name":"string","path":"native absolute server path","kind":"directory|file"},

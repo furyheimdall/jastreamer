@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/http/cookiejar"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -22,6 +23,7 @@ import (
 	"github.com/jastreamer/jastreamer-server/internal/discovery"
 	"github.com/jastreamer/jastreamer-server/internal/dlna"
 	"github.com/jastreamer/jastreamer-server/internal/events"
+	"github.com/jastreamer/jastreamer-server/internal/fault"
 	"github.com/jastreamer/jastreamer-server/internal/library"
 	"github.com/jastreamer/jastreamer-server/internal/output"
 	"github.com/jastreamer/jastreamer-server/internal/player"
@@ -29,12 +31,18 @@ import (
 )
 
 type apiFixture struct {
-	server   *httptest.Server
-	client   *http.Client
-	metadata discovery.Metadata
+	server     *httptest.Server
+	client     *http.Client
+	metadata   discovery.Metadata
+	config     config.Config
+	configPath string
 }
 
 func startAPI(t *testing.T, secure bool) apiFixture {
+	return startAPIWithRestart(t, secure, nil)
+}
+
+func startAPIWithRestart(t *testing.T, secure bool, restart *RestartHooks) apiFixture {
 	t.Helper()
 	dir := t.TempDir()
 	ctx, cancel := context.WithCancel(context.Background())
@@ -76,7 +84,7 @@ func startAPI(t *testing.T, secure bool) apiFixture {
 	if err = config.Save(path, cfg); err != nil {
 		t.Fatal(err)
 	}
-	handler := New(Options{Context: ctx, ConfigPath: path, Config: cfg, Auth: accounts, Discovery: discoveryService, Library: catalog, Devices: outputs, Player: playback, Stream: media, Events: hub, UI: fstest.MapFS{"index.html": &fstest.MapFile{Data: []byte("<!doctype html><title>Sign in</title>")}}})
+	handler := New(Options{Context: ctx, ConfigPath: path, Config: cfg, RuntimeID: "runtime_test", Restart: restart, Auth: accounts, Discovery: discoveryService, Library: catalog, Devices: outputs, Player: playback, Stream: media, Events: hub, UI: fstest.MapFS{"index.html": &fstest.MapFile{Data: []byte("<!doctype html><title>Sign in</title>")}}})
 	var server *httptest.Server
 	if secure {
 		server = httptest.NewTLSServer(handler)
@@ -87,7 +95,7 @@ func startAPI(t *testing.T, secure bool) apiFixture {
 	client := server.Client()
 	client.Timeout = 5 * time.Second
 	client.Jar, _ = cookiejar.New(nil)
-	return apiFixture{server: server, client: client, metadata: discoveryService.Metadata()}
+	return apiFixture{server: server, client: client, metadata: discoveryService.Metadata(), config: cfg, configPath: path}
 }
 
 func (fixture apiFixture) request(t *testing.T, method, path, body string, change func(*http.Request)) *http.Response {
@@ -292,4 +300,243 @@ func TestIncompleteJSONBodyIsBoundedWithoutBlockingOtherRequests(t *testing.T) {
 	}
 	expectStatus(t, response, http.StatusRequestTimeout)
 	expectStatus(t, fixture.request(t, "GET", "/api/v1/setup", "", nil), 200)
+}
+
+func TestConfigAdvertisesPendingRestartAfterReload(t *testing.T) {
+	fixture := startAPIWithRestart(t, false, &RestartHooks{
+		Prepare: func(context.Context, config.Config) error { return nil },
+		Commit:  func(RestartRequest) {},
+	})
+	fixture.setup(t)
+	response := fixture.request(t, http.MethodGet, "/api/v1/config", "", nil)
+	var initial struct {
+		Config           config.Config `json:"config"`
+		Revision         string        `json:"revision"`
+		RestartRequired  bool          `json:"restart_required"`
+		RestartSupported bool          `json:"restart_supported"`
+		RuntimeID        string        `json:"runtime_id"`
+	}
+	if err := json.NewDecoder(response.Body).Decode(&initial); err != nil {
+		t.Fatal(err)
+	}
+	response.Body.Close()
+	if response.StatusCode != http.StatusOK || initial.RestartRequired || !initial.RestartSupported || initial.RuntimeID != "runtime_test" {
+		t.Fatalf("initial restart state is wrong: status=%d state=%+v", response.StatusCode, initial)
+	}
+	initial.Config.ServerName = "Restarted server"
+	payload, err := json.Marshal(map[string]any{"config": initial.Config, "revision": initial.Revision})
+	if err != nil {
+		t.Fatal(err)
+	}
+	response = fixture.request(t, http.MethodPut, "/api/v1/config", string(payload), nil)
+	var saved struct {
+		Revision        string `json:"revision"`
+		RestartRequired bool   `json:"restart_required"`
+	}
+	if err = json.NewDecoder(response.Body).Decode(&saved); err != nil {
+		t.Fatal(err)
+	}
+	response.Body.Close()
+	if response.StatusCode != http.StatusOK || !saved.RestartRequired || saved.Revision == initial.Revision {
+		t.Fatalf("saved restart state is wrong: status=%d state=%+v", response.StatusCode, saved)
+	}
+	response = fixture.request(t, http.MethodGet, "/api/v1/config", "", nil)
+	var reloaded struct {
+		Revision        string `json:"revision"`
+		RestartRequired bool   `json:"restart_required"`
+	}
+	if err = json.NewDecoder(response.Body).Decode(&reloaded); err != nil {
+		t.Fatal(err)
+	}
+	response.Body.Close()
+	if response.StatusCode != http.StatusOK || !reloaded.RestartRequired || reloaded.Revision != saved.Revision {
+		t.Fatalf("GET lost the pending restart: status=%d state=%+v", response.StatusCode, reloaded)
+	}
+}
+
+func TestRestartRequiresAuthenticationGuardsAndCurrentRevision(t *testing.T) {
+	prepared := 0
+	fixture := startAPIWithRestart(t, false, &RestartHooks{
+		Prepare: func(context.Context, config.Config) error {
+			prepared++
+			return nil
+		},
+		Commit: func(RestartRequest) {},
+	})
+	expectStatus(t, fixture.request(t, http.MethodPost, "/api/v1/restart", `{"revision":"stale"}`, nil), http.StatusUnauthorized)
+	fixture.setup(t)
+	expectStatus(t, fixture.request(t, http.MethodPost, "/api/v1/restart", `{"revision":"stale"}`, func(request *http.Request) {
+		request.Header.Set("Origin", "http://untrusted.example")
+	}), http.StatusForbidden)
+	target := fixture.config
+	target.ServerName = "Changed"
+	if err := config.Save(fixture.configPath, target); err != nil {
+		t.Fatal(err)
+	}
+	response := fixture.request(t, http.MethodPost, "/api/v1/restart", `{"revision":"stale"}`, nil)
+	if code := responseErrorCode(t, response); code != "CONFIG_CONFLICT" {
+		t.Fatalf("stale restart error=%q, want CONFIG_CONFLICT", code)
+	}
+	target.DataDir = filepath.Join(filepath.Dir(fixture.configPath), "moved-data")
+	if err := config.Save(fixture.configPath, target); err != nil {
+		t.Fatal(err)
+	}
+	response = fixture.request(t, http.MethodPost, "/api/v1/restart", `{"revision":"`+configRevision(target)+`"}`, nil)
+	if code := responseErrorCode(t, response); code != "DATA_DIR_MIGRATION_REQUIRED" {
+		t.Fatalf("data directory restart error=%q, want DATA_DIR_MIGRATION_REQUIRED", code)
+	}
+	if prepared != 0 {
+		t.Fatal("rejected restart reached lifecycle preparation")
+	}
+}
+
+func TestFailedRestartPreparationLeavesRuntimeMutable(t *testing.T) {
+	commits := 0
+	fixture := startAPIWithRestart(t, false, &RestartHooks{
+		Prepare: func(context.Context, config.Config) error {
+			return fault.New(http.StatusConflict, "RESTART_STOP_FAILED", "renderer transport refused Stop")
+		},
+		Commit: func(RestartRequest) { commits++ },
+	})
+	fixture.setup(t)
+	target := fixture.config
+	target.ServerName = "Changed"
+	if err := config.Save(fixture.configPath, target); err != nil {
+		t.Fatal(err)
+	}
+	revision := configRevision(target)
+	response := fixture.request(t, http.MethodPost, "/api/v1/restart", `{"revision":"`+revision+`"}`, nil)
+	if code := responseErrorCode(t, response); code != "RESTART_STOP_FAILED" {
+		t.Fatalf("failed preparation error=%q, want RESTART_STOP_FAILED", code)
+	}
+	if commits != 0 {
+		t.Fatal("failed preparation committed a restart")
+	}
+	payload, err := json.Marshal(map[string]any{"config": target, "revision": revision})
+	if err != nil {
+		t.Fatal(err)
+	}
+	expectStatus(t, fixture.request(t, http.MethodPut, "/api/v1/config", string(payload), nil), http.StatusOK)
+	expectStatus(t, fixture.request(t, http.MethodGet, "/healthz", "", nil), http.StatusOK)
+}
+
+func TestAcceptedRestartRejectsDuplicateAndReturnsOldRuntime(t *testing.T) {
+	fixture := startAPIWithRestart(t, false, &RestartHooks{
+		Prepare: func(context.Context, config.Config) error { return nil },
+		Commit:  func(RestartRequest) {},
+	})
+	fixture.setup(t)
+	target := fixture.config
+	target.HTTP.Address = "127.0.0.1:9090"
+	if err := config.Save(fixture.configPath, target); err != nil {
+		t.Fatal(err)
+	}
+	revision := configRevision(target)
+	response := fixture.request(t, http.MethodPost, "/api/v1/restart", `{"revision":"`+revision+`"}`, nil)
+	var accepted struct {
+		RuntimeID    string `json:"runtime_id"`
+		ReconnectURL string `json:"reconnect_url"`
+	}
+	if err := json.NewDecoder(response.Body).Decode(&accepted); err != nil {
+		t.Fatal(err)
+	}
+	response.Body.Close()
+	if response.StatusCode != http.StatusAccepted || accepted.RuntimeID != "runtime_test" || accepted.ReconnectURL != "http://127.0.0.1:9090" {
+		t.Fatalf("restart acceptance is wrong: status=%d body=%+v", response.StatusCode, accepted)
+	}
+	response = fixture.request(t, http.MethodPost, "/api/v1/restart", `{"revision":"`+revision+`"}`, nil)
+	if code := responseErrorCode(t, response); code != "RESTART_IN_PROGRESS" {
+		t.Fatalf("duplicate restart error=%q, want RESTART_IN_PROGRESS", code)
+	}
+	response = fixture.request(t, http.MethodPost, "/api/v1/library/scans", `{}`, nil)
+	if code := responseErrorCode(t, response); code != "RESTART_IN_PROGRESS" {
+		t.Fatalf("mutation admitted after restart acceptance: %q", code)
+	}
+}
+
+func responseErrorCode(t *testing.T, response *http.Response) string {
+	t.Helper()
+	defer response.Body.Close()
+	var body struct {
+		Error struct {
+			Code string `json:"code"`
+		} `json:"error"`
+	}
+	if err := json.NewDecoder(response.Body).Decode(&body); err != nil {
+		t.Fatal(err)
+	}
+	return body.Error.Code
+}
+
+func TestRestartURLPreservesAdmittedIPv6AndUsesChangedSpecificBind(t *testing.T) {
+	request := httptest.NewRequest(http.MethodPost, "http://[fd00::10]:8080/api/v1/restart", nil)
+	request.Host = "[fd00::10]:8080"
+	active := config.Default()
+	target := active
+	target.HTTP.Enabled = false
+	target.HTTPS.Enabled = true
+	target.HTTPS.Address = "[::]:8443"
+	url, err := restartURL(request, active, target)
+	if err != nil || url != "https://[fd00::10]:8443" {
+		t.Fatalf("wildcard target did not preserve the admitted IPv6 host: url=%q err=%v", url, err)
+	}
+	target.HTTPS.Address = "[fd00::20]:8443"
+	url, err = restartURL(request, active, target)
+	if err != nil || url != "https://[fd00::20]:8443" {
+		t.Fatalf("changed specific bind was not used: url=%q err=%v", url, err)
+	}
+}
+
+func TestConfigRestartStateDistinguishesLiveAndExternalRoots(t *testing.T) {
+	fixture := startAPI(t, false)
+	fixture.setup(t)
+	response := fixture.request(t, http.MethodGet, "/api/v1/config", "", nil)
+	var state struct {
+		Config          config.Config `json:"config"`
+		Revision        string        `json:"revision"`
+		RestartRequired bool          `json:"restart_required"`
+	}
+	if err := json.NewDecoder(response.Body).Decode(&state); err != nil {
+		t.Fatal(err)
+	}
+	response.Body.Close()
+	liveRoot := filepath.Join(filepath.Dir(fixture.configPath), "live-music")
+	if err := os.Mkdir(liveRoot, 0700); err != nil {
+		t.Fatal(err)
+	}
+	state.Config.LibraryRoots = []config.Root{{ID: "live", Name: "Live", Path: liveRoot}}
+	payload, err := json.Marshal(map[string]any{"config": state.Config, "revision": state.Revision})
+	if err != nil {
+		t.Fatal(err)
+	}
+	response = fixture.request(t, http.MethodPut, "/api/v1/config", string(payload), nil)
+	if response.StatusCode != http.StatusOK {
+		t.Fatalf("hot-apply status=%d, want %d", response.StatusCode, http.StatusOK)
+	}
+	if err = json.NewDecoder(response.Body).Decode(&state); err != nil {
+		t.Fatal(err)
+	}
+	response.Body.Close()
+	if state.RestartRequired {
+		t.Fatal("hot-applied library roots incorrectly require a restart")
+	}
+	externalRoot := filepath.Join(filepath.Dir(fixture.configPath), "external-music")
+	if err = os.Mkdir(externalRoot, 0700); err != nil {
+		t.Fatal(err)
+	}
+	state.Config.LibraryRoots = append(state.Config.LibraryRoots, config.Root{ID: "external", Name: "External", Path: externalRoot})
+	if err = config.Save(fixture.configPath, state.Config); err != nil {
+		t.Fatal(err)
+	}
+	response = fixture.request(t, http.MethodGet, "/api/v1/config", "", nil)
+	if response.StatusCode != http.StatusOK {
+		t.Fatalf("reloaded config status=%d, want %d", response.StatusCode, http.StatusOK)
+	}
+	if err = json.NewDecoder(response.Body).Decode(&state); err != nil {
+		t.Fatal(err)
+	}
+	response.Body.Close()
+	if !state.RestartRequired {
+		t.Fatal("GET treated externally changed roots as already live-applied")
+	}
 }

@@ -28,6 +28,9 @@ type Options struct {
 	Context      context.Context
 	ConfigPath   string
 	Config       config.Config
+	RuntimeID    string
+	RestartError string
+	Restart      *RestartHooks
 	Auth         *auth.Service
 	Discovery    *discovery.Service
 	Library      *library.Service
@@ -40,15 +43,18 @@ type Options struct {
 }
 
 type server struct {
-	options  Options
-	configMu sync.Mutex
-	throttle loginThrottle
-	index    []byte
-	assets   http.Handler
+	options      Options
+	configMu     sync.Mutex
+	activeMu     sync.RWMutex
+	activeConfig config.Config
+	mutations    mutationGate
+	throttle     loginThrottle
+	index        []byte
+	assets       http.Handler
 }
 
 func New(options Options) http.Handler {
-	service := &server{options: options}
+	service := &server{options: options, activeConfig: options.Config}
 	service.index, _ = fs.ReadFile(options.UI, "index.html")
 	service.assets = http.FileServer(http.FS(options.UI))
 	mux := http.NewServeMux()
@@ -59,13 +65,14 @@ func New(options Options) http.Handler {
 		reply(w, http.StatusOK, options.Discovery.Metadata())
 	})
 	mux.HandleFunc("GET /api/v1/setup", service.setupState)
-	mux.HandleFunc("POST /api/v1/setup", service.setup)
+	mux.HandleFunc("POST /api/v1/setup", service.mutating(service.setup))
 	mux.HandleFunc("GET /api/v1/session", service.session)
-	mux.HandleFunc("POST /api/v1/login", service.login)
-	mux.HandleFunc("POST /api/v1/logout", service.require(service.logout))
-	mux.HandleFunc("POST /api/v1/account/password", service.require(service.password))
+	mux.HandleFunc("POST /api/v1/login", service.mutating(service.login))
+	mux.HandleFunc("POST /api/v1/logout", service.require(service.mutating(service.logout)))
+	mux.HandleFunc("POST /api/v1/account/password", service.require(service.mutating(service.password)))
 	mux.HandleFunc("GET /api/v1/config", service.require(service.getConfig))
-	mux.HandleFunc("PUT /api/v1/config", service.require(service.putConfig))
+	mux.HandleFunc("PUT /api/v1/config", service.require(service.mutating(service.putConfig)))
+	mux.HandleFunc("POST /api/v1/restart", service.require(service.restart))
 	mux.HandleFunc("GET /api/v1/filesystem", service.require(service.filesystem))
 	mux.HandleFunc("GET /api/v1/network/interfaces", service.require(service.networkInterfaces))
 	for _, kind := range []string{"tracks", "albums", "artists", "genres", "folders"} {
@@ -75,21 +82,21 @@ func New(options Options) http.Handler {
 	mux.HandleFunc("GET /api/v1/library/tracks/{id}/info", service.require(service.trackInfo))
 	mux.HandleFunc("GET /api/v1/artwork/{id}", service.require(service.artwork))
 	mux.HandleFunc("GET /api/v1/library/scans", service.require(service.scans))
-	mux.HandleFunc("POST /api/v1/library/scans", service.require(service.startScan))
-	mux.HandleFunc("DELETE /api/v1/library/scans/{id}", service.require(service.cancelScan))
+	mux.HandleFunc("POST /api/v1/library/scans", service.require(service.mutating(service.startScan)))
+	mux.HandleFunc("DELETE /api/v1/library/scans/{id}", service.require(service.mutating(service.cancelScan)))
 	mux.HandleFunc("GET /api/v1/playlists", service.require(service.playlists))
-	mux.HandleFunc("POST /api/v1/playlists", service.require(service.savePlaylist))
+	mux.HandleFunc("POST /api/v1/playlists", service.require(service.mutating(service.savePlaylist)))
 	mux.HandleFunc("GET /api/v1/playlists/{id}", service.require(service.playlist))
-	mux.HandleFunc("PUT /api/v1/playlists/{id}", service.require(service.savePlaylist))
-	mux.HandleFunc("DELETE /api/v1/playlists/{id}", service.require(service.deletePlaylist))
+	mux.HandleFunc("PUT /api/v1/playlists/{id}", service.require(service.mutating(service.savePlaylist)))
+	mux.HandleFunc("DELETE /api/v1/playlists/{id}", service.require(service.mutating(service.deletePlaylist)))
 	mux.HandleFunc("GET /api/v1/renderers", service.require(service.renderers))
 	mux.HandleFunc("POST /api/v1/renderers/refresh", service.require(service.refreshRenderers))
-	mux.HandleFunc("POST /api/v1/renderers/{id}/pairing", service.require(service.pairRenderer))
+	mux.HandleFunc("POST /api/v1/renderers/{id}/pairing", service.require(service.mutating(service.pairRenderer)))
 	mux.HandleFunc("GET /api/v1/player", service.require(service.playerState))
-	mux.HandleFunc("POST /api/v1/player", service.require(service.command))
-	mux.HandleFunc("PUT /api/v1/player/output", service.require(service.output))
+	mux.HandleFunc("POST /api/v1/player", service.require(service.mutating(service.command)))
+	mux.HandleFunc("PUT /api/v1/player/output", service.require(service.mutating(service.output)))
 	mux.HandleFunc("GET /api/v1/queue", service.require(service.queue))
-	mux.HandleFunc("POST /api/v1/queue", service.require(service.mutateQueue))
+	mux.HandleFunc("POST /api/v1/queue", service.require(service.mutating(service.mutateQueue)))
 	mux.HandleFunc("GET /api/v1/events", service.require(service.live))
 	mux.Handle("/media/", options.Stream.Handler())
 	mux.HandleFunc("/api/", func(w http.ResponseWriter, r *http.Request) {

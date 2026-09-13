@@ -44,6 +44,12 @@ Cast control keeps a persistent TLS connection and owns the application and medi
 - **Fill from a server LAN address** fills the editable `media.base_url` with an eligible IPv4 address and an enabled listener's scheme/port. It does not change listener binding. UPnP and Cast receivers must be able to reach that HTTP(S) media origin. Automatic clears the URL override and uses the interface on which the selected output was discovered, rather than an unrelated VPN/default route. An explicit media URL or explicit listener address retains precedence. For Cast, also permit Server TCP access to the receiver's mDNS-advertised Cast port.
 - Browsing and adapter/IP selection never save, restart, scan or start playback by themselves. Apply the draft explicitly; listener, storage and network changes may require a restart.
 
+### Applying saved settings and restarting the Server
+
+When saved settings require a restart, **Settings** shows a notice and **Restart server** button. The notice persists when you reopen the screen. Save or discard any unsaved edits before using the button. Confirming stops playback and restarts the Server with the saved settings. Existing accounts, queue and playlists are retained; playback does not resume automatically.
+
+For an unchanged address, Control confirms reconnection to a new Server runtime before showing completion. If the address changes, open the new address shown. Failures and timeouts are not reported as completion, and the restart command is never retried automatically. A data-directory change cannot be applied with this button: migrate the existing data separately, then restart the Server manually. Older Servers without the restart API show manual-restart guidance.
+
 ### Artwork and Queue actions
 
 - Player album artwork navigates to **Queue**; it does not show track information or start playback.

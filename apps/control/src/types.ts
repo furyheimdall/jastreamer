@@ -261,4 +261,12 @@ export interface ConfigDocument {
   config: ServerConfig;
   revision: string;
   restart_required?: boolean;
+  restart_supported?: boolean;
+  runtime_id?: string;
+  restart_error?: string;
+}
+
+export interface RestartResponse {
+  runtime_id: string;
+  reconnect_url: string;
 }
