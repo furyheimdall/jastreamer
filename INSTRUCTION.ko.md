@@ -1,141 +1,30 @@
 # jastreamer 0.2 사용자 안내서
 
-[English user guide](INSTRUCTION.md) · [프로젝트 소개](README.ko.md)
+[English user guide](INSTRUCTION.md) · [설치 및 업데이트](INSTALL.ko.md) · [프로젝트 소개](README.ko.md)
 
-jastreamer는 Linux 또는 네이티브 Windows에서 Server를 실행합니다. 두 대상 모두 내장 Web 화면과 UPnP/DLNA 출력을 제공하며 Google Cast를 선택적으로 켤 수 있습니다. AirPlay 전송은 Linux 컨테이너 패키지에서만 사용할 수 있습니다. 선택 사항인 Windows·Linux 데스크톱 앱은 Server에 접속만 합니다.
+jastreamer는 Linux 또는 네이티브 Windows에서 Server를 실행합니다. 두 대상 모두 내장 Web 화면과 UPnP/DLNA 출력을 제공하며 Google Cast를 선택적으로 켤 수 있습니다. AirPlay 전송은 Linux 컨테이너 패키지에서만 사용할 수 있습니다. 선택 사항인 Windows·Linux 데스크톱 앱은 Server에 접속만 합니다. 요구 사항, 패키지 검증, Server·Desktop 설치와 백업·업데이트·롤백은 [한국어 설치 및 업데이트 안내서](INSTALL.ko.md)를 따르세요.
 
-## 1. 요구 사항과 안전 주의
+## 1. 최초 설정과 일상 사용
 
-- Linux 컨테이너: Docker Engine과 Compose v2가 있는 Linux `amd64`·`arm64` 또는 Container Manager가 있는 Synology DSM. `arm/v7`은 지원하지 않으며 DS918+는 `amd64`입니다.
-- 네이티브 무설치 Server: Windows x64와 현재 사용자가 쓸 수 있는 로컬 설치 폴더. Windows 서비스로 설치되지 않습니다.
-- 게시된 jastreamer 0.2 프리뷰의 정확한 이미지 다이제스트 또는 Windows Server ZIP, 또는 별도로 전달받아 검증한 오프라인 패키지. 프리뷰 및 실장비 검증 한계는 그대로 적용됩니다.
-- Server, 브라우저·앱과 출력이 연결된 신뢰할 수 있는 사설 LAN. 자동 검색에는 멀티캐스트가 필요합니다.
-- Linux에서는 컨테이너 UID/GID `10001:10001`이 쓸 수 있는 분리된 config·data 폴더와 UID 10001이 읽을 수 있도록 읽기 전용 연결한 기존 음악 폴더.
-- Windows에서는 Server 실행 계정이 읽을 수 있는 음악 경로. 기본으로 나란히 생성되는 `server.json`, `data`, `music`은 그 계정이 계속 쓸 수 있어야 합니다.
-
-`chmod 777`을 사용하거나 음악 보관함 전체의 소유권을 재귀적으로 바꾸지 마세요. HTTP는 자격 증명과 오디오를 암호화하지 않습니다. LAN 경로 전체를 신뢰할 수 없다면 직접 준비한 PEM 인증서·키로 내장 HTTPS를 사용하세요. Server를 공용 인터넷에 직접 노출하지 마세요.
-
-## 2. 릴리즈 확보와 검증
-
-### 공개 레지스트리 이미지
-
-[GitHub Releases](https://github.com/furyheimdall/jastreamer/releases)에서 게시된 프리뷰를 선택하고, 검증 한계를 읽은 뒤 릴리즈 설명·manifest의 정확한 서버 이미지 주소를 확인하세요. 프리릴리즈는 최신 production 릴리즈로 표시하지 않으므로 `/releases/latest`로 프리뷰를 자동 선택하지 마세요.
-
-레지스트리는 `ghcr.io/furyheimdall/jastreamer-server`이며 공개 이미지는 GitHub 토큰 없이 내려받을 수 있습니다. 아래 예시의 다이제스트를 선택한 릴리즈의 실제 전체 값으로 바꾸고, 태그를 추측하지 마세요.
-
-```sh
-export JASTREAMER_SERVER_IMAGE='ghcr.io/furyheimdall/jastreamer-server@sha256:<digest-from-release>'
-docker pull "$JASTREAMER_SERVER_IMAGE"
-docker image inspect --format '{{.Os}}/{{.Architecture}} {{.Id}}' "$JASTREAMER_SERVER_IMAGE"
-```
-
-멀티아키텍처 Linux 이미지에서 호스트에 맞는 `amd64` 또는 `arm64`가 선택됩니다. 정확한 다이제스트를 영구 배포 환경 설정에 보관하고, 호스트에 FFmpeg나 Python을 따로 설치하지 마세요. Google Cast 자체에는 Chrome이나 Python helper가 필요하지 않습니다. Windows Server 또는 데스크톱 파일과 체크섬도 같은 릴리즈에서 받으세요.
-
-### 별도로 전달받은 오프라인 패키지
-
-오프라인 서버 묶음을 별도로 전달받았다면 가져오기 전에 함께 제공된 체크섬을 검증하세요.
-
-```sh
-cd /path/to/supplied/release
-sha256sum -c SHA256SUMS
-```
-
-명시적으로 승인된 비공개 레지스트리도 대안으로 사용할 수 있습니다. 정확한 다이제스트와 비공개 인증 수단을 사용하고 토큰을 Compose 파일·소스 저장소·지원 로그에 넣지 마세요.
-
-전달된 묶음에 멀티아키텍처 `.oci`가 포함되어 있다면 `docker load`에 직접 넣을 수 없습니다. 오프라인 Docker TAR가 필요하면 Skopeo가 있는 Linux 컴퓨터에서 대상 아키텍처 하나만 변환합니다.
-
-```sh
-ARCH=amd64  # 또는 arm64
-skopeo copy --override-os linux --override-arch "$ARCH" \
-  oci-archive:jastreamer-server_0.2.0_linux_amd64-arm64.oci \
-  docker-archive:jastreamer-server_0.2.0_linux_${ARCH}.tar:jastreamer-server:0.2.0
-sha256sum jastreamer-server_0.2.0_linux_${ARCH}.tar
-docker load --input jastreamer-server_0.2.0_linux_${ARCH}.tar
-docker image inspect --format '{{.Id}}' jastreamer-server:0.2.0
-```
-
-파일을 전송했다면 새 TAR의 체크섬을 비교하세요. 출력된 `sha256:...` 로컬 이미지 ID를 `JASTREAMER_SERVER_IMAGE`로 사용합니다.
-
-## 3. Server 설치
-
-### 네이티브 Windows x64 무설치 Server
-
-선택한 프리뷰에서 `jastreamer-server_0.2.0_windows-x64.zip`과 `.sha256`, manifest, 검증 receipt를 받으세요. ZIP은 미서명이며 production 검증을 마치지 않았습니다. 압축을 풀기 전에 sidecar와 실제 바이트를 비교합니다.
-
-```powershell
-$file = '.\jastreamer-server_0.2.0_windows-x64.zip'
-$expected = (Get-Content "$file.sha256" -Raw).Split()[0].ToLowerInvariant()
-$actual = (Get-FileHash $file -Algorithm SHA256).Hash.ToLowerInvariant()
-if ($actual -ne $expected) { throw 'Windows Server ZIP checksum mismatch' }
-```
-
-ZIP 전체를 현재 사용자가 쓸 수 있는 새 로컬 폴더에 풀고, Server를 운영할 일반 사용자 계정으로 `start-server.cmd`를 실행하세요. ZIP 안에서 실행하거나 EXE만 복사하거나 관리자 권한으로 실행하거나 SmartScreen·Defender 전체를 약화하지 마세요. 최초 실행에서만 launcher가 없는 `server.json`과 나란한 `data`, `music` 폴더를 원자적으로 만들고 절대 경로를 기록한 뒤 설정을 검증하고 Server를 시작합니다. 기존 `server.json`은 절대 교체하지 않습니다. 콘솔 창을 열어 두고 Ctrl+C로 종료하세요.
-
-같은 컴퓨터에서 `http://127.0.0.1:18080`을 열거나, 다른 클라이언트에서는 Windows 컴퓨터의 사설 LAN 주소와 18080 포트를 사용합니다. Windows 방화벽이 물으면 해당 실행 파일을 사설 네트워크에서만 허용하고 방화벽을 끄지 마세요. Web·미디어 접근에는 TCP 18080, UPnP 검색에는 SSDP UDP 1900, 선택적 Google Cast 검색에는 선택한 인터페이스의 mDNS UDP 5353이 필요합니다. Cast는 Server에서 각 수신기가 광고한 TCP 포트로 접근하고 수신기에서 Server 미디어 HTTP(S) URL로 접근할 수도 있어야 합니다. 나란한 `music` 폴더에 테스트 음악을 넣거나 Server를 멈추고 `library_roots`에 기존 Windows 절대 경로를 설정하세요. JSON 경로는 `C:/Music` 또는 이중 역슬래시를 사용할 수 있습니다.
-
-이 패키지는 네이티브 Server이며 선택 사항인 Windows 데스크톱 앱이 아닙니다. UPnP/DLNA와 선택적 Google Cast 네트워크 출력을 제공하지만 Renderer를 설치하거나 PC 스피커에서 재생하지 않습니다. Google Cast에는 Chrome이나 Python helper가 필요하지 않지만 이 패키지는 FFmpeg 또는 Linux 전용 AirPlay helper를 포함하지 않습니다. 따라서 변환과 AirPlay의 기본값은 꺼짐입니다. Cast가 지원되는 원본 형식을 직접 전송할 수 있고, 변환 대체 경로를 사용하려면 운영자가 FFmpeg를 설정하고 미디어 변환을 켜야 합니다. 네이티브 CI는 패키지 바이트, 최초 설치, HTTP UI, 계정 유지, 재시작과 기존 설정 보존을 검증하지만 미서명 프리뷰를 production 검증 완료로 만들거나 모든 Windows 시스템·수신기를 인증하지는 않습니다.
-
-기존 무설치 설치를 업데이트할 때는 Ctrl+C로 종료한 상태에서 `server.json`, `data`, `music`을 포함한 전체 폴더를 백업하세요. 새 ZIP을 검증해 별도 임시 폴더에 푼 다음 프로그램, launcher, 템플릿, 고지, 라이선스와 빌드 정보를 포함한 패키지 소유 파일만 기존 설치에서 교체합니다. `server.json`을 교체하거나 `data`·`music`을 삭제·이동하지 마세요. 그 안의 절대 경로와 기존 계정, 보관함, 앨범 아트, 대기열, 플레이리스트, 세션 상태를 유지해야 합니다. `start-server.cmd`를 실행해 변경하지 않은 설정 검증과 재시작 뒤 기존 URL·상태를 확인하세요. 롤백용 이전 검증 패키지와 그에 맞는 백업을 보관하세요.
-
-### Linux 또는 Synology Compose
-
-Linux와 Synology 모두 저장소의 `deploy/docker/server/compose.synology.yaml`을 사용합니다. 이 파일은 호스트 네트워크, 읽기 전용 컨테이너 파일 시스템, 임시 `/tmp`와 필요한 UID/GID를 적용합니다.
-
-서버에 맞는 경로를 선택하세요.
-
-| 설치 대상 | 설정 | 데이터 | 음악 |
-|---|---|---|---|
-| Linux 예시 | `/srv/jastreamer/config` | `/srv/jastreamer/data` | `/srv/music` |
-| Synology 예시 | `/volume1/docker/jastreamer/config` | `/volume1/docker/jastreamer/data` | `/volume1/music` |
-
-서버에 맞는 세 경로를 정하고 제공된 설정 파일을 설치합니다.
-
-```sh
-export JASTREAMER_CONFIG_PATH='/srv/jastreamer/config'
-export JASTREAMER_DATA_PATH='/srv/jastreamer/data'
-export JASTREAMER_MUSIC_PATH='/srv/music'
-
-sudo mkdir -p "$JASTREAMER_CONFIG_PATH" "$JASTREAMER_DATA_PATH"
-sudo cp /path/to/supplied/server.json "$JASTREAMER_CONFIG_PATH/server.json"
-sudo chown -R 10001:10001 "$JASTREAMER_CONFIG_PATH" "$JASTREAMER_DATA_PATH"
-sudo chmod 700 "$JASTREAMER_CONFIG_PATH" "$JASTREAMER_DATA_PATH"
-sudo chmod 600 "$JASTREAMER_CONFIG_PATH/server.json"
-```
-
-Synology에서는 표의 `/volume1/...` 경로로 바꾸세요. UID 10001에 음악 공유 폴더의 읽기·경로 탐색 권한만 주고 폴더 전체의 소유자는 바꾸지 마세요.
-
-복사한 `server.json`을 검토하세요.
-
-- `data_dir`은 `/var/lib/jastreamer`로 유지합니다.
-- 일반적인 음악 폴더 경로는 `/music`으로 유지합니다. Compose가 서버의 음악 폴더를 그곳에 연결합니다.
-- 패키지의 실행 파일 경로 `/usr/local/bin/ffmpeg`와 `/usr/local/bin/jastreamer-airplay`를 유지합니다.
-- 필요하면 `server_name`을 정하고, AirPlay를 사용하지 않을 때 끄거나, config 폴더의 PEM 파일로 내장 HTTPS를 설정합니다.
-- 출력이 특정 서버 HTTP(S) 주소를 사용해야 할 때만 `media.base_url`을 지정합니다.
-- Google Cast를 원할 때만 `cast.enabled`를 켭니다. 이전 설정에 이 값이 없어도 기본값은 `false`이며 Cast에는 helper 경로가 필요하지 않습니다.
-
-웹 설정 화면이 `server.json`을 교체할 수 있도록 파일과 config 폴더 모두 UID 10001이 계속 쓸 수 있어야 합니다.
-
-검증된 레지스트리 다이제스트 또는 가져온 로컬 이미지 ID로 시작합니다.
-
-```sh
-export JASTREAMER_SERVER_IMAGE='sha256:<verified-local-image-id>'
-docker compose -f deploy/docker/server/compose.synology.yaml config
-docker compose -f deploy/docker/server/compose.synology.yaml up -d
-docker compose -f deploy/docker/server/compose.synology.yaml ps
-docker compose -f deploy/docker/server/compose.synology.yaml logs --tail 100 jastreamer-server
-curl --fail http://127.0.0.1:8080/healthz
-```
-
-Synology Container Manager에서는 같은 Compose 파일과 네 환경 변수를 **프로젝트**에 입력할 수 있습니다. 상태 확인 주소는 `http://<NAS-LAN-IP>:8080/healthz`입니다. HTTPS를 켰다면 8443 포트를 사용하세요.
-
-## 4. 최초 설정과 일상 사용
-
-1. `http://<server-LAN-IP>:8080/`을 열고 최초 관리자 계정을 만듭니다. 비밀번호는 10자 이상이어야 합니다.
+1. 설치한 Server의 완전한 사설 LAN 주소를 엽니다. 기본 Linux 리스너는 `http://<server-LAN-IP>:8080/`, 기본 네이티브 Windows 리스너는 같은 사설 LAN 주소의 18080 포트를 사용합니다. 신규 설치에서만 최초 관리자 계정을 만들며 비밀번호는 10자 이상이어야 합니다. 업데이트 후에는 기존 계정·세션을 사용하고 최초 설정을 반복하거나 데이터를 초기화하지 마세요.
 2. 기본 언어는 영어입니다. **Settings** 메뉴의 **Language / 언어**에서 **English** 또는 **한국어**를 선택하세요. 메뉴 이름은 두 언어 모두 **Settings**로 유지합니다. 언어 선택은 즉시 적용·저장되며 서버 설정 저장이나 재생 명령을 보내지 않습니다.
-3. **Settings**에서 음악 폴더 경로가 `/music`인지 확인해 저장하고 **지금 스캔**을 선택하세요. FLAC, MP3, WAV/WAVE, Ogg/Vorbis, Opus, M4A를 원본 수정 없이 스캔하며 심볼릭 링크는 건너뜁니다.
+3. **Settings**에서 음악 폴더 경로를 확인해 저장하고 **지금 스캔**을 선택하세요. 표준 Linux 컨테이너의 보관함 경로는 `/music`이며 Windows에서는 설치할 때 선택한 폴더를 사용합니다. FLAC, MP3, WAV/WAVE, Ogg/Vorbis, Opus, M4A를 원본 수정 없이 스캔하며 심볼릭 링크는 건너뜁니다.
 4. Google Cast를 사용하려면 **Settings**에서 **Google Cast 출력**을 켜고 저장한 뒤 Server를 재시작하세요. `cast.enabled`가 `false`이거나 이전 설정에 없으면 계속 꺼진 상태입니다. 수신기가 보인다는 이유만으로 임의로 켜지 마세요.
 5. 보관함을 탐색·검색해 곡이나 묶음 화면을 대기열에 추가하고, 재생이 정지된 상태에서 출력을 선택합니다. 방금 켠 수신기가 없으면 출력 목록을 새로 고치세요.
 6. 수신기가 지원할 때 하단 플레이 바에서 재생/일시 정지, 정지, 이전, 다음과 탐색을 사용합니다. AirPlay가 PIN·암호를 요구하면 정지 상태에서 페어링합니다.
+
+<a id="phone-controls"></a>
+### 휴대전화 화면과 설치형 Web 앱
+
+휴대전화 화면은 iPhone 또는 사용자 에이전트에 Android와 Mobile이 함께 표시되는 휴대전화에서만 자동으로 사용됩니다. iPad와 Android 태블릿을 포함한 태블릿은 창 너비와 관계없이 기존 표준 화면을 유지합니다.
+
+휴대전화에서는 위쪽 헤더에서 jastreamer, 현재 사용자와 로그아웃을 확인하고, 아래쪽의 **보관함**, **플레이리스트**, **대기열**, **Settings** 네 탭으로 이동합니다. 메뉴 이름 **Settings**는 한국어와 영어에서 모두 같습니다. 주요 재생·탐색·곡 동작 버튼은 최소 44×44px 터치 영역을 제공하고, 헤더·재생 바·하단 탐색은 기기의 safe area 간격을 반영합니다.
+
+아래쪽의 간결한 플레이어에는 현재 곡, **재생/일시 정지**, **정지**와 펼치기 화살표가 있습니다. 화살표를 누르면 이전·다음 곡, 탐색, 출력 선택·새로 고침과 필요한 AirPlay 페어링 제어가 표시됩니다. 지원되지 않는 수신기 기능은 비활성화됩니다. 앨범 아트를 누르면 **대기열**로 이동합니다.
+
+다른 하단 탭으로 이동하면 재생을 정지하지 않고 펼친 플레이어만 접힙니다. 키보드 포커스가 플레이어 안에 있을 때 Escape로도 접을 수 있습니다. 높이가 낮거나 가로 방향인 화면에서는 펼친 패널 안을 스크롤할 수 있으며, 패널이 덮고 있는 본문은 접기 전까지 조작되지 않습니다.
+
+선택 사항인 설치형 Web 앱(PWA)은 같은 휴대전화 화면을 홈 화면 바로가기에서 독립 실행형으로 열 뿐이며 Server의 대기열과 재생을 그대로 제어합니다. 항상 Server에 연결할 네트워크가 필요하고 service worker·cache·오프라인 재생은 제공하지 않습니다. **Settings**의 설치 카드와 화면 펼치기·접기는 재생 명령을 보내거나 Server 설정을 변경하지 않습니다. 설치 카드는 현재 브라우저에서 가능한 방식과 설치 상태를 안내합니다. 안전한 HTTPS 준비와 브라우저별 설치 절차는 [휴대전화 Web 앱 설치](INSTALL.ko.md#pwa)를 참고하세요. 선택 사항인 Desktop 앱에는 PWA 설치가 필요하지 않습니다.
 
 대기열은 Server 전체에서 공유되며 순서와 중복을 보존하고 재시작 뒤에도 남습니다. Server 재시작 뒤 재생은 자동으로 이어지지 않습니다. Cast도 이 대기열 하나를 사용하고 Cast autoplay를 끈 상태로 미디어를 LOAD한 뒤 Play를 명시적으로 전송합니다. 수신기 그룹과 gapless 재생은 지원하지 않습니다.
 
@@ -165,129 +54,14 @@ Cast 제어는 지속 TLS 연결을 유지하고 자신이 실행한 애플리�
 
 UPnP·Google Cast·AirPlay 기능은 수신기마다 다릅니다. 실제 장비에서 소리와 필요한 제어 기능을 확인하세요.
 
-## 5. 선택 사항인 데스크톱 앱
 
-### Windows x64 무설치 ZIP
-
-Windows 10/11 x64에서 선택한 프리뷰의 미서명 `jastreamer-desktop_0.2.0_windows-x64.zip`을 사용합니다. 릴리즈 체크섬과 비교하세요.
-
-```powershell
-Get-FileHash .\jastreamer-desktop_0.2.0_windows-x64.zip -Algorithm SHA256
-```
-
-ZIP 전체를 쓰기 가능한 새 로컬 폴더에 풀고 `jastreamer-desktop.exe`를 실행하세요. ZIP 안에서 실행하거나 EXE만 복사하지 마세요. 발견된 서버를 선택하거나 완전한 HTTP(S) 주소를 입력합니다. 앱은 접속 전에 서버를 확인하며 검색·접속은 재생을 시작하지 않습니다.
-
-서버 검색은 활성 IPv4 네트워크 어댑터마다 5초 간격으로 수행하며 어댑터 변경도 반영합니다. 방화벽이나 멀티캐스트 제한이 있으면 서버 주소를 직접 입력해야 할 수 있습니다.
-
-최근 서버, 언어, 쿠키와 로그인 상태는 EXE 옆 `user-data`에 저장됩니다. 앱을 닫아도 서버 재생은 멈추지 않습니다. 업데이트할 때 완전히 종료하고 기존 폴더를 백업한 뒤 새 ZIP을 새 폴더에 풀고 기존 `user-data`를 새 EXE 옆에 보존하세요. 다른 Windows 계정이나 PC에서는 다시 로그인해야 할 수 있습니다.
-### Linux amd64 DEB
-
-그래픽 환경이 있는 Linux amd64에서 `jastreamer-desktop_0.2.0_linux-amd64.deb`을 사용합니다. 네이티브 설치·sandbox 검증 대상은 Ubuntu 24.04 amd64입니다. arm64 데스크톱 패키지나 Linux 서버 패키지가 아닙니다.
-
-선택한 릴리즈의 체크섬과 DEB를 비교하고, 의존성도 설치하도록 APT를 사용하세요.
-
-```sh
-sha256sum -c jastreamer-desktop_0.2.0_linux-amd64.deb.sha256
-sudo apt install ./jastreamer-desktop_0.2.0_linux-amd64.deb
-```
-
-일반 사용자로 앱 메뉴의 **JASTREAMER**를 열거나 `/usr/lib/jastreamer-desktop/jastreamer-desktop`을 실행하세요. `sudo`로 앱을 실행하거나 `--no-sandbox`를 추가하지 마세요. 서버를 선택하거나 완전한 HTTP(S) URL을 입력하면 되며, 이 클라이언트에 FFmpeg나 오디오 플레이어를 따로 설치할 필요는 없습니다.
-
-설치 파일은 root 소유이며, `chrome-sandbox`는 `root:root`, `4755` 권한으로 설치합니다. 호환되는 AppArmor 시스템에서는 `/usr/lib/jastreamer-desktop/jastreamer-desktop` 실행 파일에 한정된 사용자 네임스페이스 프로필을 설치합니다. AppArmor나 시스템 전체의 사용자 네임스페이스 제한을 끄지 않습니다. 기존 사용자 관리 정책은 보존하며 로컬 추가 규칙은 `/etc/apparmor.d/local/jastreamer-desktop`에 둡니다. 실행이 실패하면 sandbox를 약화하지 말고 오류와 설치 권한을 확인하세요.
-
-최근 서버, 언어, 쿠키와 로그인 상태는 root 소유 설치 폴더가 아닌 `$XDG_CONFIG_HOME/jastreamer-desktop`, 보통 `~/.config/jastreamer-desktop`에 저장됩니다. 새 DEB를 설치하기 전에 완전히 종료하고 이 프로필을 백업하세요. 패키지 버전이 같은 프리뷰를 교체한다면 `sudo apt install --reinstall ./jastreamer-desktop_0.2.0_linux-amd64.deb`을 사용합니다. 롤백용 이전 검증 DEB를 보관하고, 업데이트를 위해 프로필을 삭제하지 마세요.
-
-
-## 6. 백업과 업데이트
-
-Linux 컨테이너 대상은 최초 계정 생성을 다시 하는 대신 검증된 Server 컨테이너 이미지를 교체해 업데이트합니다. 이미지에는 해당 아키텍처의 Web 화면, FFmpeg와 AirPlay 실행 환경이 포함됩니다. Server가 자신을 업데이트하도록 Docker 소켓을 연결하거나 호스트 관리 권한을 부여하지 마세요. 네이티브 Windows는 3절의 별도 무설치 업데이트 절차를 따르고 아래 Compose 절차를 적용하지 마세요.
-
-### 업데이트 절차
-
-모든 작업에 **기존** Compose 프로젝트 이름·프로젝트 폴더·Compose 파일·환경 파일을 사용하세요. 기본 저장 경로를 사용하는 두 번째 설치를 새로 만들면 안 됩니다.
-
-1. **대상 버전 확인:** 변경 사항, 설정·데이터베이스 호환성, 중간 버전을 거쳐야 하는지 확인합니다. 현재 이미지 식별자, 아키텍처, 접속 URL, 마운트와 영구 설정을 기록하고, 변경 전에 백업 공간과 롤백 계획을 확인합니다.
-2. **중단 전에 다운로드:** 선택한 공개 릴리즈의 정확한 대상 다이제스트를 내려받습니다. 공개 이미지는 로그인이 필요 없으며, 명시적으로 선택한 비공개 레지스트리에만 기존 Docker 인증이나 비공개 대화형 인증을 사용하세요. 토큰을 대화나 설정 파일에 넣지 마세요. 멀티아키텍처 이미지에서는 호스트에 맞는 아키텍처가 자동 선택되며, `amd64` 또는 `arm64`인지 확인합니다. 오프라인 패키지는 2절의 검증·가져오기 절차를 따르세요. 가변 `latest` 태그를 사용하거나 레지스트리 주소를 지어내거나 이전 이미지를 삭제하지 마세요.
-3. **중단 시점 합의:** 재생을 정지하고 정지 상태를 확인합니다. 상태를 백업하기 전에 기존 Compose 프로젝트의 `jastreamer-server`만 멈춥니다. 다른 서비스를 중지하거나 볼륨을 제거하거나 `down -v`를 사용하지 마세요.
-4. **일관된 백업:** Server가 멈춘 상태에서 config와 data 폴더 전체, Compose 파일과 환경 파일을 백업하고 해당 시점의 이전 이미지 식별자를 기록합니다. 백업을 읽을 수 있고 필요한 파일이 포함되었는지 확인하세요. 계정·세션·AirPlay·Google Cast 활성화 설정 및 TLS 설정이나 자격 증명이 포함될 수 있으므로 비공개 데이터로 보호해야 합니다. 읽기 전용 원본 음악은 앱 상태가 아니며 덮어쓰거나 수정하면 안 됩니다.
-5. **저장된 이미지 참조 변경:** 영구 배포 설정의 `JASTREAMER_SERVER_IMAGE`를 검증된 대상 다이제스트 또는 가져온 로컬 이미지 ID로 바꿉니다. 릴리즈에서 명시적으로 요구하고 검토한 마이그레이션 외에는 기존 설정과 마운트를 보존하세요. `server.json`을 신규 설치 템플릿으로 교체하지 마세요. UID/GID `10001:10001`, host networking, 읽기 전용 rootfs·music, 쓰기 가능한 config·data와 나머지 보안 제한을 유지합니다. 시작 전에 `docker compose config`로 변경 구성을 확인하고 대상 이미지의 `--check-config` 명령으로 기존 설정을 검증합니다.
-6. **서버만 재생성:** 같은 프로젝트에서 `up -d --no-deps jastreamer-server`를 실행합니다. 실제 실행 이미지가 선택한 다이제스트·아키텍처와 일치하는지, 컨테이너 상태와 로그, `/healthz`, 클라이언트 LAN에서 Web 접속을 확인하세요. 컨테이너가 생성됐다는 사실만으로 완료라고 판단하지 마세요.
-7. **접속과 테스트:** 기존에 사용하던 실제 HTTP(S) URL을 포트까지 포함해 안내합니다. 브라우저나 Windows 앱의 Web 화면을 새로고침하고 로그인, 보관함·앨범 아트, 대기열 순서, 플레이리스트, 설정과 출력 검색이 업데이트 전과 같은지 확인하세요. 사용자가 명시적으로 시작하기 전까지 재생은 정지 상태여야 합니다. 원하는 곡을 직접 재생해 소리를 확인하고, 지원되는 일시 정지·탐색을 시험한 뒤 정지하도록 안내하세요. 실패하면 비밀정보 없이 어느 단계에서 어떤 오류가 났는지 알려 달라고 합니다.
-
-서버가 제공하는 Web 화면을 갱신하는 데 데스크톱 패키지 교체가 필요한 것은 아닙니다. 앱 실행 파일도 변경된 릴리즈라면 5절의 별도 절차를 따르고, Windows는 EXE 옆 `user-data`, Linux는 사용자별 프로필을 보존하세요.
-
-### 롤백
-
-시작이나 검증이 실패하면 새 서버를 멈추고 로그·상태를 보존한 뒤 승인된 롤백 계획을 따르세요. 이전 이미지와 **그에 대응하는 config/data 및 배포 설정 백업을 함께** 복구해야 합니다. 데이터베이스 마이그레이션 이후에는 이미지 태그만 되돌려도 정상 동작하지 않을 수 있습니다. 백업 이후의 변경이 사라질 수 있으므로 복구 전에 영향을 확인하세요. 원래 접속 주소와 상태 보존을 다시 검증하고 재생은 자동으로 시작하지 마세요. 업데이트나 롤백 중 원본 음악을 삭제하거나 변경하면 안 됩니다.
-
-### 에이전트와 업데이트하기
-
-서버에 허가된 방식으로 접근할 수 있는 에이전트에게 아래 프롬프트를 복사해 전달하세요. 현재 서버 URL과 접속 방법부터 알려주면, 사용자가 설정 파일을 다시 작성하는 대신 에이전트가 기존 배포 구성을 조사하도록 되어 있습니다. 비밀번호와 개인 키는 프롬프트가 아닌 비공개 인증 수단으로 처리하세요.
-
-<details>
-<summary>업데이트 프롬프트 펼쳐서 복사하기</summary>
-
-```text
-기존 데이터를 보존하면서 내 jastreamer 서버를 업데이트하도록 도와줘.
-일치하는 저장소 리비전의 README와 INSTRUCTION.ko.md, 특히 백업과
-업데이트 절차를 먼저 읽어줘. 신규 설치가 아니라 기존 서버 업데이트야.
-
-모르는 경우 현재 서버 URL과 허용된 SSH 접속 방법을 물어봐.
-실제 설치를 조사해 Compose 프로젝트·파일·영구 환경 설정,
-이미지·다이제스트, 아키텍처, 마운트, 설정과 재생 상태를 확인해.
-예시 경로를 실제 설치 경로로 가정하지 마.
-부족한 정보만 묻고 어떤 배포 버전으로 업데이트할지 확인해.
-변경 사항을 설명하고 호환되는 검증된 버전을 추천해줘.
-게시된 이미지를 지어내거나 latest를 쓰거나 다른 빌드로 대체하지 마.
-
-현재·대상 버전, 예상 중단, 보존할 상태, 백업 위치, 검증과 롤백
-계획을 보여주고 승인받아. 문서화된 마이그레이션을 승인한 경우가
-아니면 기존 URL·설정·계정·보관함·앨범 아트·대기열 순서·
-플레이리스트·AirPlay 상태·Google Cast 활성화 설정을 유지해.
-수신기가 보인다는 이유만으로 Cast를 켜지 마.
-중단 전에 해당 아키텍처의 FFmpeg·AirPlay 실행 환경을 포함한
-전체 이미지를 내려받아 검증해. Google Cast에는 Chrome이나 Python
-helper가 필요 없어. 공개 GHCR 이미지는 로그인이 필요 없어.
-명시적으로 선택한 비공개 레지스트리에만 안전한 인증을 사용하거나
-문서의 오프라인 가져오기를 따르고 비밀정보를 대화·로그에 기록하지 마.
-
-승인 후 재생 정지를 확인하고 이 서버만 멈춰.
-서비스가 정지한 상태에서 config/data 전체와 배포 설정을 백업하고
-백업을 확인한 뒤 이전 이미지를 보관해. 실행 중인 SQLite 파일만
-복사하거나 볼륨 제거·계정 초기화·음악 수정·음악 폴더의 재귀적
-소유권 변경·컨테이너 보안 완화를 하지 마.
-필요한 영구 배포 설정만 바꾸고 Compose와 대상 이미지의
---check-config로 준비한 설정을 검증한 뒤, 같은 프로젝트·마운트로
-해당 서비스만 재생성해. 실제 설정 파일과 명령은 직접 작성하고
-자리표시자를 남기거나 임시 셸의 export에만 의존하지 마.
-
-실행 이미지, 로그, /healthz, 클라이언트 LAN의 Web 접속과 기존
-상태 보존을 검증해. 자동으로 출력을 페어링하거나 재생을 시작하거나,
-실패하는 컨테이너를 계속 교체하지 마.
-검증이 실패하면 근거를 보존하고 승인된 롤백 계획만 수행해.
-백업 이후 데이터가 사라질 수 있음을 설명하고, 막힌 단계가 있으면
-성공했다고 하지 말고 정확히 보고해.
-
-마지막에는 실제로 클릭할 수 있는 서버 URL을 주고, 그 주소를 열어
-Web 화면을 새로고침하고 로그인·보관함·대기열·플레이리스트·출력을
-확인하도록 안내해. 내가 원하는 곡을 직접 재생해 소리를 듣고,
-지원되는 일시 정지·탐색을 시험한 뒤 정지하도록 제안해.
-각 단계의 기대 결과와, 문제 발생 시 실패한 단계·비밀정보를 제거한
-오류 문구를 알려 달라는 안내를 포함해.
-에이전트가 확인한 결과와 사용자가 직접 할 청취 검증을 구분하고,
-최종 버전·다이제스트, 백업 위치와 롤백 방법을 정리해줘.
-데스크톱 패키지는 별도이므로 그것도 업데이트할 때는 Windows의
-user-data 또는 Linux의 사용자별 프로필을 보존해.
-서버의 Web 화면만 갱신하려고 데스크톱 앱을 교체하지 마.
-```
-
-</details>
-
-## 7. 문제 해결
+## 2. 문제 해결
 
 | 문제 | 확인할 항목 |
 |---|---|
 | 웹 화면이 열리지 않음 | Windows Server 콘솔과 TCP 18080, 또는 Linux `/healthz`, Compose 로그, 수신 주소 설정과 TCP 8080/8443 방화벽 확인 |
+| 휴대전화 화면이 나타나지 않음 | 기기가 iPhone이거나 브라우저 사용자 에이전트에 Android와 Mobile이 모두 표시되는 휴대전화인지 확인; iPad·Android 태블릿과 폭이 좁은 데스크톱 창은 의도적으로 기존 표준 화면 유지 |
+| PWA 설치 동작이 나타나지 않음 | **Settings**를 열고 [PWA 설치](INSTALL.ko.md#pwa)를 따름; 사설 LAN HTTP origin에는 신뢰할 수 있는 HTTPS 요구 사항이 표시됨 |
 | Windows에서 서버를 찾지 못함 | mDNS UDP 5353을 허용하거나 완전한 서버 URL 직접 입력 |
 | 출력이 보이지 않음 | UPnP는 SSDP UDP 1900 허용; Google Cast는 선택한 인터페이스의 mDNS UDP 5353과 Server에서 수신기가 광고한 Cast TCP 포트로의 접근 허용; Linux AirPlay는 mDNS UDP 5353과 호스트 네트워크도 필요; Wi-Fi 기기 격리 해제 |
 | 출력이 재생하지 못함 | Server→수신기 제어·스트림과 수신기→Server 미디어 HTTP(S) 통신 허용; 특정 접근 가능 출처가 필요할 때만 `media.base_url` 지정; Cast 원본이 지원되지 않으면 FFmpeg를 설정한 경우에만 변환 사용 |

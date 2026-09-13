@@ -7,6 +7,7 @@ import Queue from "./Queue";
 import Settings from "./Settings";
 import { useI18n, type MessageKey } from "./i18n";
 import type { Session, SessionUser, StatusWarning } from "./types";
+import { isPhone } from "./device";
 
 type View = "library" | "playlists" | "queue" | "settings";
 type EventTopic = "player" | "queue" | "library" | "playlists" | "renderers" | "config";
@@ -166,6 +167,7 @@ export default function App() {
   const [setupRequired, setSetupRequired] = useState(false);
   const [session, setSession] = useState<Session>({ authenticated: false });
   const [view, setView] = useState<View>("library");
+  const [phonePlayerExpanded, setPhonePlayerExpanded] = useState(false);
   const [online, setOnline] = useState(true);
   const [revisions, setRevisions] = useState<Revisions>(initialRevisions);
   const [notice, setNotice] = useState<string | null>(null);
@@ -508,6 +510,14 @@ export default function App() {
       );
   }
 
+  function navigate(next: View) {
+    setView(next);
+    if (isPhone) {
+      setPhonePlayerExpanded(false);
+      window.scrollTo({ top: 0, behavior: "instant" });
+    }
+  }
+
   return (
     <div className="app-shell">
       {!online && <div className="offline-banner" role="status">{t("app.connection.reconnecting")}</div>}
@@ -523,7 +533,7 @@ export default function App() {
               type="button"
               aria-current={view === item.id ? "page" : undefined}
               key={item.id}
-              onClick={() => setView(item.id)}
+              onClick={() => navigate(item.id)}
             >
               <AppIcon name={item.icon} />
               <span>{t(item.labelKey)}</span>
@@ -538,7 +548,7 @@ export default function App() {
         </div>
       </aside>
 
-      <header className="mobile-header">
+      <header className="mobile-header" inert={isPhone && phonePlayerExpanded}>
         <div className="brand">
           <span className="brand-mark"><AppIcon name="logo" /></span>
           <span>jastreamer</span>
@@ -551,7 +561,7 @@ export default function App() {
         </div>
       </header>
 
-      <main className="main-content" id="main-content">{page}</main>
+      <main className="main-content" id="main-content" inert={isPhone && phonePlayerExpanded}>{page}</main>
 
       <nav className="mobile-nav" aria-label={t("app.nav.main")}>
         {navigation.map((item) => (
@@ -560,7 +570,7 @@ export default function App() {
             type="button"
             aria-current={view === item.id ? "page" : undefined}
             key={item.id}
-            onClick={() => setView(item.id)}
+            onClick={() => navigate(item.id)}
           >
             <AppIcon name={item.icon} />
             <span>{t(item.labelKey)}</span>
@@ -570,9 +580,11 @@ export default function App() {
 
       <PlayerBar
         revision={revisions.player + revisions.renderers}
+        phoneExpanded={phonePlayerExpanded}
+        onPhoneExpandedChange={setPhonePlayerExpanded}
         onNotice={showNotice}
         onStatusWarning={showStatusWarning}
-        onShowQueue={() => setView("queue")}
+        onShowQueue={() => navigate("queue")}
         onQueueChange={() => setRevisions((current) => ({ ...current, queue: current.queue + 1, player: current.player + 1 }))}
       />
 

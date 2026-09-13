@@ -1,5 +1,8 @@
 export const playerMessages = {
   "player.nowPlaying": { en: "Now playing", ko: "현재 재생" },
+  "player.expandedHeading": { en: "Playback controls", ko: "재생 제어" },
+  "player.expandControls": { en: "Show playback controls", ko: "재생 제어 보기" },
+  "player.collapseControls": { en: "Hide playback controls", ko: "재생 제어 닫기" },
   "player.openQueue": { en: "Open queue", ko: "대기열 열기" },
   "player.loading": { en: "Loading playback information…", ko: "재생 정보를 불러오는 중…" },
   "player.noTrack": { en: "Nothing is playing", ko: "재생 중인 곡 없음" },
