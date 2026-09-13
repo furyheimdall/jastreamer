@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import { api, ApiError } from "./api";
 import { useI18n, type Language, type MessageKey } from "./i18n";
+import AirPlayHelpDialog from "./AirPlayHelpDialog";
 import InstallApp from "./InstallApp";
 import ServerPathPicker from "./ServerPathPicker";
 import type { ConfigDocument, ConfigRoot, FilesystemEntryKind, NetworkInterfacesDocument, RestartResponse, ScanJob, ServerConfig } from "./types";
@@ -42,9 +43,10 @@ interface PathFieldProps {
   disabled?: boolean;
   required?: boolean;
   placeholder?: string;
+  describedBy?: string;
 }
 
-function PathField({ id, label, value, browseLabel, browseText, onChange, onBrowse, disabled, required, placeholder }: PathFieldProps) {
+function PathField({ id, label, value, browseLabel, browseText, onChange, onBrowse, disabled, required, placeholder, describedBy }: PathFieldProps) {
   return (
     <div className="server-path-field">
       <label className="field-label" htmlFor={id}>{label}</label>
@@ -56,6 +58,7 @@ function PathField({ id, label, value, browseLabel, browseText, onChange, onBrow
           disabled={disabled}
           required={required}
           placeholder={placeholder}
+          aria-describedby={describedBy}
           spellCheck={false}
           onChange={(event) => onChange(event.target.value)}
         />
@@ -127,6 +130,7 @@ export default function Settings({ configRevision, libraryRevision, onNotice, on
   const [passwordBusy, setPasswordBusy] = useState(false);
   const [languagePersistFailed, setLanguagePersistFailed] = useState(false);
   const [pathPicker, setPathPicker] = useState<OpenPathPicker | null>(null);
+  const [airplayHelpOpen, setAirplayHelpOpen] = useState(false);
   const [networkInterfaces, setNetworkInterfaces] = useState<NetworkInterfacesDocument | null>(null);
   const [networkInterfacesLoading, setNetworkInterfacesLoading] = useState(true);
   const [networkInterfacesError, setNetworkInterfacesError] = useState("");
@@ -986,6 +990,59 @@ export default function Settings({ configRevision, libraryRevision, onNotice, on
           )}
         </section>
 
+        <section className="settings-card scan-settings" aria-labelledby="scan-heading">
+          <div className="settings-card-heading">
+            <div>
+              <h2 id="scan-heading">{t("settings.scan.title")}</h2>
+              <p className="muted">{t("settings.scan.description")}</p>
+            </div>
+            <button
+              className="button button-primary"
+              type="button"
+              disabled={restartMutationsDisabled || Boolean(scanBusy) || scans.some((scan) => scan.status === "queued" || scan.status === "running")}
+              onClick={() => void startScan()}
+            >
+              {t(scanBusy === "new" ? "settings.scan.starting" : "settings.scan.start")}
+            </button>
+          </div>
+          {scans.length === 0 ? (
+            <p className="empty-inline">{t("settings.scan.empty")}</p>
+          ) : (
+            <ul className="scan-list">
+              {scans.map((scan) => {
+                const active = scan.status === "queued" || scan.status === "running";
+                return (
+                  <li key={scan.id}>
+                    <div className="scan-summary">
+                      <strong>{t(`settings.scan.status.${scan.status}`)}</strong>
+                      <span>{t("settings.scan.progress", {
+                        processed: scan.processed.toLocaleString(locale),
+                        discovered: scan.discovered.toLocaleString(locale),
+                      })}</span>
+                      <span>{t("settings.scan.changes", {
+                        added: scan.added.toLocaleString(locale),
+                        updated: scan.updated.toLocaleString(locale),
+                        unavailable: scan.unavailable.toLocaleString(locale),
+                      })}</span>
+                      {scan.error && <span className="error-text">{scan.error}</span>}
+                    </div>
+                    {active && (
+                      <button
+                        className="button button-ghost danger-button"
+                        type="button"
+                        disabled={restartMutationsDisabled || scanBusy === scan.id}
+                        onClick={() => void cancelScan(scan.id)}
+                      >
+                        {t("settings.scan.cancel")}
+                      </button>
+                    )}
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </section>
+
         <section className="settings-card">
           <h2>{t("settings.network.title")}</h2>
           <div className="field-grid">
@@ -1161,7 +1218,8 @@ export default function Settings({ configRevision, libraryRevision, onNotice, on
             value={draft.airplay.helper_path}
             disabled={!draft.airplay.enabled}
             required={draft.airplay.enabled}
-            placeholder="/path/to/airplay-helper"
+            placeholder={t("settings.airplay.helperPlaceholder")}
+            describedBy="airplay-helper-help"
             browseText={t("settings.pathPicker.browse")}
             browseLabel={t("settings.pathPicker.browseLabel", { label: t("settings.airplay.helperPath") })}
             onChange={(value) => updateDraft((config) => ({
@@ -1175,11 +1233,22 @@ export default function Settings({ configRevision, libraryRevision, onNotice, on
               target: { field: "helper_path" },
             })}
           />
-          <p className="field-help">{t("settings.airplay.help")}</p>
+          <div className="airplay-help-row">
+            <p className="field-help" id="airplay-helper-help">{t("settings.airplay.help")}</p>
+            <button
+              className="button button-ghost"
+              type="button"
+              aria-haspopup="dialog"
+              onClick={() => setAirplayHelpOpen(true)}
+            >
+              {t("settings.airplay.openHelp")}
+            </button>
+          </div>
         </section>
 
-        <section className="settings-card">
-          <h2>{t("settings.media.title")}</h2>
+        <section className="settings-card" aria-labelledby="media-delivery-heading">
+          <h2 id="media-delivery-heading">{t("settings.media.title")}</h2>
+          <p className="muted">{t("settings.media.description")}</p>
           <div className="field-grid">
             <div className="media-base-url-field">
               <label className="field-label" htmlFor="media-base-url">{t("settings.media.baseUrl")}</label>
@@ -1188,16 +1257,19 @@ export default function Settings({ configRevision, libraryRevision, onNotice, on
                 id="media-base-url"
                 value={draft.media.base_url}
                 placeholder={t("settings.media.baseUrlPlaceholder")}
+                aria-describedby="media-base-url-help"
                 onChange={(event) => updateDraft((config) => ({
                   ...config,
                   media: { ...config.media, base_url: event.target.value },
                 }))}
               />
+              <p className="field-help" id="media-base-url-help">{t("settings.media.baseUrlHelp")}</p>
               <label className="field-label media-quick-url-label" htmlFor="media-quick-url">{t("settings.media.quickUrl")}</label>
               <select
                 className="input"
                 id="media-quick-url"
                 value={selectedMediaOrigin}
+                aria-describedby="media-quick-url-help"
                 onChange={(event) => {
                   if (event.target.value === "__manual__") return;
                   updateDraft((config) => ({
@@ -1211,7 +1283,7 @@ export default function Settings({ configRevision, libraryRevision, onNotice, on
                 {mediaOriginOptions.length === 0 && <option value="__unavailable__" disabled>{t("settings.media.quickUrlUnavailable")}</option>}
                 {mediaOriginOptions.map((option) => <option value={option.value} key={`${option.label}:${option.value}`}>{option.label}</option>)}
               </select>
-              <p className="field-help">{t("settings.media.quickUrlHelp")}</p>
+              <p className="field-help" id="media-quick-url-help">{t("settings.media.quickUrlHelp")}</p>
             </div>
             <PathField
               id="ffmpeg-path"
@@ -1269,58 +1341,6 @@ export default function Settings({ configRevision, libraryRevision, onNotice, on
         </div>
       </form>
 
-      <section className="settings-card scan-settings" aria-labelledby="scan-heading">
-        <div className="settings-card-heading">
-          <div>
-            <h2 id="scan-heading">{t("settings.scan.title")}</h2>
-            <p className="muted">{t("settings.scan.description")}</p>
-          </div>
-          <button
-            className="button button-primary"
-            type="button"
-            disabled={restartMutationsDisabled || Boolean(scanBusy) || scans.some((scan) => scan.status === "queued" || scan.status === "running")}
-            onClick={() => void startScan()}
-          >
-            {t(scanBusy === "new" ? "settings.scan.starting" : "settings.scan.start")}
-          </button>
-        </div>
-        {scans.length === 0 ? (
-          <p className="empty-inline">{t("settings.scan.empty")}</p>
-        ) : (
-          <ul className="scan-list">
-            {scans.map((scan) => {
-              const active = scan.status === "queued" || scan.status === "running";
-              return (
-                <li key={scan.id}>
-                  <div className="scan-summary">
-                    <strong>{t(`settings.scan.status.${scan.status}`)}</strong>
-                    <span>{t("settings.scan.progress", {
-                      processed: scan.processed.toLocaleString(locale),
-                      discovered: scan.discovered.toLocaleString(locale),
-                    })}</span>
-                    <span>{t("settings.scan.changes", {
-                      added: scan.added.toLocaleString(locale),
-                      updated: scan.updated.toLocaleString(locale),
-                      unavailable: scan.unavailable.toLocaleString(locale),
-                    })}</span>
-                    {scan.error && <span className="error-text">{scan.error}</span>}
-                  </div>
-                  {active && (
-                    <button
-                      className="button button-ghost danger-button"
-                      type="button"
-                      disabled={restartMutationsDisabled || scanBusy === scan.id}
-                      onClick={() => void cancelScan(scan.id)}
-                    >
-                      {t("settings.scan.cancel")}
-                    </button>
-                  )}
-                </li>
-              );
-            })}
-          </ul>
-        )}
-      </section>
 
       <section className="settings-card account-settings" aria-labelledby="password-heading">
         <h2 id="password-heading">{t("settings.account.title")}</h2>
@@ -1379,6 +1399,7 @@ export default function Settings({ configRevision, libraryRevision, onNotice, on
           onClose={() => setPathPicker(null)}
         />
       )}
+      <AirPlayHelpDialog open={airplayHelpOpen} onClose={() => setAirplayHelpOpen(false)} />
     </section>
   );
 }

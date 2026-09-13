@@ -21,21 +21,23 @@ Public previews are unsigned and not production-qualified. Read the selected rel
 - **Native Windows Server:** Windows x64 and a writable local installation folder. The portable Server is not installed as a Windows service.
 - **Windows desktop:** Windows 10/11 x64. There is no Windows ARM64 desktop package.
 - **Linux desktop:** a graphical Linux `amd64` system. Ubuntu 24.04 amd64 is the native installation and sandbox qualification target; there is no Linux ARM64 desktop package.
-- An exact image digest or package from a published jastreamer 0.2 preview, or a verified separately supplied offline artifact. Preview status and physical-device verification limits still apply.
+- The newest compatible, published, non-draft Server release selected from the complete [GitHub Releases listing](https://github.com/furyheimdall/jastreamer/releases), including any entry correctly labelled as a preview, or a verified separately supplied offline artifact. Preview status and physical-device verification limits still apply.
 - A trusted private LAN between the Server, browser/client, and outputs. Automatic discovery needs multicast.
-- On Linux, separate config and data directories writable by container UID/GID `10001:10001`, plus an existing music directory readable by UID 10001 and mounted read-only.
-- On Windows, music paths readable by the account running the Server. The default adjacent `server.json`, `data`, and `music` must remain writable by that account.
+- On Linux, separate config and data directories writable by container UID/GID `10001:10001`. For music, choose either an existing absolute host root readable by UID 10001 or the deliberate sample-only root described below; mount that root read-only.
+- On Windows, either an existing absolute music root readable by the Server account or the deliberate adjacent sample-only `music` directory. Adjacent `server.json` and `data` must remain writable by that account.
 
-Keep Server config, data, and music separate. Do not use `chmod 777` or recursively change ownership of a music library. HTTP does not encrypt credentials or audio; use the Server's built-in HTTPS listener with your own PEM certificate and key when the LAN path is not fully trusted. Do not bypass certificate warnings or expose the Server directly to the public Internet.
+Keep Server config, data, and music separate. Do not create a missing requested music root as a fallback, use `chmod 777`, or recursively change ownership or permissions on a music library. HTTP does not encrypt credentials or audio; use the Server's built-in HTTPS listener with your own PEM certificate and key when the LAN path is not fully trusted. Do not bypass certificate warnings or expose the Server directly to the public Internet.
 
 <a id="releases"></a>
 ## Obtain and verify a release
 
 ### Public registry image
 
-Choose a published preview from [GitHub Releases](https://github.com/furyheimdall/jastreamer/releases), read its limitations, and obtain the exact Server image reference from its release notes or manifest. Do not use `/releases/latest` to select previews automatically: a prerelease is not marked as the latest production release.
+Inspect the complete [GitHub Releases listing](https://github.com/furyheimdall/jastreamer/releases), not only `/releases/latest`. Among published, non-draft **Server** releases, include prereleases in publication-time order and retain their Preview label; choose the most recently published entry that supports the host architecture and required package. If the newest entry is incompatible, state why and use the newest compatible one.
 
-The registry is `ghcr.io/furyheimdall/jastreamer-server`. Public images can be pulled without a GitHub token. Replace the example digest below with the complete value from the selected release, not a guessed or floating tag:
+Read that release's limitations and verify the release provenance, source revision, package/image manifest, SHA-256 values, and architecture together. Sample setup below applies only when the selected published release actually inventories `samples/manifest.json`, three MP3 assets and the seeding helper; repository files that have not been published are not features of an older release.
+
+The registry is `ghcr.io/furyheimdall/jastreamer-server`. Public images can be pulled without a GitHub token. Resolve and pin the complete immutable digest published for the compatible `linux/amd64` or `linux/arm64` image; never use a floating `latest` tag or a guessed tag:
 
 ```sh
 export JASTREAMER_SERVER_IMAGE='ghcr.io/furyheimdall/jastreamer-server@sha256:<digest-from-release>'
@@ -43,7 +45,7 @@ docker pull "$JASTREAMER_SERVER_IMAGE"
 docker image inspect --format '{{.Os}}/{{.Architecture}} {{.Id}}' "$JASTREAMER_SERVER_IMAGE"
 ```
 
-The multi-platform Linux image selects `amd64` or `arm64` for the host. Keep the exact digest in the deployment's persistent environment settings; do not install FFmpeg or Python separately on the host. Google Cast itself needs no Chrome or Python helper. Download Windows Server or desktop files and their checksums only from the same release.
+Save the verified digest, not this temporary shell variable, in the deployment's persistent environment file. The complete Linux image includes its architecture-matched media runtime; do not install FFmpeg or Python separately on the host. Download Windows Server or desktop files, checksums, manifests and provenance only from the same selected release.
 
 ### Supplied offline artifacts
 
@@ -73,76 +75,84 @@ Compare the new TAR checksum after transfer. Use the printed `sha256:...` local 
 <a id="linux-server"></a>
 ## Linux or Synology Server
 
-The Linux `amd64`/`arm64` image contains the Server, embedded Web interface, FFmpeg, and the AirPlay helper and runtime. Use the repository's `deploy/docker/server/compose.synology.yaml` on either Linux or Synology. It applies host networking, a read-only container filesystem, a temporary `/tmp`, dropped capabilities, `no-new-privileges`, and UID/GID `10001:10001`.
+The supported Linux `amd64`/`arm64` image contains the Server, embedded Web interface, Python 3.12, pinned pyatv 0.18.0, FFmpeg, and `/usr/local/bin/jastreamer-airplay`. Releases that advertise onboarding samples also contain `/usr/share/jastreamer/samples/` and `/usr/share/jastreamer/seed-samples.py`. Use the repository's `deploy/docker/server/compose.synology.yaml` on either Linux or Synology. It applies host networking, a read-only container filesystem, a temporary `/tmp`, dropped capabilities, `no-new-privileges`, UID/GID `10001:10001`, separate writable config/data mounts, and a read-only `/music` mount.
 
-Choose host paths:
+For a new agent-assisted installation, the agent must obtain a music-path decision before preparing the saved Compose, environment and config files. A blank answer or “Skip” does not authorize an invented path:
 
-| Host | Config | Data | Music |
-|---|---|---|---|
-| Linux example | `/srv/jastreamer/config` | `/srv/jastreamer/data` | `/srv/music` |
-| Synology example | `/volume1/docker/jastreamer/config` | `/volume1/docker/jastreamer/data` | `/volume1/music` |
+1. **Existing music root:** ask the user for an existing absolute host directory. Verify it rather than creating a missing requested path, then create or reuse only its `jastreamer-samples` child.
+2. **No music folder yet:** ask explicitly, “May I create and use `<your-home>/music` as your music folder?” Show the target user's resolved absolute path. Only after consent may the agent create that directory; if it already exists, inspect and confirm its reuse. Without consent, stop music setup rather than silently substituting `/data/music` or another directory.
 
-The commands below are for a **new installation with empty, separate config/data locations only**. If either location already contains application state, follow [backup and upgrade](#backup-and-upgrade); do not copy a new template over existing configuration. Set the three paths for your host, then install the supplied config:
+For ordinary Linux, use the target user's `~/.config/jstreamer` as the default project, with separate `~/.config/jstreamer/config` and `~/.config/jstreamer/data` directories. Resolve the home on the target host and do not assume sudo or write access to `/srv`. Synology retains its approved persistent project/share paths, typically `/volume1/docker/jastreamer` with separate `config` and `data` children. Keep project/config/data outside the approved music root. Do not move an existing installation without separate migration approval and a verified backup.
+
+For an existing root, save the user's actual absolute path as `JASTREAMER_MUSIC_PATH` and verify it with `test -d "$JASTREAMER_MUSIC_PATH"`; do not run `mkdir` to make a mistyped path pass. The following is only the ordinary-Linux **explicitly approved home-music creation** branch, run as the target user:
 
 ```sh
-export JASTREAMER_CONFIG_PATH='/srv/jastreamer/config'
-export JASTREAMER_DATA_PATH='/srv/jastreamer/data'
-export JASTREAMER_MUSIC_PATH='/srv/music'
-
-sudo mkdir -p "$JASTREAMER_CONFIG_PATH" "$JASTREAMER_DATA_PATH"
-sudo cp /path/to/supplied/server.json "$JASTREAMER_CONFIG_PATH/server.json"
-sudo chown -R 10001:10001 "$JASTREAMER_CONFIG_PATH" "$JASTREAMER_DATA_PATH"
-sudo chmod 700 "$JASTREAMER_CONFIG_PATH" "$JASTREAMER_DATA_PATH"
-sudo chmod 600 "$JASTREAMER_CONFIG_PATH/server.json"
+JASTREAMER_PROJECT_PATH="$HOME/.config/jstreamer"
+JASTREAMER_CONFIG_PATH="$JASTREAMER_PROJECT_PATH/config"
+JASTREAMER_DATA_PATH="$JASTREAMER_PROJECT_PATH/data"
+JASTREAMER_MUSIC_PATH="$HOME/music"
+mkdir -p -- "$JASTREAMER_PROJECT_PATH" "$JASTREAMER_CONFIG_PATH" "$JASTREAMER_DATA_PATH"
+# Only after consent to this exact path, and only when it does not already exist:
+mkdir -- "$JASTREAMER_MUSIC_PATH"
 ```
 
-For Synology, substitute the `/volume1/...` paths from the table. Give UID 10001 read and traverse permission on the music share, but do not change the whole share's owner.
+Home placement avoids system-directory writes but does not grant container UID/GID `10001:10001` access automatically. Verify the real Docker UID mapping, config/data write access and music read/traverse access. For missing access, obtain approval for a permission/ACL change scoped to the required directories and files; never assume sudo, silently change the container user, or recursively change home/music ownership or permissions. On Synology, preserve the share owner. Run the seeder as the approved music owner; if that account cannot create the sample child, resolve that narrowly scoped permission requirement first.
 
-Review the copied `server.json`:
-
-- keep `data_dir` as `/var/lib/jastreamer`;
-- keep the usual library root path as `/music`—the Compose mount maps the host music path there;
-- keep packaged paths `/usr/local/bin/ffmpeg` and `/usr/local/bin/jastreamer-airplay`;
-- optionally set `server_name`, disable AirPlay if unused, or configure built-in HTTPS with PEM files placed in the config directory;
-- leave `media.base_url` empty unless the output must use a specific Server HTTP(S) origin;
-- keep `cast.enabled` false unless Google Cast is wanted; an absent value in an older config also defaults to false, and Cast needs no helper path.
-
-The Web Settings page atomically replaces `server.json`, so both the file and config directory must remain writable by UID 10001.
-
-Start with an exact verified registry digest or imported local image ID:
+Before starting the Server, seed the verified CC0 1.0 Universal bundle. The helper requires an absolute destination with an existing parent, creates only `jastreamer-samples` at mode `0755`, and writes new payload files at mode `0644`. It verifies the manifest and asset hashes, copies the three MP3s together with `manifest.json` and `THIRD-PARTY-NOTICES.txt`, retains an existing byte-identical copy, and preflights all entries so any conflict stops without touching them. Keep the manifest and notice beside the tracks as their titles, authors, original source URLs, redistribution terms and hashes. Run the helper from the same pinned image as an unprivileged one-off container; the normal Server mount remains read-only:
 
 ```sh
-export JASTREAMER_SERVER_IMAGE='sha256:<verified-local-image-id>'
-docker compose -f deploy/docker/server/compose.synology.yaml config
-docker compose -f deploy/docker/server/compose.synology.yaml up -d
-docker compose -f deploy/docker/server/compose.synology.yaml ps
-docker compose -f deploy/docker/server/compose.synology.yaml logs --tail 100 jastreamer-server
+docker run --rm --network none --read-only \
+  --cap-drop ALL --security-opt no-new-privileges \
+  --user "$(id -u):$(id -g)" \
+  --mount "type=bind,source=$JASTREAMER_MUSIC_PATH,target=/seed-parent" \
+  --entrypoint python3 "$JASTREAMER_SERVER_IMAGE" \
+  /usr/share/jastreamer/seed-samples.py /seed-parent/jastreamer-samples
+```
+
+Use that command only after confirming the selected published image contains the documented helper and manifest. Inspect its result rather than deleting a conflicting user file. Seeding does not scan, queue, select an output, or start playback.
+An interrupted write may leave a newly created partial file. Inspect and report that failure before retrying; do not delete or overwrite a conflicting destination to force setup to succeed. Destination symlinks are rejected so samples do not escape the approved directory.
+
+During installation, show the exact host music path and explain: **an empty music folder has no tracks to play; put music in that folder, then run Settings → Scan now.** If the bundled samples were copied, identify the three test tracks separately from personal music. Additional music goes in the same approved root and requires another scan. Report an empty library honestly rather than claiming playback is ready.
+
+For a new installation, copy `deploy/docker/server/compose.synology.yaml` into the persistent project directory, copy `packaging/server/server.json` from the source revision matching the release into the empty config directory, and write a project `.env` containing resolved values for `JASTREAMER_SERVER_IMAGE`, `JASTREAMER_CONFIG_PATH`, `JASTREAMER_DATA_PATH`, and `JASTREAMER_MUSIC_PATH`. An assisting agent fills the real approved values and saves these files; do not leave placeholders or depend on temporary `export` commands. Never replace an existing `server.json`.
+
+Review the saved `server.json`: keep `data_dir` at `/var/lib/jastreamer`, the library root at `/music`, and packaged paths `/usr/local/bin/ffmpeg` and `/usr/local/bin/jastreamer-airplay`. Set `server_name`, HTTPS and optional outputs only as approved. `media.base_url` is the Server URL used by playback devices to fetch audio, not the Web UI bind or browser URL; leave it blank for automatic selection unless receivers require a specific reachable HTTP(S) origin. Keep `cast.enabled` false unless Google Cast is wanted.
+
+The Web Settings page atomically replaces `server.json`, so both the file and config directory must remain writable by UID 10001. Validate and start from the saved project:
+
+```sh
+docker compose -f compose.yaml config
+docker compose -f compose.yaml up -d
+docker compose -f compose.yaml ps
+docker compose -f compose.yaml logs --tail 100 jastreamer-server
 curl --fail http://127.0.0.1:8080/healthz
 ```
 
-Use the complete public registry digest instead of the local image ID when installing from GHCR. Save all four environment values in the existing Compose project's persistent environment settings; temporary `export` commands alone are not an upgradeable deployment record.
-
-In Synology Container Manager, the same Compose file and four environment variables can be entered as a **Project**. The health URL is `http://<NAS-LAN-IP>:8080/healthz`. Use port 8443 instead when built-in HTTPS is enabled. Verify the Web page from a client on the private LAN, then continue with [first setup](INSTRUCTION.md#1-first-setup-and-everyday-use). A healthy container does not prove audible playback.
+In Synology Container Manager, import the same saved Compose file and `.env` values as a **Project**. The health URL is `http://<NAS-LAN-IP>:8080/healthz`, or port 8443 when built-in HTTPS is enabled. Verify the Web page from a private-LAN client, then continue with [first setup](INSTRUCTION.md#1-first-setup-and-everyday-use). A healthy container does not prove audible playback.
 
 <a id="windows-server"></a>
 ## Native Windows x64 portable Server
 
-Download `jastreamer-server_0.2.0_windows-x64.zip` and its `.sha256`, manifest, and verification receipt from the selected preview. The ZIP is unsigned and not production-qualified. Compare its bytes with the sidecar before extracting:
+Download the Windows x64 Server ZIP, its `.sha256`, manifest, and provenance/verification receipt from the selected release. Confirm that release is the newest compatible published Server release and retains any Preview label. The ZIP is unsigned and not production-qualified. Compare its bytes with the sidecar before extracting:
 
 ```powershell
-$file = '.\jastreamer-server_0.2.0_windows-x64.zip'
+$file = '.\jastreamer-server_<version>_windows-x64.zip'
 $expected = (Get-Content "$file.sha256" -Raw).Split()[0].ToLowerInvariant()
 $actual = (Get-FileHash $file -Algorithm SHA256).Hash.ToLowerInvariant()
 if ($actual -ne $expected) { throw 'Windows Server ZIP checksum mismatch' }
 ```
 
-Extract the complete ZIP to a new writable local folder, then run `start-server.cmd` as the ordinary account that will operate the Server. Do not run inside the ZIP, copy only the EXE, run as Administrator, or weaken SmartScreen or Defender globally. On first launch only, the launcher atomically creates an absent `server.json` and adjacent `data` and `music` directories, records their absolute paths, validates the configuration, and starts the Server. It never replaces an existing `server.json`. Keep the console open and use Ctrl+C to stop.
+Extract the complete ZIP to a new writable local folder. If the verified package manifest inventories `samples\manifest.json` and the three MP3s, a normal first launch with no `server.json` creates adjacent `data` and `music\jastreamer-samples`, verifies and copies the bundled samples without replacing an existing music file, records absolute paths, validates the configuration, and starts the Server. It never replaces an existing `server.json` or existing music. A package that does not inventory these assets must not be described as containing them.
 
-Open `http://127.0.0.1:18080` on that computer, or use the Windows computer's private LAN address and port 18080 from another client. If Windows Firewall prompts, allow the executable on private networks only; do not disable the firewall. TCP 18080 is needed for Web and media access, SSDP UDP 1900 for UPnP discovery, and mDNS UDP 5353 on the selected interfaces for optional Google Cast discovery. Cast also requires Server TCP access to the port each receiver advertises and receiver access to the Server media HTTP(S) URL. Put test music in the adjacent `music` folder, or stop the Server and set an existing absolute Windows folder in `library_roots`; JSON paths may use `C:/Music` or escaped backslashes.
+For agent-assisted setup, choose **an existing absolute Windows music root** or **Skip** before launch. Skip deliberately uses the adjacent `music\jastreamer-samples` sample-only library. For an existing root, the agent must verify that root, create only its `jastreamer-samples` child, verify each bundled sample against `samples\manifest.json`, copy only nonconflicting files, and save an actual adjacent `server.json` using that root; it must not create a missing root or ask the user to edit JSON. In either branch, keep adjacent config/data separate and run `start-server.cmd` as the ordinary account that will operate the Server. Do not run inside the ZIP, copy only the EXE, run as Administrator, or weaken SmartScreen or Defender globally. Keep the console open and use Ctrl+C to stop.
 
-This package is the native Server, not the optional Windows desktop. It provides UPnP/DLNA and optional Google Cast network output and does not install a Renderer or play through local PC speakers. Google Cast needs no Chrome or Python helper, but the package does not bundle FFmpeg or the Linux-only AirPlay helper. Transcoding and AirPlay therefore default to disabled; Cast can stream supported original formats directly, while its fallback requires an operator-configured FFmpeg and enabled media transcoding. Native CI verifies package bytes, first install, the HTTP UI, account persistence, restart, and preservation of an existing configuration; that does not make the unsigned preview production-qualified or certify every Windows system or receiver.
+Open `http://127.0.0.1:18080` on that computer, or use the Windows computer's private LAN address and port 18080 from another client. If Windows Firewall prompts, allow the executable on private networks only; do not disable the firewall. TCP 18080 is needed for Web and media access, SSDP UDP 1900 for UPnP discovery, and mDNS UDP 5353 on the selected interfaces for optional Google Cast discovery. Cast also requires Server TCP access to the port each receiver advertises and receiver access to the Server URL used to fetch audio.
 
-To update an existing portable installation, stop it with Ctrl+C and back up its complete folder, including `server.json`, `data`, and `music`, while stopped. Verify and extract the new ZIP to a separate temporary folder, then replace the package-owned payload in the existing installation, including its program, launcher, template, notices, licenses, and build information. Do not replace `server.json` or delete or move `data` or `music`: their absolute paths and existing account, library, artwork, queue, playlist, and session state must remain intact. Run `start-server.cmd`, confirm it validates the unchanged configuration, and check the existing URL and state after restart. Keep the previous verified package and matching backup for [rollback](#rollback).
+This package is the native Server, not the optional Windows desktop. It provides UPnP/DLNA and optional Google Cast network output and does not install a Renderer or play through local PC speakers. Google Cast needs no Chrome or Python helper. Native Windows Server does not support AirPlay, even if an arbitrary executable path is entered; the package also does not bundle FFmpeg. Transcoding and AirPlay therefore default to disabled. A separate Linux sender must use jastreamer's adapter source and dependencies from the same release as the installed Server and implement its matching protocol; `atvremote`, Python, pyatv alone, and receiver software such as Shairport Sync are not substitutes.
+
+Before a portable update, inspect the actual launcher/configuration and resolve its `data_dir` and every music root, including external drives, UNC shares and symlink/junction targets. Do not assume they are the adjacent `data` and `music` folders. Record the actual paths and permissions; back up external locations too, or identify and verify their existing music backup/snapshot. Stop if a path or backup scope is unknown. The installation-folder backup below alone does not cover external roots.
+
+To update an existing portable installation, stop it with Ctrl+C and back up its complete folder, including `server.json`, `data`, and `music`, while stopped. Verify and extract the new ZIP to a separate temporary folder, then replace only the package-owned payload, including program, launcher, template, bundled `samples`, notices, licenses, and build information. Do not replace `server.json` or delete or move `data` or `music`. Adding samples to an upgrade is a separate, explicit opt-in step described below; first-launch seeding must not run against existing state. Confirm the unchanged configuration, URL, account, library, artwork, queue, playlists and sessions after restart, and keep the previous verified package with its matching backup.
 
 <a id="desktop-windows"></a>
 ## Optional Windows x64 desktop
@@ -200,13 +210,17 @@ For the Linux container target, updating means replacing the Server container wi
 
 Use the **existing** Compose project name, project directory, Compose files, and environment file for every operation. Do not create a second installation with new default storage paths.
 
-1. **Review the target version.** Read its changes, configuration/database compatibility notes, and any required intermediate versions. Record the current image identity, architecture, service URL, mounts, and persistent settings. Confirm backup space and a rollback plan before modifying anything.
+1. **Review the target and actual storage.** Read the release's changes, configuration/database compatibility notes and any required intermediate versions. Reconcile the actual running container's `Mounts` and config argument/environment with the existing rendered Compose/environment and current config's `data_dir` and every library root. Record each config/data/music host source or named volume, container destination, resolved symlink target, ownership, permissions and read/write mode, plus the current image, architecture and service URL. Do not use fresh-install defaults for a backup or replacement. Stop on mismatches, absent mounts or unreadable paths. Confirm backup space and a rollback plan before changing anything.
 2. **Download before downtime.** Pull the exact target digest from the selected public release; no registry login is required. Use existing Docker credentials or private interactive authentication only for an explicitly chosen private registry. Do not paste tokens into chat or configuration files. The multi-platform image selects the host architecture automatically; confirm `amd64` or `arm64`. For an offline artifact, follow [Obtain and verify a release](#releases) to verify and import the correct platform. Do not use a floating `latest` tag, invent a registry address, or delete the old image.
 3. **Agree on the interruption.** Stop playback and confirm it is stopped. Stop only `jastreamer-server` in the existing Compose project before backing up its state. Do not stop unrelated services, remove volumes, or use `down -v`.
-4. **Back up consistently.** With the Server stopped, back up the complete config and data directories, the Compose files, and their environment file; record the corresponding old image identity. Confirm the backup can be read and contains the expected files. Protect it as private data because it includes account, session, AirPlay, Google Cast enablement, and possibly TLS configuration or credentials. The read-only source music is not application state and must not be overwritten or modified.
+4. **Back up the identified paths consistently.** With Server stopped, back up the complete actual config/data directories, including SQLite WAL/SHM files when present, and the saved Compose/environment; record their matching old image identity and original paths. Protect every actual music root with a backup or identify and verify an existing current backup/snapshot covering it, including external roots. Read-only mounting is not a backup. Keep backups outside source trees, preserve file metadata, verify contents/checksums and an isolated restore's readability, and record exactly what is covered or excluded. Unknown or unverified coverage blocks replacement; do not report excluded music as backed up. Protect backups as private data because they can contain accounts, sessions, settings and credentials. Never overwrite or modify source music to make a backup.
 5. **Change the saved image reference.** Set `JASTREAMER_SERVER_IMAGE` in the deployment's persistent settings to the verified target digest or imported local image ID. Preserve all other settings and mounts unless the release explicitly requires a reviewed migration. Do not replace `server.json` with a new-install template. Keep UID/GID `10001:10001`, host networking, read-only root filesystem and music, writable config and data, and the other Compose security restrictions. Render the proposed configuration with `docker compose config` and validate the existing configuration with the target image's `--check-config` command before starting it.
 6. **Recreate only the Server.** Use the existing project with `up -d --no-deps jastreamer-server`. Confirm the running image matches the intended digest and platform, inspect container state and logs, and verify `/healthz` and the Web page from the client LAN. Do not declare success from container creation alone.
 7. **Open and test.** Use the actual, previously used HTTP(S) URL including its port. Refresh the browser or desktop's hosted Web view. Check login, library and artwork, queue order, playlists, settings, and output discovery against the pre-update state. Playback must remain stopped until you explicitly start it. Play a chosen track, confirm audible sound, try pause and seek where supported, and stop playback. If a check fails, retain the failed step and exact error text without secrets.
+
+### Optional sample addition after an upgrade
+
+An upgrade preserves the current music, config and data and does not add samples automatically. After the upgraded Server is verified, an operator may explicitly approve adding the selected release's three samples. Keep playback stopped for the operation. On Linux/Synology, rerun the verified pinned image's seeding command above against `<existing-music-root>/jastreamer-samples`; do not change the persistent `/music` mount or `server.json`. On native Windows, verify the package's `samples\manifest.json` and copy only nonconflicting bundled sample files and notices into the approved existing root's `jastreamer-samples` child. In either case, retain identical files, stop on conflicts, preserve the root's owner and permissions, and do not overwrite state or source music. Adding files does not scan, queue, select an output or play them; scanning and playback remain explicit user actions.
 
 The desktop does not need a package replacement just to display an updated Server-hosted Web interface, including the phone/PWA UI. If a release also updates the desktop executable, follow its separate [Windows](#desktop-windows) or [Linux](#desktop-linux) procedure and preserve the Windows adjacent `user-data` or Linux per-user profile.
 

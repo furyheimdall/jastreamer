@@ -6,6 +6,7 @@ jastreamer 0.2.0은 신뢰하는 사설 LAN에서 사용하는 자체 호스팅 
 
 영어를 기본으로 한국어 UI를 지원합니다.
 
+- [에이전트 설치·업데이트 안내](AGENTS.md)
 - [한국어 설치 및 업데이트 안내서](INSTALL.ko.md)
 - [한국어 사용자 안내서](INSTRUCTION.ko.md)
 - [English README](README.md)
@@ -31,21 +32,21 @@ jastreamer 0.2.0은 신뢰하는 사설 LAN에서 사용하는 자체 호스팅 
 
 ## 배포 방식
 
-Server 배포 대상은 서로 구분됩니다. Linux `amd64`·`arm64` 컨테이너에는 내장 Web 화면, 오디오 전용 FFmpeg 8.1.2와 pyatv 0.18.0 AirPlay 송신 프로그램이 포함됩니다. 네이티브 Windows x64는 미서명 무설치 `jastreamer-server_0.2.0_windows-x64.zip`이며, 내장 Web 화면, UPnP/DLNA와 선택적 Google Cast를 제공하지만 AirPlay 송신 프로그램, Renderer 또는 FFmpeg 변환기는 포함하지 않습니다. Google Cast 자체에는 어느 플랫폼에서도 Chrome이나 Python helper가 필요하지 않습니다. Synology Container Manager에서는 제공된 Linux Compose 파일을 사용합니다. [GitHub Releases](https://github.com/furyheimdall/jastreamer/releases)에 게시된 프리뷰를 선택하고, Linux는 정확한 이미지 다이제스트를, Windows Server는 검증된 ZIP과 체크섬을 사용하며 대상별 manifest와 네이티브 검증 receipt를 확인하세요. 공개 프리뷰는 레지스트리 로그인이 필요하지 않지만 정식 production 검증이나 서명을 마친 릴리즈가 아닙니다. 명시된 검증 범위를 확인하고 다운로드한 파일을 릴리즈 체크섬과 비교하세요. 가변 `latest` 태그는 사용하지 마세요.
+Server 배포 대상은 서로 구분됩니다. Linux `amd64`·`arm64` 컨테이너에는 내장 Web 화면, Python 3.12, 오디오 전용 FFmpeg 8.1.2와 pyatv 0.18.0 AirPlay 송신 프로그램이 포함됩니다. 네이티브 Windows x64 무설치 ZIP은 내장 Web 화면, UPnP/DLNA와 선택적 Google Cast를 제공하지만 AirPlay 송신 프로그램, Renderer 또는 FFmpeg 변환기를 포함하지 않습니다. Google Cast 자체에는 어느 플랫폼에서도 Chrome이나 Python helper가 필요하지 않습니다. 전체 [GitHub Releases 목록](https://github.com/furyheimdall/jastreamer/releases)에서 올바르게 표시된 프리뷰까지 포함해 가장 최근의 호환되는 게시 Server 릴리즈를 선택하고 provenance와 패키지 checksum 또는 정확한 이미지 다이제스트를 검증하세요. 가변 `latest`를 사용하거나 `/releases/latest`가 프리뷰를 포함한다고 가정하지 마세요.
 
-저장소 세 종류를 분리하세요.
+일반 Linux에서는 sudo를 가정하지 않고 대상 사용자의 `~/.config/jstreamer` 아래 프로젝트와 config·data를 분리합니다. 음악 경로는 반드시 물어보고, 폴더가 없다면 `~/music`을 만들어도 되는지 동의를 받은 뒤 생성하세요. 빈 음악 폴더에는 재생할 곡이 없으므로 음악을 넣고 스캔해야 한다고 안내합니다. 기존 설치 경로는 별도 승인 없이 옮기지 마세요.
 
 - **config:** 쓰기 가능한 `server.json`과 선택적 HTTPS PEM 파일
-- **data:** 쓰기 가능한 SQLite 데이터베이스, 앨범 아트 캐시와 AirPlay 상태
-- **music:** 읽기 전용으로 연결하는 기존 음악 보관함
+- **data:** 쓰기 가능한 SQLite 데이터베이스, 앨범 아트 cache와 AirPlay 상태
+- **music:** 읽기 전용 기존 절대 음악 루트 또는 사용자가 생성·사용에 명시적으로 동의한 새 음악 루트
 
-어느 Server 대상을 교체하든 config와 data를 보존해야 합니다. jastreamer를 위해 음악 보관함 전체의 소유권이나 권한을 재귀적으로 바꾸지 말고, 서버를 공용 인터넷에 직접 노출하지 마세요.
+manifest에 샘플 묶음이 포함된 릴리즈는 기존 파일을 덮어쓰지 않고 `jastreamer-samples`에 MP3 세 개를 둘 수 있습니다. 어느 Server 대상을 교체하든 config, data와 원본 음악을 보존하고 음악 보관함 전체의 소유권·권한을 재귀적으로 바꾸거나 Server를 공용 인터넷에 직접 노출하지 마세요.
 
-요구 사항, 릴리즈 검증, Docker·Synology·Windows Server 설치, 선택적 데스크톱 앱과 업데이트는 [한국어 설치 및 업데이트 안내서](INSTALL.ko.md)를, 최초 사용과 언어 선택, 휴대전화 화면과 문제 해결은 [한국어 사용자 안내서](INSTRUCTION.ko.md)를 참고하세요.
+음악 경로 질문과 생성 동의, Linux·Synology·Windows의 새 설치, 샘플과 업데이트 절차는 [한국어 설치 및 업데이트 안내서](INSTALL.ko.md)를, 에이전트가 실제 설정 파일을 준비하게 하려면 [AGENTS.md](AGENTS.md)를 참고하세요. 최초 사용과 문제 해결은 [한국어 사용자 안내서](INSTRUCTION.ko.md)를 따르세요.
 
 ## 선택 사항인 Google Cast
 
-Google Cast는 기본적으로 꺼져 있으며 이전 `server.json`에 `cast.enabled`가 없을 때도 `false`로 처리됩니다. **Settings**에서 **Google Cast 출력**을 켜고 저장한 뒤 Server를 재시작하세요. 수신기가 보인다는 이유만으로 임의로 켜면 안 됩니다. 검색에는 선택한 `network.interfaces`의 mDNS UDP 5353이 필요합니다. Server에서 수신기가 mDNS로 광고한 Cast TCP 포트에 연결할 수 있어야 하고, 수신기에서 Server의 `media.base_url` HTTP(S) 미디어 URL에 접근할 수 있어야 합니다. 자동 미디어 출처 선택은 수신기를 찾은 인터페이스를 따르며, 라우팅 때문에 필요한 경우에만 수신기가 접근할 수 있는 출처를 명시하세요.
+Google Cast는 기본적으로 꺼져 있으며 이전 `server.json`에 `cast.enabled`가 없을 때도 `false`로 처리됩니다. **Settings**에서 **Google Cast 출력**을 켜고 저장한 뒤 Server를 재시작하세요. 수신기가 보인다는 이유만으로 임의로 켜면 안 됩니다. 검색에는 선택한 `network.interfaces`의 mDNS UDP 5353이 필요합니다. Server에서 수신기가 mDNS로 광고한 Cast TCP 포트에 연결할 수 있어야 하고, 수신기에서는 **재생 기기가 음원을 가져올 Server URL**에 접근할 수 있어야 합니다. 이 설정은 보통 비워 두어 자동 선택하게 하고 라우팅 때문에 필요할 때만 수신기가 접근할 수 있는 실제 Server 주소를 지정하세요.
 
 Cast 원본 직접 스트리밍은 검사된 codec·sample rate·channel 메타데이터와 해당되는 경우 bit depth를 보수적으로 판단합니다. 모든 직접 전송 원본은 일치하는 codec이 확인되고 sample rate가 양수이며 mono 또는 stereo여야 합니다. FLAC은 96 kHz 및 1–24-bit까지, MP3·Ogg/Vorbis·Ogg/Opus·M4A/AAC는 48 kHz까지, LPCM WAV는 48 kHz 및 1–16-bit까지 허용합니다. 그 밖의 형식이나 확인되지 않은 원본은 미디어 변환을 켜고 FFmpeg를 설정해야 하며, 변환 결과는 탐색할 수 없는 44.1 kHz stereo 16-bit WAV 스트림입니다. 원본 파일은 변경하지 않습니다.
 
@@ -53,10 +54,11 @@ Cast도 다른 출력과 같은 Server 대기열 하나를 사용합니다. Cast
 
 ## AI 에이전트로 설치하기
 
-에이전트에게 다음 두 줄을 보내세요. 설치 전에는 제안한 경로와 서비스 변경을 직접 검토하고 비밀번호·개인 키·토큰을 프롬프트에 넣지 마세요.
+에이전트에게 다음 요청을 보내세요. 설치 전에는 제안한 경로와 서비스 변경을 직접 검토하고 비밀번호·개인 키·토큰을 프롬프트에 넣지 마세요.
 
 > https://github.com/furyheimdall/jastreamer 에서 jastreamer를 설치하거나 업데이트하도록 도와줘.  
 > 저장소 루트의 [AGENTS.md](AGENTS.md)를 먼저 읽고, 내 대상에 맞는 [INSTALL.ko.md](INSTALL.ko.md) 분기를 선택해 따라줘.
+> 음악 경로를 반드시 물어보고, 폴더가 없으면 `~/music`을 만들어도 되는지 먼저 동의를 받아줘. 빈 폴더에 음악을 넣을 위치와 스캔 방법을 안내하고, sudo를 가정하거나 기존 설치를 임의로 옮기지 마.
 
 ## 업데이트
 

@@ -8,10 +8,13 @@ import importlib.metadata
 import json
 import pathlib
 import platform
+import re
+import runpy
 import shlex
 import stat
 import subprocess
 import sys
+import tempfile
 import urllib.parse
 
 FFMPEG_VERSION = "8.1.2"
@@ -20,6 +23,19 @@ ARCHITECTURES = {"amd64": "x86_64", "arm64": "aarch64"}
 ROOT = pathlib.Path("/")
 REQUIREMENTS = ROOT / "usr/share/jastreamer/requirements-airplay.txt"
 PYTHON_SOURCES = ROOT / "usr/share/jastreamer/sources/python"
+SAMPLES = ROOT / "usr/share/jastreamer/samples"
+SAMPLE_FILES = ("sample-01.mp3", "sample-02.mp3", "sample-03.mp3")
+SAMPLE_FIELDS = {
+    "file",
+    "title",
+    "artist",
+    "source_url",
+    "license",
+    "license_url",
+    "sha256",
+    "bytes",
+}
+SHA256 = re.compile(r"[0-9a-f]{64}")
 
 
 def require(condition: bool, message: str) -> None:
@@ -57,6 +73,7 @@ def verify_executables() -> None:
     for path in (
         ROOT / "usr/local/bin/jastreamer-server",
         ROOT / "usr/local/bin/jastreamer-airplay",
+        ROOT / "usr/share/jastreamer/seed-samples.py",
         ROOT / "usr/local/bin/ffmpeg",
     ):
         info = path.lstat()
@@ -115,6 +132,123 @@ def verify_ffmpeg() -> None:
         require(option not in result, f"FFmpeg unexpectedly enables {option}")
 
 
+def verify_samples() -> None:
+    expected_entries = {*SAMPLE_FILES, "manifest.json", "THIRD-PARTY-NOTICES.txt"}
+    actual_entries = {entry.name for entry in SAMPLES.iterdir()}
+    require(actual_entries == expected_entries, "sample bundle contains missing or unexpected files")
+    for name in expected_entries:
+        info = (SAMPLES / name).lstat()
+        require(stat.S_ISREG(info.st_mode), f"sample bundle entry is not a regular file: {name}")
+
+    manifest_path = SAMPLES / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    require(isinstance(manifest, dict) and set(manifest) == {"schema", "tracks"}, "invalid sample manifest")
+    require(type(manifest["schema"]) is int and manifest["schema"] == 1, "unsupported sample manifest schema")
+    tracks = manifest["tracks"]
+    require(isinstance(tracks, list) and len(tracks) == len(SAMPLE_FILES), "sample manifest must contain exactly three tracks")
+
+    for expected_file, track in zip(SAMPLE_FILES, tracks, strict=True):
+        require(isinstance(track, dict) and set(track) == SAMPLE_FIELDS, f"invalid sample manifest entry: {expected_file}")
+        require(track["file"] == expected_file, f"unexpected sample filename or order: {track.get('file')!r}")
+        for field in ("title", "artist", "source_url", "license", "license_url", "sha256"):
+            require(isinstance(track[field], str) and bool(track[field]), f"{expected_file}: invalid {field}")
+        source_url = urllib.parse.urlsplit(track["source_url"])
+        license_url = urllib.parse.urlsplit(track["license_url"])
+        require(source_url.scheme == "https" and source_url.hostname == "freemusicarchive.org", f"{expected_file}: untrusted source URL")
+        require(track["license"] == "CC0 1.0 Universal", f"{expected_file}: unexpected sample license")
+        require(
+            license_url.scheme == "https"
+            and license_url.hostname == "creativecommons.org"
+            and license_url.path == "/publicdomain/zero/1.0/",
+            f"{expected_file}: unexpected sample license URL",
+        )
+        require(isinstance(track["sha256"], str) and SHA256.fullmatch(track["sha256"]) is not None, f"{expected_file}: invalid SHA-256")
+        require(type(track["bytes"]) is int and track["bytes"] > 0, f"{expected_file}: invalid byte length")
+
+        sample = SAMPLES / expected_file
+        require(sample.stat().st_size == track["bytes"], f"{expected_file}: byte length mismatch")
+        require(sha256(sample) == track["sha256"], f"{expected_file}: checksum mismatch")
+        with sample.open("rb") as stream:
+            header = stream.read(3)
+        require(
+            header == b"ID3" or (len(header) >= 2 and header[0] == 0xFF and header[1] & 0xE0 == 0xE0),
+            f"{expected_file}: not an MP3",
+        )
+
+    require((SAMPLES / "THIRD-PARTY-NOTICES.txt").stat().st_size > 0, "sample source and license notice is empty")
+
+
+def verify_sample_seeding() -> None:
+    helper = ROOT / "usr/share/jastreamer/seed-samples.py"
+    with tempfile.TemporaryDirectory(prefix="jastreamer-sample-verification-") as temporary:
+        parent = pathlib.Path(temporary)
+        outside = parent / "outside"
+        outside.mkdir()
+        destination = parent / "jastreamer-samples"
+        destination.symlink_to(outside, target_is_directory=True)
+        result = subprocess.run(
+            [sys.executable, helper, destination], capture_output=True, text=True, timeout=20,
+        )
+        require(result.returncode != 0 and not any(outside.iterdir()), "sample seeder followed a destination symlink")
+        destination.unlink()
+
+        subprocess.run(
+            [sys.executable, helper, destination],
+            check=True, capture_output=True, text=True, timeout=20, umask=0o077,
+        )
+        require(stat.S_IMODE(destination.stat().st_mode) == 0o755, "new sample directory is not traversable")
+        for source in SAMPLES.iterdir():
+            target = destination / source.name
+            require(target.read_bytes() == source.read_bytes(), f"seeded sample payload differs: {source.name}")
+            require(stat.S_IMODE(target.stat().st_mode) == 0o644, f"seeded sample is not readable: {source.name}")
+
+        destination.chmod(0o750)
+        retained_track = destination / SAMPLE_FILES[0]
+        retained_track.chmod(0o600)
+        subprocess.run(
+            [sys.executable, helper, destination], check=True, capture_output=True, text=True, timeout=20,
+        )
+        require(stat.S_IMODE(destination.stat().st_mode) == 0o750, "sample seeder changed existing directory permissions")
+        require(stat.S_IMODE(retained_track.stat().st_mode) == 0o600, "sample seeder changed existing music permissions")
+
+        seeded = {path.name: path.read_bytes() for path in destination.iterdir()}
+        conflict = destination / SAMPLE_FILES[0]
+        conflict.write_bytes(b"existing user music")
+        result = subprocess.run(
+            [sys.executable, helper, destination], capture_output=True, text=True, timeout=20,
+        )
+        seeded[SAMPLE_FILES[0]] = b"existing user music"
+        require(result.returncode != 0, "sample seeder accepted conflicting user music")
+        require(
+            {path.name: path.read_bytes() for path in destination.iterdir()} == seeded,
+            "sample seeder changed files after detecting a conflict",
+        )
+
+        seeder = runpy.run_path(str(helper))
+        replacement = parent / "concurrent-user.mp3"
+        original_copy = seeder["shutil"].copyfileobj
+
+        def replace_during_failed_write(input_stream, output_stream):
+            replacement.unlink()
+            replacement.write_bytes(b"concurrent user replacement")
+            raise OSError("simulated write failure")
+
+        failed = False
+        try:
+            seeder["shutil"].copyfileobj = replace_during_failed_write
+            try:
+                seeder["copy_new_file"](SAMPLES / SAMPLE_FILES[0], replacement)
+            except OSError:
+                failed = True
+        finally:
+            seeder["shutil"].copyfileobj = original_copy
+        require(failed, "sample copy did not report a write failure")
+        require(
+            replacement.is_file() and replacement.read_bytes() == b"concurrent user replacement",
+            "sample copy cleanup removed a concurrent user replacement",
+        )
+
+
 def verify_metadata(expected_arch: str) -> None:
     require(sys.platform == "linux", "Server image verifier must run on Linux")
     require(expected_arch in ARCHITECTURES, f"unsupported expected architecture: {expected_arch}")
@@ -170,7 +304,9 @@ if __name__ == "__main__":
     require(len(sys.argv) == 2, "usage: verify-image.py amd64|arm64")
     verify_metadata(sys.argv[1])
     verify_executables()
+    verify_samples()
+    verify_sample_seeding()
     lock = locked_requirements()
     verify_python(lock)
     verify_ffmpeg()
-    print(f"Verified native linux/{sys.argv[1]} Server image, locked Python sources, and FFmpeg corresponding source.")
+    print(f"Verified native linux/{sys.argv[1]} Server image, sample music, locked Python sources, and FFmpeg corresponding source.")

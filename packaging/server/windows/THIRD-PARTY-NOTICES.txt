@@ -32,5 +32,12 @@ Embedded Web
   Copyright (c) Meta Platforms, Inc. and affiliates. MIT license.
   License: third-party-licenses/web/react-react-dom-scheduler.txt
 
+Sample music
+  Three optional CC0 1.0 Universal recordings and their complete provenance,
+  source links, original filenames, modification statements, byte lengths, and
+  SHA-256 digests are retained under samples/. On first launch of a package
+  without server.json, verified copies are added under
+  music/jastreamer-samples. The Server does not play them automatically.
+
 No AirPlay helper, Python environment, FFmpeg executable, Renderer, or desktop
 application is included.

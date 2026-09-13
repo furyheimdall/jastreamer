@@ -1,8 +1,7 @@
 @echo off
 setlocal DisableDelayedExpansion
 cd /d "%~dp0"
-set "JASTREAMER_PORTABLE_ROOT=%~dp0"
-powershell.exe -NoLogo -NoProfile -NonInteractive -Command "$ErrorActionPreference='Stop'; $root=[IO.Path]::GetFullPath($env:JASTREAMER_PORTABLE_ROOT); $configPath=Join-Path $root 'server.json'; if (-not (Test-Path -LiteralPath $configPath -PathType Leaf)) { if (Test-Path -LiteralPath $configPath) { throw 'server.json exists but is not a regular file' }; $config=Get-Content -Raw -LiteralPath (Join-Path $root 'server.template.json') | ConvertFrom-Json; $config.data_dir=Join-Path $root 'data'; $music=Join-Path $root 'music'; $config.library_roots=@([pscustomobject]@{id='music';name='Music';path=$music}); [IO.Directory]::CreateDirectory($config.data_dir) | Out-Null; [IO.Directory]::CreateDirectory($music) | Out-Null; $utf8=New-Object System.Text.UTF8Encoding($false); $bytes=$utf8.GetBytes(($config | ConvertTo-Json -Depth 10)); $stream=[IO.File]::Open($configPath,[IO.FileMode]::CreateNew,[IO.FileAccess]::Write,[IO.FileShare]::None); try { $stream.Write($bytes,0,$bytes.Length); $stream.Flush() } finally { $stream.Dispose() }; Write-Host 'Created server.json, data, and music beside the server.' }"
+powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "%~dp0initialize-first-install.ps1"
 if errorlevel 1 goto setup_failed
 "%~dp0jastreamer-server.exe" --check-config "%~dp0server.json"
 if errorlevel 1 goto setup_failed

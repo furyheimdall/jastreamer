@@ -1,0 +1,43 @@
+jastreamer sample music: source and license notices
+
+These recordings were downloaded from Free Music Archive and are distributed
+under the CC0 1.0 Universal public-domain dedication. The bundled MP3 bytes are
+unchanged from the source downloads; only the filenames were changed to the
+stable jastreamer sample names shown below.
+
+sample-01.mp3
+  Title: Short piano jingle
+  Artist: Ondrosik
+  Source and artist license statement:
+    https://freemusicarchive.org/music/Ondrosik/whispered/short-piano-jingle/
+  Artist profile: https://freemusicarchive.org/music/Ondrosik/
+  License: CC0 1.0 Universal
+  License text: https://creativecommons.org/publicdomain/zero/1.0/
+  Source filename: E7ndSPkXaxaZtbJaaSRflCQiwmmTH1mpyQPhtkMs.mp3
+  Modification: renamed only; audio bytes and metadata are unchanged.
+
+sample-02.mp3
+  Title: Zero (microSong)
+  Artist: Steve Combs
+  Source and artist license statement:
+    https://freemusicarchive.org/music/Steve_Combs/2015021275957958/05_Zero_microSong/
+  Artist profile: https://freemusicarchive.org/music/Steve_Combs/
+  License: CC0 1.0 Universal
+  License text: https://creativecommons.org/publicdomain/zero/1.0/
+  Source filename: Steve_Combs_-_18_-_Zero_microSong.mp3
+  Modification: renamed only; audio bytes and metadata are unchanged.
+
+sample-03.mp3
+  Title: Free To Use 7
+  Artist: Monplaisir
+  Source and artist license statement:
+    https://freemusicarchive.org/music/Monplaisir/Free_To_Use/Monplaisir_-_Free_To_Use_-_07_Free_To_Use_7/
+  Artist profile: https://freemusicarchive.org/music/Monplaisir/
+  License: CC0 1.0 Universal
+  License text: https://creativecommons.org/publicdomain/zero/1.0/
+  Source filename: Monplaisir_-_07_-_Free_To_Use_7.mp3
+  Modification: renamed only; audio bytes and metadata are unchanged.
+
+The exact byte lengths and SHA-256 digests of the bundled files are recorded in
+manifest.json. CC0 does not require attribution; these notices are retained to
+make the recordings' provenance and redistribution terms independently clear.

@@ -1060,6 +1060,21 @@ textarea.input {
   overflow-wrap: anywhere;
 }
 
+.airplay-help-row {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.airplay-help-row .field-help {
+  max-width: 46rem;
+}
+
+.airplay-help-row .button {
+  flex: 0 0 auto;
+}
+
 .media-quick-url-label {
   margin-top: 0.8rem;
 }
@@ -1430,6 +1445,15 @@ body:has([aria-modal="true"]) {
 
   .queue-heading-row > .button,
   .settings-card-heading > .button {
+    width: 100%;
+  }
+
+  .airplay-help-row {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .airplay-help-row .button {
     width: 100%;
   }
 
