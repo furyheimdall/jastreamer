@@ -82,7 +82,7 @@ function AuthScreen({ setupRequired, onAuthenticated, onSetupComplete }: AuthScr
         const top = viewport?.offsetTop ?? 0;
         const bottom = top + (viewport?.height ?? window.innerHeight);
         if (bounds.top < top || bounds.bottom > bottom) {
-          field.scrollIntoView({ block: "start", inline: "nearest", behavior: "instant" });
+          field.scrollIntoView({ block: "start", inline: "nearest", behavior: "auto" });
         }
       });
     };
@@ -104,7 +104,7 @@ function AuthScreen({ setupRequired, onAuthenticated, onSetupComplete }: AuthScr
       const field = document.activeElement;
       const bounds = field?.getBoundingClientRect();
       const snapshot = {
-        followingResize, scrollY: window.scrollY, innerHeight: window.innerHeight,
+        followingResize, frame, scrollY: window.scrollY, innerHeight: window.innerHeight,
         viewportTop: viewport?.offsetTop, viewportPageTop: viewport?.pageTop,
         viewportHeight: viewport?.height, viewportWidth: viewport?.width, scale: viewport?.scale,
         field: field instanceof HTMLInputElement ? { type: field.type, top: bounds?.top, bottom: bounds?.bottom } : null,

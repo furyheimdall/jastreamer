@@ -101,7 +101,7 @@ private struct ClientShell: View {
                 )
             }
         }
-        // UIKit's keyboard layout guide sizes the Web viewport; native selection uses SwiftUI.
+        // WebKit owns keyboard occlusion; native selection uses SwiftUI keyboard avoidance.
         .ignoresSafeArea(.keyboard, edges: model.currentServer == nil ? [] : .bottom)
         .background(Color(uiColor: .systemBackground))
         .tint(Color(red: 0.20, green: 0.42, blue: 0.29))
