@@ -69,26 +69,43 @@ function AuthScreen({ setupRequired, onAuthenticated, onSetupComplete }: AuthScr
   useEffect(() => {
     const viewport = window.visualViewport;
     let frame = 0;
+    let followingResize = false;
     const revealFocusedField = () => {
-      if (frame !== 0) return;
+      if (!followingResize || frame !== 0) return;
       frame = window.requestAnimationFrame(() => {
         frame = 0;
+        if (!followingResize) return;
         const field = document.activeElement;
         if (!(field instanceof HTMLInputElement) || !form.current?.contains(field)) return;
         const bounds = field.getBoundingClientRect();
         const top = viewport?.offsetTop ?? 0;
         const bottom = top + (viewport?.height ?? window.innerHeight);
         if (bounds.top < top || bounds.bottom > bottom) {
-          // Let the browser reconcile layout and visual viewport scrolling, including WebKit's keyboard offset.
           field.scrollIntoView({ block: "start", inline: "nearest", behavior: "instant" });
         }
       });
     };
-    window.addEventListener("resize", revealFocusedField);
-    viewport?.addEventListener("resize", revealFocusedField);
+    const resize = () => {
+      followingResize = true;
+      revealFocusedField();
+    };
+    const stopRevealing = () => { followingResize = false; };
+    // WebKit can pan after its resize event. Follow that adjustment, never a user's scroll.
+    window.addEventListener("resize", resize);
+    viewport?.addEventListener("resize", resize);
+    window.addEventListener("scroll", revealFocusedField, { passive: true });
+    viewport?.addEventListener("scroll", revealFocusedField, { passive: true });
+    window.addEventListener("pointerdown", stopRevealing, { passive: true });
+    window.addEventListener("wheel", stopRevealing, { passive: true });
+    window.addEventListener("keydown", stopRevealing);
     return () => {
-      window.removeEventListener("resize", revealFocusedField);
-      viewport?.removeEventListener("resize", revealFocusedField);
+      window.removeEventListener("resize", resize);
+      viewport?.removeEventListener("resize", resize);
+      window.removeEventListener("scroll", revealFocusedField);
+      viewport?.removeEventListener("scroll", revealFocusedField);
+      window.removeEventListener("pointerdown", stopRevealing);
+      window.removeEventListener("wheel", stopRevealing);
+      window.removeEventListener("keydown", stopRevealing);
       if (frame !== 0) window.cancelAnimationFrame(frame);
     };
   }, []);

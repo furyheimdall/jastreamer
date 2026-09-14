@@ -71,10 +71,11 @@ final class RestrictedWebController: NSObject, ObservableObject {
     private var timeoutWorkItem: DispatchWorkItem?
     private var onLanguageChanged: ((String) -> Void)?
 
-    init(server: ServerEndpoint, language: String) {
+    init(server: ServerEndpoint, language: String, dataStore: WKWebsiteDataStore) {
+        precondition(dataStore.identifier == server.profileID)
         self.server = server
         rootURL = URL(string: server.origin + "/")!
-        dataStore = WKWebsiteDataStore(forIdentifier: server.profileID)
+        self.dataStore = dataStore
         self.language = language == "ko" ? "ko" : "en"
         desiredLanguage = language == "ko" ? "ko" : "en"
         super.init()

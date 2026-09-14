@@ -16,7 +16,9 @@ struct RemoteControlView: View {
         self.language = language
         self.isActive = isActive
         _webController = StateObject(
-            wrappedValue: RestrictedWebController(server: server, language: language)
+            wrappedValue: RestrictedWebController(
+                server: server, language: language, dataStore: model.websiteDataStore(for: server)
+            )
         )
     }
 

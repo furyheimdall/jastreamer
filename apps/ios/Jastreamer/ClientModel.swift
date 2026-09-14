@@ -1,5 +1,6 @@
 import Foundation
 import SwiftUI
+import WebKit
 
 @MainActor
 final class ClientBootstrap: ObservableObject {
@@ -39,6 +40,7 @@ final class ClientModel: ObservableObject {
     private var generation: UInt64 = 0
     private var foreground = false
     private var retryTarget: (origin: String, id: String?)?
+    private var webDataStores: [WKWebsiteDataStore] = []
 
     init(
         recentServers: RecentServers,
@@ -48,6 +50,23 @@ final class ClientModel: ObservableObject {
         self.recentServers = recentServers
         self.probe = probe
         self.discovery = discovery ?? ServerDiscovery(probe: probe)
+    }
+
+    func websiteDataStore(for server: ServerEndpoint) -> WKWebsiteDataStore {
+        let identifier = server.profileID
+        if let index = webDataStores.firstIndex(where: { $0.identifier == identifier }) {
+            let store = webDataStores.remove(at: index)
+            webDataStores.append(store)
+            return store
+        }
+        // Preserve named-store lifetimes across the chooser instead of tearing down
+        // WebKit's last network session between successive profile initializations.
+        let store = WKWebsiteDataStore(forIdentifier: identifier)
+        webDataStores.append(store)
+        if webDataStores.count > 20 {
+            webDataStores.removeFirst()
+        }
+        return store
     }
 
     func activate() {

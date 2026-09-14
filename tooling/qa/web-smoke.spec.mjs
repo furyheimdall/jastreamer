@@ -115,6 +115,10 @@ test("focused account fields remain visible across short viewport resizing", asy
   await expect.poll(fieldIsVisible).toBe(true);
   await expect(username).toHaveValue("viewport-smoke");
   await expect(password).toHaveValue("viewport-fixture-password");
+  await page.mouse.wheel(0, -10000);
+  await expect(page.getByRole("heading", { name: /^(Create an administrator account|Sign in)$/ })).toBeInViewport();
+  await expect(password).not.toBeInViewport();
+  await expect(password).toBeFocused();
 });
 
 test("a later configuration change restores restart controls without remounting Settings", async ({ page, context }) => {
