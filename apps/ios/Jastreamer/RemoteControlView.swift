@@ -7,6 +7,8 @@ struct RemoteControlView: View {
     let isActive: Bool
 
     @StateObject private var webController: RestrictedWebController
+    @Environment(\.verticalSizeClass) private var verticalSizeClass
+    @State private var keyboardIsVisible = false
 
     init(model: ClientModel, server: ServerEndpoint, language: String, isActive: Bool) {
         self.model = model
@@ -22,47 +24,49 @@ struct RemoteControlView: View {
         let text = L10n(language)
         let webActive = isActive && model.isRemoteVerified
         VStack(spacing: 0) {
-            HStack(spacing: 8) {
-                Button {
-                    webController.goBack()
-                } label: {
-                    Label(text("web.back"), systemImage: "chevron.backward")
-                        .labelStyle(.iconOnly)
-                        .frame(width: 44, height: 44)
-                }
-                .disabled(!webController.canGoBack || model.isReconnecting || !webActive)
-                .accessibilityLabel(text("web.back"))
-                .accessibilityIdentifier("back-web")
-
-                Button {
-                    if webController.failure != nil {
-                        model.retryRemote()
-                    } else {
-                        model.clearRemoteError()
-                        webController.reload()
+            if verticalSizeClass != .compact || !keyboardIsVisible {
+                HStack(spacing: 8) {
+                    Button {
+                        webController.goBack()
+                    } label: {
+                        Label(text("web.back"), systemImage: "chevron.backward")
+                            .labelStyle(.iconOnly)
+                            .frame(width: 44, height: 44)
                     }
-                } label: {
-                    Label(text("web.reload"), systemImage: "arrow.clockwise")
-                        .labelStyle(.iconOnly)
-                        .frame(width: 44, height: 44)
-                }
-                .disabled(model.isReconnecting || !webActive)
-                .accessibilityLabel(text("web.reload"))
-                .accessibilityIdentifier("reload-web")
+                    .disabled(!webController.canGoBack || model.isReconnecting || !webActive)
+                    .accessibilityLabel(text("web.back"))
+                    .accessibilityIdentifier("back-web")
 
-                Spacer()
+                    Button {
+                        if webController.failure != nil {
+                            model.retryRemote()
+                        } else {
+                            model.clearRemoteError()
+                            webController.reload()
+                        }
+                    } label: {
+                        Label(text("web.reload"), systemImage: "arrow.clockwise")
+                            .labelStyle(.iconOnly)
+                            .frame(width: 44, height: 44)
+                    }
+                    .disabled(model.isReconnecting || !webActive)
+                    .accessibilityLabel(text("web.reload"))
+                    .accessibilityIdentifier("reload-web")
 
-                if webController.isLoading || model.isReconnecting {
-                    ProgressView()
-                        .controlSize(.small)
-                    Text(model.isReconnecting ? text("reconnecting") : text("web.loading"))
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                    Spacer()
+
+                    if webController.isLoading || model.isReconnecting {
+                        ProgressView()
+                            .controlSize(.small)
+                        Text(model.isReconnecting ? text("reconnecting") : text("web.loading"))
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
                 }
+                .padding(.horizontal, 8)
+                .padding(.vertical, 3)
+                .background(Color(uiColor: .secondarySystemBackground))
             }
-            .padding(.horizontal, 8)
-            .padding(.vertical, 3)
-            .background(Color(uiColor: .secondarySystemBackground))
 
             ZStack {
                 RestrictedWebSurface(
@@ -114,6 +118,12 @@ struct RemoteControlView: View {
                     .padding(28)
                 }
             }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { _ in
+            keyboardIsVisible = true
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in
+            keyboardIsVisible = false
         }
     }
 

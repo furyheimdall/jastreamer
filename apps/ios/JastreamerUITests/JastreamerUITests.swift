@@ -49,7 +49,12 @@ final class JastreamerUITests: XCTestCase {
         XCUIDevice.shared.orientation = .landscapeLeft
         defer { XCUIDevice.shared.orientation = .portrait }
         wait(for: [XCTNSPredicateExpectation(
-            predicate: NSPredicate { _, _ in app.frame.width > app.frame.height },
+            predicate: NSPredicate { _, _ in
+                app.frame.width > app.frame.height
+                    && webUsername.isHittable
+                    && webUsername.frame.minY >= web.frame.minY
+                    && webUsername.frame.maxY <= app.keyboards.firstMatch.frame.minY + 1
+            },
             object: nil
         )], timeout: 10)
         XCTAssertEqual(webUsername.value as? String, username, "Rotation must retain unsaved Web form input")
@@ -94,7 +99,10 @@ final class JastreamerUITests: XCTestCase {
         try assertServerStopped()
 
         web.buttons["Settings"].tap()
-        let webLanguage = web.popUpButtons["Language / 언어"]
+        // WebKit exposes this HTML select as Other, distinct from its heading and label by value.
+        let webLanguage = web.otherElements.matching(
+            NSPredicate(format: "label == %@ AND value == %@", "Language / 언어", "English")
+        ).firstMatch
         XCTAssertTrue(webLanguage.waitForExistence(timeout: 10), "The actual Web language setting must be reachable")
         webLanguage.tap()
         let picker = app.pickerWheels.firstMatch
