@@ -47,6 +47,20 @@ The native Kotlin app adds Server selection around the same Web interface; [inst
 
 The PWA installation card in the shared Web UI is for browser use; the native Android client needs no additional PWA installation.
 
+<a id="ios-controls"></a>
+### Native iOS controls
+
+The SwiftUI app wraps the same Server-hosted interface. Its current availability is [source and CI only](INSTALL.md#ios), not an installable phone release.
+
+- Choose a verified nearby or recent Server, or enter its HTTP(S) root address and select **Verify and connect**. A fresh launch stays on selection rather than connecting automatically.
+- The header shows the selected Server and complete origin, including port. **Change Server** returns to selection without stopping playback. Foreground return rechecks the Server UUID before exposing the page; identity or network failure keeps the old page and its keyboard inaccessible.
+- Cookies and local Web storage use named profiles keyed by verified Server UUID and canonical scheme/host/port. Different ports are separate sessions. Removing a recent entry only changes the list; sign out inside the Server UI to end its session.
+- Back navigates available Web history; Reload refreshes the page. Use the keyboard's **Next** and **Done** for form entry. Rotation retains the live page and unsaved input. In compact-height keyboard layouts the back/reload bar hides, while Server switching and language remain available.
+- Native language controls and **Settings → Language / 언어** support English and Korean. Web language is read back at page load, foreground return and native screen transitions, without a JavaScript bridge. Changing the native language reloads the Web page, so finish unsaved edits first.
+- Closing, backgrounding or switching Servers sends no Play or Stop. There is no local renderer, offline player or cached command queue. External navigation, new windows, downloads, file pickers and native media/device permission requests are blocked; use the browser for file-upload workflows.
+
+The shared PWA card is for browser use, not an extra installation inside the native client. Use only a trusted Server, especially over unencrypted HTTP. If discovery fails, check Local Network access, Wi-Fi/multicast and VPN routing or enter the complete address manually.
+
 ### Google Cast media and completion boundaries
 
 Direct Cast streaming is selected conservatively from inspected codec, sample-rate, channel, and, where applicable, bit-depth metadata. Every direct source must have a matching verified codec, a positive sample rate, and mono or stereo channels: FLAC is accepted through 96 kHz with 1–24-bit depth; MP3, Ogg/Vorbis, Ogg/Opus, and M4A/AAC through 48 kHz; and LPCM WAV through 48 kHz with 1–16-bit depth. Missing or mismatched metadata and sources outside those limits are not assumed compatible. With media transcoding enabled and FFmpeg configured, they instead use a nonseekable 44.1 kHz stereo 16-bit WAV stream. The source file is unchanged. Direct streaming avoids this conversion but does not promise bit-perfect receiver output.

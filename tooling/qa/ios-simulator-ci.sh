@@ -22,6 +22,7 @@ fi
 
 udid="$(xcrun simctl create "Jastreamer iOS 18.5 CI" "$device_type" "$runtime")"
 cleanup() {
+    # Retain WebKit process-lifecycle evidence for simulator launch/resume failures.
     xcrun simctl spawn "$udid" log show --style compact --last 20m \
         --predicate 'process == "Jastreamer" OR subsystem BEGINSWITH "com.apple.WebKit"' \
         >"$results/native-runtime.log" 2>&1 || true

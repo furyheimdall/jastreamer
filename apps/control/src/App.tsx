@@ -1,4 +1,3 @@
-/// <reference types="vite/client" />
 import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { api, ApiError } from "./api";
 import Library from "./Library";
@@ -102,19 +101,6 @@ function AuthScreen({ setupRequired, onAuthenticated, onSetupComplete }: AuthScr
     window.addEventListener("pointerdown", stopRevealing, { passive: true });
     window.addEventListener("wheel", stopRevealing, { passive: true });
     window.addEventListener("keydown", stopRevealing);
-    const originalTitle = document.title;
-    const diagnostics = import.meta.env.VITE_VIEWPORT_DIAGNOSTICS === "1" ? window.setInterval(() => {
-      const field = document.activeElement;
-      const bounds = field?.getBoundingClientRect();
-      const snapshot = {
-        frame, scrollY: window.scrollY, innerHeight: window.innerHeight,
-        viewportTop: viewport?.offsetTop, viewportPageTop: viewport?.pageTop,
-        viewportHeight: viewport?.height, viewportWidth: viewport?.width, scale: viewport?.scale,
-        field: field instanceof HTMLInputElement ? { type: field.type, top: bounds?.top, bottom: bounds?.bottom } : null,
-      };
-      const title = `viewport ${JSON.stringify(snapshot)}`;
-      if (document.title !== title) document.title = title;
-    }, 250) : 0;
     return () => {
       window.removeEventListener("resize", revealFocusedField);
       viewport?.removeEventListener("resize", revealFocusedField);
@@ -122,10 +108,6 @@ function AuthScreen({ setupRequired, onAuthenticated, onSetupComplete }: AuthScr
       window.removeEventListener("wheel", stopRevealing);
       window.removeEventListener("keydown", stopRevealing);
       if (frame !== 0) window.cancelAnimationFrame(frame);
-      if (diagnostics) {
-        window.clearInterval(diagnostics);
-        document.title = originalTitle;
-      }
     };
   }, []);
 

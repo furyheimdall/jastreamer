@@ -2,7 +2,7 @@
 
 [프로젝트 소개](README.ko.md) · [한국어 사용자 안내서](INSTRUCTION.ko.md) · [English installation guide](INSTALL.md)
 
-실제로 사용할 패키지와 플랫폼에 맞는 아래 분기를 선택하세요. Server가 Web 화면을 제공하며, 선택 사항인 Desktop·네이티브 Android·휴대전화 PWA는 기존 Server의 클라이언트이지 로컬 오디오 Renderer가 아닙니다.
+실제로 사용할 패키지와 플랫폼에 맞는 아래 분기를 선택하세요. Server가 Web 화면을 제공하며, 선택 사항인 Desktop·네이티브 모바일·휴대전화 PWA는 기존 Server의 클라이언트이지 로컬 오디오 Renderer가 아닙니다.
 
 공개 프리뷰는 미서명이며 production 검증을 마친 릴리즈가 아닙니다. 선택한 릴리즈의 제한을 읽고 내려받은 모든 파일을 검증한 뒤 실제 네트워크와 수신기에서 동작을 확인하세요. 설치 후 화면 사용법과 문제 해결은 [한국어 사용자 안내서](INSTRUCTION.ko.md)를 참고하세요.
 
@@ -12,6 +12,7 @@
 | Windows에서 Server 실행 | [Windows Server](#windows-server) |
 | 기존 Server에 접속할 데스크톱 앱 추가 | [Windows ZIP](#desktop-windows) 또는 [Linux DEB](#desktop-linux) |
 | 네이티브 Android 클라이언트 추가 | [Android APK](#android) |
+| 네이티브 iOS 클라이언트 개발·검증 | 기기 설치가 아닌 [iOS 소스와 CI](#ios) |
 | 휴대전화 사용 또는 홈 화면 앱 설치 | [휴대전화 PWA](#pwa) |
 | 기존 설치 업데이트 또는 복구 | [업데이트](#upgrade) 또는 [롤백](#rollback) |
 
@@ -23,6 +24,7 @@
 - Windows 데스크톱 앱: Windows 10/11 x64. Windows ARM64 데스크톱 패키지는 없습니다.
 - Linux 데스크톱 앱: 그래픽 환경이 있는 Linux `amd64`. Ubuntu 24.04 amd64가 네이티브 설치·sandbox 검증 대상이며 Linux ARM64 데스크톱 패키지는 없습니다.
 - Android 클라이언트: Android 10/API 29 이상과 `MULTI_PROFILE`을 지원하는 Android System WebView. OS 버전만으로 지원이 보장되지는 않으며 앱이 실행 중 기능을 확인하고 공용 세션으로 대신 연결하지 않습니다.
+- iOS 소스·CI: iOS/iPadOS 18.4 이상이며, 고정된 CI 시나리오는 macOS의 Xcode 16.4와 iOS 18.5 시뮬레이터 런타임을 사용합니다. 현재 범위에는 설치 가능한 기기용 패키지가 없습니다.
 - 전체 [GitHub Releases 목록](https://github.com/furyheimdall/jastreamer/releases)에서 올바르게 프리뷰로 표시된 항목까지 포함해 고른, 대상과 호환되는 가장 최근의 게시된 non-draft Server 릴리즈 또는 별도로 전달받아 검증한 오프라인 패키지. 프리뷰 및 실장비 검증 한계는 그대로 적용됩니다.
 - Server, 브라우저·앱과 출력이 연결된 신뢰할 수 있는 사설 LAN. 자동 검색에는 멀티캐스트가 필요합니다.
 - Linux에서는 컨테이너 UID/GID `10001:10001`이 쓸 수 있는 분리된 config·data 폴더. 음악은 UID 10001이 읽을 수 있는 기존 절대 호스트 루트 또는 아래의 의도적인 샘플 전용 루트 중 하나를 고르고 읽기 전용으로 연결합니다.
@@ -212,8 +214,33 @@ HTTP는 신뢰할 수 있는 사설 LAN에서만 사용하며 암호화되지 �
 
 서버 선택, 뒤로 가기, 언어와 수명주기 동작은 [Android 화면](INSTRUCTION.ko.md#android-controls)을 참고하세요.
 
+<a id="ios"></a>
+## 8. 네이티브 iOS 소스와 CI
+
+`apps/ios`의 SwiftUI/WKWebView 앱은 `_jastreamer._tcp` Server를 검색하고 `/api/v1/discovery`로 확인한 뒤 선택한 Server의 Web 화면을 사용합니다. 네이티브 파일 선택기 요청을 거부하는 공개 WebKit API를 포함해 최소 **iOS/iPadOS 18.4**가 필요합니다. 네트워크 클라이언트이며 휴대전화 오디오 Renderer가 아닙니다.
+
+현재 범위는 **소스, 미서명 기기용 빌드와 시뮬레이터 CI만**입니다. 성공한 [iOS CI 실행](https://github.com/furyheimdall/jastreamer/actions/workflows/ios.yml)은 `jastreamer-ios-development-unsigned-and-simulator-<revision>`을 제공합니다. 개발 산출물을 사용하기 전에 `SHA256SUMS`, `provenance.json`, 소스 리비전, bundle identifier와 플랫폼을 확인하세요. PR 산출물은 검증한 merge 리비전을 기록하며 보호된 main의 릴리즈가 아닙니다.
+
+- `*_device-development-unsigned-not-installable.zip`은 미서명 `.app`이며 IPA나 설치 가능한 iPhone/iPad 패키지가 아닙니다.
+- `*_simulator-development-test-adhoc.zip`은 Xcode의 ad-hoc 테스트 서명을 사용하며 아키텍처가 맞는 시뮬레이터가 필요합니다. 휴대전화나 태블릿에는 설치할 수 없습니다.
+- 이 CI는 Apple 서명 자격 정보, provisioning profile, 기기 설치, TestFlight, App Store 게시나 production 업데이트 경로를 구성하지 않습니다.
+
+승인된 macOS 개발 도구에서 `apps/ios/Jastreamer.xcodeproj`를 열고 공유 **Jastreamer** scheme을 사용하세요. 재현 가능한 격리된 iPhone 16 시나리오는 저장소의 Go/Node 요구 사항과 저장소 루트의 다음 명령을 사용합니다.
+
+```sh
+export DEVELOPER_DIR=/Applications/Xcode_16.4.app/Contents/Developer
+make build
+bash tooling/qa/ios-simulator-ci.sh
+```
+
+[워크플로](.github/workflows/ios.yml)는 서명을 끈 generic iPhone/iPad 빌드도 수행하며 단위 테스트와 실제 Web UI 테스트가 통과한 뒤에만 패키징합니다. 시뮬레이터 검증은 사용자가 설치한 Server가 아닌 일회용 fixture를 사용합니다. 물리 iPhone/iPad 설치, Wi-Fi·Bonjour 동작이나 실제 소리를 검증한 것은 아닙니다.
+
+별도로 승인한 기기용 빌드에서 로컬 검색에는 **로컬 네트워크** 접근과 올바른 Wi-Fi·멀티캐스트 경로가 필요합니다. 사설 LAN HTTP는 암호화되지 않으며 iOS의 로컬 네트워크 ATS 예외는 로컬 이름·IP 주소에 적용될 뿐 임의의 HTTP 정규 도메인 이름에 적용되지 않습니다. 필요한 경우 신뢰할 수 있는 HTTPS 호스트 이름을 사용하고 인증서 검증을 우회하지 마세요. 별도로 승인한 업데이트에서도 앱을 제거하거나 데이터를 초기화하지 말고 앱 컨테이너와 격리된 프로필을 보존하세요.
+
+서버 선택, 세션, 키보드 탐색, 언어와 수명주기 동작은 [iOS 화면](INSTRUCTION.ko.md#ios-controls)을 참고하세요.
+
 <a id="pwa"></a>
-## 8. 선택 사항인 휴대전화 Web 앱(PWA)
+## 9. 선택 사항인 휴대전화 Web 앱(PWA)
 
 설치형 휴대전화 Web 앱은 Server가 제공하는 화면을 다른 형태로 여는 클라이언트이며, 선택 사항인 Desktop 앱에는 필요하지 않습니다.
 
@@ -230,7 +257,7 @@ PWA 설치에는 해당 휴대전화와 브라우저가 신뢰하는 인증서�
 설치는 launcher만 추가합니다. service worker나 미디어 cache를 사용하지 않으며 오프라인 재생, 알림, 앱 스토어 배포를 제공하지 않습니다. 앱을 열고 제어하려면 항상 jastreamer Server에 네트워크로 연결할 수 있어야 하며 재생 상태와 제어는 Server가 계속 관리합니다. 설치 후 휴대전화 화면 사용법은 [최초 설정과 일상 사용](INSTRUCTION.ko.md#1-최초-설정과-일상-사용)을 참고하세요.
 
 <a id="upgrade"></a>
-## 9. 업데이트
+## 10. 업데이트
 
 Linux 컨테이너 대상은 최초 계정 생성을 다시 하는 대신 검증된 Server 컨테이너 이미지를 교체해 업데이트합니다. 이미지에는 해당 아키텍처의 Web 화면, FFmpeg와 AirPlay 실행 환경이 포함됩니다. Server가 자신을 업데이트하도록 Docker 소켓을 연결하거나 호스트 관리 권한을 부여하지 마세요. 네이티브 Windows는 [별도 무설치 업데이트 절차](#windows-server)를 따르고 아래 Compose 절차를 적용하지 마세요.
 

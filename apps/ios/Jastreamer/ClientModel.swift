@@ -253,7 +253,6 @@ final class ClientModel: ObservableObject {
             DispatchQueue.main.async {
                 guard let self, self.generation == attempt, self.languageRevision == revision else { return }
                 guard let value = cookies.last(where: { isWebLanguageCookie($0, at: rootURL) })?.value else { return }
-                NSLog("iOS Web captured language=%@", value == "en" || value == "ko" ? value : "invalid")
                 self.acceptWebLanguage(value)
             }
         }

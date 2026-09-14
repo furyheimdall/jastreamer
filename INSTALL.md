@@ -2,7 +2,7 @@
 
 [README](README.md) · [User guide](INSTRUCTION.md) · [한국어 설치 안내](INSTALL.ko.md)
 
-Choose the branch below for the package and platform you actually use. The Server hosts the Web interface; optional desktop, native Android, and phone PWA clients connect to an existing Server, not a local audio renderer.
+Choose the branch below for the package and platform you actually use. The Server hosts the Web interface; optional desktop, native mobile, and phone PWA clients connect to an existing Server, not a local audio renderer.
 
 Public previews are unsigned and not production-qualified. Read the selected release's limitations, verify every downloaded artifact, and confirm operation on your own network and receivers.
 
@@ -12,6 +12,7 @@ Public previews are unsigned and not production-qualified. Read the selected rel
 | Run a Server on Windows | [Windows Server](#windows-server) |
 | Add a desktop client to an existing Server | [Windows ZIP](#desktop-windows) or [Linux DEB](#desktop-linux) |
 | Add the native Android client | [Android APK](#android) |
+| Develop or verify the native iOS client | [iOS source and CI](#ios), not device installation |
 | Use a phone or install its home-screen app | [Phone PWA](#pwa) |
 | Update or recover an existing installation | [Upgrade](#upgrade) or [rollback](#rollback) |
 
@@ -23,6 +24,7 @@ Public previews are unsigned and not production-qualified. Read the selected rel
 - **Windows desktop:** Windows 10/11 x64. There is no Windows ARM64 desktop package.
 - **Linux desktop:** a graphical Linux `amd64` system. Ubuntu 24.04 amd64 is the native installation and sandbox qualification target; there is no Linux ARM64 desktop package.
 - **Android client:** Android 10/API 29 or newer and an Android System WebView provider supporting `MULTI_PROFILE`. OS version alone does not establish support; the app checks at runtime and refuses a shared-session fallback.
+- **iOS source/CI:** iOS/iPadOS 18.4 or newer; macOS with Xcode 16.4 and the iOS 18.5 simulator runtime for the pinned CI scenario. There is no installable device package in this scope.
 - The newest compatible, published, non-draft Server release selected from the complete [GitHub Releases listing](https://github.com/furyheimdall/jastreamer/releases), including any entry correctly labelled as a preview, or a verified separately supplied offline artifact. Preview status and physical-device verification limits still apply.
 - A trusted private LAN between the Server, browser/client, and outputs. Automatic discovery needs multicast.
 - On Linux, separate config and data directories writable by container UID/GID `10001:10001`. For music, choose either an existing absolute host root readable by UID 10001 or the deliberate sample-only root described below; mount that root read-only.
@@ -211,6 +213,31 @@ An in-place APK update preserves private preferences and each Server UUID/origin
 For source development, use the pinned Gradle Wrapper in `apps/android` with JDK 17, SDK platform 36 and Build Tools 35.0.0 after any required host-tooling approval. Run `./gradlew :app:testDebugUnitTest :app:lint :app:assembleDebug :app:assembleRelease`. Full instrumentation uses an isolated API 36 emulator and the real Server/Web fixture in `.github/workflows/android.yml`; it is not a test against an installed user's Server. Emulator success does not establish physical-phone networking or audible receiver playback.
 
 See [Android controls](INSTRUCTION.md#android-controls) for selection, back navigation, language and lifecycle behavior.
+
+<a id="ios"></a>
+## Native iOS source and CI
+
+The SwiftUI/WKWebView client in `apps/ios` discovers `_jastreamer._tcp` Servers, verifies `/api/v1/discovery`, and reuses the selected Server's Web UI. The minimum is **iOS/iPadOS 18.4**, including the public WebKit API used to deny native file-picker requests. It is a network client, not a phone audio renderer.
+
+Current scope is **source, unsigned device builds and simulator CI only**. Successful [iOS CI runs](https://github.com/furyheimdall/jastreamer/actions/workflows/ios.yml) provide `jastreamer-ios-development-unsigned-and-simulator-<revision>`. Check `SHA256SUMS`, `provenance.json`, source revision, bundle identifier and platform before using a development artifact. A PR artifact records its tested merge revision and is not a protected-main release.
+
+- `*_device-development-unsigned-not-installable.zip` contains an unsigned `.app`, not an IPA or an installable iPhone/iPad package.
+- `*_simulator-development-test-adhoc.zip` uses Xcode's ad-hoc test signature and requires a compatible simulator architecture. It cannot be installed on a phone or tablet.
+- No Apple signing credentials, provisioning profiles, device installation, TestFlight, App Store publication or production update channel are established by this CI.
+
+For development on an approved macOS toolchain, open `apps/ios/Jastreamer.xcodeproj` and use the shared **Jastreamer** scheme. The reproducible isolated iPhone 16 scenario uses the repository's Go/Node requirements and these commands from the repository root:
+
+```sh
+export DEVELOPER_DIR=/Applications/Xcode_16.4.app/Contents/Developer
+make build
+bash tooling/qa/ios-simulator-ci.sh
+```
+
+The [workflow](.github/workflows/ios.yml) also builds for generic iPhone/iPad with signing disabled and packages only after unit and actual-Web-UI tests pass. Simulator checks use disposable fixtures, never an installed user's Server. They do not establish physical iPhone/iPad installation, Wi-Fi/Bonjour behavior or audible output.
+
+On a separately authorized device build, local discovery requires **Local Network** access and suitable Wi-Fi/multicast routing. Private-LAN HTTP is unencrypted; iOS local-network ATS exceptions cover local names/IP addresses, not arbitrary HTTP fully qualified domain names. Use a trusted HTTPS hostname when appropriate; certificate validation cannot be bypassed. Preserve the app container and isolated profiles during any separately authorized update rather than uninstalling or clearing data.
+
+See [iOS controls](INSTRUCTION.md#ios-controls) for selection, sessions, keyboard navigation, language and lifecycle behavior.
 
 <a id="pwa"></a>
 ## Optional phone PWA
