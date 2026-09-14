@@ -64,6 +64,34 @@ function AuthScreen({ setupRequired, onAuthenticated, onSetupComplete }: AuthScr
   const [confirmPassword, setConfirmPassword] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const form = useRef<HTMLFormElement>(null);
+
+  useEffect(() => {
+    const viewport = window.visualViewport;
+    let frame = 0;
+    const revealFocusedField = () => {
+      if (frame !== 0) return;
+      frame = window.requestAnimationFrame(() => {
+        frame = 0;
+        const field = document.activeElement;
+        if (!(field instanceof HTMLInputElement) || !form.current?.contains(field)) return;
+        const bounds = field.getBoundingClientRect();
+        const top = viewport?.offsetTop ?? 0;
+        const bottom = top + (viewport?.height ?? window.innerHeight);
+        const delta = bounds.bottom > bottom
+          ? Math.ceil(bounds.bottom - bottom)
+          : bounds.top < top ? Math.floor(bounds.top - top) : 0;
+        if (delta !== 0) window.scrollBy({ top: delta, behavior: "instant" });
+      });
+    };
+    window.addEventListener("resize", revealFocusedField);
+    viewport?.addEventListener("resize", revealFocusedField);
+    return () => {
+      window.removeEventListener("resize", revealFocusedField);
+      viewport?.removeEventListener("resize", revealFocusedField);
+      if (frame !== 0) window.cancelAnimationFrame(frame);
+    };
+  }, []);
 
   async function submit(event: FormEvent) {
     event.preventDefault();
@@ -107,7 +135,7 @@ function AuthScreen({ setupRequired, onAuthenticated, onSetupComplete }: AuthScr
             {t(setupRequired ? "app.auth.setupDescription" : "app.auth.loginDescription")}
           </p>
         </div>
-        <form className="auth-form" onSubmit={(event) => void submit(event)}>
+        <form ref={form} className="auth-form" onSubmit={(event) => void submit(event)}>
           <label>
             <span>{t("app.auth.username")}</span>
             <input

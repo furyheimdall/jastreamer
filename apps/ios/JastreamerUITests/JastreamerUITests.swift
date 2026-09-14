@@ -129,8 +129,7 @@ final class JastreamerUITests: XCTestCase {
         connect(app, to: actualOrigin)
         XCTAssertTrue(web.buttons["보관함"].waitForExistence(timeout: 20), "The isolated profile must retain its Korean Web language")
         attachScreenshot(name: "actual-web-phone-korean")
-        app.buttons["language-menu"].buttons.firstMatch.tap()
-        XCTAssertTrue(app.buttons["English"].waitForExistence(timeout: 5))
+        openLanguageMenu(app)
         app.buttons["English"].tap()
         XCTAssertTrue(web.buttons["Library"].waitForExistence(timeout: 15), "Native language changes must update the actual Web UI through the language cookie")
 
@@ -144,7 +143,7 @@ final class JastreamerUITests: XCTestCase {
         app.launch()
         allowLocalNetworkAccessIfRequested()
         XCTAssertTrue(app.buttons["language-menu"].waitForExistence(timeout: 10))
-        app.buttons["language-menu"].buttons.firstMatch.tap()
+        openLanguageMenu(app)
         app.buttons["English"].tap()
         let web = app.webViews.firstMatch
         connect(app, to: firstBoundaryOrigin)
@@ -171,11 +170,11 @@ final class JastreamerUITests: XCTestCase {
         XCTAssertTrue(app.buttons["retry-web"].waitForExistence(timeout: 10), "Foreground return must reject a replaced Server")
         XCTAssertFalse(web.staticTexts["stored|stored"].exists, "An unverified page must remain inaccessible")
         XCTAssertFalse(app.keyboards.firstMatch.exists, "An unverified page must not retain keyboard input")
-        app.buttons["language-menu"].buttons.firstMatch.tap()
+        openLanguageMenu(app)
         app.buttons["한국어"].tap()
         XCTAssertTrue(app.buttons["retry-web"].exists, "A language change must not dismiss the identity failure")
         XCTAssertFalse(web.staticTexts["stored|stored"].exists)
-        app.buttons["language-menu"].buttons.firstMatch.tap()
+        openLanguageMenu(app)
         app.buttons["English"].tap()
         app.buttons["switch-server"].tap()
         let savedServer = app.buttons.matching(
@@ -206,6 +205,16 @@ final class JastreamerUITests: XCTestCase {
         XCTAssertTrue(app.buttons["retry-web"].waitForExistence(timeout: 10), "Blocked navigation must report its native error")
         XCTAssertEqual(try hostileCount(), 0, "Cross-origin main-frame navigation must not reach the hostile origin")
         attachScreenshot(name: "webkit-boundary-isolation")
+    }
+
+    private func openLanguageMenu(_ app: XCUIApplication) {
+        let menu = app.buttons["language-menu"]
+        XCTAssertTrue(menu.exists)
+        XCTAssertTrue(app.windows.firstMatch.frame.contains(menu.frame))
+        // Xcode 16.4 cannot resolve SwiftUI Menu's AX hit point; use its observed bounds.
+        menu.coordinate(withNormalizedOffset: .init(dx: 0.5, dy: 0.5)).tap()
+        XCTAssertTrue(app.buttons["English"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["한국어"].exists)
     }
 
     private func connect(_ app: XCUIApplication, to origin: String) {
