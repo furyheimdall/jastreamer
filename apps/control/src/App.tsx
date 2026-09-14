@@ -79,10 +79,18 @@ function AuthScreen({ setupRequired, onAuthenticated, onSetupComplete }: AuthScr
         const field = document.activeElement;
         if (!(field instanceof HTMLInputElement) || !form.current?.contains(field)) return;
         const bounds = field.getBoundingClientRect();
-        const top = viewport?.offsetTop ?? 0;
+        // iOS WebKit's offsetTop and client rectangles can use different coordinate spaces.
+        const top = viewport ? viewport.pageTop - window.scrollY : 0;
         const bottom = top + (viewport?.height ?? window.innerHeight);
         if (bounds.top < top || bounds.bottom > bottom) {
-          field.scrollIntoView({ block: "start", inline: "nearest", behavior: "auto" });
+          const margin = Math.min(
+            Number.parseFloat(window.getComputedStyle(field).scrollMarginTop) || 0,
+            Math.max(0, (bottom - top - bounds.height) / 2),
+          );
+          const delta = bounds.top < top
+            ? Math.floor(bounds.top - top - margin)
+            : Math.ceil(bounds.bottom - bottom + margin);
+          window.scrollTo({ top: window.scrollY + delta, behavior: "auto" });
         }
       });
     };
