@@ -60,6 +60,7 @@ class ActualWebUiSmokeTest {
             }
             screenshot("native-keyboard")
             connect(origin)
+            waitFor("native address keyboard dismissal") { !keyboardVisible() }
             waitFor("real first-account form") { evaluate("document.querySelectorAll('.auth-form input').length === 3") == "true" }
             tapWebInput("input[autocomplete=username]")
             waitFor("WebView account keyboard") { keyboardVisible() }
@@ -159,10 +160,11 @@ class ActualWebUiSmokeTest {
     }
 
     private fun tapWebInput(selector: String) {
+        evaluate("document.querySelector('$selector').scrollIntoView({block:'center', behavior:'instant'})")
+        awaitRenderedFrame()
         val point = JSONArray(requireNotNull(evaluate("""
             (() => {
                 const input = document.querySelector('$selector');
-                input.scrollIntoView({block:'center', behavior:'instant'});
                 const box = input.getBoundingClientRect();
                 return [(box.left + box.width / 2) * devicePixelRatio, (box.top + box.height / 2) * devicePixelRatio];
             })()
@@ -172,12 +174,16 @@ class ActualWebUiSmokeTest {
         val down = SystemClock.uptimeMillis()
         for (action in intArrayOf(MotionEvent.ACTION_DOWN, MotionEvent.ACTION_UP)) {
             val event = MotionEvent.obtain(
-                down, SystemClock.uptimeMillis(), action,
+                down, down, action,
                 location[0] + point.getDouble(0).toFloat(), location[1] + point.getDouble(1).toFloat(), 0,
             )
             event.source = InputDevice.SOURCE_TOUCHSCREEN
             try {
-                assertTrue("The account field must accept an actual Android touch", instrumentation.uiAutomation.injectInputEvent(event, true))
+                // Queue the complete tap without stretching it into a long press while DOWN is handled.
+                assertTrue(
+                    "The account field must accept an actual Android touch",
+                    instrumentation.uiAutomation.injectInputEvent(event, action == MotionEvent.ACTION_UP),
+                )
             } finally {
                 event.recycle()
             }
@@ -241,7 +247,7 @@ class ActualWebUiSmokeTest {
         return current
     }
 
-    private fun screenshot(name: String) {
+    private fun awaitRenderedFrame() {
         val committed = CountDownLatch(1)
         scenario.onActivity { activity ->
             val root = activity.window.decorView
@@ -260,6 +266,10 @@ class ActualWebUiSmokeTest {
         }
         assertTrue("Rendered Android frame did not commit", committed.await(10, TimeUnit.SECONDS))
         instrumentation.waitForIdleSync()
+    }
+
+    private fun screenshot(name: String) {
+        awaitRenderedFrame()
         val bitmap = requireNotNull(instrumentation.uiAutomation.takeScreenshot()) { "Emulator screenshot unavailable" }
         val resolver = instrumentation.targetContext.contentResolver
         val values = ContentValues().apply {
