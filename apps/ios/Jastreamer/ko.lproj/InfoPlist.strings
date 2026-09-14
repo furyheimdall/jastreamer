@@ -1,0 +1,2 @@
+"CFBundleDisplayName" = "jastreamer";
+"NSLocalNetworkUsageDescription" = "JASTREAMER가 로컬 네트워크에서 사용자가 선택한 서버를 찾고 연결합니다.";

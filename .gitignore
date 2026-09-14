@@ -42,6 +42,12 @@ __pycache__/
 /apps/android/**/.cxx/
 /apps/android/**/.externalNativeBuild/
 
+# iOS local Xcode state and CI build output
+/apps/ios/**/xcuserdata/
+/apps/ios/DerivedData/
+/build/ios-device/
+/build/ios-simulator/
+
 # Editors and operating systems
 .idea/
 .vscode/

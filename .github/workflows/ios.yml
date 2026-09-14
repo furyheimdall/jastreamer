@@ -1,0 +1,136 @@
+name: iOS CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ios-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+# Official macos-15 inventory pins Xcode 16.4 (16F6), iOS 18.5, and iPhone 16:
+# https://github.com/actions/runner-images/blob/main/images/macos/macos-15-Readme.md
+env:
+  DEVELOPER_DIR: /Applications/Xcode_16.4.app/Contents/Developer
+
+jobs:
+  build-and-test:
+    name: iOS 18.5 real-Web-UI verification and unsigned device build
+    runs-on: macos-15
+    timeout-minutes: 60
+    steps:
+      - name: Check out source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+
+      - name: Establish exact source and Apple SDK provenance
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${GITHUB_SHA}"
+          test -d "${DEVELOPER_DIR}"
+          test "$(xcodebuild -version | sed -n '1p')" = "Xcode 16.4"
+          test "$(xcodebuild -version | sed -n '2p')" = "Build version 16F6"
+          test "$(xcrun --sdk iphoneos --show-sdk-version)" = "18.5"
+          test "$(xcrun --sdk iphonesimulator --show-sdk-version)" = "18.5"
+          xcrun simctl list runtimes available | grep -F "iOS 18.5"
+          xcrun simctl list devicetypes | grep -F "iPhone 16"
+          mkdir -p dist/ios-evidence
+          {
+            printf 'sourceRevision=%s\n' "$(git rev-parse HEAD)"
+            printf 'workflowRevision=%s\n' "${GITHUB_SHA}"
+            xcodebuild -version
+            printf 'iphoneosSDK=%s\n' "$(xcrun --sdk iphoneos --show-sdk-version)"
+            printf 'iphonesimulatorSDK=%s\n' "$(xcrun --sdk iphonesimulator --show-sdk-version)"
+            sw_vers
+          } > dist/ios-evidence/environment.txt
+
+      - name: Set up Go
+        uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5.5.0
+        with:
+          go-version-file: apps/server/go.mod
+          cache-dependency-path: apps/server/go.sum
+
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22.20.0
+          cache: npm
+          cache-dependency-path: apps/control/package-lock.json
+
+      - name: Build the actual Server with embedded Web UI
+        shell: bash
+        run: |
+          set -o pipefail
+          make build 2>&1 | tee dist/ios-evidence/server-web-build.log
+
+      - name: Build unsigned development bundle for generic iPhone and iPad
+        shell: bash
+        run: |
+          set -o pipefail
+          xcodebuild \
+            -project apps/ios/Jastreamer.xcodeproj \
+            -scheme Jastreamer \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath build/ios-device \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            COMPILER_INDEX_STORE_ENABLE=NO \
+            build 2>&1 | tee dist/ios-evidence/device-build.log
+
+      - name: Run unit and UI tests on iPhone 16 with actual Server Web UI
+        shell: bash
+        run: |
+          set -o pipefail
+          bash tooling/qa/ios-simulator-ci.sh dist/ios-evidence build/ios-simulator \
+            2>&1 | tee dist/ios-evidence/simulator-tests.log
+
+      - name: Package verified non-production development bundles
+        shell: bash
+        run: >-
+          bash tooling/qa/ios-package-artifacts.sh
+          build/ios-device/Build/Products/Release-iphoneos/Jastreamer.app
+          build/ios-simulator/Build/Products/Debug-iphonesimulator/Jastreamer.app
+          dist/ios
+
+      - name: Upload verified non-production iOS development bundles
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: jastreamer-ios-development-unsigned-and-simulator-${{ github.sha }}
+          path: dist/ios/
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 30
+
+      - name: Export XCTest summaries and screenshot attachments
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist/ios-evidence/screenshots
+          shopt -s nullglob
+          for result in dist/ios-evidence/*.xcresult; do
+            name="$(basename "$result" .xcresult)"
+            xcrun xcresulttool get test-results summary --path "$result" \
+              > "dist/ios-evidence/${name}-summary.json"
+            mkdir -p "dist/ios-evidence/screenshots/${name}"
+            xcrun xcresulttool export attachments --path "$result" \
+              --output-path "dist/ios-evidence/screenshots/${name}"
+          done
+
+      - name: Always upload XCTest results, screenshots, and logs
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: jastreamer-ios18.5-xctest-diagnostics-${{ github.sha }}
+          path: dist/ios-evidence/
+          if-no-files-found: error
+          retention-days: 30

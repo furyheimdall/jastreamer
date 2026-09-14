@@ -1,0 +1,9 @@
+jastreamer iOS client
+
+This application has no bundled third-party runtime dependencies. It uses
+SwiftUI, Foundation, Network, CryptoKit and WebKit supplied by Apple as part
+of iOS. The selected JASTREAMER Server supplies its Web Control and its own
+package notices; those Server files are not bundled in this application.
+
+The jastreamer application source and artwork are distributed under the
+Apache License, Version 2.0. A copy is included as LICENSE.txt.
