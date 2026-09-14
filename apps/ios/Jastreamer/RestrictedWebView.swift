@@ -142,7 +142,7 @@ final class RestrictedWebController: NSObject, ObservableObject {
     }
 
     func reload() {
-        guard active, setupComplete, phase != .disposed else { return }
+        guard active, setupComplete, phase != .disposed, phase != .failed else { return }
         failure = nil
         requestLanguageCookieAndLoad(desiredLanguage)
     }

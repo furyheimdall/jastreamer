@@ -205,7 +205,9 @@ final class ClientModel: ObservableObject {
         do {
             try recentServers.setLanguage(value)
             selectionError = nil
-            remoteError = nil
+            if isRemoteVerified {
+                remoteError = nil
+            }
         } catch {
             if currentServer == nil {
                 selectionError = userFacing(error)

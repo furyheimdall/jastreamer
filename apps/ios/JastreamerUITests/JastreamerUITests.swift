@@ -133,8 +133,18 @@ final class JastreamerUITests: XCTestCase {
         connect(app, to: firstBoundaryOrigin)
         XCTAssertTrue(web.staticTexts["stored|stored"].waitForExistence(timeout: 15), "The same canonical Server profile must retain cookie and DOM storage state")
 
-        app.buttons["switch-server"].tap()
+        XCUIDevice.shared.press(.home)
         try request(path: "/rotate-id", origin: firstBoundaryOrigin, method: "POST")
+        app.activate()
+        XCTAssertTrue(app.buttons["retry-web"].waitForExistence(timeout: 10), "Foreground return must reject a replaced Server")
+        XCTAssertFalse(web.staticTexts["stored|stored"].exists, "An unverified page must remain inaccessible")
+        app.buttons["language-menu"].tap()
+        app.buttons["한국어"].tap()
+        XCTAssertTrue(app.buttons["retry-web"].exists, "A language change must not dismiss the identity failure")
+        XCTAssertFalse(web.staticTexts["stored|stored"].exists)
+        app.buttons["language-menu"].tap()
+        app.buttons["English"].tap()
+        app.buttons["switch-server"].tap()
         let savedServer = app.buttons.matching(
             NSPredicate(format: "label BEGINSWITH %@", "Boundary 18081, ")
         ).firstMatch

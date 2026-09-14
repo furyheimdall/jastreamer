@@ -42,7 +42,7 @@ common=(
     COMPILER_INDEX_STORE_ENABLE=NO
 )
 
-xcodebuild "${common[@]}" \
+python3 tooling/qa/ios-boundary-fixture.py xcodebuild "${common[@]}" \
     -resultBundlePath "$results/JastreamerTests.xcresult" \
     -only-testing:JastreamerTests \
     test

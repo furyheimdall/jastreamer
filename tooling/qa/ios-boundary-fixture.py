@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run a command with isolated HTTP origins for iOS WebKit boundary checks."""
+"""Run a command with isolated HTTP origins for iOS client boundary checks."""
 
 import json
 import os
@@ -13,9 +13,11 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 SERVER_IDS = {
     18081: "11111111-1111-4111-8111-111111111111",
     18082: "11111111-1111-4111-8111-111111111111",
+    18083: "11111111-1111-4111-8111-111111111111",
 }
 HOSTILE_PATHS = {"/escape", "/stolen"}
 hostile_hits = 0
+redirect_hits = 0
 lock = threading.Lock()
 
 
@@ -26,9 +28,20 @@ class Handler(BaseHTTPRequestHandler):
         print(f"boundary:{self.server.server_port}: " + format_string % args, flush=True)
 
     def do_GET(self):
-        global hostile_hits
+        global hostile_hits, redirect_hits
         port = self.server.server_port
-        if self.path == "/api/v1/discovery":
+        if self.path == "/api/v1/discovery" and port == 18083:
+            self.reply(302, "application/json", b"", {"Location": "http://127.0.0.1:18081/redirect-target"})
+            return
+        if self.path == "/redirect-count":
+            with lock:
+                body = str(redirect_hits).encode()
+            self.reply(200, "text/plain", body)
+            return
+        if self.path in {"/api/v1/discovery", "/redirect-target"}:
+            if self.path == "/redirect-target":
+                with lock:
+                    redirect_hits += 1
             body = json.dumps({
                 "product": "jastreamer",
                 "protocol": 1,
@@ -95,11 +108,13 @@ render();
             SERVER_IDS[18081] = "33333333-3333-4333-8333-333333333333"
         self.reply(204, "text/plain", b"")
 
-    def reply(self, status, content_type, body):
+    def reply(self, status, content_type, body, headers=None):
         self.send_response(status)
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Cache-Control", "no-store")
+        for name, value in (headers or {}).items():
+            self.send_header(name, value)
         self.end_headers()
         self.wfile.write(body)
 
@@ -131,7 +146,7 @@ def main():
     threads = [threading.Thread(target=server.serve_forever, daemon=True) for server in servers]
     for thread in threads:
         thread.start()
-    print("iOS boundary origins ready at host loopback TCP 18081 and 18082", flush=True)
+    print("iOS boundary origins ready at host loopback TCP " + ", ".join(map(str, SERVER_IDS)), flush=True)
 
     command = None
     result = 65

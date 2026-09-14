@@ -4,31 +4,25 @@ import XCTest
 
 final class ServerProbeTests: XCTestCase {
     func testRejectsRedirectWithoutFollowingIt() async throws {
-        let sourceCount = LockedCounter()
-        let targetCount = LockedCounter()
-        ProbeURLProtocol.install(host: "redirect.local") { protocolInstance in
-            sourceCount.increment()
-            protocolInstance.redirect(to: URL(string: "http://target.local/api/v1/discovery")!)
-        }
-        ProbeURLProtocol.install(host: "target.local") { protocolInstance in
-            targetCount.increment()
-            protocolInstance.respond(
-                status: 200,
-                headers: ["Content-Type": "application/json"],
-                data: Self.discoveryJSON(id: "11111111-1111-4111-8111-111111111111")
-            )
-        }
-        defer {
-            ProbeURLProtocol.remove(host: "redirect.local")
-            ProbeURLProtocol.remove(host: "target.local")
-        }
-
-        let error = await failure { try await self.makeProbe().probe("http://redirect.local") }
+        let origin = "http://127.0.0.1:18083"
+        let error = await failure { try await ServerProbe().probe(origin) }
         guard let clientError = error as? JastreamerClientError, case .redirect = clientError else {
             return XCTFail("Expected redirect rejection, got \(String(describing: error))")
         }
-        XCTAssertEqual(sourceCount.value, 1)
-        XCTAssertEqual(targetCount.value, 0)
+        let counterURL = try XCTUnwrap(URL(string: "http://127.0.0.1:18081/redirect-count"))
+        let session = URLSession(configuration: .ephemeral)
+        defer { session.invalidateAndCancel() }
+        let (blockedCount, _) = try await session.data(from: counterURL)
+        XCTAssertEqual(String(decoding: blockedCount, as: UTF8.self), "0")
+
+        // A normal URLSession must reach the same redirect target: the fixture
+        // is live and would expose a missing no-redirect policy.
+        let (body, response) = try await session.data(from: XCTUnwrap(URL(string: origin + "/api/v1/discovery")))
+        XCTAssertEqual((response as? HTTPURLResponse)?.statusCode, 200)
+        let metadata = try JSONSerialization.jsonObject(with: body) as? [String: Any]
+        XCTAssertEqual(metadata?["product"] as? String, "jastreamer")
+        let (followedCount, _) = try await session.data(from: counterURL)
+        XCTAssertEqual(String(decoding: followedCount, as: UTF8.self), "1")
     }
 
     func testRejectsUnknownLengthBodyOver32KiB() async {
@@ -79,19 +73,17 @@ final class ServerProbeTests: XCTestCase {
             )
         }
         defer { ProbeURLProtocol.remove(host: "cookie.local") }
-        let configuration = URLSessionConfiguration.default
-        let storage = HTTPCookieStorage.sharedCookieStorage(forGroupContainerIdentifier: "probe-tests-\(UUID().uuidString)")
-        defer { storage.cookies?.forEach(storage.deleteCookie) }
-        configuration.httpCookieStorage = storage
-        if let cookie = HTTPCookie(properties: [
+        let configuration = URLSessionConfiguration.ephemeral
+        let storage = try XCTUnwrap(configuration.httpCookieStorage)
+        let cookie = try XCTUnwrap(HTTPCookie(properties: [
             .domain: "cookie.local",
             .path: "/",
             .name: "session",
             .value: "secret",
             .secure: "FALSE",
-        ]) {
-            storage.setCookie(cookie)
-        }
+        ]))
+        storage.setCookie(cookie)
+        XCTAssertTrue(storage.cookies?.contains(where: { $0.name == "session" }) == true)
         configuration.protocolClasses = [ProbeURLProtocol.self]
 
         let endpoint = try await ServerProbe(configuration: configuration).probe("http://cookie.local")
@@ -183,20 +175,6 @@ private final class ProbeURLProtocol: URLProtocol {
         Self.registryLock.withLock { Self.behaviors[host]?.onStop }?()
     }
 
-    func redirect(to target: URL) {
-        guard let source = request.url,
-              let response = HTTPURLResponse(
-                  url: source,
-                  statusCode: 302,
-                  httpVersion: "HTTP/1.1",
-                  headerFields: ["Location": target.absoluteString]
-              )
-        else {
-            client?.urlProtocol(self, didFailWithError: URLError(.badServerResponse))
-            return
-        }
-        client?.urlProtocol(self, wasRedirectedTo: URLRequest(url: target), redirectResponse: response)
-    }
 
     func respond(status: Int, headers: [String: String], data: Data) {
         guard let url = request.url,
@@ -211,18 +189,6 @@ private final class ProbeURLProtocol: URLProtocol {
     }
 }
 
-private final class LockedCounter {
-    private let lock = NSLock()
-    private var count = 0
-
-    var value: Int {
-        lock.withLock { count }
-    }
-
-    func increment() {
-        lock.withLock { count += 1 }
-    }
-}
 
 private final class LockedRequest {
     private let lock = NSLock()

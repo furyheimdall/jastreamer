@@ -35,8 +35,12 @@ struct RemoteControlView: View {
                 .accessibilityIdentifier("back-web")
 
                 Button {
-                    model.clearRemoteError()
-                    webController.reload()
+                    if webController.failure != nil {
+                        model.retryRemote()
+                    } else {
+                        model.clearRemoteError()
+                        webController.reload()
+                    }
                 } label: {
                     Label(text("web.reload"), systemImage: "arrow.clockwise")
                         .labelStyle(.iconOnly)
@@ -71,6 +75,8 @@ struct RemoteControlView: View {
                 )
 
                 .allowsHitTesting(webActive)
+                .opacity(webActive ? 1 : 0)
+                .accessibilityHidden(!webActive)
 
                 if model.isReconnecting {
                     Color(uiColor: .systemBackground)
