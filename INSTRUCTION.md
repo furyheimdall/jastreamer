@@ -32,6 +32,21 @@ Selecting another bottom tab collapses the expanded player without stopping play
 
 The optional **Install jastreamer** card is in **Settings**. It does not change playback or Server configuration. See the [phone PWA installation branch](INSTALL.md#pwa) for browser, trusted-HTTPS, and network-only limitations.
 
+<a id="android-controls"></a>
+### Native Android controls
+
+The native Kotlin app adds Server selection around the same Web interface; [installation and APK update rules](INSTALL.md#android) are separate from PWA installation.
+
+- Choose a discovered or recent Server, or enter its HTTP(S) root address and select **Verify and connect**. The app does not connect automatically on a fresh launch. Recent entries are rechecked, and discovery names are accepted only after an HTTP identity check.
+- The native header identifies the selected Server and its origin, including port. **Servers** returns to selection without stopping playback. A changed Server UUID is rejected for a saved entry rather than silently reusing its session.
+- Cookies and local Web storage are isolated by Server UUID plus complete origin. Different ports are different profiles, even on the same host. Changing addresses can therefore require login again.
+- Back first dismisses the keyboard when Android handles it, then navigates Web history when available, then returns to Server selection. Back from selection leaves the app. Rotation retains the live Web page and unsaved form state; returning from the background checks Server identity again before exposing the page.
+- Native language controls and **Settings → Language / 언어** support English and Korean. A Web-language change is reflected in the native shell when the page finishes loading or you leave/pause it. The existing phone/tablet layout rules, four tabs, player controls and touch targets remain unchanged.
+- Closing, backgrounding, changing Servers or reopening the app does not issue Play or Stop. Playback and queue state belong to the Server. There is no local renderer, offline player, service-worker command queue, or native JavaScript bridge.
+- External navigation, new windows, downloads and native permission requests are blocked. The Server's same-origin Content Security Policy also protects its Web network requests; Android request interception alone is not a universal sandbox for arbitrary hostile HTML. Use only a Server you trust, especially over unencrypted HTTP.
+
+The PWA installation card in the shared Web UI is for browser use; the native Android client needs no additional PWA installation.
+
 ### Google Cast media and completion boundaries
 
 Direct Cast streaming is selected conservatively from inspected codec, sample-rate, channel, and, where applicable, bit-depth metadata. Every direct source must have a matching verified codec, a positive sample rate, and mono or stereo channels: FLAC is accepted through 96 kHz with 1–24-bit depth; MP3, Ogg/Vorbis, Ogg/Opus, and M4A/AAC through 48 kHz; and LPCM WAV through 48 kHz with 1–16-bit depth. Missing or mismatched metadata and sources outside those limits are not assumed compatible. With media transcoding enabled and FFmpeg configured, they instead use a nonseekable 44.1 kHz stereo 16-bit WAV stream. The source file is unchanged. Direct streaming avoids this conversion but does not promise bit-perfect receiver output.
@@ -78,6 +93,8 @@ UPnP, Google Cast, and AirPlay capabilities vary by receiver. Confirm audible pl
 | Phone layout does not appear | Confirm the device is an iPhone or an Android browser reporting both Android and Mobile; iPads, Android tablets, and narrow desktop windows intentionally retain the existing layout |
 | PWA install action does not appear | Open **Settings** and follow [PWA installation](INSTALL.md#pwa); a private-LAN HTTP origin shows the trusted-HTTPS requirement |
 | Windows cannot discover Server | Allow mDNS UDP 5353 or enter the full Server URL manually |
+| Android reports unsupported WebView | Update the device's Android System WebView/Chrome provider and reopen the app; independent profiles are mandatory and shared cookies are never used as a fallback |
+| Android cannot discover or reconnect | Check Wi-Fi, mDNS UDP 5353, VPN/client isolation and app network access; enter the complete URL manually, and retain identity/TLS errors rather than bypassing them |
 | No output appears | Allow SSDP UDP 1900 for UPnP; Google Cast needs mDNS UDP 5353 on the selected interfaces plus Server TCP access to the receiver's advertised Cast port; Linux AirPlay also needs mDNS UDP 5353 and host networking; disable client isolation |
 | Output cannot play | Permit Server-to-receiver control/stream traffic and receiver-to-Server media HTTP(S) traffic; normally leave **Server URL used by playback devices to fetch audio** blank, or set it only to a specific receiver-reachable Server origin; for unsupported Cast originals, enable conversion only with a configured FFmpeg |
 | Cast FLAC fails after seeking near EOF | Preserve the reported `BUFFERING`/`ERROR`; this receiver-dependent failure was independently reproduced and is not completion, so do not skip the queue entry or weaken the owned `FINISHED` requirement |

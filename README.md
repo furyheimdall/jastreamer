@@ -31,6 +31,7 @@ English is the default interface language; Korean is also supported.
 - Provides first-account setup, password login/change/recovery, and durable sessions
 - Provides private-LAN HTTP and optional built-in HTTPS using operator-provided PEM certificates and keys
 - Provides a four-tab iPhone/Android phone layout, collapsible playback controls, and an optional installable PWA
+- Offers a native Android client with verified Server discovery, recent Servers, manual addresses, and isolated per-Server WebView sessions
 
 The phone layout is selected automatically for iPhone and Android phone browsers, not iPad or other tablet layouts. The PWA remains a network client of the Server; it does not cache the library or support offline playback.
 
@@ -39,6 +40,7 @@ The phone layout is selected automatically for iPhone and Android phone browsers
 - **Linux Server:** one `amd64` or `arm64` container with the embedded Web interface, Python 3.12, audio-only FFmpeg 8.1.2, and the pyatv 0.18.0 AirPlay sender. Synology Container Manager uses the supplied Compose definition.
 - **Native Windows Server:** the unsigned x64 portable ZIP with the embedded Web interface, UPnP/DLNA, and optional Google Cast, but no bundled AirPlay sender, Renderer, or FFmpeg transcoder. It is not a Windows service.
 - **Optional desktop:** a Windows 10/11 x64 portable ZIP or Linux amd64 DEB that discovers a Server or accepts its HTTP(S) address and displays its hosted Web interface. It is not a Server, Renderer, or local audio player. There is no ARM64 desktop package; Linux arm64 clients can use a browser.
+- **Android client:** Kotlin/WebView for Android 10 or newer, requiring a current WebView provider with independent-profile support. It reuses the Server-hosted phone/tablet interface. [Android CI](https://github.com/furyheimdall/jastreamer/actions/workflows/android.yml) supplies development/test APKs and unsigned release builds, not a production-signed or Play Store release; see [Android installation](INSTALL.md#android).
 
 Google Cast needs no Chrome or Python helper on either Server platform. Select the newest compatible published Server release from the complete [GitHub Releases listing](https://github.com/furyheimdall/jastreamer/releases), including correctly labelled previews; verify its provenance and pin its exact image digest or verify the package checksum. Never use mutable `latest` or assume `/releases/latest` includes previews.
 
@@ -68,6 +70,7 @@ Send the following request to your AI agent. Before installation, review the pro
 ## Updating
 
 Update Linux Server by replacing its container image while preserving the config/data mounts. For native Windows Server, verify and extract the new ZIP into a separate directory, then replace only package-owned files in the existing directory while preserving `server.json`, `data`, and `music`. Neither path reinstalls the application from scratch or resets its data. The Server-hosted Web interface and built-in optional Google Cast support are updated together on both targets; FFmpeg and AirPlay are included only in the supported Linux container. Optional desktop executables are updated separately through their ZIP or DEB.
+The Android wrapper is updated separately with a compatible APK signed by the same certificate; Server-hosted Web changes do not require replacing the wrapper. Its current CI APKs are development artifacts, not an established production update channel.
 
 There is currently no in-app version check or automatic update. Download and verify the exact artifacts and checksums, stop playback and Server, and replace only the package-owned files or image while preserving existing configuration, data, music paths and mounts. After verification, reconnect to the existing Server address and refresh the Web interface. Playback does not resume automatically.
 

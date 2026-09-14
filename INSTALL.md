@@ -2,7 +2,7 @@
 
 [README](README.md) · [User guide](INSTRUCTION.md) · [한국어 설치 안내](INSTALL.ko.md)
 
-Choose the branch below for the package and platform you actually use. The Server hosts the Web interface; the optional desktop and phone PWA are clients of an existing Server, not Servers or local audio renderers.
+Choose the branch below for the package and platform you actually use. The Server hosts the Web interface; optional desktop, native Android, and phone PWA clients connect to an existing Server, not a local audio renderer.
 
 Public previews are unsigned and not production-qualified. Read the selected release's limitations, verify every downloaded artifact, and confirm operation on your own network and receivers.
 
@@ -11,6 +11,7 @@ Public previews are unsigned and not production-qualified. Read the selected rel
 | Run a Server on Linux or Synology | [Linux Server](#linux-server) |
 | Run a Server on Windows | [Windows Server](#windows-server) |
 | Add a desktop client to an existing Server | [Windows ZIP](#desktop-windows) or [Linux DEB](#desktop-linux) |
+| Add the native Android client | [Android APK](#android) |
 | Use a phone or install its home-screen app | [Phone PWA](#pwa) |
 | Update or recover an existing installation | [Upgrade](#upgrade) or [rollback](#rollback) |
 
@@ -21,6 +22,7 @@ Public previews are unsigned and not production-qualified. Read the selected rel
 - **Native Windows Server:** Windows x64 and a writable local installation folder. The portable Server is not installed as a Windows service.
 - **Windows desktop:** Windows 10/11 x64. There is no Windows ARM64 desktop package.
 - **Linux desktop:** a graphical Linux `amd64` system. Ubuntu 24.04 amd64 is the native installation and sandbox qualification target; there is no Linux ARM64 desktop package.
+- **Android client:** Android 10/API 29 or newer and an Android System WebView provider supporting `MULTI_PROFILE`. OS version alone does not establish support; the app checks at runtime and refuses a shared-session fallback.
 - The newest compatible, published, non-draft Server release selected from the complete [GitHub Releases listing](https://github.com/furyheimdall/jastreamer/releases), including any entry correctly labelled as a preview, or a verified separately supplied offline artifact. Preview status and physical-device verification limits still apply.
 - A trusted private LAN between the Server, browser/client, and outputs. Automatic discovery needs multicast.
 - On Linux, separate config and data directories writable by container UID/GID `10001:10001`. For music, choose either an existing absolute host root readable by UID 10001 or the deliberate sample-only root described below; mount that root read-only.
@@ -186,6 +188,29 @@ Launch **JASTREAMER** from the application menu as your ordinary user, or run `/
 The installer keeps application files root-owned and installs `chrome-sandbox` as `root:root`, mode `4755`. On compatible AppArmor systems it installs an executable-specific user-namespace profile for `/usr/lib/jastreamer-desktop/jastreamer-desktop`. It does not disable AppArmor or the system-wide user-namespace restriction. Unmanaged policy is preserved; local additions belong in `/etc/apparmor.d/local/jastreamer-desktop`. If launch fails, report the error and installed permissions rather than weakening sandbox settings.
 
 Recent Servers, language, cookies, and sessions use `$XDG_CONFIG_HOME/jastreamer-desktop`, normally `~/.config/jastreamer-desktop`, not the root-owned installation directory. Exit completely before installing an updated DEB and leave this profile in place. If replacing a preview with the same package version, use `sudo apt install --reinstall ./jastreamer-desktop_0.2.0_linux-amd64.deb`. Keep the previous verified DEB for rollback; never remove the profile just to upgrade.
+
+<a id="android"></a>
+## Optional native Android client
+
+The Kotlin app discovers `_jastreamer._tcp` Servers, checks `/api/v1/discovery`, and opens the selected Server's existing Web UI. It is not the retired Flutter Controller or an Android audio renderer. No PWA installation, local music permission, or location permission is needed.
+
+Current distribution is **development/testing only** through successful [Android CI runs](https://github.com/furyheimdall/jastreamer/actions/workflows/android.yml). Select the intended source revision and download its `jastreamer-android-debug-test-signed-and-release-unsigned-<revision>` artifact. Verify `SHA256SUMS`, `provenance.json`, the source revision, application ID and signing certificate before installation. A pull-request artifact is not a protected-main release.
+
+- `*_debug-test-signed.apk` is installable for testing, has application ID `io.jastreamer.android.debug`, and uses a generated debug certificate. It is separate from the production application ID `io.jastreamer.android`.
+- `*_release-unsigned.apk` is not installable until signed. Production signing-key custody, approved distribution and a stable update certificate are separate prerequisites; no private key is included.
+- Debug certificates can differ between CI runs. If an installed APK has a different certificate, stop rather than uninstalling or clearing app data to force an update. That would erase local sessions and preferences. A normal in-place update requires the same application ID/certificate and a compatible, nondecreasing version code.
+
+For an explicitly approved test installation, transfer the verified debug APK to the Android device, open it, and grant that file-opening application's **Install unknown apps** permission only if needed. Remove that installation-source permission afterward. Do not disable Play Protect, certificate checks, or device security. An already-authorized ADB connection can instead use `adb install -r <verified-debug-apk>`. Do not authorize debugging or install host SDK tools implicitly.
+
+Use HTTP only on a trusted private LAN; it remains unencrypted. HTTPS must validate against the device's normal system trust store. The current app targets API 36: it does not request location or the target-37 `ACCESS_LOCAL_NETWORK` permission. Android 17 currently grants legacy-target LAN access implicitly; revoked/blocked network access still fails visibly. Wi-Fi isolation, blocked multicast and VPN routing can prevent discovery; manual address entry remains available. Do not change device compatibility flags or network permissions just to make a test pass.
+
+Discovery probes the advertised LAN IP addresses. If a valid HTTPS certificate covers only a hostname, enter that hostname manually; do not bypass the certificate mismatch.
+
+An in-place APK update preserves private preferences and each Server UUID/origin profile. Removing an entry from **Recent servers** only removes that list entry; it does not log out or erase its WebView profile. Sign out inside the Server UI when needed. Uninstalling or clearing Android app storage removes all app profiles, and app data is excluded from Android cloud/device-transfer backup. Never copy profiles or session cookies into reports.
+
+For source development, use the pinned Gradle Wrapper in `apps/android` with JDK 17, SDK platform 36 and Build Tools 35.0.0 after any required host-tooling approval. Run `./gradlew :app:testDebugUnitTest :app:lint :app:assembleDebug :app:assembleRelease`. Full instrumentation uses an isolated API 36 emulator and the real Server/Web fixture in `.github/workflows/android.yml`; it is not a test against an installed user's Server. Emulator success does not establish physical-phone networking or audible receiver playback.
+
+See [Android controls](INSTRUCTION.md#android-controls) for selection, back navigation, language and lifecycle behavior.
 
 <a id="pwa"></a>
 ## Optional phone PWA

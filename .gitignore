@@ -32,6 +32,16 @@ __pycache__/
 /dist/
 /coverage/
 
+# Android local configuration and build output
+/apps/android/.gradle/
+/apps/android/.kotlin/
+/apps/android/local.properties
+/apps/android/**/build/
+/apps/android/captures/
+/apps/android/.cxx/
+/apps/android/**/.cxx/
+/apps/android/**/.externalNativeBuild/
+
 # Editors and operating systems
 .idea/
 .vscode/

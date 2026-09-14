@@ -30,6 +30,21 @@ jastreamer는 Linux 또는 네이티브 Windows에서 Server를 실행합니다.
 
 대기열은 Server 전체에서 공유되며 순서와 중복을 보존하고 재시작 뒤에도 남습니다. Server 재시작 뒤 재생은 자동으로 이어지지 않습니다. Cast도 이 대기열 하나를 사용하고 Cast autoplay를 끈 상태로 미디어를 LOAD한 뒤 Play를 명시적으로 전송합니다. 수신기 그룹과 gapless 재생은 지원하지 않습니다.
 
+<a id="android-controls"></a>
+### 네이티브 Android 화면
+
+Kotlin 앱은 같은 Web 화면 바깥에 서버 선택 기능을 추가합니다. [설치와 APK 업데이트 규칙](INSTALL.ko.md#android)은 PWA 설치와 별도입니다.
+
+- 발견된 서버나 최근 서버를 고르거나 HTTP(S) 루트 주소를 입력하고 **확인 후 연결**을 누르세요. 새로 실행하면 자동으로 연결하지 않습니다. 최근 항목도 다시 확인하며 검색 이름은 HTTP 식별자 검증 뒤에만 사용합니다.
+- 네이티브 헤더에는 선택한 Server와 포트를 포함한 origin이 표시됩니다. **서버**는 재생을 정지하지 않고 서버 선택으로 돌아갑니다. 저장된 항목의 Server UUID가 달라지면 기존 세션을 조용히 재사용하지 않고 거부합니다.
+- 쿠키와 Web 로컬 저장소는 Server UUID와 완전한 origin 조합별로 격리됩니다. 같은 호스트의 다른 포트도 다른 프로필이므로 주소 변경 후 다시 로그인해야 할 수 있습니다.
+- 뒤로 가기는 Android가 처리하는 키보드를 먼저 닫고, Web 탐색 기록이 있으면 이전 페이지로, 없으면 서버 선택으로 돌아갑니다. 선택 화면에서 다시 뒤로 가면 앱을 나갑니다. 회전은 실행 중인 Web 페이지와 저장하지 않은 입력을 유지하며 백그라운드에서 돌아올 때는 페이지를 다시 보여주기 전에 서버 식별자를 확인합니다.
+- 네이티브 언어 선택과 **Settings → Language / 언어**에서 영어·한국어를 지원합니다. Web에서 바꾼 언어는 페이지 로딩이 끝나거나 화면을 나가거나 일시 중단할 때 네이티브 화면에 반영됩니다. 기존 휴대전화·태블릿 화면 구분, 네 탭, 재생 제어와 터치 영역은 유지됩니다.
+- 앱 종료, 백그라운드 전환, 서버 변경이나 다시 열기는 Play·Stop 명령을 보내지 않습니다. 재생과 대기열은 Server가 관리하며 로컬 Renderer, 오프라인 재생, service worker 명령 대기열이나 네이티브 JavaScript bridge는 없습니다.
+- 외부 탐색, 새 창, 다운로드와 네이티브 권한 요청을 차단합니다. Web 네트워크 요청은 Server의 same-origin Content Security Policy도 보호하며 Android 요청 가로채기만으로 임의의 악성 HTML을 완전히 격리하는 것은 아닙니다. 특히 암호화하지 않는 HTTP에서는 신뢰하는 Server만 사용하세요.
+
+공유 Web 화면의 PWA 설치 카드는 브라우저용이며 네이티브 Android 클라이언트에는 PWA 추가 설치가 필요하지 않습니다.
+
 ### Google Cast 미디어와 완료 판단 범위
 
 Cast 원본 직접 스트리밍은 검사된 codec·sample rate·channel 메타데이터와 해당되는 경우 bit depth를 보수적으로 판단합니다. 모든 직접 전송 원본은 일치하는 codec이 확인되고 sample rate가 양수이며 mono 또는 stereo여야 합니다. FLAC은 96 kHz 및 1–24-bit까지, MP3·Ogg/Vorbis·Ogg/Opus·M4A/AAC는 48 kHz까지, LPCM WAV는 48 kHz 및 1–16-bit까지 허용합니다. 메타데이터가 없거나 맞지 않는 원본 및 이 제한 밖의 형식은 호환된다고 가정하지 않습니다. 미디어 변환을 켜고 FFmpeg를 설정하면 탐색할 수 없는 44.1 kHz stereo 16-bit WAV 스트림을 대신 사용합니다. 원본 파일은 변경하지 않습니다. 직접 스트리밍은 이 변환을 피할 뿐 수신기의 bit-perfect 출력을 보장하지 않습니다.
@@ -77,6 +92,8 @@ UPnP·Google Cast·AirPlay 기능은 수신기마다 다릅니다. 실제 장비
 | 휴대전화 화면이 나타나지 않음 | 기기가 iPhone이거나 브라우저 사용자 에이전트에 Android와 Mobile이 모두 표시되는 휴대전화인지 확인; iPad·Android 태블릿과 폭이 좁은 데스크톱 창은 의도적으로 기존 표준 화면 유지 |
 | PWA 설치 동작이 나타나지 않음 | **Settings**를 열고 [PWA 설치](INSTALL.ko.md#pwa)를 따름; 사설 LAN HTTP origin에는 신뢰할 수 있는 HTTPS 요구 사항이 표시됨 |
 | Windows에서 서버를 찾지 못함 | mDNS UDP 5353을 허용하거나 완전한 서버 URL 직접 입력 |
+| Android에서 WebView 미지원 표시 | 기기의 Android System WebView/Chrome을 업데이트하고 다시 실행; 독립 프로필은 필수이며 공용 쿠키로 대신 연결하지 않음 |
+| Android 서버 검색·재접속 실패 | Wi-Fi, mDNS UDP 5353, VPN·기기 격리와 앱 네트워크 접근을 확인하고 완전한 URL 직접 입력; 식별자·TLS 오류를 우회하지 않고 보존 |
 | 출력이 보이지 않음 | UPnP는 SSDP UDP 1900 허용; Google Cast는 선택한 인터페이스의 mDNS UDP 5353과 Server에서 수신기가 광고한 Cast TCP 포트로의 접근 허용; Linux AirPlay는 mDNS UDP 5353과 호스트 네트워크도 필요; Wi-Fi 기기 격리 해제 |
 | 출력이 재생하지 못함 | Server→수신기 제어·스트림과 수신기→Server 미디어 HTTP(S) 통신 허용; **재생 기기가 음원을 가져올 Server URL**은 일반적으로 비워 두고 필요할 때만 수신기에서 접근할 수 있는 특정 Server 주소 지정; Cast 원본이 지원되지 않으면 FFmpeg를 설정한 경우에만 변환 사용 |
 | Cast FLAC이 EOF 부근 탐색 뒤 실패함 | 보고된 `BUFFERING`/`ERROR`를 보존; 독립 재현된 수신기 의존 실패이며 완료가 아니므로 대기열 항목을 건너뛰거나 소유 세션의 `FINISHED` 조건을 약화하지 않음 |
