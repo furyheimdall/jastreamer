@@ -101,6 +101,8 @@ private struct ClientShell: View {
                 )
             }
         }
+        // WKWebView owns keyboard avoidance; native selection keeps SwiftUI's handling.
+        .ignoresSafeArea(.keyboard, edges: model.currentServer == nil ? [] : .bottom)
         .background(Color(uiColor: .systemBackground))
         .tint(Color(red: 0.20, green: 0.42, blue: 0.29))
         .alert(text("error.title"), isPresented: Binding(

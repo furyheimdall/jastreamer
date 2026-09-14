@@ -171,6 +171,7 @@ final class RestrictedWebController: NSObject, ObservableObject {
         guard active != value, phase != .disposed else { return }
         active = value
         if !value {
+            webView?.endEditing(true)
             cancelTimeout()
             activeNavigation = nil
             switch phase {

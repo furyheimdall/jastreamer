@@ -12,6 +12,7 @@ final class JastreamerUITests: XCTestCase {
 
     override func setUpWithError() throws {
         continueAfterFailure = false
+        XCUIDevice.shared.orientation = .portrait
     }
 
     func testActualWebUIAndNativeLifecycle() throws {
@@ -47,8 +48,7 @@ final class JastreamerUITests: XCTestCase {
         attachScreenshot(name: "actual-web-account-keyboard")
         webUsername.typeText(username)
         XCUIDevice.shared.orientation = .landscapeLeft
-        defer { XCUIDevice.shared.orientation = .portrait }
-        wait(for: [XCTNSPredicateExpectation(
+        let landscapeVisibility = XCTWaiter.wait(for: [XCTNSPredicateExpectation(
             predicate: NSPredicate { _, _ in
                 app.frame.width > app.frame.height
                     && webUsername.isHittable
@@ -57,6 +57,14 @@ final class JastreamerUITests: XCTestCase {
             },
             object: nil
         )], timeout: 10)
+        if landscapeVisibility != .completed {
+            let hierarchy = XCTAttachment(string: app.debugDescription)
+            hierarchy.name = "landscape-focus-hierarchy"
+            hierarchy.lifetime = .keepAlways
+            add(hierarchy)
+            attachScreenshot(name: "landscape-focus-failure")
+        }
+        XCTAssertEqual(landscapeVisibility, .completed, "Rotation must keep the focused Web field visible above the keyboard")
         XCTAssertEqual(webUsername.value as? String, username, "Rotation must retain unsaved Web form input")
         attachScreenshot(name: "actual-web-account-landscape")
         XCUIDevice.shared.orientation = .portrait
@@ -152,12 +160,17 @@ final class JastreamerUITests: XCTestCase {
         app.buttons["switch-server"].tap()
         connect(app, to: firstBoundaryOrigin)
         XCTAssertTrue(web.staticTexts["stored|stored"].waitForExistence(timeout: 15), "The same canonical Server profile must retain cookie and DOM storage state")
+        let boundaryNote = web.textFields["Boundary note"]
+        boundaryNote.tap()
+        boundaryNote.typeText("Unsent note")
+        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5))
 
         XCUIDevice.shared.press(.home)
         try request(path: "/rotate-id", origin: firstBoundaryOrigin, method: "POST")
         app.activate()
         XCTAssertTrue(app.buttons["retry-web"].waitForExistence(timeout: 10), "Foreground return must reject a replaced Server")
         XCTAssertFalse(web.staticTexts["stored|stored"].exists, "An unverified page must remain inaccessible")
+        XCTAssertFalse(app.keyboards.firstMatch.exists, "An unverified page must not retain keyboard input")
         app.buttons["language-menu"].tap()
         app.buttons["한국어"].tap()
         XCTAssertTrue(app.buttons["retry-web"].exists, "A language change must not dismiss the identity failure")

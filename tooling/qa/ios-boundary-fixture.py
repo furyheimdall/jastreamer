@@ -72,6 +72,7 @@ class Handler(BaseHTTPRequestHandler):
 <p id="state"></p>
 <p id="fetch-result"></p>
 <p id="file-result"></p>
+<input type="text" aria-label="Boundary note" autocomplete="off">
 <input type="file" aria-label="Upload file" onclick="document.getElementById('file-result').textContent='File picker requested'">
 <button id="store" onclick="storeBoundary()">Store boundary</button>
 <button id="fetch" onclick="crossFetch()">Cross-origin fetch</button>
