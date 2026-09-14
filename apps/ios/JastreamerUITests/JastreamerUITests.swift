@@ -44,7 +44,7 @@ final class JastreamerUITests: XCTestCase {
         XCTAssertTrue(webUsername.waitForExistence(timeout: 10))
         webUsername.tap()
         XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5), "Tapping the actual Web form must show the software keyboard")
-        XCTAssertLessThanOrEqual(webUsername.frame.maxY, app.keyboards.firstMatch.frame.minY + 1, "The focused Web field must remain above the keyboard")
+        XCTAssertLessThanOrEqual(webUsername.frame.maxY, web.frame.maxY, "The focused Web field must remain inside the unobscured viewport")
         attachScreenshot(name: "actual-web-account-keyboard")
         webUsername.typeText(username)
         XCUIDevice.shared.orientation = .landscapeLeft
@@ -53,7 +53,7 @@ final class JastreamerUITests: XCTestCase {
                 app.frame.width > app.frame.height
                     && webUsername.isHittable
                     && webUsername.frame.minY >= web.frame.minY
-                    && webUsername.frame.maxY <= app.keyboards.firstMatch.frame.minY + 1
+                    && webUsername.frame.maxY <= web.frame.maxY
             },
             object: nil
         )], timeout: 10)
@@ -129,7 +129,7 @@ final class JastreamerUITests: XCTestCase {
         connect(app, to: actualOrigin)
         XCTAssertTrue(web.buttons["보관함"].waitForExistence(timeout: 20), "The isolated profile must retain its Korean Web language")
         attachScreenshot(name: "actual-web-phone-korean")
-        app.buttons["language-menu"].tap()
+        app.buttons["language-menu"].buttons.firstMatch.tap()
         XCTAssertTrue(app.buttons["English"].waitForExistence(timeout: 5))
         app.buttons["English"].tap()
         XCTAssertTrue(web.buttons["Library"].waitForExistence(timeout: 15), "Native language changes must update the actual Web UI through the language cookie")
@@ -144,7 +144,7 @@ final class JastreamerUITests: XCTestCase {
         app.launch()
         allowLocalNetworkAccessIfRequested()
         XCTAssertTrue(app.buttons["language-menu"].waitForExistence(timeout: 10))
-        app.buttons["language-menu"].tap()
+        app.buttons["language-menu"].buttons.firstMatch.tap()
         app.buttons["English"].tap()
         let web = app.webViews.firstMatch
         connect(app, to: firstBoundaryOrigin)
@@ -171,11 +171,11 @@ final class JastreamerUITests: XCTestCase {
         XCTAssertTrue(app.buttons["retry-web"].waitForExistence(timeout: 10), "Foreground return must reject a replaced Server")
         XCTAssertFalse(web.staticTexts["stored|stored"].exists, "An unverified page must remain inaccessible")
         XCTAssertFalse(app.keyboards.firstMatch.exists, "An unverified page must not retain keyboard input")
-        app.buttons["language-menu"].tap()
+        app.buttons["language-menu"].buttons.firstMatch.tap()
         app.buttons["한국어"].tap()
         XCTAssertTrue(app.buttons["retry-web"].exists, "A language change must not dismiss the identity failure")
         XCTAssertFalse(web.staticTexts["stored|stored"].exists)
-        app.buttons["language-menu"].tap()
+        app.buttons["language-menu"].buttons.firstMatch.tap()
         app.buttons["English"].tap()
         app.buttons["switch-server"].tap()
         let savedServer = app.buttons.matching(

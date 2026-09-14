@@ -109,7 +109,7 @@ final class RestrictedWebController: NSObject, ObservableObject {
             candidate.leadingAnchor.constraint(equalTo: hostView.leadingAnchor),
             candidate.trailingAnchor.constraint(equalTo: hostView.trailingAnchor),
             candidate.topAnchor.constraint(equalTo: hostView.topAnchor),
-            candidate.bottomAnchor.constraint(equalTo: hostView.bottomAnchor)
+            candidate.bottomAnchor.constraint(equalTo: hostView.keyboardLayoutGuide.topAnchor)
         ])
         webView = candidate
         dataStore.httpCookieStore.add(self)

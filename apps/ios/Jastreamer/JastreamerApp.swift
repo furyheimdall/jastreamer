@@ -101,7 +101,7 @@ private struct ClientShell: View {
                 )
             }
         }
-        // WKWebView owns keyboard avoidance; native selection keeps SwiftUI's handling.
+        // UIKit's keyboard layout guide sizes the Web viewport; native selection uses SwiftUI.
         .ignoresSafeArea(.keyboard, edges: model.currentServer == nil ? [] : .bottom)
         .background(Color(uiColor: .systemBackground))
         .tint(Color(red: 0.20, green: 0.42, blue: 0.29))
