@@ -58,7 +58,9 @@ final class RestrictedWebController: NSObject, ObservableObject {
 
     private var webView: WKWebView?
     private var activeNavigation: WKNavigation?
-    private var phase: Phase = .configuring
+    private var phase: Phase = .configuring {
+        didSet { NSLog("iOS Web phase=%@", String(describing: phase)) }
+    }
     private var generation: UInt64 = 0
     private var active = true
     private var setupComplete = false
@@ -121,6 +123,7 @@ final class RestrictedWebController: NSObject, ObservableObject {
         if active {
             scheduleTimeout(token: token)
         }
+        NSLog("iOS Web mounted; active=%@", active ? "yes" : "no")
         compileBoundaryRules(token: token)
     }
 
@@ -173,6 +176,7 @@ final class RestrictedWebController: NSObject, ObservableObject {
     private func setActive(_ value: Bool) {
         guard active != value, phase != .disposed else { return }
         active = value
+        NSLog("iOS Web active=%@", value ? "yes" : "no")
         webView?.isHidden = !value
         webView?.isUserInteractionEnabled = value
         webView?.accessibilityElementsHidden = !value
@@ -294,6 +298,7 @@ final class RestrictedWebController: NSObject, ObservableObject {
         dataStore.httpCookieStore.getAllCookies { [weak self] cookies in
             DispatchQueue.main.async {
                 guard let self, self.isCurrent(token), self.phase == .writingCookie else { return }
+                NSLog("iOS Web cookies read")
                 let existing = cookies.filter { self.isLanguageCookie($0) }
                 self.deleteCookies(existing, token: token, value: value)
             }
@@ -332,6 +337,7 @@ final class RestrictedWebController: NSObject, ObservableObject {
         dataStore.httpCookieStore.setCookie(cookie) { [weak self] in
             DispatchQueue.main.async {
                 guard let self, self.isCurrent(token), self.phase == .writingCookie else { return }
+                NSLog("iOS Web language cookie stored")
                 self.verifyLanguageCookie(token: token, value: value)
             }
         }
@@ -341,6 +347,7 @@ final class RestrictedWebController: NSObject, ObservableObject {
         dataStore.httpCookieStore.getAllCookies { [weak self] cookies in
             DispatchQueue.main.async {
                 guard let self, self.isCurrent(token), self.phase == .writingCookie else { return }
+                NSLog("iOS Web language cookie readback")
                 guard cookies.contains(where: { self.isLanguageCookie($0) && $0.value == value }) else {
                     self.fail(.cookies, token: token)
                     return

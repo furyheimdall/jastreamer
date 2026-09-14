@@ -15,6 +15,22 @@ final class JastreamerUITests: XCTestCase {
         XCUIDevice.shared.orientation = .portrait
     }
 
+    override func tearDownWithError() throws {
+        let app = XCUIApplication()
+        if (testRun?.totalFailureCount ?? 0) > 0 {
+            if app.state == .runningForeground {
+                let hierarchy = XCTAttachment(string: app.debugDescription)
+                hierarchy.name = "native-ui-failure-hierarchy"
+                hierarchy.lifetime = .keepAlways
+                add(hierarchy)
+            }
+            attachScreenshot(name: "native-ui-failure")
+        }
+        if app.state != .notRunning {
+            app.terminate()
+        }
+    }
+
     func testActualWebUIAndNativeLifecycle() throws {
         let app = XCUIApplication()
         app.launchArguments = ["-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
@@ -53,21 +69,15 @@ final class JastreamerUITests: XCTestCase {
         let landscapeVisibility = XCTWaiter.wait(for: [XCTNSPredicateExpectation(
             predicate: NSPredicate { _, _ in
                 app.frame.width > app.frame.height
-                    && webUsername.isHittable
+                    && webUsername.exists
                     && webUsername.frame.minY >= web.frame.minY
                     && inputAccessory.exists
                     && webUsername.frame.maxY <= min(web.frame.maxY, inputAccessory.frame.minY)
             },
             object: nil
         )], timeout: 10)
-        if landscapeVisibility != .completed {
-            let hierarchy = XCTAttachment(string: app.debugDescription)
-            hierarchy.name = "landscape-focus-hierarchy"
-            hierarchy.lifetime = .keepAlways
-            add(hierarchy)
-            attachScreenshot(name: "landscape-focus-failure")
-        }
         XCTAssertEqual(landscapeVisibility, .completed, "Rotation must keep the focused Web field visible above the keyboard")
+        webUsername.tap()
         XCTAssertEqual(webUsername.value as? String, username, "Rotation must retain unsaved Web form input")
         attachScreenshot(name: "actual-web-account-landscape")
         XCUIDevice.shared.orientation = .portrait
