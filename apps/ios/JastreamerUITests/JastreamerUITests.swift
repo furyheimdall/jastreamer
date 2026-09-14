@@ -14,7 +14,7 @@ final class JastreamerUITests: XCTestCase {
         continueAfterFailure = false
     }
 
-    func testActualWebUIAndWebKitSecurityBoundaries() throws {
+    func testActualWebUIAndNativeLifecycle() throws {
         let app = XCUIApplication()
         app.launchArguments = ["-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
         app.launch()
@@ -126,7 +126,19 @@ final class JastreamerUITests: XCTestCase {
         app.buttons["English"].tap()
         XCTAssertTrue(web.buttons["Library"].waitForExistence(timeout: 15), "Native language changes must update the actual Web UI through the language cookie")
 
-        app.buttons["switch-server"].tap()
+        app.terminate()
+        try assertServerStopped()
+    }
+
+    func testWebKitServerIsolationAndNavigationBoundaries() throws {
+        let app = XCUIApplication()
+        app.launchArguments = ["-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
+        app.launch()
+        allowLocalNetworkAccessIfRequested()
+        XCTAssertTrue(app.buttons["language-menu"].waitForExistence(timeout: 10))
+        app.buttons["language-menu"].tap()
+        app.buttons["English"].tap()
+        let web = app.webViews.firstMatch
         connect(app, to: firstBoundaryOrigin)
         XCTAssertTrue(web.staticTexts["Boundary 18081"].waitForExistence(timeout: 15))
         web.buttons["Store boundary"].tap()
