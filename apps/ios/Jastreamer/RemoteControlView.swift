@@ -78,10 +78,6 @@ struct RemoteControlView: View {
                     }
                 )
 
-                .allowsHitTesting(webActive)
-                .opacity(webActive ? 1 : 0)
-                .accessibilityHidden(!webActive)
-
                 if model.isReconnecting {
                     Color(uiColor: .systemBackground)
                         .opacity(0.97)

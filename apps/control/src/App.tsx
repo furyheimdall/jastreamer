@@ -78,10 +78,10 @@ function AuthScreen({ setupRequired, onAuthenticated, onSetupComplete }: AuthScr
         const bounds = field.getBoundingClientRect();
         const top = viewport?.offsetTop ?? 0;
         const bottom = top + (viewport?.height ?? window.innerHeight);
-        const delta = bounds.bottom > bottom
-          ? Math.ceil(bounds.bottom - bottom)
-          : bounds.top < top ? Math.floor(bounds.top - top) : 0;
-        if (delta !== 0) window.scrollBy({ top: delta, behavior: "instant" });
+        if (bounds.top < top || bounds.bottom > bottom) {
+          // Let the browser reconcile layout and visual viewport scrolling, including WebKit's keyboard offset.
+          field.scrollIntoView({ block: "start", inline: "nearest", behavior: "instant" });
+        }
       });
     };
     window.addEventListener("resize", revealFocusedField);

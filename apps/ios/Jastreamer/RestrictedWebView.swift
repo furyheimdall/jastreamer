@@ -102,6 +102,9 @@ final class RestrictedWebController: NSObject, ObservableObject {
         candidate.allowsLinkPreview = false
         candidate.isInspectable = false
         candidate.scrollView.keyboardDismissMode = .interactive
+        candidate.isHidden = !active
+        candidate.isUserInteractionEnabled = active
+        candidate.accessibilityElementsHidden = !active
         candidate.accessibilityIdentifier = "web-control"
         candidate.accessibilityLabel = "JASTREAMER Web Control"
         hostView.addSubview(candidate)
@@ -170,6 +173,9 @@ final class RestrictedWebController: NSObject, ObservableObject {
     private func setActive(_ value: Bool) {
         guard active != value, phase != .disposed else { return }
         active = value
+        webView?.isHidden = !value
+        webView?.isUserInteractionEnabled = value
+        webView?.accessibilityElementsHidden = !value
         if !value {
             webView?.endEditing(true)
             cancelTimeout()

@@ -44,7 +44,9 @@ final class JastreamerUITests: XCTestCase {
         XCTAssertTrue(webUsername.waitForExistence(timeout: 10))
         webUsername.tap()
         XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5), "Tapping the actual Web form must show the software keyboard")
-        XCTAssertLessThanOrEqual(webUsername.frame.maxY, web.frame.maxY, "The focused Web field must remain inside the unobscured viewport")
+        let inputAccessory = app.buttons["Done"]
+        XCTAssertTrue(inputAccessory.exists, "The Web keyboard accessory must be visible")
+        XCTAssertLessThanOrEqual(webUsername.frame.maxY, min(web.frame.maxY, inputAccessory.frame.minY), "The focused Web field must remain above the keyboard and its accessory")
         attachScreenshot(name: "actual-web-account-keyboard")
         webUsername.typeText(username)
         XCUIDevice.shared.orientation = .landscapeLeft
@@ -53,7 +55,8 @@ final class JastreamerUITests: XCTestCase {
                 app.frame.width > app.frame.height
                     && webUsername.isHittable
                     && webUsername.frame.minY >= web.frame.minY
-                    && webUsername.frame.maxY <= web.frame.maxY
+                    && inputAccessory.exists
+                    && webUsername.frame.maxY <= min(web.frame.maxY, inputAccessory.frame.minY)
             },
             object: nil
         )], timeout: 10)
