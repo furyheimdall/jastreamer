@@ -118,7 +118,6 @@ final class RestrictedWebController: NSObject, ObservableObject {
             candidate.bottomAnchor.constraint(equalTo: hostView.bottomAnchor)
         ])
         webView = candidate
-        dataStore.httpCookieStore.add(self)
         generation &+= 1
         let token = generation
         if active {
@@ -182,6 +181,7 @@ final class RestrictedWebController: NSObject, ObservableObject {
         webView?.isUserInteractionEnabled = value
         webView?.accessibilityElementsHidden = !value
         if !value {
+            dataStore.httpCookieStore.remove(self)
             webView?.endEditing(true)
             cancelTimeout()
             activeNavigation = nil
@@ -212,6 +212,8 @@ final class RestrictedWebController: NSObject, ObservableObject {
             case .loaded:
                 if desiredLanguage != language || pendingLanguage != nil {
                     requestLanguageCookieAndLoad(desiredLanguage)
+                } else {
+                    startObservingLanguageCookie()
                 }
             case .writingCookie, .loading, .failed, .disposed:
                 break
@@ -393,7 +395,7 @@ final class RestrictedWebController: NSObject, ObservableObject {
         failure = nil
         isLoading = false
         canGoBack = webView?.canGoBack == true
-        observeLanguageCookie()
+        startObservingLanguageCookie()
     }
 
     private func scheduleTimeout(token: UInt64) {
@@ -443,6 +445,14 @@ final class RestrictedWebController: NSObject, ObservableObject {
             .caseInsensitiveCompare(host) == .orderedSame
     }
 
+    private func startObservingLanguageCookie() {
+        guard active, phase == .loaded else { return }
+        // Bind observation to the loaded network session, including foreground re-entry.
+        dataStore.httpCookieStore.remove(self)
+        dataStore.httpCookieStore.add(self)
+        observeLanguageCookie()
+    }
+
     private func observeLanguageCookie() {
         guard active, phase != .disposed else { return }
         let token = generation
@@ -453,6 +463,7 @@ final class RestrictedWebController: NSObject, ObservableObject {
                       value == "en" || value == "ko",
                       value != self.language
                 else { return }
+                NSLog("iOS Web observed language=%@", value)
                 self.language = value
                 self.desiredLanguage = value
                 self.onLanguageChanged?(value)
@@ -486,6 +497,8 @@ final class RestrictedWebController: NSObject, ObservableObject {
 
 extension RestrictedWebController: WKHTTPCookieStoreObserver {
     func cookiesDidChange(in cookieStore: WKHTTPCookieStore) {
+        NSLog("iOS Web cookie event; phase=%@ matching=%@", String(describing: phase),
+              cookieStore === dataStore.httpCookieStore ? "yes" : "no")
         guard cookieStore === dataStore.httpCookieStore, phase == .loaded else { return }
         observeLanguageCookie()
     }
