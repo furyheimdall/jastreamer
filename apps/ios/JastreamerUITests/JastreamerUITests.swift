@@ -85,10 +85,11 @@ final class JastreamerUITests: XCTestCase {
             predicate: NSPredicate { _, _ in app.frame.height > app.frame.width },
             object: nil
         )], timeout: 10)
-        web.secureTextFields["Password"].tap()
+        focusNextWebField(web.secureTextFields["Password"], app: app, web: web)
         web.secureTextFields["Password"].typeText(password)
-        web.secureTextFields["Confirm password"].tap()
+        focusNextWebField(web.secureTextFields["Confirm password"], app: app, web: web)
         web.secureTextFields["Confirm password"].typeText(password)
+        app.buttons["Done"].tap()
         web.buttons["Create account"].tap()
 
         let tabNames = ["Library", "Playlists", "Queue", "Settings"]
@@ -214,6 +215,26 @@ final class JastreamerUITests: XCTestCase {
         XCTAssertTrue(app.buttons["retry-web"].waitForExistence(timeout: 10), "Blocked navigation must report its native error")
         XCTAssertEqual(try hostileCount(), 0, "Cross-origin main-frame navigation must not reach the hostile origin")
         attachScreenshot(name: "webkit-boundary-isolation")
+    }
+
+    private func focusNextWebField(_ field: XCUIElement, app: XCUIApplication, web: XCUIElement) {
+        let done = app.buttons["Done"]
+        // A field covered by the keyboard cannot be tapped; use WebKit's real form navigation.
+        let accessoryReady = XCTWaiter.wait(for: [XCTNSPredicateExpectation(
+            predicate: NSPredicate { _, _ in done.exists && done.frame.minY > web.frame.minY },
+            object: nil
+        )], timeout: 10)
+        XCTAssertEqual(accessoryReady, .completed)
+        app.buttons["Next"].tap()
+        let visible = XCTWaiter.wait(for: [XCTNSPredicateExpectation(
+            predicate: NSPredicate { _, _ in
+                field.exists && done.exists
+                    && field.frame.minY >= web.frame.minY
+                    && field.frame.maxY <= min(web.frame.maxY, done.frame.minY)
+            },
+            object: nil
+        )], timeout: 10)
+        XCTAssertEqual(visible, .completed, "Keyboard form navigation must expose the next field above the accessory")
     }
 
     private func selectKoreanInWebSettings(_ app: XCUIApplication, web: XCUIElement) {
