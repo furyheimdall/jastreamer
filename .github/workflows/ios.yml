@@ -66,6 +66,8 @@ jobs:
 
       - name: Build the actual Server with embedded Web UI
         shell: bash
+        env:
+          VITE_VIEWPORT_DIAGNOSTICS: "1"
         run: |
           set -o pipefail
           make build 2>&1 | tee dist/ios-evidence/server-web-build.log
