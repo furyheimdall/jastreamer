@@ -187,10 +187,15 @@ final class JastreamerUITests: XCTestCase {
     private func replaceText(in field: XCUIElement, with value: String) {
         field.tap()
         let existing = field.value as? String ?? ""
-        if !existing.isEmpty {
-            field.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: existing.count))
+        if !existing.isEmpty, existing != field.placeholderValue {
+            field.press(forDuration: 1)
+            let selectAll = XCUIApplication().descendants(matching: .any)
+                .matching(identifier: "Select All").firstMatch
+            XCTAssertTrue(selectAll.waitForExistence(timeout: 5), "Select the complete previous address before replacing it")
+            selectAll.tap()
         }
         field.typeText(value)
+        XCTAssertEqual(field.value as? String, value, "The entered address must exactly match the intended Server")
     }
 
     private func allowLocalNetworkAccessIfRequested() {
