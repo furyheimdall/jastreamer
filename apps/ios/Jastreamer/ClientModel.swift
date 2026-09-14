@@ -38,6 +38,7 @@ final class ClientModel: ObservableObject {
     private let probe: ServerProbe
     private var connectionTask: Task<Void, Never>?
     private var generation: UInt64 = 0
+    private var languageRevision: UInt64 = 0
     private var foreground = false
     private var retryTarget: (origin: String, id: String?)?
     private var webDataStores: [WKWebsiteDataStore] = []
@@ -82,6 +83,7 @@ final class ClientModel: ObservableObject {
     func deactivate() {
         foreground = false
         generation &+= 1
+        captureWebLanguage()
         connectionTask?.cancel()
         connectionTask = nil
         isConnecting = false
@@ -156,6 +158,7 @@ final class ClientModel: ObservableObject {
 
     func switchServer() {
         generation &+= 1
+        captureWebLanguage()
         connectionTask?.cancel()
         connectionTask = nil
         currentServer = nil
@@ -221,6 +224,7 @@ final class ClientModel: ObservableObject {
     }
 
     func changeLanguage(_ value: String) {
+        languageRevision &+= 1
         do {
             try recentServers.setLanguage(value)
             selectionError = nil
@@ -232,6 +236,25 @@ final class ClientModel: ObservableObject {
                 selectionError = userFacing(error)
             } else {
                 remoteError = userFacing(error)
+            }
+        }
+    }
+
+    private func captureWebLanguage() {
+        guard isRemoteVerified, let server = currentServer,
+              let rootURL = URL(string: server.origin + "/")
+        else { return }
+        let profileID = server.profileID
+        guard let store = webDataStores.first(where: { $0.identifier == profileID }) else { return }
+        let attempt = generation
+        let revision = languageRevision
+        // Do not depend on cookie notifications arriving before native navigation.
+        store.httpCookieStore.getAllCookies { [weak self] cookies in
+            DispatchQueue.main.async {
+                guard let self, self.generation == attempt, self.languageRevision == revision else { return }
+                guard let value = cookies.last(where: { isWebLanguageCookie($0, at: rootURL) })?.value else { return }
+                NSLog("iOS Web captured language=%@", value == "en" || value == "ko" ? value : "invalid")
+                self.acceptWebLanguage(value)
             }
         }
     }

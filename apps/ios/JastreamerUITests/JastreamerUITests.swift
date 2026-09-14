@@ -119,25 +119,10 @@ final class JastreamerUITests: XCTestCase {
         XCTAssertTrue(web.buttons["Library"].waitForExistence(timeout: 20), "Backgrounding must retain the selected Server session")
         try assertServerStopped()
 
-        web.buttons["Settings"].tap()
-        // WebKit exposes this HTML select as Other, distinct from its heading and label by value.
-        let webLanguage = web.otherElements.matching(
-            NSPredicate(format: "label == %@ AND value == %@", "Language / 언어", "English")
-        ).firstMatch
-        XCTAssertTrue(webLanguage.waitForExistence(timeout: 10), "The actual Web language setting must be reachable")
-        webLanguage.tap()
-        let picker = app.pickerWheels.firstMatch
-        if picker.waitForExistence(timeout: 3) {
-            picker.adjust(toPickerWheelValue: "한국어")
-            app.buttons["Done"].tap()
-        } else {
-            let koreanOption = app.buttons["한국어"]
-            XCTAssertTrue(koreanOption.waitForExistence(timeout: 3))
-            koreanOption.tap()
-        }
+        selectKoreanInWebSettings(app, web: web)
         XCTAssertTrue(web.buttons["보관함"].waitForExistence(timeout: 15), "The Web language setting must take effect")
         app.buttons["switch-server"].tap()
-        XCTAssertTrue(app.staticTexts["서버 선택"].waitForExistence(timeout: 10), "Web cookie observation must persist the language back to native state")
+        XCTAssertTrue(app.staticTexts["서버 선택"].waitForExistence(timeout: 10), "Leaving the Web UI must persist its language back to native state")
         XCTAssertTrue(app.buttons["language-menu"].exists)
         connect(app, to: actualOrigin)
         XCTAssertTrue(web.buttons["보관함"].waitForExistence(timeout: 20), "The isolated profile must retain its Korean Web language")
@@ -145,6 +130,17 @@ final class JastreamerUITests: XCTestCase {
         openLanguageMenu(app)
         app.buttons["English"].tap()
         XCTAssertTrue(web.buttons["Library"].waitForExistence(timeout: 15), "Native language changes must update the actual Web UI through the language cookie")
+        selectKoreanInWebSettings(app, web: web)
+        XCTAssertTrue(web.buttons["보관함"].waitForExistence(timeout: 15))
+        app.buttons["reload-web"].tap()
+        let reloaded = XCTWaiter.wait(for: [XCTNSPredicateExpectation(
+            predicate: NSPredicate { _, _ in
+                !app.progressIndicators.firstMatch.exists && web.buttons["보관함"].isHittable
+            },
+            object: nil
+        )], timeout: 15)
+        XCTAssertEqual(reloaded, .completed, "Reload must retain the Web language rather than overwrite it with stale native state")
+        web.buttons["보관함"].tap()
 
         app.terminate()
         try assertServerStopped()
@@ -218,6 +214,25 @@ final class JastreamerUITests: XCTestCase {
         XCTAssertTrue(app.buttons["retry-web"].waitForExistence(timeout: 10), "Blocked navigation must report its native error")
         XCTAssertEqual(try hostileCount(), 0, "Cross-origin main-frame navigation must not reach the hostile origin")
         attachScreenshot(name: "webkit-boundary-isolation")
+    }
+
+    private func selectKoreanInWebSettings(_ app: XCUIApplication, web: XCUIElement) {
+        web.buttons["Settings"].tap()
+        // WebKit exposes this HTML select as Other, distinct from its heading and label by value.
+        let webLanguage = web.otherElements.matching(
+            NSPredicate(format: "label == %@ AND value == %@", "Language / 언어", "English")
+        ).firstMatch
+        XCTAssertTrue(webLanguage.waitForExistence(timeout: 10), "The actual Web language setting must be reachable")
+        webLanguage.tap()
+        let picker = app.pickerWheels.firstMatch
+        if picker.waitForExistence(timeout: 3) {
+            picker.adjust(toPickerWheelValue: "한국어")
+            app.buttons["Done"].tap()
+        } else {
+            let koreanOption = app.buttons["한국어"]
+            XCTAssertTrue(koreanOption.waitForExistence(timeout: 3))
+            koreanOption.tap()
+        }
     }
 
     private func openLanguageMenu(_ app: XCUIApplication) {

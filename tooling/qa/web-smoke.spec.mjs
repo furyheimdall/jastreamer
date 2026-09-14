@@ -115,6 +115,13 @@ test("focused account fields remain visible across short viewport resizing", asy
   await expect.poll(fieldIsVisible).toBe(true);
   await expect(username).toHaveValue("viewport-smoke");
   await expect(password).toHaveValue("viewport-fixture-password");
+  // Accessibility scrolling does not necessarily emit pointer or wheel events.
+  const heading = page.getByRole("heading", { name: /^(Create an administrator account|Sign in)$/ });
+  await heading.scrollIntoViewIfNeeded();
+  await page.evaluate(() => new Promise((resolveFrame) => requestAnimationFrame(() => requestAnimationFrame(resolveFrame))));
+  await expect(heading).toBeInViewport({ ratio: 1 });
+  await expect(password).toBeFocused();
+  await password.scrollIntoViewIfNeeded();
   await page.mouse.wheel(0, -10000);
   await expect(page.getByRole("heading", { name: /^(Create an administrator account|Sign in)$/ })).toBeInViewport();
   await expect(password).not.toBeInViewport();

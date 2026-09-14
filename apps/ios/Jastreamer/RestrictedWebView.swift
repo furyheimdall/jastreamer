@@ -150,7 +150,12 @@ final class RestrictedWebController: NSObject, ObservableObject {
     func reload() {
         guard active, setupComplete, phase != .disposed, phase != .failed else { return }
         failure = nil
-        requestLanguageCookieAndLoad(desiredLanguage)
+        if phase == .loaded, let webView {
+            beginLoad()
+            activeNavigation = webView.reload()
+        } else {
+            requestLanguageCookieAndLoad(desiredLanguage)
+        }
     }
 
     func dispose() {
@@ -302,7 +307,7 @@ final class RestrictedWebController: NSObject, ObservableObject {
             DispatchQueue.main.async {
                 guard let self, self.isCurrent(token), self.phase == .writingCookie else { return }
                 NSLog("iOS Web cookies read")
-                let existing = cookies.filter { self.isLanguageCookie($0) }
+                let existing = cookies.filter { isWebLanguageCookie($0, at: self.rootURL) }
                 self.deleteCookies(existing, token: token, value: value)
             }
         }
@@ -351,7 +356,7 @@ final class RestrictedWebController: NSObject, ObservableObject {
             DispatchQueue.main.async {
                 guard let self, self.isCurrent(token), self.phase == .writingCookie else { return }
                 NSLog("iOS Web language cookie readback")
-                guard cookies.contains(where: { self.isLanguageCookie($0) && $0.value == value }) else {
+                guard cookies.contains(where: { isWebLanguageCookie($0, at: self.rootURL) && $0.value == value }) else {
                     self.fail(.cookies, token: token)
                     return
                 }
@@ -437,14 +442,6 @@ final class RestrictedWebController: NSObject, ObservableObject {
         active && phase != .disposed && generation == token
     }
 
-    private func isLanguageCookie(_ cookie: HTTPCookie) -> Bool {
-        guard cookie.name == "jastreamer_language", cookie.path == "/", let host = rootURL.host else {
-            return false
-        }
-        return cookie.domain.trimmingCharacters(in: CharacterSet(charactersIn: "."))
-            .caseInsensitiveCompare(host) == .orderedSame
-    }
-
     private func startObservingLanguageCookie() {
         guard active, phase == .loaded else { return }
         // Bind observation to the loaded network session, including foreground re-entry.
@@ -459,7 +456,7 @@ final class RestrictedWebController: NSObject, ObservableObject {
         dataStore.httpCookieStore.getAllCookies { [weak self] cookies in
             DispatchQueue.main.async {
                 guard let self, self.isCurrent(token) else { return }
-                guard let value = cookies.last(where: self.isLanguageCookie)?.value,
+                guard let value = cookies.last(where: { isWebLanguageCookie($0, at: self.rootURL) })?.value,
                       value == "en" || value == "ko",
                       value != self.language
                 else { return }
@@ -696,4 +693,12 @@ struct RestrictedWebSurface: UIViewRepresentable {
     static func dismantleUIView(_ uiView: UIView, coordinator: Coordinator) {
         coordinator.controller.dispose()
     }
+}
+
+func isWebLanguageCookie(_ cookie: HTTPCookie, at rootURL: URL) -> Bool {
+    guard cookie.name == "jastreamer_language", cookie.path == "/", let host = rootURL.host else {
+        return false
+    }
+    return cookie.domain.trimmingCharacters(in: CharacterSet(charactersIn: "."))
+        .caseInsensitiveCompare(host) == .orderedSame
 }

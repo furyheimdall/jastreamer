@@ -70,12 +70,10 @@ function AuthScreen({ setupRequired, onAuthenticated, onSetupComplete }: AuthScr
   useEffect(() => {
     const viewport = window.visualViewport;
     let frame = 0;
-    let followingResize = false;
     const revealFocusedField = () => {
-      if (!followingResize || frame !== 0) return;
+      if (frame !== 0) return;
       frame = window.requestAnimationFrame(() => {
         frame = 0;
-        if (!followingResize) return;
         const field = document.activeElement;
         if (!(field instanceof HTMLInputElement) || !form.current?.contains(field)) return;
         const bounds = field.getBoundingClientRect();
@@ -94,16 +92,13 @@ function AuthScreen({ setupRequired, onAuthenticated, onSetupComplete }: AuthScr
         }
       });
     };
-    const resize = () => {
-      followingResize = true;
-      revealFocusedField();
+    const stopRevealing = () => {
+      if (frame !== 0) window.cancelAnimationFrame(frame);
+      frame = 0;
     };
-    const stopRevealing = () => { followingResize = false; };
-    // WebKit can pan after its resize event. Follow that adjustment, never a user's scroll.
-    window.addEventListener("resize", resize);
-    viewport?.addEventListener("resize", resize);
-    window.addEventListener("scroll", revealFocusedField, { passive: true });
-    viewport?.addEventListener("scroll", revealFocusedField, { passive: true });
+    // Accessibility navigation can scroll before focus changes; never undo that scroll.
+    window.addEventListener("resize", revealFocusedField);
+    viewport?.addEventListener("resize", revealFocusedField);
     window.addEventListener("pointerdown", stopRevealing, { passive: true });
     window.addEventListener("wheel", stopRevealing, { passive: true });
     window.addEventListener("keydown", stopRevealing);
@@ -112,7 +107,7 @@ function AuthScreen({ setupRequired, onAuthenticated, onSetupComplete }: AuthScr
       const field = document.activeElement;
       const bounds = field?.getBoundingClientRect();
       const snapshot = {
-        followingResize, frame, scrollY: window.scrollY, innerHeight: window.innerHeight,
+        frame, scrollY: window.scrollY, innerHeight: window.innerHeight,
         viewportTop: viewport?.offsetTop, viewportPageTop: viewport?.pageTop,
         viewportHeight: viewport?.height, viewportWidth: viewport?.width, scale: viewport?.scale,
         field: field instanceof HTMLInputElement ? { type: field.type, top: bounds?.top, bottom: bounds?.bottom } : null,
@@ -121,10 +116,8 @@ function AuthScreen({ setupRequired, onAuthenticated, onSetupComplete }: AuthScr
       if (document.title !== title) document.title = title;
     }, 250) : 0;
     return () => {
-      window.removeEventListener("resize", resize);
-      viewport?.removeEventListener("resize", resize);
-      window.removeEventListener("scroll", revealFocusedField);
-      viewport?.removeEventListener("scroll", revealFocusedField);
+      window.removeEventListener("resize", revealFocusedField);
+      viewport?.removeEventListener("resize", revealFocusedField);
       window.removeEventListener("pointerdown", stopRevealing);
       window.removeEventListener("wheel", stopRevealing);
       window.removeEventListener("keydown", stopRevealing);
