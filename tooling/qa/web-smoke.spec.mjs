@@ -93,6 +93,41 @@ test("first-account form, session restoration, logout, and login work in the rea
   await expect(page.getByLabel("Output device", { exact: true })).toBeVisible();
 });
 
+test("focused account fields remain visible across short viewport resizing", async ({ page }) => {
+  await page.setViewportSize({ width: 393, height: 700 });
+  await page.goto(origin, { waitUntil: "domcontentloaded" });
+  const username = page.getByLabel("Username", { exact: true });
+  const password = page.getByLabel("Password", { exact: true });
+  await username.fill("viewport-smoke");
+  await password.fill("viewport-fixture-password");
+  const fieldIsVisible = () => password.evaluate((field) => {
+    const bounds = field.getBoundingClientRect();
+    const viewport = window.visualViewport;
+    const top = viewport?.offsetTop ?? 0;
+    return bounds.top >= top && bounds.bottom <= top + (viewport?.height ?? window.innerHeight);
+  });
+
+  // A landscape phone can leave only 70 CSS pixels above the software keyboard.
+  await page.setViewportSize({ width: 734, height: 70 });
+  await expect.poll(fieldIsVisible).toBe(true);
+  await expect(password).toBeFocused();
+  await page.setViewportSize({ width: 393, height: 303 });
+  await expect.poll(fieldIsVisible).toBe(true);
+  await expect(username).toHaveValue("viewport-smoke");
+  await expect(password).toHaveValue("viewport-fixture-password");
+  // Accessibility scrolling does not necessarily emit pointer or wheel events.
+  const heading = page.getByRole("heading", { name: /^(Create an administrator account|Sign in)$/ });
+  await heading.scrollIntoViewIfNeeded();
+  await page.evaluate(() => new Promise((resolveFrame) => requestAnimationFrame(() => requestAnimationFrame(resolveFrame))));
+  await expect(heading).toBeInViewport({ ratio: 1 });
+  await expect(password).toBeFocused();
+  await password.scrollIntoViewIfNeeded();
+  await page.mouse.wheel(0, -10000);
+  await expect(page.getByRole("heading", { name: /^(Create an administrator account|Sign in)$/ })).toBeInViewport();
+  await expect(password).not.toBeInViewport();
+  await expect(password).toBeFocused();
+});
+
 test("a later configuration change restores restart controls without remounting Settings", async ({ page, context }) => {
   await page.goto(origin, { waitUntil: "domcontentloaded" });
   await expect(page.getByLabel("Username", { exact: true })).toBeVisible();

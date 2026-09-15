@@ -64,6 +64,52 @@ function AuthScreen({ setupRequired, onAuthenticated, onSetupComplete }: AuthScr
   const [confirmPassword, setConfirmPassword] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const form = useRef<HTMLFormElement>(null);
+
+  useEffect(() => {
+    const viewport = window.visualViewport;
+    let frame = 0;
+    const revealFocusedField = () => {
+      if (frame !== 0) return;
+      frame = window.requestAnimationFrame(() => {
+        frame = 0;
+        const field = document.activeElement;
+        if (!(field instanceof HTMLInputElement) || !form.current?.contains(field)) return;
+        const bounds = field.getBoundingClientRect();
+        // iOS WebKit's offsetTop and client rectangles can use different coordinate spaces.
+        const top = viewport ? viewport.pageTop - window.scrollY : 0;
+        const bottom = top + (viewport?.height ?? window.innerHeight);
+        if (bounds.top < top || bounds.bottom > bottom) {
+          const margin = Math.min(
+            Number.parseFloat(window.getComputedStyle(field).scrollMarginTop) || 0,
+            Math.max(0, (bottom - top - bounds.height) / 2),
+          );
+          const delta = bounds.top < top
+            ? Math.floor(bounds.top - top - margin)
+            : Math.ceil(bounds.bottom - bottom + margin);
+          window.scrollTo({ top: window.scrollY + delta, behavior: "auto" });
+        }
+      });
+    };
+    const stopRevealing = () => {
+      if (frame !== 0) window.cancelAnimationFrame(frame);
+      frame = 0;
+    };
+    // Accessibility navigation can scroll before focus changes; never undo that scroll.
+    window.addEventListener("resize", revealFocusedField);
+    viewport?.addEventListener("resize", revealFocusedField);
+    window.addEventListener("pointerdown", stopRevealing, { passive: true });
+    window.addEventListener("wheel", stopRevealing, { passive: true });
+    window.addEventListener("keydown", stopRevealing);
+    return () => {
+      window.removeEventListener("resize", revealFocusedField);
+      viewport?.removeEventListener("resize", revealFocusedField);
+      window.removeEventListener("pointerdown", stopRevealing);
+      window.removeEventListener("wheel", stopRevealing);
+      window.removeEventListener("keydown", stopRevealing);
+      if (frame !== 0) window.cancelAnimationFrame(frame);
+    };
+  }, []);
 
   async function submit(event: FormEvent) {
     event.preventDefault();
@@ -107,7 +153,7 @@ function AuthScreen({ setupRequired, onAuthenticated, onSetupComplete }: AuthScr
             {t(setupRequired ? "app.auth.setupDescription" : "app.auth.loginDescription")}
           </p>
         </div>
-        <form className="auth-form" onSubmit={(event) => void submit(event)}>
+        <form ref={form} className="auth-form" onSubmit={(event) => void submit(event)}>
           <label>
             <span>{t("app.auth.username")}</span>
             <input

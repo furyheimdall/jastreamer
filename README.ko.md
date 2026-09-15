@@ -32,6 +32,7 @@ jastreamer 0.2.0은 신뢰하는 사설 LAN에서 사용하는 자체 호스팅 
 - 기본 사설 LAN HTTP와 운영자가 제공한 PEM 인증서·키를 사용하는 선택적 내장 HTTPS
 - iPhone·Android 휴대전화용 네 탭 화면, 간결하게 접히는 재생 제어와 선택 사항인 설치형 Web 앱(PWA)
 - 확인된 Server 검색, 최근 서버·주소 입력과 서버별 WebView 세션 격리를 제공하는 네이티브 Android 클라이언트
+- 같은 Server Web 화면을 사용하는 네이티브 SwiftUI/WKWebView iOS 소스와 시뮬레이터 CI
 
 휴대전화 화면은 iPhone과 Android 휴대전화 브라우저에서만 자동으로 사용되며 iPad와 다른 태블릿은 기존 화면을 유지합니다. PWA는 Server의 네트워크 클라이언트일 뿐 보관함 cache나 오프라인 재생을 제공하지 않습니다.
 
@@ -41,6 +42,7 @@ jastreamer 0.2.0은 신뢰하는 사설 LAN에서 사용하는 자체 호스팅 
 - **네이티브 Windows Server:** 내장 Web 화면, UPnP/DLNA와 선택적 Google Cast를 제공하는 미서명 x64 무설치 ZIP입니다. AirPlay 송신 프로그램, Renderer 또는 FFmpeg 변환기를 포함하지 않으며 Windows 서비스가 아닙니다.
 - **선택 사항인 데스크톱 앱:** Windows 10/11 x64 무설치 ZIP 또는 Linux amd64 DEB로 제공됩니다. Server를 찾거나 HTTP(S) 주소를 입력받아 Server의 Web 화면을 표시하며, Server나 Renderer 또는 로컬 오디오 플레이어가 아닙니다. ARM64 데스크톱 패키지는 없으며 Linux arm64 클라이언트는 브라우저를 사용할 수 있습니다.
 - **Android 클라이언트:** Android 10 이상과 독립 프로필을 지원하는 최신 WebView가 필요한 Kotlin/WebView 앱입니다. Server의 휴대전화·태블릿 화면을 그대로 사용합니다. [Android CI](https://github.com/furyheimdall/jastreamer/actions/workflows/android.yml)는 개발·테스트 APK와 미서명 release 빌드를 제공하며 production 서명이나 Play Store 배포는 아닙니다. [Android 설치](INSTALL.ko.md#android)를 참고하세요.
+- **iOS 소스와 CI:** iOS/iPadOS 18.4 이상용 SwiftUI/WKWebView 앱입니다. [iOS CI](https://github.com/furyheimdall/jastreamer/actions/workflows/ios.yml)는 iPhone 시뮬레이터에서 실제 Web 화면을 검증하고 미서명 기기용 개발 번들과 시뮬레이터 전용 번들을 만듭니다. 설치 가능한 iPhone 패키지, TestFlight나 App Store 릴리즈는 제공하지 않습니다. [iOS 개발 범위](INSTALL.ko.md#ios)를 참고하세요.
 
 Google Cast 자체에는 어느 Server 플랫폼에서도 Chrome이나 Python helper가 필요하지 않습니다. 전체 [GitHub Releases 목록](https://github.com/furyheimdall/jastreamer/releases)에서 올바르게 표시된 프리뷰까지 포함해 가장 최근의 호환되는 게시 Server 릴리즈를 선택하고 provenance와 패키지 checksum 또는 정확한 이미지 다이제스트를 검증하세요. 가변 `latest`를 사용하거나 `/releases/latest`가 프리뷰를 포함한다고 가정하지 마세요.
 
@@ -71,6 +73,8 @@ Cast도 다른 출력과 같은 Server 대기열 하나를 사용합니다. Cast
 
 Linux Server는 config·data 마운트를 보존하면서 컨테이너 이미지를 교체해 업데이트합니다. 네이티브 Windows Server는 새 ZIP을 검증해 별도 폴더에 푼 다음 기존 `server.json`, `data`, `music`을 보존하면서 기존 폴더의 패키지 소유 파일만 교체합니다. 어느 쪽도 앱을 다시 설치하거나 데이터를 초기화하지 않습니다. Server가 제공하는 Web 화면과 내장된 선택적 Google Cast 기능은 두 대상에서 함께 갱신되지만 FFmpeg와 AirPlay는 지원되는 Linux 컨테이너에만 포함됩니다. 선택 사항인 데스크톱 앱 실행 파일은 별도의 ZIP 또는 DEB로 업데이트합니다.
 Android wrapper는 같은 인증서로 서명한 호환 APK로 별도 업데이트하며 Server의 Web 화면 변경만으로 wrapper를 교체할 필요는 없습니다. 현재 CI APK는 개발 산출물이며 확립된 production 업데이트 경로가 아닙니다.
+
+iOS wrapper는 현재 소스와 CI만 제공합니다. 기기용 서명·설치·배포와 production 업데이트 경로는 Server Web 화면 갱신과 별도입니다.
 
 현재 앱 내 새 버전 확인이나 자동 업데이트 기능은 없습니다. 정확한 대상 패키지와 체크섬을 다운로드·검증한 뒤 재생과 Server를 멈추고, 기존 설정·데이터·음악 경로·마운트를 보존하며 패키지 소유 파일이나 이미지만 교체하세요. 검증 후 기존 서버 주소로 접속해 Web 화면을 새로고침하면 됩니다. 재생은 자동으로 재개되지 않습니다.
 
