@@ -44,6 +44,10 @@ func (service *Service) serveHTTP(writer http.ResponseWriter, request *http.Requ
 		writeStreamError(writer, http.StatusForbidden, "MEDIA_FORBIDDEN")
 		return
 	}
+	if value.browser && (service.browserAuthorized == nil || !service.browserAuthorized(request)) {
+		writeStreamError(writer, http.StatusForbidden, "MEDIA_FORBIDDEN")
+		return
+	}
 	if artwork && value.artwork == nil {
 		writeStreamError(writer, http.StatusNotFound, "MEDIA_NOT_FOUND")
 		return

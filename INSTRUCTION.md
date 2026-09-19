@@ -2,7 +2,7 @@
 
 [Installation and upgrades](INSTALL.md) · [한국어 사용자 안내서](INSTRUCTION.ko.md) · [Project overview](README.md)
 
-jastreamer runs a Server on Linux or native Windows. Both host the embedded Web interface, send music to UPnP/DLNA outputs, and can optionally enable Google Cast. AirPlay sending is available only in the Linux container package. Optional Windows and Linux desktop clients and the phone PWA connect to a Server; they are not Servers or local audio renderers.
+jastreamer runs a Server on Linux or native Windows. Both host the embedded Web interface, send music to UPnP/DLNA outputs, and can optionally enable Google Cast. AirPlay sending is available only in the Linux container package. Optional desktop, native mobile and PWA clients connect to a Server. **This device** adds browser audio to the same Server queue without a standalone native audio engine.
 
 ## Installation and updates
 
@@ -21,6 +21,31 @@ Use the [installation guide](INSTALL.md) for requirements, release verification,
 
 The queue is Server-wide, preserves order and duplicates, and survives restarts. A Server restart does not automatically resume playback. Cast uses that same single queue, loads media with Cast autoplay disabled, and sends Play explicitly. Receiver groups and gapless playback are not supported.
 
+<a id="likes"></a>
+### Likes and shuffled saved playlists
+
+- Use a track's heart button in Library, Playlists, Queue, or Track information to add or remove its like. All four views show a filled heart when liked and an outlined heart when unliked, and update together, including duplicate queue entries and an open information dialog. Changing a like does not change queue order or playback. Likes are shared Server state, not private per-account lists, and survive rescans and Server restarts.
+- Select **Liked** in Library to browse liked tracks. Search and paging still apply to that view.
+- In **Playlists**, enter a name under **Liked shuffle** and select **Shuffle**. This saves all currently available liked tracks in random order, not just the current page or search results. Unavailable tracks are excluded; an empty selection or more than the normal 10,000-track playlist limit produces an error rather than a partial playlist.
+- The result is an ordinary saved snapshot: later like changes do not rewrite it. Creating it does not change Queue or start playback; use its normal playback or queue actions explicitly.
+
+<a id="browser-output"></a>
+### This device: browser audio output
+
+1. Stop playback, then choose the output marked **(This device)** under **Output device**, for example **Windows · Chrome (This device) [Web browser]**. On a phone, expand the compact player to reach the selector.
+2. Choose a track or use the existing queue and press **Play**. If the browser blocks audio, select **Allow playback** on that page. If the pending request has already failed, dismiss the error and press Play again; commands are not silently replayed.
+3. Use Pause, Stop, Previous, Next and supported Seek normally. The browser is an output of the existing Server queue, not a separate local queue.
+
+The default name describes the OS/browser information available to the page, not the computer's hostname or a phone's user-assigned name. Use the pencil button **Name this browser output** beside the output selector to save an alias such as **Office PC**. **Use default name**, or saving an empty alias, restores the automatic name. Names are limited to 80 UTF-8 bytes; Korean characters can use several bytes each.
+
+The alias is saved in this browser profile for this Server UUID and exact origin (including port). It does not follow you to another browser/profile, private browsing session or replacement Server. Storage failures are reported rather than claimed as saved. Clearing browser storage removes the alias.
+
+Only the page that registered and owns the output adds **(This device)**, for example **Office PC (This device)**. Other pages/devices see **Office PC** without that marker, even under the same account. A not-yet-registered page also offers its own local output with the marker; this is not a label on somebody else's renderer. Naming an unregistered browser does not register/select it. Renaming a registered output updates its name for other clients without changing its ID, queue, playback or output selection. The alias is a display name, not verified hardware identity.
+
+Control uses same-origin authenticated HTTP JSON; audio uses HTTP(S) GET/Range through the browser's audio element. This is not UPnP, HLS, DASH or WebRTC. The browser and operating system choose the physical speaker/headphones; there is no hardware-output picker, native WASAPI/ASIO engine, exclusive mode or bit-perfect guarantee. Supported formats depend on the browser decoder. Conversion requires enabled transcoding and configured FFmpeg; converted WAV streams cannot seek.
+
+Keep the owning page open. Closing or reloading it releases the local output; loss of its live registration makes the output unavailable without discarding the queue. Stop if needed, reselect **This device**, then explicitly Play to resume. Closing another Control does not stop the owning browser, and network outputs remain independent of Control lifetime. Mobile background/lock-screen playback depends on the browser/WebView and OS and is not guaranteed; there is no offline playback or native background-audio service.
+
 <a id="phone-controls"></a>
 ### Phone controls
 
@@ -38,11 +63,11 @@ The optional **Install jastreamer** card is in **Settings**. It does not change 
 The native Kotlin app adds Server selection around the same Web interface; [installation and APK update rules](INSTALL.md#android) are separate from PWA installation.
 
 - Choose a discovered or recent Server, or enter its HTTP(S) root address and select **Verify and connect**. The app does not connect automatically on a fresh launch. Recent entries are rechecked, and discovery names are accepted only after an HTTP identity check.
-- The native header identifies the selected Server and its origin, including port. **Servers** returns to selection without stopping playback. A changed Server UUID is rejected for a saved entry rather than silently reusing its session.
+- The native header identifies the selected Server and its origin, including port. **Servers** returns to selection without stopping network-output playback. A changed Server UUID is rejected for a saved entry rather than silently reusing its session.
 - Cookies and local Web storage are isolated by Server UUID plus complete origin. Different ports are different profiles, even on the same host. Changing addresses can therefore require login again.
 - Back first dismisses the keyboard when Android handles it, then navigates Web history when available, then returns to Server selection. Back from selection leaves the app. Rotation retains the live Web page and unsaved form state; returning from the background checks Server identity again before exposing the page.
 - Native language controls and **Settings → Language / 언어** support English and Korean. A Web-language change is reflected in the native shell when the page finishes loading or you leave/pause it. The existing phone/tablet layout rules, four tabs, player controls and touch targets remain unchanged.
-- Closing, backgrounding, changing Servers or reopening the app does not issue Play or Stop. Playback and queue state belong to the Server. There is no local renderer, offline player, service-worker command queue, or native JavaScript bridge.
+- The native shell sends no Play or Stop when closing, backgrounding, changing Servers or reopening. Playback and queue state belong to the Server. If the Web page owns **This device**, losing that page or its live registration releases the browser output as described above. There is no standalone native audio engine, offline player, service-worker command queue, or native JavaScript bridge.
 - External navigation, new windows, downloads and native permission requests are blocked. The Server's same-origin Content Security Policy also protects its Web network requests; Android request interception alone is not a universal sandbox for arbitrary hostile HTML. Use only a Server you trust, especially over unencrypted HTTP.
 
 The PWA installation card in the shared Web UI is for browser use; the native Android client needs no additional PWA installation.
@@ -53,11 +78,11 @@ The PWA installation card in the shared Web UI is for browser use; the native An
 The SwiftUI app wraps the same Server-hosted interface. Its current availability is [source and CI only](INSTALL.md#ios), not an installable phone release.
 
 - Choose a verified nearby or recent Server, or enter its HTTP(S) root address and select **Verify and connect**. A fresh launch stays on selection rather than connecting automatically.
-- The header shows the selected Server and complete origin, including port. **Change Server** returns to selection without stopping playback. Foreground return rechecks the Server UUID before exposing the page; identity or network failure keeps the old page and its keyboard inaccessible.
+- The header shows the selected Server and complete origin, including port. **Change Server** returns to selection without stopping network-output playback. Foreground return rechecks the Server UUID before exposing the page; identity or network failure keeps the old page and its keyboard inaccessible.
 - Cookies and local Web storage use named profiles keyed by verified Server UUID and canonical scheme/host/port. Different ports are separate sessions. Removing a recent entry only changes the list; sign out inside the Server UI to end its session.
 - Back navigates available Web history; Reload refreshes the page. Use the keyboard's **Next** and **Done** for form entry. Rotation retains the live page and unsaved input. In compact-height keyboard layouts the back/reload bar hides, while Server switching and language remain available.
 - Native language controls and **Settings → Language / 언어** support English and Korean. Web language is read back at page load, foreground return and native screen transitions, without a JavaScript bridge. Changing the native language reloads the Web page, so finish unsaved edits first.
-- Closing, backgrounding or switching Servers sends no Play or Stop. There is no local renderer, offline player or cached command queue. External navigation, new windows, downloads, file pickers and native media/device permission requests are blocked; use the browser for file-upload workflows.
+- The native shell sends no Play or Stop when closing, backgrounding or switching Servers. If the Web page owns **This device**, losing that page or its live registration releases the browser output as described above. There is no standalone native audio engine, offline player or cached command queue. External navigation, new windows, downloads, file pickers and native media/device permission requests are blocked; use the browser for file-upload workflows.
 
 The shared PWA card is for browser use, not an extra installation inside the native client. Use only a trusted Server, especially over unencrypted HTTP. If discovery fails, check Local Network access, Wi-Fi/multicast and VPN routing or enter the complete address manually.
 
@@ -111,6 +136,7 @@ UPnP, Google Cast, and AirPlay capabilities vary by receiver. Confirm audible pl
 | Android cannot discover or reconnect | Check Wi-Fi, mDNS UDP 5353, VPN/client isolation and app network access; enter the complete URL manually, and retain identity/TLS errors rather than bypassing them |
 | No output appears | Allow SSDP UDP 1900 for UPnP; Google Cast needs mDNS UDP 5353 on the selected interfaces plus Server TCP access to the receiver's advertised Cast port; Linux AirPlay also needs mDNS UDP 5353 and host networking; disable client isolation |
 | Output cannot play | Permit Server-to-receiver control/stream traffic and receiver-to-Server media HTTP(S) traffic; normally leave **Server URL used by playback devices to fetch audio** blank, or set it only to a specific receiver-reachable Server origin; for unsupported Cast originals, enable conversion only with a configured FFmpeg |
+| This device is silent or disconnected | Select **Allow playback** if shown, check browser/OS mute and audio routing, and keep the owning page open; after reload or lease loss, Stop if needed, reselect **This device** and explicitly Play; preserve decoder and transport errors |
 | Cast FLAC fails after seeking near EOF | Preserve the reported `BUFFERING`/`ERROR`; this receiver-dependent failure was independently reproduced and is not completion, so do not skip the queue entry or weaken the owned `FINISHED` requirement |
 | Library is empty | Confirm the Windows folder or Linux `/music` mount is the configured library root, the Server account/UID 10001 can read it, and a scan completed; bundled `jastreamer-samples` also require an explicit scan |
 | Settings cannot save | Confirm Windows adjacent files or Linux config directory and `server.json` are writable by the Server account/UID 10001 |

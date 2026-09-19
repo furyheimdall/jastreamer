@@ -12,6 +12,7 @@ const (
 	ProtocolUPnP    = "upnp"
 	ProtocolAirPlay = "airplay"
 	ProtocolCast    = "cast"
+	ProtocolBrowser = "browser"
 )
 
 type Resource struct {
@@ -64,6 +65,10 @@ type Observation struct {
 	// Explicit completion evidence is meaningful only for the observed owned URI.
 	CompletionKnown bool `json:"-"`
 	Completed       bool `json:"-"`
+	// PlayID and CommandSequence correlate event-driven outputs with the
+	// resource and command that produced the observation.
+	PlayID          string `json:"-"`
+	CommandSequence uint64 `json:"-"`
 }
 
 type ErrorKind string

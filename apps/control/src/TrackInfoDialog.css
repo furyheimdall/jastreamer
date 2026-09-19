@@ -143,6 +143,14 @@
   line-height: 1.45;
 }
 
+.track-info-like {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-height: 44px;
+  margin-top: 0.75rem;
+}
+
 .track-info-artwork {
   display: block;
   width: 100%;

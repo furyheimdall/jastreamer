@@ -37,10 +37,36 @@ const waitUntilReady = async (url, child) => {
   throw new Error("jastreamer-server did not become ready within 15 seconds");
 };
 
+function wave(seconds) {
+  const rate = 44100;
+  const samples = rate * seconds;
+  const bytes = Buffer.alloc(44 + samples * 2);
+  bytes.write("RIFF", 0);
+  bytes.writeUInt32LE(bytes.length - 8, 4);
+  bytes.write("WAVEfmt ", 8);
+  bytes.writeUInt32LE(16, 16);
+  bytes.writeUInt16LE(1, 20);
+  bytes.writeUInt16LE(1, 22);
+  bytes.writeUInt32LE(rate, 24);
+  bytes.writeUInt32LE(rate * 2, 28);
+  bytes.writeUInt16LE(2, 32);
+  bytes.writeUInt16LE(16, 34);
+  bytes.write("data", 36);
+  bytes.writeUInt32LE(samples * 2, 40);
+  for (let index = 0; index < samples; index += 1) {
+    bytes.writeInt16LE(Math.round(Math.sin(index * 2 * Math.PI * 220 / rate) * 4096), 44 + index * 2);
+  }
+  return bytes;
+}
+
 test.beforeAll(async () => {
   work = await mkdtemp(resolve(tmpdir(), "jastreamer-web-smoke-"));
   const dataDir = resolve(work, "data");
   await mkdir(dataDir);
+  const musicDir = resolve(work, "music");
+  await mkdir(musicDir);
+  await writeFile(resolve(musicDir, "short.wav"), wave(3));
+  await writeFile(resolve(musicDir, "long.wav"), wave(45));
   const port = await freePort();
   origin = `http://127.0.0.1:${port}`;
   const configPath = resolve(work, "server.json");
@@ -49,7 +75,7 @@ test.beforeAll(async () => {
     data_dir: dataDir,
     http: { enabled: true, address: `127.0.0.1:${port}` },
     https: { enabled: false, address: ":8443", certificate_file: "", private_key_file: "" },
-    library_roots: [],
+    library_roots: [{ id: "smoke", name: "Smoke music", path: musicDir }],
     network: { interfaces: [], discovery_interval_seconds: 30, poll_interval_seconds: 1, allowed_cidrs: [] },
     media: { base_url: "", ffmpeg_path: "", transcode: false },
   }));
@@ -159,4 +185,280 @@ test("a later configuration change restores restart controls without remounting 
   } finally {
     await other.close();
   }
+});
+
+async function control(page, path, method = "GET", data) {
+  const response = await page.request.fetch(`${origin}/api/v1${path}`, {
+    method,
+    headers: { "X-Jastreamer-Request": "web" },
+    ...(data === undefined ? {} : { data }),
+  });
+  expect(response.ok(), `${method} ${path}: ${response.status()}`).toBe(true);
+  return response.status() === 204 ? undefined : response.json();
+}
+
+async function prepareBrowserPlayback(page, paths) {
+  const setup = await control(page, "/setup");
+  await control(page, setup.required ? "/setup" : "/login", "POST", {
+    username: "browser-smoke", password: "browser-smoke-password",
+  });
+  await control(page, "/library/scans", "POST", {});
+  await expect.poll(async () => (await control(page, "/library/tracks")).total).toBe(2);
+  const tracks = (await control(page, "/library/tracks")).items;
+  const trackIDs = paths.map((path) => tracks.find((track) => track.path === path).id);
+  const state = await control(page, "/player");
+  if (state.state !== "stopped") {
+    await control(page, "/player", "POST", { action: "stop" });
+    await expect.poll(async () => (await control(page, "/player")).state).toBe("stopped");
+  }
+  const queue = await control(page, "/queue");
+  await control(page, "/queue", "POST", { action: "replace", track_ids: trackIDs, revision: queue.revision });
+  await page.goto(origin, { waitUntil: "domcontentloaded" });
+  const output = page.getByLabel("Output device", { exact: true });
+  await expect(output).toBeVisible();
+  const localValue = await output.locator("option").evaluateAll((options) =>
+    options.find((option) => /this (device|browser)/i.test(option.textContent ?? ""))?.value);
+  expect(localValue).toBeTruthy();
+  await output.selectOption(localValue);
+  await expect.poll(async () => {
+    const player = await control(page, "/player");
+    const devices = (await control(page, "/renderers")).items;
+    return devices.find((device) => device.id === player.renderer_id)?.protocol;
+  }).toBe("browser");
+  expect((await control(page, "/player")).state).toBe("stopped");
+  return { audio: page.locator("audio"), trackIDs };
+}
+
+async function startBrowserPlayback(page, audio) {
+  const media = page.waitForResponse((response) =>
+    response.request().resourceType() === "media" && [200, 206].includes(response.status()));
+  await page.getByRole("button", { name: "Play", exact: true }).click();
+  expect(await (await media).headerValue("content-type")).toMatch(/^audio\//);
+  await expect.poll(async () => (await control(page, "/player")).state).toBe("playing");
+  await expect.poll(() => audio.evaluate((element) => !element.paused && element.currentTime > 0)).toBe(true);
+}
+
+test("browser output performs real media actions and remains owned when another Control closes", async ({ page, context }) => {
+  const { audio, trackIDs } = await prepareBrowserPlayback(page, ["long.wav"]);
+  await startBrowserPlayback(page, audio);
+  const other = await context.newPage();
+  try {
+    await other.goto(origin, { waitUntil: "domcontentloaded" });
+    await control(other, "/player", "POST", { action: "pause" });
+    await expect.poll(async () => (await control(page, "/player")).state).toBe("paused");
+    await expect.poll(() => audio.evaluate((element) => element.paused)).toBe(true);
+    await control(other, "/player", "POST", { action: "seek", position_ms: 20000 });
+    await expect.poll(() => audio.evaluate((element) => Math.abs(element.currentTime - 20) < 0.5)).toBe(true);
+    await control(other, "/player", "POST", { action: "play" });
+    await expect.poll(() => audio.evaluate((element) => !element.paused && element.currentTime > 20.25)).toBe(true);
+    await control(other, "/player", "POST", { action: "seek", position_ms: 30000 });
+    await expect.poll(() => audio.evaluate((element) => !element.paused && element.currentTime >= 30)).toBe(true);
+    await expect.poll(async () => {
+      const state = await control(page, "/player");
+      return state.pending_command ? "pending" : state.state;
+    }).toBe("playing");
+  } finally {
+    await other.close();
+  }
+  const before = await audio.evaluate((element) => element.currentTime);
+  await expect.poll(() => audio.evaluate((element) => element.currentTime)).toBeGreaterThan(before + 0.25);
+  expect((await control(page, "/player")).state).toBe("playing");
+  await page.getByRole("button", { name: "Stop", exact: true }).click();
+  await expect.poll(async () => (await control(page, "/player")).state).toBe("stopped");
+  await expect.poll(() => audio.evaluate((element) => element.paused)).toBe(true);
+  expect((await control(page, "/queue")).entries.map((entry) => entry.track_id)).toEqual(trackIDs);
+});
+
+test("browser natural completion advances once and owner reload preserves the queue without autoplay", async ({ page }) => {
+  const { audio, trackIDs } = await prepareBrowserPlayback(page, ["short.wav", "long.wav"]);
+  await startBrowserPlayback(page, audio);
+  await expect.poll(async () => (await control(page, "/player")).track?.id).toBe(trackIDs[1]);
+  await expect.poll(async () => (await control(page, "/queue")).entries.map((entry) => entry.status))
+    .toEqual(["completed", "playing"]);
+  await page.reload();
+  await expect(page.getByLabel("Output device", { exact: true })).toBeVisible();
+  await expect.poll(async () => (await control(page, "/player")).state).toBe("unavailable");
+  await expect.poll(async () => (await control(page, "/queue")).entries.map((entry) => entry.status))
+    .toEqual(["completed", "pending"]);
+  expect((await control(page, "/queue")).entries.map((entry) => entry.track_id)).toEqual(trackIDs);
+  await expect.poll(() => page.locator("audio").evaluate((element) => element.paused)).toBe(true);
+  await control(page, "/player", "POST", { action: "stop" });
+  await expect.poll(async () => (await control(page, "/player")).state).toBe("stopped");
+});
+
+test("browser completion survives a delayed play acknowledgment response", async ({ page }) => {
+  const { audio, trackIDs } = await prepareBrowserPlayback(page, ["short.wav", "long.wav"]);
+  let release;
+  let held = false;
+  const responseGate = new Promise((resolveResponse) => { release = resolveResponse; });
+  const reports = "**/api/v1/browser-output/registrations/*/reports";
+  await page.route(reports, async (route) => {
+    const body = route.request().postDataJSON();
+    const response = await route.fetch();
+    if (!held && body.result === "succeeded" && body.observation?.event === "playing") {
+      held = true;
+      await responseGate;
+    }
+    await route.fulfill({ response });
+  });
+  try {
+    await startBrowserPlayback(page, audio);
+    await expect.poll(() => audio.evaluate((element) => element.ended)).toBe(true);
+    release();
+    await expect.poll(async () => (await control(page, "/player")).track?.id).toBe(trackIDs[1]);
+    await expect.poll(async () => (await control(page, "/queue")).entries.map((entry) => entry.status))
+      .toEqual(["completed", "playing"]);
+    await control(page, "/player", "POST", { action: "stop" });
+    await expect.poll(async () => (await control(page, "/player")).state).toBe("stopped");
+  } finally {
+    release();
+    await page.unroute(reports);
+  }
+});
+
+test("Server restart receives browser Stop acknowledgment before draining the output transport", async ({ page }) => {
+  const { audio, trackIDs } = await prepareBrowserPlayback(page, ["long.wav"]);
+  await startBrowserPlayback(page, audio);
+  const document = await control(page, "/config");
+  document.config.server_name = "Browser playback restart";
+  const saved = await control(page, "/config", "PUT", { config: document.config, revision: document.revision });
+  await control(page, "/restart", "POST", { revision: saved.revision });
+  await expect.poll(async () => {
+    try { return (await control(page, "/config")).runtime_id; } catch { return document.runtime_id; }
+  }).not.toBe(document.runtime_id);
+  await expect.poll(async () => (await control(page, "/player")).state).toBe("stopped");
+  await expect.poll(() => audio.evaluate((element) => element.paused)).toBe(true);
+  expect((await control(page, "/queue")).entries.map((entry) => entry.track_id)).toEqual(trackIDs);
+});
+
+test("blocked browser playback exposes a reachable permission button and starts only after its click", async ({ page, browser }) => {
+  const { trackIDs } = await prepareBrowserPlayback(page, ["long.wav"]);
+  const ownerContext = await browser.newContext({
+    storageState: await page.context().storageState(),
+    viewport: { width: 1440, height: 1000 },
+  });
+  const owner = await ownerContext.newPage();
+  const session = await ownerContext.newCDPSession(owner);
+  // Ordinary evaluation helpers may grant a user gesture and hide a genuine autoplay rejection.
+  const withoutActivation = async (expression) => (await session.send("Runtime.evaluate", {
+    expression, awaitPromise: true, returnByValue: true, userGesture: false,
+  })).result.value;
+  try {
+    await owner.goto(origin, { waitUntil: "domcontentloaded" });
+    await expect.poll(() => withoutActivation('!!document.querySelector("#player-output")')).toBe(true);
+    await withoutActivation(`(() => {
+      const output = document.querySelector("#player-output");
+      output.value = "browser:local";
+      output.dispatchEvent(new Event("change", { bubbles: true }));
+    })()`);
+    await expect.poll(() => withoutActivation(`(() => {
+      const output = document.querySelector("#player-output");
+      return output.value.startsWith("browser:") && output.value !== "browser:local";
+    })()`)).toBe(true);
+    expect(await withoutActivation("navigator.userActivation.hasBeenActive")).toBe(false);
+    await control(page, "/player", "POST", { action: "play" });
+    await expect.poll(() => withoutActivation('!!document.querySelector(".browser-autoplay button")')).toBe(true);
+    expect(await withoutActivation("document.querySelector('audio').paused")).toBe(true);
+    expect((await control(page, "/player")).state).not.toBe("playing");
+    await expect.poll(() => withoutActivation(`(() => {
+      const button = document.querySelector(".browser-autoplay button");
+      if (!button) return false;
+      const bounds = button.getBoundingClientRect();
+      return bounds.top >= 0 && bounds.bottom <= innerHeight &&
+        button.contains(document.elementFromPoint(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2));
+    })()`)).toBe(true);
+    await owner.locator(".browser-autoplay button").click();
+    await expect.poll(async () => (await control(page, "/player")).state).toBe("playing");
+    await expect.poll(() => owner.locator("audio").evaluate((audio) => !audio.paused && audio.currentTime > 0.5)).toBe(true);
+    await control(page, "/player", "POST", { action: "stop" });
+    await expect.poll(async () => (await control(page, "/player")).state).toBe("stopped");
+    expect((await control(page, "/queue")).entries.map((entry) => entry.track_id)).toEqual(trackIDs);
+  } finally {
+    await session.detach();
+    await ownerContext.close();
+  }
+});
+
+test("liked playlist creation reconciles an earlier event refresh and preserves its saved snapshot", async ({ page }) => {
+  const setup = await control(page, "/setup");
+  await control(page, setup.required ? "/setup" : "/login", "POST", {
+    username: "browser-smoke", password: "browser-smoke-password",
+  });
+  await control(page, "/library/scans", "POST", {});
+  await expect.poll(async () => (await control(page, "/library/tracks")).total).toBe(2);
+  await page.goto(origin, { waitUntil: "domcontentloaded" });
+  await page.getByRole("button", { name: "Tracks", exact: true }).click();
+  await page.getByRole("button", { name: "Like short", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Unlike short", exact: true })).toHaveAttribute("aria-pressed", "true");
+  let likedHeartFill = "";
+  await expect.poll(async () => {
+    likedHeartFill = await page.getByRole("button", { name: "Unlike short", exact: true })
+      .locator("svg").evaluate((icon) => getComputedStyle(icon).fill);
+    return likedHeartFill;
+  }).not.toMatch(/^(none)?$/);
+  await page.getByRole("button", { name: "Like long", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Unlike long", exact: true })).toHaveAttribute("aria-pressed", "true");
+  await page.getByRole("button", { name: "Playlists", exact: true }).click();
+  await page.getByLabel("Shuffled liked playlist name", { exact: true }).fill("Liked event snapshot");
+  const queueBefore = await control(page, "/queue");
+  let release;
+  const responseGate = new Promise((resolveResponse) => { release = resolveResponse; });
+  await page.route("**/api/v1/playlists/from-likes", async (route) => {
+    const response = await route.fetch();
+    await responseGate;
+    await route.fulfill({ response });
+  });
+  try {
+    await page.getByRole("button", { name: "Create shuffled liked playlist", exact: true }).click();
+    const savedList = page.getByRole("button", { name: /Liked event snapshot/ });
+    await expect(savedList).toHaveCount(1);
+    release();
+    await expect(page.getByRole("button", { name: "Create shuffled liked playlist", exact: true })).toBeEnabled();
+    await expect(savedList).toHaveCount(1);
+    const saved = (await control(page, "/playlists")).items.find((playlist) => playlist.name === "Liked event snapshot");
+    const likedIDs = (await control(page, "/library/tracks?liked=true")).items.map((track) => track.id);
+    expect([...saved.track_ids].sort()).toEqual([...likedIDs].sort());
+    expect((await control(page, "/queue")).entries).toEqual(queueBefore.entries);
+    await expect(page.getByRole("button", { name: "Unlike short", exact: true }).locator("svg"))
+      .toHaveCSS("fill", likedHeartFill);
+    await page.getByRole("button", { name: "Unlike short", exact: true }).click();
+    await expect(page.getByRole("button", { name: "Like short", exact: true })).toHaveAttribute("aria-pressed", "false");
+    await expect(page.getByRole("button", { name: "Like short", exact: true }).locator("svg"))
+      .toHaveCSS("fill", "none");
+    await page.getByRole("button", { name: "Like short", exact: true }).click();
+    await expect(page.getByRole("button", { name: "Unlike short", exact: true }).locator("svg"))
+      .toHaveCSS("fill", likedHeartFill);
+    await expect.poll(async () => (await control(page, "/library/tracks")).items.find((track) => track.title === "short")?.liked).toBe(true);
+    expect((await control(page, `/playlists/${saved.id}`)).track_ids).toEqual(saved.track_ids);
+  } finally {
+    release();
+    await page.unroute("**/api/v1/playlists/from-likes");
+  }
+});
+
+test("unliking the last item on the last liked page returns to remaining tracks", async ({ page }) => {
+  const setup = await control(page, "/setup");
+  await control(page, setup.required ? "/setup" : "/login", "POST", {
+    username: "browser-smoke", password: "browser-smoke-password",
+  });
+  const sample = wave(0.01);
+  await Promise.all(Array.from({ length: 99 }, (_, index) =>
+    writeFile(resolve(work, "music", `liked-page-${String(index).padStart(3, "0")}.wav`), sample)));
+  await control(page, "/library/scans", "POST", {});
+  await expect.poll(async () => (await control(page, "/library/tracks?limit=200")).total).toBe(101);
+  const tracks = (await control(page, "/library/tracks?limit=200")).items;
+  for (const track of tracks) {
+    await control(page, `/library/tracks/${track.id}/like`, "PUT", { liked: true });
+  }
+  await page.goto(origin, { waitUntil: "domcontentloaded" });
+  await page.getByRole("button", { name: "Liked", exact: true }).click();
+  const remainingTrack = page.getByRole("button", { name: `Unlike ${tracks[0].title}`, exact: true });
+  await expect(remainingTrack).toBeVisible();
+  await page.getByRole("button", { name: "Next", exact: true }).click();
+  const lastLike = page.locator(".library-track-actions .library-like-button");
+  await expect(lastLike).toHaveCount(1);
+  await lastLike.click();
+  await expect(remainingTrack).toBeVisible();
+  expect((await control(page, "/library/tracks?liked=true")).total).toBe(100);
+  await expect(page.getByRole("button", { name: "Liked", exact: true })).toHaveAttribute("aria-pressed", "true");
 });

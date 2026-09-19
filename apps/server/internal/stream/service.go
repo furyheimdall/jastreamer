@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"net/http"
 	"net/netip"
 	"net/url"
 	"os"
@@ -32,9 +33,10 @@ var (
 const tokenBytes = 32
 
 type Config struct {
-	BaseURL    func(output.Device) (string, error)
-	FFmpegPath string
-	Transcode  bool
+	BaseURL           func(output.Device) (string, error)
+	FFmpegPath        string
+	Transcode         bool
+	BrowserAuthorized func(*http.Request) bool
 }
 
 type libraryOpener interface {
@@ -44,9 +46,10 @@ type libraryOpener interface {
 }
 
 type Service struct {
-	library libraryOpener
-	baseURL func(output.Device) (string, error)
-	ffmpeg  *transcoder
+	library           libraryOpener
+	baseURL           func(output.Device) (string, error)
+	ffmpeg            *transcoder
+	browserAuthorized func(*http.Request) bool
 
 	mu         sync.Mutex
 	byToken    map[string]*binding
@@ -67,6 +70,7 @@ type binding struct {
 	sourceIP       netip.Addr
 	representation representation
 	cast           bool
+	browser        bool
 	artwork        *boundArtwork
 	fileInfo       os.FileInfo
 	ctx            context.Context
@@ -94,11 +98,12 @@ func newService(lib libraryOpener, config Config) (*Service, error) {
 		ffmpeg = newTranscoder(path)
 	}
 	return &Service{
-		library: lib,
-		baseURL: config.BaseURL,
-		ffmpeg:  ffmpeg,
-		byToken: make(map[string]*binding),
-		byPlay:  make(map[string]*binding),
+		library:           lib,
+		baseURL:           config.BaseURL,
+		ffmpeg:            ffmpeg,
+		browserAuthorized: config.BrowserAuthorized,
+		byToken:           make(map[string]*binding),
+		byPlay:            make(map[string]*binding),
 	}, nil
 }
 
@@ -153,9 +158,12 @@ func (service *Service) Prepare(ctx context.Context, device output.Device, track
 	if err != nil {
 		return output.Resource{}, err
 	}
-	base, err := service.resourceBaseURL(device)
-	if err != nil {
-		return output.Resource{}, err
+	base := &url.URL{}
+	if device.Protocol != output.ProtocolBrowser {
+		base, err = service.resourceBaseURL(device)
+		if err != nil {
+			return output.Resource{}, err
+		}
 	}
 	token, err := randomToken()
 	if err != nil {
@@ -172,6 +180,7 @@ func (service *Service) Prepare(ctx context.Context, device output.Device, track
 		trackID:        openedTrack.ID,
 		sourceIP:       sourceIP,
 		representation: representation,
+		browser:        device.Protocol == output.ProtocolBrowser,
 		cast:           device.Protocol == output.ProtocolCast,
 		artwork:        artwork,
 		fileInfo:       info,
@@ -190,7 +199,10 @@ func (service *Service) Prepare(ctx context.Context, device output.Device, track
 	service.mu.Unlock()
 	service.cancelBinding(obsolete)
 
-	mediaPath := strings.TrimRight(base.Path, "/") + "/media/" + token
+	mediaPath := "/media/" + token
+	if device.Protocol != output.ProtocolBrowser {
+		mediaPath = strings.TrimRight(base.Path, "/") + mediaPath
+	}
 	base.Path = mediaPath
 	resourceSize := openedTrack.Size
 	if representation.transformed {

@@ -11,8 +11,9 @@ export default defineConfig({
   use: {
     headless: true,
     viewport: { width: 1440, height: 900 },
-    launchOptions: process.env.JASTREAMER_CHROMIUM
-      ? { executablePath: process.env.JASTREAMER_CHROMIUM }
-      : {},
+    launchOptions: {
+      ...(process.env.JASTREAMER_CHROMIUM ? { executablePath: process.env.JASTREAMER_CHROMIUM } : {}),
+      args: ["--autoplay-policy=document-user-activation-required"],
+    },
   },
 });

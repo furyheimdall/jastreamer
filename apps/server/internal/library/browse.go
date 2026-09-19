@@ -30,7 +30,7 @@ func (service *Service) Browse(ctx context.Context, query Query) (Page, error) {
 			return Page{}, invalid("folder path is invalid")
 		}
 	}
-	tracks, err := service.browseTracks(ctx, query.RootID, query.AlbumID)
+	tracks, err := service.browseTracks(ctx, query.RootID, query.AlbumID, query.Liked)
 	if err != nil {
 		return Page{}, err
 	}
@@ -104,7 +104,7 @@ func (service *Service) Browse(ctx context.Context, query Query) (Page, error) {
 	}
 }
 
-func (service *Service) browseTracks(ctx context.Context, rootID, albumID string) ([]Track, error) {
+func (service *Service) browseTracks(ctx context.Context, rootID, albumID string, liked bool) ([]Track, error) {
 	statement := `SELECT ` + trackColumns + ` FROM library_tracks WHERE available=1`
 	args := []any{}
 	if rootID != "" {
@@ -114,6 +114,9 @@ func (service *Service) browseTracks(ctx context.Context, rootID, albumID string
 	if albumID != "" {
 		statement += ` AND album_id=?`
 		args = append(args, albumID)
+	}
+	if liked {
+		statement += ` AND EXISTS(SELECT 1 FROM library_track_likes WHERE track_id=library_tracks.id)`
 	}
 	rows, err := service.db.QueryContext(ctx, statement, args...)
 	if err != nil {

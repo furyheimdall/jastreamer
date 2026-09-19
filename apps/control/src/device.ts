@@ -8,3 +8,21 @@ export const isPhone = !/\biPad\b/i.test(userAgent) && (
 
 export const isAppleMobile = /\biPhone\b|\biPad\b|\biPod\b/i.test(userAgent)
   || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+
+// Browser-provided hints, not the operating system's private hostname.
+export function browserOutputName(): string {
+  const platform = /\biPhone\b|\biPod\b/i.test(userAgent) ? "iPhone"
+    : isAppleMobile ? "iPad"
+    : /\bAndroid\b/i.test(userAgent) ? "Android"
+    : /\bWindows\b/i.test(userAgent) ? "Windows"
+    : /\bCrOS\b/i.test(userAgent) ? "ChromeOS"
+    : /\bMacintosh\b|\bMac OS X\b/i.test(userAgent) ? "Mac"
+    : /\bLinux\b/i.test(userAgent) ? "Linux" : "";
+  const browser = /\bEdg(?:e|A|iOS)?\//i.test(userAgent) ? "Edge"
+    : /\bOPR\/|\bOpera\b/i.test(userAgent) ? "Opera"
+    : /\bSamsungBrowser\//i.test(userAgent) ? "Samsung Internet"
+    : /\bFirefox\/|\bFxiOS\//i.test(userAgent) ? "Firefox"
+    : /\bChrome\/|\bHeadlessChrome\/|\bCriOS\//i.test(userAgent) ? "Chrome"
+    : /\bSafari\//i.test(userAgent) ? "Safari" : "Web browser";
+  return platform ? `${platform} · ${browser}` : browser;
+}

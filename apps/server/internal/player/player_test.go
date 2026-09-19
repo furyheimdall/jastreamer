@@ -1871,3 +1871,38 @@ func TestStopForRestartRejectsUnconfirmedRendererStop(t *testing.T) {
 	cancel()
 	<-done
 }
+
+func TestConfirmedStopSurvivesOutputLossWithoutAnotherObservation(t *testing.T) {
+	service, _, devices := newPlayerTestService(t)
+	ctx := t.Context()
+	queue, err := service.MutateQueue(ctx, QueueMutation{Action: "append", TrackIDs: []string{"a", "b"}, Revision: 0})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.Command(ctx, Command{Action: "play", EntryID: queue.Entries[0].ID}); err != nil {
+		t.Fatal(err)
+	}
+	runAcceptedCommand(t, service)
+	if _, err := service.Command(ctx, Command{Action: "stop"}); err != nil {
+		t.Fatal(err)
+	}
+	runAcceptedCommand(t, service)
+	if err := service.StopForRestart(ctx); err != nil {
+		t.Fatal(err)
+	}
+	devices.device.Online = false
+	service.observeSelected(ctx)
+	state := service.mustState(t)
+	if state.State != StateStopped || state.Error != "" || state.CurrentEntryID != queue.Entries[0].ID {
+		t.Fatalf("confirmed stop became uncertain after output loss: %#v", state)
+	}
+	retained, err := service.Queue(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(retained.Entries) != 2 || retained.Entries[0].ID != queue.Entries[0].ID ||
+		retained.Entries[0].Status != EntryPending || retained.Entries[1].ID != queue.Entries[1].ID ||
+		retained.Entries[1].Status != EntryPending {
+		t.Fatalf("confirmed stop changed the retained queue: %#v", retained)
+	}
+}

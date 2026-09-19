@@ -21,7 +21,15 @@ func (service *server) browse(kind string) http.HandlerFunc {
 			return
 		}
 		values := r.URL.Query()
-		page, err := service.options.Library.Browse(r.Context(), library.Query{Kind: kind, Search: values.Get("q"), AlbumID: values.Get("album_id"), Artist: values.Get("artist"), Genre: values.Get("genre"), RootID: values.Get("root_id"), Path: values.Get("path"), Sort: values.Get("sort"), Offset: offset, Limit: limit})
+		liked := false
+		if raw := values.Get("liked"); raw != "" {
+			liked, err = strconv.ParseBool(raw)
+			if err != nil {
+				writeError(w, fault.New(http.StatusBadRequest, "INVALID_QUERY", "좋아요 필터가 올바르지 않습니다."))
+				return
+			}
+		}
+		page, err := service.options.Library.Browse(r.Context(), library.Query{Kind: kind, Search: values.Get("q"), AlbumID: values.Get("album_id"), Artist: values.Get("artist"), Genre: values.Get("genre"), RootID: values.Get("root_id"), Path: values.Get("path"), Liked: liked, Sort: values.Get("sort"), Offset: offset, Limit: limit})
 		if err != nil {
 			writeError(w, err)
 			return

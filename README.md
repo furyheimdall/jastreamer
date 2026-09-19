@@ -8,7 +8,7 @@
 
 <img src="assets/jastreamer.svg" width="80" height="80" alt="jastreamer logo" />
 
-jastreamer 0.2.0 is a self-hosted music server for a trusted private LAN. A Server on Linux or Windows indexes administrator-approved local music, serves the Web interface, keeps the queue and playlists in SQLite, and sends audio to one selected network output. UPnP/DLNA is built in, Google Cast can be enabled on either platform, and AirPlay sending is available in the supported Linux container only.
+jastreamer 0.2.0 is a self-hosted music server for a trusted private LAN. A Server on Linux or Windows indexes administrator-approved local music, serves the Web interface, keeps likes, the queue and playlists in SQLite, and sends audio to one selected network output or connected browser. UPnP/DLNA is built in, Google Cast can be enabled on either platform, and AirPlay sending is available in the supported Linux container only.
 
 English is the default interface language; Korean is also supported.
 
@@ -25,6 +25,8 @@ English is the default interface language; Korean is also supported.
 - Browses and searches tracks, albums, artists, genres, and folders, and displays embedded artwork
 - Shows stored tags and verified audio/file information when needed
 - Maintains playlists and a Server-wide queue that preserves duplicate tracks
+- Saves track likes and creates a shuffled saved playlist from all available liked tracks
+- Plays through **This device** using browser audio and the same Server queue
 - Controls playback and seeking on compatible network outputs
 - Discovers UPnP/DLNA, optional Google Cast, and Linux AirPlay outputs on the LAN
 - Supports AirPlay PIN/password authentication when required by the receiver
@@ -39,8 +41,8 @@ The phone layout is selected automatically for iPhone and Android phone browsers
 ## Deployment model
 
 - **Linux Server:** one `amd64` or `arm64` container with the embedded Web interface, Python 3.12, audio-only FFmpeg 8.1.2, and the pyatv 0.18.0 AirPlay sender. Synology Container Manager uses the supplied Compose definition.
-- **Native Windows Server:** the unsigned x64 portable ZIP with the embedded Web interface, UPnP/DLNA, and optional Google Cast, but no bundled AirPlay sender, Renderer, or FFmpeg transcoder. It is not a Windows service.
-- **Optional desktop:** a Windows 10/11 x64 portable ZIP or Linux amd64 DEB that discovers a Server or accepts its HTTP(S) address and displays its hosted Web interface. It is not a Server, Renderer, or local audio player. There is no ARM64 desktop package; Linux arm64 clients can use a browser.
+- **Native Windows Server:** the unsigned x64 portable ZIP with the embedded Web interface, UPnP/DLNA, and optional Google Cast, but no bundled AirPlay sender, native audio engine, or FFmpeg transcoder. It is not a Windows service.
+- **Optional desktop:** a Windows 10/11 x64 portable ZIP or Linux amd64 DEB that discovers a Server or accepts its HTTP(S) address and displays its hosted Web interface. It is not a Server and adds no standalone native audio engine; local output uses the shared Web UI. There is no ARM64 desktop package; Linux arm64 clients can use a browser.
 - **Android client:** Kotlin/WebView for Android 10 or newer, requiring a current WebView provider with independent-profile support. It reuses the Server-hosted phone/tablet interface. [Android CI](https://github.com/furyheimdall/jastreamer/actions/workflows/android.yml) supplies development/test APKs and unsigned release builds, not a production-signed or Play Store release; see [Android installation](INSTALL.md#android).
 - **iOS source and CI:** SwiftUI/WKWebView for iOS/iPadOS 18.4 or newer. [iOS CI](https://github.com/furyheimdall/jastreamer/actions/workflows/ios.yml) verifies the actual Web UI in an iPhone simulator and produces an unsigned device development bundle plus a simulator-only bundle. No installable iPhone package, TestFlight or App Store release is provided; see [iOS development scope](INSTALL.md#ios).
 

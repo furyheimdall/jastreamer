@@ -68,7 +68,7 @@ function formatDuration(milliseconds: number): string {
     : `${minutes}:${String(seconds).padStart(2, "0")}`;
 }
 
-function Icon({ name }: { name: "music" | "play" | "next" | "append" | "playlist" | "folder" | "back" | "search" | "info" }) {
+function Icon({ name }: { name: "music" | "play" | "next" | "append" | "playlist" | "folder" | "back" | "search" | "info" | "heart" }) {
   const paths = {
     music: <><path d="M9 18V5l11-2v13" /><circle cx="6" cy="18" r="3" /><circle cx="17" cy="16" r="3" /></>,
     play: <path d="m8 5 11 7-11 7z" />,
@@ -79,6 +79,7 @@ function Icon({ name }: { name: "music" | "play" | "next" | "append" | "playlist
     back: <path d="m15 18-6-6 6-6" />,
     search: <><circle cx="11" cy="11" r="7" /><path d="m20 20-4-4" /></>,
     info: <><circle cx="12" cy="12" r="9" /><path d="M12 11v6" /><path d="M12 7h.01" /></>,
+    heart: <path d="M20.8 5.8a5.5 5.5 0 0 0-7.8 0L12 6.9l-1.1-1.1a5.5 5.5 0 0 0-7.8 7.8L12 22l8.8-8.4a5.5 5.5 0 0 0 0-7.8z" />,
   };
   return <svg className="library-icon" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">{paths[name]}</svg>;
 }
@@ -92,9 +93,10 @@ function Artwork({ id, label, missingLabel, compact = false }: { id: string; lab
   return <img className={`library-artwork${compact ? " library-artwork-compact" : ""}`} src={src} alt={label} loading="lazy" onError={() => setFailedID(id)} />;
 }
 
-function paramsFor(kind: LibraryKind | "tracks", search: string, offset: number, limit: number, scope: Scope | null): URLSearchParams {
+function paramsFor(kind: LibraryKind | "tracks", search: string, offset: number, limit: number, scope: Scope | null, likedOnly = false): URLSearchParams {
   const params = new URLSearchParams({ offset: String(offset), limit: String(limit) });
   if (search.trim()) params.set("q", search.trim());
+  if (likedOnly) params.set("liked", "true");
   if (scope?.kind === "album") {
     params.set("album_id", scope.id);
     params.set("sort", "album");
@@ -125,6 +127,7 @@ export default function Library({ revision, onNotice, onQueueChange }: Props) {
   const [scope, setScope] = useState<Scope | null>(null);
   const [searchInput, setSearchInput] = useState("");
   const [search, setSearch] = useState("");
+  const [likedOnly, setLikedOnly] = useState(false);
   const [offset, setOffset] = useState(0);
   const [page, setPage] = useState<Page<BrowseItem> | null>(null);
   const [childFolders, setChildFolders] = useState<Folder[]>([]);
@@ -132,6 +135,7 @@ export default function Library({ revision, onNotice, onQueueChange }: Props) {
   const [error, setError] = useState("");
   const [reload, setReload] = useState(0);
   const [actionBusy, setActionBusy] = useState(false);
+  const [likeBusy, setLikeBusy] = useState<Set<string>>(() => new Set());
   const [playlists, setPlaylists] = useState<Playlist[]>([]);
   const [pickerTracks, setPickerTracks] = useState<Track[] | null>(null);
   const [pickerTarget, setPickerTarget] = useState("");
@@ -147,14 +151,14 @@ export default function Library({ revision, onNotice, onQueueChange }: Props) {
 
   useEffect(() => {
     setOffset(0);
-  }, [kind, scope, search]);
+  }, [kind, likedOnly, scope, search]);
 
   useEffect(() => {
     const controller = new AbortController();
     const serial = ++requestSerial.current;
     const effectiveKind: LibraryKind = scope ? "tracks" : kind;
     const limit = effectiveKind === "tracks" ? trackPageSize : pageSize;
-    const params = paramsFor(effectiveKind, search, offset, limit, scope);
+    const params = paramsFor(effectiveKind, search, offset, limit, scope, likedOnly);
     setLoading(true);
     setError("");
 
@@ -184,7 +188,7 @@ export default function Library({ revision, onNotice, onQueueChange }: Props) {
       });
 
     return () => controller.abort();
-  }, [kind, offset, reload, revision, scope, search, t]);
+  }, [kind, likedOnly, offset, reload, revision, scope, search, t]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -351,6 +355,48 @@ export default function Library({ revision, onNotice, onQueueChange }: Props) {
       setActionBusy(false);
     }
   }
+  async function toggleLiked(track: Track) {
+    if (likeBusy.has(track.id)) return;
+    const serial = requestSerial.current;
+    const liked = !track.liked;
+    setLikeBusy((current) => new Set(current).add(track.id));
+    setPage((current) => current ? {
+      ...current,
+      items: current.items.map((item) => "duration_ms" in item && item.id === track.id ? { ...item, liked } : item),
+    } : current);
+    try {
+      const updated = await api<Track>(`/library/tracks/${encodeURIComponent(track.id)}/like`, {
+        method: "PUT",
+        body: JSON.stringify({ liked }),
+      });
+      setPage((current) => {
+        if (!current || requestSerial.current !== serial) return current;
+        if (likedOnly && !updated.liked) {
+          const items = current.items.filter((item) => !("duration_ms" in item) || item.id !== updated.id);
+          return { ...current, items, total: Math.max(0, current.total - (items.length === current.items.length ? 0 : 1)) };
+        }
+        return {
+          ...current,
+          items: current.items.map((item) => "duration_ms" in item && item.id === updated.id ? updated : item),
+        };
+      });
+      setPickerTracks((current) => current?.map((item) => item.id === updated.id ? updated : item) ?? null);
+      onNotice(t(updated.liked ? "library.likedTrack" : "library.unlikedTrack", { title: updated.title }));
+    } catch (caught) {
+      setPage((current) => current && requestSerial.current === serial ? {
+        ...current,
+        items: current.items.map((item) => "duration_ms" in item && item.id === track.id ? track : item),
+      } : current);
+      onNotice(errorMessage(caught, t("common.requestFailed")), true);
+    } finally {
+      setLikeBusy((current) => {
+        const next = new Set(current);
+        next.delete(track.id);
+        return next;
+      });
+    }
+  }
+
 
   function openItem(item: BrowseItem) {
     if (kind === "albums" && "artwork_id" in item && "track_count" in item && "title" in item) {
@@ -378,6 +424,12 @@ export default function Library({ revision, onNotice, onQueueChange }: Props) {
   const start = total ? offset + 1 : 0;
   const end = Math.min(offset + (page?.items.length ?? 0), total);
 
+  useEffect(() => {
+    if (page && offset > 0 && offset >= page.total) {
+      setOffset(Math.floor(Math.max(0, page.total - 1) / limit) * limit);
+    }
+  }, [limit, offset, page]);
+
   return (
     <section className="library-shell" aria-labelledby="library-heading">
       <header className="library-heading-row">
@@ -394,8 +446,9 @@ export default function Library({ revision, onNotice, onQueueChange }: Props) {
 
       <nav className="library-tabs" aria-label={t("library.categoriesLabel")}>
         {tabs.map((tab) => (
-          <button key={tab.kind} className={`library-tab${kind === tab.kind && !scope ? " library-tab-active" : ""}`} type="button" onClick={() => { setKind(tab.kind); setScope(null); }} aria-current={kind === tab.kind && !scope ? "page" : undefined}>{t(tab.labelKey)}</button>
+          <button key={tab.kind} className={`library-tab${kind === tab.kind && !scope && !likedOnly ? " library-tab-active" : ""}`} type="button" onClick={() => { setKind(tab.kind); setScope(null); setLikedOnly(false); }} aria-current={kind === tab.kind && !scope && !likedOnly ? "page" : undefined}>{t(tab.labelKey)}</button>
         ))}
+        <button className={`library-tab library-liked-filter${likedOnly ? " library-tab-active" : ""}`} type="button" aria-pressed={likedOnly} onClick={() => { setLikedOnly((current) => !current); setKind("tracks"); setScope(null); }}><Icon name="heart" /> {t("library.likedFilter")}</button>
       </nav>
 
       {scope && (
@@ -429,7 +482,7 @@ export default function Library({ revision, onNotice, onQueueChange }: Props) {
       {loading && <div className="library-loading" role="status">{t("library.loading")}</div>}
 
       {!loading && !error && page && page.items.length === 0 && childFolders.length === 0 && (
-        <div className="empty-state">{t(search ? "library.noSearchResults" : "library.empty")}</div>
+        <div className="empty-state">{t(search ? "library.noSearchResults" : likedOnly ? "library.noLikedTracks" : "library.empty")}</div>
       )}
 
       {!loading && !error && !scope && kind === "albums" && (
@@ -489,6 +542,7 @@ export default function Library({ revision, onNotice, onQueueChange }: Props) {
               <div className="library-track-album"><span>{track.album || t("library.unknownAlbum")}</span>{!track.available && <small>{t("library.fileUnavailable")}</small>}</div>
               <time className="library-track-duration">{formatDuration(track.duration_ms)}</time>
               <div className="library-track-actions" aria-label={t("library.trackActions", { title: track.title })}>
+                <button className="library-like-button" type="button" title={t(track.liked ? "library.unlikeTitle" : "library.likeTitle")} aria-label={t(track.liked ? "library.unlikeTrack" : "library.likeTrack", { title: track.title })} aria-pressed={track.liked} disabled={likeBusy.has(track.id)} onClick={() => toggleLiked(track)}><Icon name="heart" /></button>
                 <button type="button" title={t("library.playNow")} aria-label={t("library.playNowTrack", { title: track.title })} disabled={!track.available || actionBusy} onClick={() => runQueue([track], "play")}><Icon name="play" /></button>
                 <button type="button" title={t("library.playNextTitle")} aria-label={t("library.playNextTrack", { title: track.title })} disabled={!track.available || actionBusy} onClick={() => runQueue([track], "next")}><Icon name="next" /></button>
                 <button type="button" title={t("library.addToEnd")} aria-label={t("library.addEndTrack", { title: track.title })} disabled={!track.available || actionBusy} onClick={() => runQueue([track], "append")}><Icon name="append" /></button>
@@ -519,7 +573,7 @@ export default function Library({ revision, onNotice, onQueueChange }: Props) {
           </section>
         </div>
       )}
-      <TrackInfoDialog trackId={infoTrackID} onClose={() => setInfoTrackID(null)} />
+      <TrackInfoDialog trackId={infoTrackID} revision={revision} onNotice={onNotice} onClose={() => setInfoTrackID(null)} />
     </section>
   );
 }

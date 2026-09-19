@@ -701,6 +701,9 @@ func (s *Service) completeSuccess(command commandRecord, update successUpdate) e
 		if update.setState {
 			setParts += ",state=?"
 			args = append(args, update.state)
+			if update.state == StateStopped {
+				setParts += ",play_id='',current_uri='',current_seekable=0"
+			}
 		}
 		if update.resetPosition {
 			setParts += ",position_ms=0"
