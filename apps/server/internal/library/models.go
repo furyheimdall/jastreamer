@@ -25,6 +25,7 @@ type Track struct {
 	RootID      string   `json:"root_id"`
 	Path        string   `json:"path"`
 	Available   bool     `json:"available"`
+	Liked       bool     `json:"liked"`
 	Size        int64    `json:"size"`
 	ModifiedAt  string   `json:"modified_at"`
 }
@@ -78,6 +79,7 @@ type Query struct {
 	Genre   string
 	RootID  string
 	Path    string
+	Liked   bool
 	Sort    string
 	Offset  int
 	Limit   int

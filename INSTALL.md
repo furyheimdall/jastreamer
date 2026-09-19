@@ -2,7 +2,7 @@
 
 [README](README.md) · [User guide](INSTRUCTION.md) · [한국어 설치 안내](INSTALL.ko.md)
 
-Choose the branch below for the package and platform you actually use. The Server hosts the Web interface; optional desktop, native mobile, and phone PWA clients connect to an existing Server, not a local audio renderer.
+Choose the branch below for the package and platform you actually use. The Server hosts the Web interface; optional desktop, native mobile, and phone PWA clients connect to an existing Server. Local playback uses the shared Web interface's browser output, not a separately installed native audio engine; see the [user guide](INSTRUCTION.md#browser-output).
 
 Public previews are unsigned and not production-qualified. Read the selected release's limitations, verify every downloaded artifact, and confirm operation on your own network and receivers.
 
@@ -152,7 +152,7 @@ For agent-assisted setup, choose **an existing absolute Windows music root** or 
 
 Open `http://127.0.0.1:18080` on that computer, or use the Windows computer's private LAN address and port 18080 from another client. If Windows Firewall prompts, allow the executable on private networks only; do not disable the firewall. TCP 18080 is needed for Web and media access, SSDP UDP 1900 for UPnP discovery, and mDNS UDP 5353 on the selected interfaces for optional Google Cast discovery. Cast also requires Server TCP access to the port each receiver advertises and receiver access to the Server URL used to fetch audio.
 
-This package is the native Server, not the optional Windows desktop. It provides UPnP/DLNA and optional Google Cast network output and does not install a Renderer or play through local PC speakers. Google Cast needs no Chrome or Python helper. Native Windows Server does not support AirPlay, even if an arbitrary executable path is entered; the package also does not bundle FFmpeg. Transcoding and AirPlay therefore default to disabled. A separate Linux sender must use jastreamer's adapter source and dependencies from the same release as the installed Server and implement its matching protocol; `atvremote`, Python, pyatv alone, and receiver software such as Shairport Sync are not substitutes.
+This package is the native Server, not the optional Windows desktop. It provides UPnP/DLNA and optional Google Cast network output but does not itself open local PC speakers or install a native audio engine. A connected browser can instead select **This device** in the shared Web UI. Google Cast needs no Chrome or Python helper. Native Windows Server does not support AirPlay, even if an arbitrary executable path is entered; the package also does not bundle FFmpeg. Transcoding and AirPlay therefore default to disabled. A separate Linux sender must use jastreamer's adapter source and dependencies from the same release as the installed Server and implement its matching protocol; `atvremote`, Python, pyatv alone, and receiver software such as Shairport Sync are not substitutes.
 
 Before a portable update, inspect the actual launcher/configuration and resolve its `data_dir` and every music root, including external drives, UNC shares and symlink/junction targets. Do not assume they are the adjacent `data` and `music` folders. Record and preserve the actual paths and permissions. Stop if paths disagree or cannot be read; do not relocate or copy these directories as part of the update.
 
@@ -194,7 +194,7 @@ Recent Servers, language, cookies, and sessions use `$XDG_CONFIG_HOME/jastreamer
 <a id="android"></a>
 ## Optional native Android client
 
-The Kotlin app discovers `_jastreamer._tcp` Servers, checks `/api/v1/discovery`, and opens the selected Server's existing Web UI. It is not the retired Flutter Controller or an Android audio renderer. No PWA installation, local music permission, or location permission is needed.
+The Kotlin app discovers `_jastreamer._tcp` Servers, checks `/api/v1/discovery`, and opens the selected Server's existing Web UI. It adds no standalone native audio engine; shared Web audio remains subject to WebView restrictions. No PWA installation, local music permission, or location permission is needed.
 
 Current distribution is **development/testing only** through successful [Android CI runs](https://github.com/furyheimdall/jastreamer/actions/workflows/android.yml). Select the intended source revision and download its `jastreamer-android-debug-test-signed-and-release-unsigned-<revision>` artifact. Verify `SHA256SUMS`, `provenance.json`, the source revision, application ID and signing certificate before installation. A pull-request artifact is not a protected-main release.
 
@@ -217,7 +217,7 @@ See [Android controls](INSTRUCTION.md#android-controls) for selection, back navi
 <a id="ios"></a>
 ## Native iOS source and CI
 
-The SwiftUI/WKWebView client in `apps/ios` discovers `_jastreamer._tcp` Servers, verifies `/api/v1/discovery`, and reuses the selected Server's Web UI. The minimum is **iOS/iPadOS 18.4**, including the public WebKit API used to deny native file-picker requests. It is a network client, not a phone audio renderer.
+The SwiftUI/WKWebView client in `apps/ios` discovers `_jastreamer._tcp` Servers, verifies `/api/v1/discovery`, and reuses the selected Server's Web UI. The minimum is **iOS/iPadOS 18.4**, including the public WebKit API used to deny native file-picker requests. It adds no standalone native audio engine; shared Web audio remains subject to WebKit restrictions.
 
 Current scope is **source, unsigned device builds and simulator CI only**. Successful [iOS CI runs](https://github.com/furyheimdall/jastreamer/actions/workflows/ios.yml) provide `jastreamer-ios-development-unsigned-and-simulator-<revision>`. Check `SHA256SUMS`, `provenance.json`, source revision, bundle identifier and platform before using a development artifact. A PR artifact records its tested merge revision and is not a protected-main release.
 

@@ -1,12 +1,14 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { api } from "./api";
+import { api, ApiError } from "./api";
 import { useI18n } from "./i18n";
 import type { Track, TrackInfo } from "./types";
 import "./TrackInfoDialog.css";
 
 type Props = {
   trackId: string | null;
+  revision: number;
+  onNotice: (message: string, error?: boolean) => void;
   onClose: () => void;
 };
 
@@ -101,11 +103,12 @@ function Detail({ label, value, wide = false, code = false }: { label: string; v
   );
 }
 
-export default function TrackInfoDialog({ trackId, onClose }: Props) {
+export default function TrackInfoDialog({ trackId, revision, onNotice, onClose }: Props) {
   const { locale, t } = useI18n();
   const [loaded, setLoaded] = useState<LoadedInfo | null>(null);
   const [failure, setFailure] = useState<FailedInfo | null>(null);
   const [requestVersion, setRequestVersion] = useState(0);
+  const [likeBusy, setLikeBusy] = useState<Set<string>>(() => new Set());
   const dialogRef = useRef<HTMLElement | null>(null);
   const closeRef = useRef<HTMLButtonElement | null>(null);
   const previousFocusRef = useRef<HTMLElement | null>(null);
@@ -186,7 +189,30 @@ export default function TrackInfoDialog({ trackId, onClose }: Props) {
       active = false;
       controller.abort();
     };
-  }, [requestVersion, trackId]);
+  }, [requestVersion, revision, trackId]);
+
+  async function toggleLiked(track: Track) {
+    if (likeBusy.has(track.id)) return;
+    setLikeBusy((current) => new Set(current).add(track.id));
+    try {
+      const updated = await api<Track>(`/library/tracks/${encodeURIComponent(track.id)}/like`, {
+        method: "PUT",
+        body: JSON.stringify({ liked: !track.liked }),
+      });
+      setLoaded((current) => current?.trackId === updated.id
+        ? { ...current, value: { ...current.value, track: updated } }
+        : current);
+      onNotice(t(updated.liked ? "library.likedTrack" : "library.unlikedTrack", { title: updated.title }));
+    } catch (caught) {
+      onNotice(caught instanceof ApiError ? caught.message : t("common.requestFailed"), true);
+    } finally {
+      setLikeBusy((current) => {
+        const next = new Set(current);
+        next.delete(track.id);
+        return next;
+      });
+    }
+  }
 
   if (trackId === null) return null;
 
@@ -242,6 +268,17 @@ export default function TrackInfoDialog({ trackId, onClose }: Props) {
                 <strong>{present(track.title, unavailable)}</strong>
                 <span>{present(track.artist, unavailable)}</span>
                 <span>{present(track.album, unavailable)}</span>
+                <button
+                  className="button button-ghost library-like-button track-info-like"
+                  type="button"
+                  aria-label={t(track.liked ? "library.unlikeTrack" : "library.likeTrack", { title: track.title })}
+                  aria-pressed={track.liked}
+                  disabled={likeBusy.has(track.id)}
+                  onClick={() => void toggleLiked(track)}
+                >
+                  <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M20.8 5.8a5.5 5.5 0 0 0-7.8 0L12 6.9l-1.1-1.1a5.5 5.5 0 0 0-7.8 7.8L12 22l8.8-8.4a5.5 5.5 0 0 0 0-7.8z" /></svg>
+                  {t(track.liked ? "library.unlikeTitle" : "library.likeTitle")}
+                </button>
               </div>
             </div>
 

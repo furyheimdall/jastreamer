@@ -527,7 +527,7 @@ export default function App() {
     case "queue":
       page = (
         <Queue
-          revision={revisions.queue}
+          revision={revisions.queue + revisions.library}
           onNotice={showNotice}
           onQueueChange={() => setRevisions((current) => ({ ...current, queue: current.queue + 1, player: current.player + 1 }))}
         />

@@ -40,7 +40,7 @@ function formatDuration(milliseconds: number): string {
     : `${minutes}:${String(seconds).padStart(2, "0")}`;
 }
 
-function Icon({ name }: { name: "playlist" | "play" | "append" | "up" | "down" | "remove" | "save" | "trash" | "plus" }) {
+function Icon({ name }: { name: "playlist" | "play" | "append" | "up" | "down" | "remove" | "save" | "trash" | "plus" | "heart" | "shuffle" }) {
   const paths = {
     playlist: <><path d="M4 6h12M4 11h12M4 16h7" /><path d="M18 14v7m-3.5-3.5h7" /></>,
     play: <path d="m8 5 11 7-11 7z" />,
@@ -51,6 +51,8 @@ function Icon({ name }: { name: "playlist" | "play" | "append" | "up" | "down" |
     save: <><path d="M5 4h12l2 2v14H5z" /><path d="M8 4v6h8V4M8 20v-6h8v6" /></>,
     trash: <><path d="M4 7h16M9 7V4h6v3M7 7l1 13h8l1-13" /></>,
     plus: <path d="M12 5v14M5 12h14" />,
+    heart: <path d="M20.8 5.8a5.5 5.5 0 0 0-7.8 0L12 6.9l-1.1-1.1a5.5 5.5 0 0 0-7.8 7.8L12 22l8.8-8.4a5.5 5.5 0 0 0 0-7.8z" />,
+    shuffle: <><path d="M4 7h3c5 0 5 10 10 10h3" /><path d="m17 14 3 3-3 3M4 17h3c2 0 3.2-1.5 4.3-3.3M17 4l3 3-3 3" /></>,
   };
   return <svg className="playlist-icon" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">{paths[name]}</svg>;
 }
@@ -77,12 +79,15 @@ export default function Playlists({ revision, onNotice, onQueueChange }: Props) 
   const [entries, setEntries] = useState<DraftEntry[]>([]);
   const [pendingRemote, setPendingRemote] = useState<Playlist | null>(null);
   const [newName, setNewName] = useState("");
+  const [likedName, setLikedName] = useState(() => t("playlists.likedDefaultName"));
   const [loadingList, setLoadingList] = useState(true);
   const [loadingDetail, setLoadingDetail] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [likeBusy, setLikeBusy] = useState<Set<string>>(() => new Set());
   const [listError, setListError] = useState("");
   const [detailError, setDetailError] = useState("");
   const [createError, setCreateError] = useState("");
+  const [likedCreateError, setLikedCreateError] = useState("");
   const [deleteArmed, setDeleteArmed] = useState(false);
   const [reload, setReload] = useState(0);
   const baselineRef = useRef<Playlist | null>(null);
@@ -194,7 +199,7 @@ export default function Playlists({ revision, onNotice, onQueueChange }: Props) 
         method: "POST",
         body: JSON.stringify({ name, track_ids: [] }),
       });
-      setPlaylists((current) => [...current, created]);
+      setPlaylists((current) => [...current.filter((playlist) => playlist.id !== created.id), created]);
       setNewName("");
       setSelectedID(created.id);
       applyAuthoritative(created);
@@ -205,6 +210,31 @@ export default function Playlists({ revision, onNotice, onQueueChange }: Props) 
       setBusy(false);
     }
   }
+  async function createLikedPlaylist() {
+    const name = likedName.trim();
+    if (!name) return;
+    if (dirty || pendingRemote) {
+      setLikedCreateError(t("playlists.finishBeforeCreate"));
+      return;
+    }
+    setBusy(true);
+    setLikedCreateError("");
+    try {
+      const created = await api<Playlist>("/playlists/from-likes", {
+        method: "POST",
+        body: JSON.stringify({ name }),
+      });
+      setPlaylists((current) => [...current.filter((playlist) => playlist.id !== created.id), created]);
+      setSelectedID(created.id);
+      applyAuthoritative(created);
+      onNotice(t("playlists.likedCreated", { name: created.name }));
+    } catch (caught) {
+      setLikedCreateError(errorMessage(caught, t("common.requestFailed")));
+    } finally {
+      setBusy(false);
+    }
+  }
+
 
   async function savePlaylist() {
     if (!baseline || pendingRemote) return;
@@ -280,6 +310,36 @@ export default function Playlists({ revision, onNotice, onQueueChange }: Props) 
       setBusy(false);
     }
   }
+  async function toggleLiked(track: Track) {
+    if (likeBusy.has(track.id)) return;
+    const liked = !track.liked;
+    const optimistic = { ...track, liked };
+    const replaceTrack = (candidate: Track) => {
+      setEntries((current) => current.map((entry) => entry.trackID === candidate.id ? { ...entry, track: candidate } : entry));
+      setBaseline((current) => current ? { ...current, tracks: current.tracks?.map((item) => item.id === candidate.id ? candidate : item) } : current);
+      setPendingRemote((current) => current ? { ...current, tracks: current.tracks?.map((item) => item.id === candidate.id ? candidate : item) } : current);
+    };
+    setLikeBusy((current) => new Set(current).add(track.id));
+    replaceTrack(optimistic);
+    try {
+      const updated = await api<Track>(`/library/tracks/${encodeURIComponent(track.id)}/like`, {
+        method: "PUT",
+        body: JSON.stringify({ liked }),
+      });
+      replaceTrack(updated);
+      onNotice(t(updated.liked ? "library.likedTrack" : "library.unlikedTrack", { title: updated.title }));
+    } catch (caught) {
+      replaceTrack(track);
+      onNotice(errorMessage(caught, t("common.requestFailed")), true);
+    } finally {
+      setLikeBusy((current) => {
+        const next = new Set(current);
+        next.delete(track.id);
+        return next;
+      });
+    }
+  }
+
 
   function loadRemoteVersion() {
     if (pendingRemote) applyAuthoritative(pendingRemote);
@@ -317,6 +377,13 @@ export default function Playlists({ revision, onNotice, onQueueChange }: Props) 
             <div><input id="playlist-new-name" className="input" value={newName} onChange={(event) => setNewName(event.target.value)} maxLength={120} placeholder={t("playlists.namePlaceholder")} /><button className="button button-primary" type="submit" disabled={busy || !newName.trim()} aria-label={t("playlists.createLabel")}><Icon name="plus" /> {t("playlists.create")}</button></div>
             {createError && <p className="error-text" role="alert">{createError}</p>}
           </form>
+          <form className="playlist-create playlist-liked-create" onSubmit={(event) => { event.preventDefault(); void createLikedPlaylist(); }}>
+            <label htmlFor="playlist-liked-name">{t("playlists.fromLikes")}</label>
+            <p>{t("playlists.fromLikesDescription")}</p>
+            <div><input id="playlist-liked-name" className="input" value={likedName} onChange={(event) => setLikedName(event.target.value)} maxLength={120} aria-label={t("playlists.likedNameLabel")} /><button className="button button-ghost" type="submit" disabled={busy || !likedName.trim()} aria-label={t("playlists.createLikedLabel")}><Icon name="shuffle" /> {t("playlists.createLiked")}</button></div>
+            {likedCreateError && <p className="error-text" role="alert">{likedCreateError}</p>}
+          </form>
+
 
           {loadingList && <p className="playlist-loading" role="status">{t("playlists.loadingList")}</p>}
           {listError && <div className="playlist-inline-error" role="alert"><p className="error-text">{listError}</p><button className="button button-ghost" type="button" onClick={() => setReload((current) => current + 1)}>{t("common.retry")}</button></div>}
@@ -373,6 +440,7 @@ export default function Playlists({ revision, onNotice, onQueueChange }: Props) 
                         </div>
                         <time className="playlist-entry-duration">{formatDuration(track?.duration_ms ?? 0)}</time>
                         <div className="playlist-entry-actions" aria-label={t("playlists.entryActions", { title: trackTitle })}>
+                          {track && <button className="library-like-button" type="button" disabled={busy || likeBusy.has(track.id)} onClick={() => toggleLiked(track)} aria-pressed={track.liked} aria-label={t(track.liked ? "library.unlikeTrack" : "library.likeTrack", { title: trackTitle })} title={t(track.liked ? "library.unlikeTitle" : "library.likeTitle")}><Icon name="heart" /></button>}
                           <button type="button" disabled={busy || index === 0} onClick={() => moveEntry(index, -1)} aria-label={t("playlists.moveUp", { title: trackTitle })} title={t("playlists.moveUpTitle")}><Icon name="up" /></button>
                           <button type="button" disabled={busy || index === entries.length - 1} onClick={() => moveEntry(index, 1)} aria-label={t("playlists.moveDown", { title: trackTitle })} title={t("playlists.moveDownTitle")}><Icon name="down" /></button>
                           <button className="playlist-remove-button" type="button" disabled={busy} onClick={() => setEntries((current) => current.filter((_, currentIndex) => currentIndex !== index))} aria-label={t("playlists.removeTrack", { title: trackTitle })} title={t("playlists.removeTrackTitle")}><Icon name="remove" /></button>

@@ -24,6 +24,7 @@ import (
 
 	"github.com/jastreamer/jastreamer-server/internal/airplay"
 	"github.com/jastreamer/jastreamer-server/internal/auth"
+	"github.com/jastreamer/jastreamer-server/internal/browseroutput"
 	"github.com/jastreamer/jastreamer-server/internal/cast"
 	"github.com/jastreamer/jastreamer-server/internal/config"
 	"github.com/jastreamer/jastreamer-server/internal/database"
@@ -160,12 +161,30 @@ func runRuntime(parent context.Context, value config.Config, configPath, restart
 		result.err = err
 		return result
 	}
-	media, err := stream.New(catalog, stream.Config{BaseURL: mediaOrigin(value), FFmpegPath: value.Media.FFmpegPath, Transcode: value.Media.Transcode})
+	media, err := stream.New(catalog, stream.Config{
+		BaseURL: mediaOrigin(value), FFmpegPath: value.Media.FFmpegPath, Transcode: value.Media.Transcode,
+		BrowserAuthorized: func(request *http.Request) bool {
+			cookie, cookieErr := request.Cookie("jastreamer_session")
+			if cookieErr != nil {
+				return false
+			}
+			_, validateErr := accounts.Validate(request.Context(), cookie.Value)
+			return validateErr == nil
+		},
+	})
 	if err != nil {
 		result.err = err
 		return result
 	}
-	backends := []output.Backend{{Protocol: output.ProtocolUPnP, Controller: upnp, Media: media}}
+	browser, err := browseroutput.New(media, hub.Publish)
+	if err != nil {
+		result.err = err
+		return result
+	}
+	backends := []output.Backend{
+		{Protocol: output.ProtocolUPnP, Controller: upnp, Media: media},
+		{Protocol: output.ProtocolBrowser, Controller: browser, Media: browser},
+	}
 	if value.Cast.Enabled {
 		castManager, castErr := cast.New(cast.Config{
 			Interfaces: value.Network.Interfaces, DiscoveryInterval: time.Duration(value.Network.DiscoveryIntervalSeconds) * time.Second,
@@ -242,7 +261,7 @@ func runRuntime(parent context.Context, value config.Config, configPath, restart
 		Context: ctx, ConfigPath: configPath, Config: value, RuntimeID: runtimeID,
 		RestartError: restartError, Restart: restartHooks, Auth: accounts,
 		Discovery: discoveryService, Library: catalog, Devices: outputs, Player: playback,
-		Stream: media, Events: hub, UI: ui.Assets(), TrustedHosts: hosts,
+		Browser: browser, Stream: media, Events: hub, UI: ui.Assets(), TrustedHosts: hosts,
 	})
 	type binding struct {
 		listener net.Listener
@@ -348,9 +367,6 @@ func runRuntime(parent context.Context, value config.Config, configPath, restart
 		advertisement.Close()
 		advertisement = nil
 	}
-	for _, bound := range bindings {
-		_ = bound.listener.Close()
-	}
 	if result.restart == nil {
 		stopCtx, stop := context.WithTimeout(context.Background(), runtimeShutdownTimeout)
 		stopErr := playback.StopForRestart(stopCtx)
@@ -362,6 +378,9 @@ func runRuntime(parent context.Context, value config.Config, configPath, restart
 				result.err = errors.Join(result.err, fmt.Errorf("stop playback during runtime shutdown: %w", stopErr))
 			}
 		}
+	}
+	for _, bound := range bindings {
+		_ = bound.listener.Close()
 	}
 	cancel()
 	shutdownCtx, shutdown := context.WithTimeout(context.Background(), runtimeShutdownTimeout)

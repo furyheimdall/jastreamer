@@ -2,7 +2,7 @@
 
 [프로젝트 소개](README.ko.md) · [한국어 사용자 안내서](INSTRUCTION.ko.md) · [English installation guide](INSTALL.md)
 
-실제로 사용할 패키지와 플랫폼에 맞는 아래 분기를 선택하세요. Server가 Web 화면을 제공하며, 선택 사항인 Desktop·네이티브 모바일·휴대전화 PWA는 기존 Server의 클라이언트이지 로컬 오디오 Renderer가 아닙니다.
+실제로 사용할 패키지와 플랫폼에 맞는 아래 분기를 선택하세요. Server가 Web 화면을 제공하며 선택 사항인 Desktop·네이티브 모바일·휴대전화 PWA는 기존 Server에 접속합니다. 로컬 재생은 별도로 설치하는 네이티브 오디오 엔진이 아니라 공유 Web 화면의 브라우저 출력을 사용합니다. [사용자 안내서](INSTRUCTION.ko.md#browser-output)를 참고하세요.
 
 공개 프리뷰는 미서명이며 production 검증을 마친 릴리즈가 아닙니다. 선택한 릴리즈의 제한을 읽고 내려받은 모든 파일을 검증한 뒤 실제 네트워크와 수신기에서 동작을 확인하세요. 설치 후 화면 사용법과 문제 해결은 [한국어 사용자 안내서](INSTRUCTION.ko.md)를 참고하세요.
 
@@ -152,7 +152,7 @@ ZIP 전체를 현재 사용자가 쓸 수 있는 새 로컬 폴더에 푸세요.
 
 같은 컴퓨터에서 `http://127.0.0.1:18080`을 열거나 다른 클라이언트에서는 Windows 컴퓨터의 사설 LAN 주소와 18080 포트를 사용합니다. Windows 방화벽이 물으면 해당 실행 파일을 사설 네트워크에서만 허용하고 방화벽을 끄지 마세요. Web·미디어 접근에는 TCP 18080, UPnP 검색에는 SSDP UDP 1900, 선택적 Google Cast 검색에는 선택한 인터페이스의 mDNS UDP 5353이 필요합니다. Cast는 Server에서 각 수신기가 광고한 TCP 포트로 접근하고 수신기가 음원을 가져올 Server URL에도 접근할 수 있어야 합니다.
 
-이 패키지는 네이티브 Server이며 선택 사항인 Windows 데스크톱 앱이 아닙니다. UPnP/DLNA와 선택적 Google Cast 네트워크 출력을 제공하지만 Renderer를 설치하거나 PC 스피커에서 재생하지 않습니다. Google Cast에는 Chrome이나 Python helper가 필요하지 않습니다. 네이티브 Windows Server는 임의의 실행 파일 경로를 입력해도 AirPlay를 지원하지 않으며 FFmpeg도 포함하지 않습니다. 따라서 변환과 AirPlay의 기본값은 꺼짐입니다. 별도 Linux 송신 프로그램은 설치한 Server와 같은 릴리즈의 jastreamer 어댑터 소스·의존성을 사용하고 일치하는 통신 규약을 구현해야 합니다. `atvremote`, Python, pyatv 단독 설치와 Shairport Sync 같은 수신 프로그램으로 대신할 수 없습니다.
+이 패키지는 네이티브 Server이며 선택 사항인 Windows 데스크톱 앱이 아닙니다. UPnP/DLNA와 선택적 Google Cast 네트워크 출력을 제공하지만 자체적으로 PC 스피커를 열거나 네이티브 오디오 엔진을 설치하지 않습니다. 대신 접속한 브라우저의 공유 Web 화면에서 **이 기기** 출력을 선택할 수 있습니다. Google Cast에는 Chrome이나 Python helper가 필요하지 않습니다. 네이티브 Windows Server는 임의의 실행 파일 경로를 입력해도 AirPlay를 지원하지 않으며 FFmpeg도 포함하지 않습니다. 따라서 변환과 AirPlay의 기본값은 꺼짐입니다. 별도 Linux 송신 프로그램은 설치한 Server와 같은 릴리즈의 jastreamer 어댑터 소스·의존성을 사용하고 일치하는 통신 규약을 구현해야 합니다. `atvremote`, Python, pyatv 단독 설치와 Shairport Sync 같은 수신 프로그램으로 대신할 수 없습니다.
 
 무설치 업데이트 전에 실제 launcher와 설정을 확인해 `data_dir`와 모든 음악 루트의 위치를 파악하세요. 외부 드라이브, UNC 공유, 심볼릭 링크·junction의 실제 대상도 포함하며 설치 폴더 옆 `data`·`music`이라고 가정하지 않습니다. 실제 경로와 권한을 기록하고 보존하세요. 경로가 불일치하거나 읽을 수 없으면 중단하며, 업데이트 작업으로 이 폴더들을 옮기거나 복사하지 않습니다.
 
@@ -194,7 +194,7 @@ sudo apt install ./jastreamer-desktop_0.2.0_linux-amd64.deb
 <a id="android"></a>
 ## 7. 선택 사항인 네이티브 Android 클라이언트
 
-Kotlin 앱은 `_jastreamer._tcp` Server를 검색하고 `/api/v1/discovery`로 확인한 뒤 선택한 Server의 기존 Web 화면을 엽니다. 폐기한 Flutter Controller나 Android 오디오 Renderer가 아닙니다. PWA 추가 설치, 로컬 음악 접근 권한이나 위치 권한은 필요하지 않습니다.
+Kotlin 앱은 `_jastreamer._tcp` Server를 검색하고 `/api/v1/discovery`로 확인한 뒤 선택한 Server의 기존 Web 화면을 엽니다. 독립 네이티브 오디오 엔진을 추가하지 않으며 공유 Web 오디오는 WebView의 제약을 따릅니다. PWA 추가 설치, 로컬 음악 접근 권한이나 위치 권한은 필요하지 않습니다.
 
 현재 배포는 성공한 [Android CI 실행](https://github.com/furyheimdall/jastreamer/actions/workflows/android.yml)의 **개발·테스트 산출물**입니다. 의도한 소스 리비전을 고르고 `jastreamer-android-debug-test-signed-and-release-unsigned-<revision>` artifact를 받으세요. 설치 전에 `SHA256SUMS`, `provenance.json`, 소스 리비전, application ID와 서명 인증서를 검증합니다. PR 산출물은 보호된 main의 릴리즈가 아닙니다.
 
@@ -217,7 +217,7 @@ HTTP는 신뢰할 수 있는 사설 LAN에서만 사용하며 암호화되지 �
 <a id="ios"></a>
 ## 8. 네이티브 iOS 소스와 CI
 
-`apps/ios`의 SwiftUI/WKWebView 앱은 `_jastreamer._tcp` Server를 검색하고 `/api/v1/discovery`로 확인한 뒤 선택한 Server의 Web 화면을 사용합니다. 네이티브 파일 선택기 요청을 거부하는 공개 WebKit API를 포함해 최소 **iOS/iPadOS 18.4**가 필요합니다. 네트워크 클라이언트이며 휴대전화 오디오 Renderer가 아닙니다.
+`apps/ios`의 SwiftUI/WKWebView 앱은 `_jastreamer._tcp` Server를 검색하고 `/api/v1/discovery`로 확인한 뒤 선택한 Server의 Web 화면을 사용합니다. 네이티브 파일 선택기 요청을 거부하는 공개 WebKit API를 포함해 최소 **iOS/iPadOS 18.4**가 필요합니다. 독립 네이티브 오디오 엔진을 추가하지 않으며 공유 Web 오디오는 WebKit의 제약을 따릅니다.
 
 현재 범위는 **소스, 미서명 기기용 빌드와 시뮬레이터 CI만**입니다. 성공한 [iOS CI 실행](https://github.com/furyheimdall/jastreamer/actions/workflows/ios.yml)은 `jastreamer-ios-development-unsigned-and-simulator-<revision>`을 제공합니다. 개발 산출물을 사용하기 전에 `SHA256SUMS`, `provenance.json`, 소스 리비전, bundle identifier와 플랫폼을 확인하세요. PR 산출물은 검증한 merge 리비전을 기록하며 보호된 main의 릴리즈가 아닙니다.
 

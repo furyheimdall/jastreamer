@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/jastreamer/jastreamer-server/internal/auth"
+	"github.com/jastreamer/jastreamer-server/internal/browseroutput"
 	"github.com/jastreamer/jastreamer-server/internal/config"
 	"github.com/jastreamer/jastreamer-server/internal/discovery"
 	"github.com/jastreamer/jastreamer-server/internal/events"
@@ -36,6 +37,7 @@ type Options struct {
 	Library      *library.Service
 	Devices      *output.Manager
 	Player       *player.Service
+	Browser      *browseroutput.Service
 	Stream       *stream.Service
 	Events       *events.Hub
 	UI           fs.FS
@@ -89,6 +91,8 @@ func New(options Options) http.Handler {
 	mux.HandleFunc("GET /api/v1/playlists/{id}", service.require(service.playlist))
 	mux.HandleFunc("PUT /api/v1/playlists/{id}", service.require(service.mutating(service.savePlaylist)))
 	mux.HandleFunc("DELETE /api/v1/playlists/{id}", service.require(service.mutating(service.deletePlaylist)))
+	service.registerLikesRoutes(mux)
+	service.registerBrowserRoutes(mux)
 	mux.HandleFunc("GET /api/v1/renderers", service.require(service.renderers))
 	mux.HandleFunc("POST /api/v1/renderers/refresh", service.require(service.refreshRenderers))
 	mux.HandleFunc("POST /api/v1/renderers/{id}/pairing", service.require(service.mutating(service.pairRenderer)))

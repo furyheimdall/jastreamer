@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react
 import { api, ApiError } from "./api";
 import { useI18n } from "./i18n";
 import TrackInfoDialog from "./TrackInfoDialog";
-import type { Playlist, PlayerState, QueueEntry, QueueState } from "./types";
+import type { Playlist, PlayerState, QueueEntry, QueueState, Track } from "./types";
 
 interface QueueProps {
   revision: number;
@@ -19,7 +19,7 @@ function messageFrom(error: unknown, fallback: string): string {
   return error instanceof ApiError ? error.message : fallback;
 }
 
-function QueueIcon({ name }: { name: "up" | "down" | "remove" | "play" | "info" | "music" }) {
+function QueueIcon({ name }: { name: "up" | "down" | "remove" | "play" | "info" | "music" | "heart" }) {
   const paths = {
     up: <path d="m18 15-6-6-6 6" />,
     down: <path d="m6 9 6 6 6-6" />,
@@ -27,6 +27,7 @@ function QueueIcon({ name }: { name: "up" | "down" | "remove" | "play" | "info" 
     play: <path d="m8 5 11 7-11 7Z" />,
     info: <><circle cx="12" cy="12" r="9" /><path d="M12 11v6M12 7h.01" /></>,
     music: <><path d="M9 18V5l11-2v13" /><circle cx="6" cy="18" r="3" /><circle cx="17" cy="16" r="3" /></>,
+    heart: <path d="M20.8 5.8a5.5 5.5 0 0 0-7.8 0L12 6.9l-1.1-1.1a5.5 5.5 0 0 0-7.8 7.8L12 22l8.8-8.4a5.5 5.5 0 0 0 0-7.8z" />,
   };
   return (
     <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
@@ -45,6 +46,7 @@ export default function Queue({ revision, onNotice, onQueueChange }: QueueProps)
   const [saving, setSaving] = useState(false);
   const [playlistName, setPlaylistName] = useState("");
   const [infoTrackID, setInfoTrackID] = useState<string | null>(null);
+  const [likeBusy, setLikeBusy] = useState<Set<string>>(() => new Set());
 
   const loadQueue = useCallback(async () => {
     try {
@@ -89,6 +91,30 @@ export default function Queue({ revision, onNotice, onQueueChange }: QueueProps)
       if (conflict) await loadQueue();
     } finally {
       setBusyEntry("");
+    }
+  }
+
+  async function toggleLiked(track: Track) {
+    if (likeBusy.has(track.id)) return;
+    setLikeBusy((current) => new Set(current).add(track.id));
+    try {
+      const updated = await api<Track>(`/library/tracks/${encodeURIComponent(track.id)}/like`, {
+        method: "PUT",
+        body: JSON.stringify({ liked: !track.liked }),
+      });
+      setQueue((current) => current ? {
+        ...current,
+        entries: current.entries.map((entry) => entry.track_id === updated.id ? { ...entry, track: updated } : entry),
+      } : current);
+      onNotice(t(updated.liked ? "library.likedTrack" : "library.unlikedTrack", { title: updated.title }));
+    } catch (requestError) {
+      onNotice(messageFrom(requestError, t("common.requestFailed")), true);
+    } finally {
+      setLikeBusy((current) => {
+        const next = new Set(current);
+        next.delete(track.id);
+        return next;
+      });
     }
   }
 
@@ -208,6 +234,17 @@ export default function Queue({ revision, onNotice, onQueueChange }: QueueProps)
                     <QueueIcon name="play" />
                   </button>
                   <button
+                    className="icon-button library-like-button"
+                    type="button"
+                    aria-label={t(entry.track.liked ? "library.unlikeTrack" : "library.likeTrack", { title: trackTitle })}
+                    title={t(entry.track.liked ? "library.unlikeTitle" : "library.likeTitle")}
+                    aria-pressed={entry.track.liked}
+                    disabled={likeBusy.has(entry.track_id)}
+                    onClick={() => void toggleLiked(entry.track)}
+                  >
+                    <QueueIcon name="heart" />
+                  </button>
+                  <button
                     className="icon-button"
                     type="button"
                     aria-label={t("queue.moveUp")}
@@ -263,7 +300,7 @@ export default function Queue({ revision, onNotice, onQueueChange }: QueueProps)
           {t(saving ? "common.saving" : "common.save")}
         </button>
       </form>
-      <TrackInfoDialog trackId={infoTrackID} onClose={() => setInfoTrackID(null)} />
+      <TrackInfoDialog trackId={infoTrackID} revision={revision} onNotice={onNotice} onClose={() => setInfoTrackID(null)} />
     </section>
   );
 }

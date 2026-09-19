@@ -50,6 +50,15 @@ func selectRepresentation(track library.Track, audio library.AudioProperties, pr
 				fault.New(415, "MEDIA_UNSUPPORTED", fmt.Sprintf("Google Cast cannot play %s natively: %s", spec.canonical, reason)))
 		}
 	}
+	if protocol == output.ProtocolBrowser {
+		if selected, ok := supportedOriginal(spec, protocolInfo); ok {
+			return representation{mime: selected}, nil
+		}
+		if transcode && supportsBrowserWAV(protocolInfo) {
+			return representation{mime: wavMime, transformed: true, transcode: transcodeWAV}, nil
+		}
+		return representation{}, fmt.Errorf("%w: browser reports no compatible decoder for %s", ErrUnsupportedMedia, spec.canonical)
+	}
 	if selected, ok := supportedOriginal(spec, protocolInfo); ok {
 		return representation{mime: selected}, nil
 	}
@@ -176,6 +185,19 @@ func supportedOriginal(spec sourceSpec, values []string) (string, bool) {
 		}
 	}
 	return "", false
+}
+
+func supportsBrowserWAV(values []string) bool {
+	for _, entry := range protocolEntries(values) {
+		if entry.transport != "*" && !strings.EqualFold(entry.transport, "http-get") {
+			continue
+		}
+		if entry.mediaType == "*" || entry.mediaType == "*/*" || strings.EqualFold(entry.mediaType, "audio/*") ||
+			strings.EqualFold(entry.mediaType, wavMime) || strings.EqualFold(entry.mediaType, "audio/x-wav") {
+			return true
+		}
+	}
+	return false
 }
 
 func supportsL16(values []string) bool {

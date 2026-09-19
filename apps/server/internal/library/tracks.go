@@ -11,7 +11,7 @@ import (
 	"strings"
 )
 
-const trackColumns = `id,title,artist,album,album_artist,album_id,disc,track_number,genres_json,duration_ms,format,mime,artwork_id,root_id,relative_path,available,byte_size,modified_at,modified_ns`
+const trackColumns = `id,title,artist,album,album_artist,album_id,disc,track_number,genres_json,duration_ms,format,mime,artwork_id,root_id,relative_path,available,EXISTS(SELECT 1 FROM library_track_likes AS track_likes WHERE track_likes.track_id=library_tracks.id),byte_size,modified_at,modified_ns`
 
 type trackRecord struct {
 	track      Track
@@ -44,18 +44,19 @@ func (service *Service) trackRecord(ctx context.Context, id string) (trackRecord
 func scanTrack(scanner interface{ Scan(...any) error }) (trackRecord, error) {
 	var record trackRecord
 	var genres string
-	var available int
+	var available, liked int
 	err := scanner.Scan(
 		&record.track.ID, &record.track.Title, &record.track.Artist, &record.track.Album,
 		&record.track.AlbumArtist, &record.track.AlbumID, &record.track.Disc, &record.track.Track,
 		&genres, &record.track.DurationMS, &record.track.Format, &record.track.Mime,
-		&record.track.ArtworkID, &record.track.RootID, &record.track.Path, &available,
+		&record.track.ArtworkID, &record.track.RootID, &record.track.Path, &available, &liked,
 		&record.track.Size, &record.track.ModifiedAt, &record.modifiedNS,
 	)
 	if err != nil {
 		return trackRecord{}, err
 	}
 	record.track.Available = available == 1
+	record.track.Liked = liked == 1
 	record.track.Genres = []string{}
 	if err := json.Unmarshal([]byte(genres), &record.track.Genres); err != nil {
 		return trackRecord{}, fmt.Errorf("decode track genres: %w", err)

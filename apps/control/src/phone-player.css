@@ -209,6 +209,15 @@ html[data-device="phone"] .phone-player-expanded .output-control .icon-button {
   width: 2.75rem;
   height: 2.75rem;
 }
+html[data-device="phone"] .phone-player-expanded .browser-autoplay {
+  position: static;
+  width: 100%;
+}
+
+html[data-device="phone"] .phone-player-expanded .browser-autoplay .button {
+  width: 100%;
+}
+
 
 html[data-device="phone"] .phone-player-expanded .pairing-panel {
   position: static;
@@ -275,7 +284,7 @@ html[data-device="phone"] .queue-page .queue-actions {
   display: grid;
   grid-column: 1 / -1;
   width: 100%;
-  grid-template-columns: repeat(4, 2.75rem);
+  grid-template-columns: repeat(5, 2.75rem);
   justify-content: end;
   gap: 0.25rem;
 }

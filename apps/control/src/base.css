@@ -635,12 +635,37 @@ textarea.input {
 .playing-indicator {
   color: var(--accent);
 }
+.browser-autoplay {
+  display: grid;
+  width: min(24rem, calc(100vw - 2rem));
+  padding: 0.65rem;
+  border: 1px solid #d8a34a66;
+  border-radius: 0.65rem;
+  color: var(--text);
+  background: #1b1f22f7;
+  font-size: 0.78rem;
+  text-align: left;
+  gap: 0.55rem;
+}
 
+.browser-autoplay .button {
+  min-height: 44px;
+}
+.browser-autoplay-compact {
+  color: #e6b963;
+}
+
+
+
+.browser-autoplay,
 .pairing-panel {
   position: fixed;
   z-index: 35;
   right: 1.35rem;
   bottom: calc(var(--player-height) + 0.75rem);
+}
+
+.pairing-panel {
   width: min(24rem, calc(100vw - 2rem));
   padding: 1rem;
   border: 1px solid var(--border);
@@ -648,6 +673,33 @@ textarea.input {
   background: #1b1f22f7;
   box-shadow: 0 1rem 3rem #0008;
   backdrop-filter: blur(18px);
+}
+
+.browser-name-form {
+  display: grid;
+  gap: 0.65rem;
+  margin-top: 0.75rem;
+}
+
+.browser-name-panel {
+  max-height: calc(100dvh - var(--player-height) - 2rem);
+  overflow-y: auto;
+}
+
+.browser-name-panel p {
+  font-size: 0.8rem;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.browser-name-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.browser-name-actions .button {
+  min-height: 44px;
 }
 
 .pairing-panel h2 {
@@ -1417,6 +1469,7 @@ body:has([aria-modal="true"]) {
     display: none;
   }
 
+  .browser-autoplay,
   .pairing-panel {
     right: 1rem;
     bottom: calc(var(--player-height) + 5.25rem);

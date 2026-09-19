@@ -56,6 +56,10 @@ CREATE TABLE IF NOT EXISTS library_tracks (
   last_seen_scan TEXT NOT NULL,
   UNIQUE(root_id, relative_path)
 ) STRICT;
+CREATE TABLE IF NOT EXISTS library_track_likes (
+  track_id TEXT PRIMARY KEY REFERENCES library_tracks(id) ON DELETE CASCADE,
+  updated_at TEXT NOT NULL
+) STRICT;
 CREATE INDEX IF NOT EXISTS library_tracks_available_album ON library_tracks(available,album_id,disc,track_number,title,id);
 CREATE INDEX IF NOT EXISTS library_tracks_available_artist ON library_tracks(available,artist,title,id);
 CREATE INDEX IF NOT EXISTS library_tracks_root_path ON library_tracks(root_id,relative_path,available);

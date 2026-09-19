@@ -15,6 +15,7 @@ export interface Track {
   root_id: string;
   path: string;
   available: boolean;
+  liked: boolean;
   size: number;
   modified_at: string;
 }
@@ -97,7 +98,7 @@ export interface Capabilities {
   seek: boolean;
 }
 
-export type OutputProtocol = "upnp" | "airplay" | "cast";
+export type OutputProtocol = "upnp" | "airplay" | "cast" | "browser";
 
 export interface Device {
   id: string;
