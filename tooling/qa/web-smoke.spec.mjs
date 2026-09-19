@@ -286,6 +286,36 @@ test("browser natural completion advances once and owner reload preserves the qu
   await expect.poll(async () => (await control(page, "/player")).state).toBe("stopped");
 });
 
+test("browser completion survives a delayed play acknowledgment response", async ({ page }) => {
+  const { audio, trackIDs } = await prepareBrowserPlayback(page, ["short.wav", "long.wav"]);
+  let release;
+  let held = false;
+  const responseGate = new Promise((resolveResponse) => { release = resolveResponse; });
+  const reports = "**/api/v1/browser-output/registrations/*/reports";
+  await page.route(reports, async (route) => {
+    const body = route.request().postDataJSON();
+    const response = await route.fetch();
+    if (!held && body.result === "succeeded" && body.observation?.event === "playing") {
+      held = true;
+      await responseGate;
+    }
+    await route.fulfill({ response });
+  });
+  try {
+    await startBrowserPlayback(page, audio);
+    await expect.poll(() => audio.evaluate((element) => element.ended)).toBe(true);
+    release();
+    await expect.poll(async () => (await control(page, "/player")).track?.id).toBe(trackIDs[1]);
+    await expect.poll(async () => (await control(page, "/queue")).entries.map((entry) => entry.status))
+      .toEqual(["completed", "playing"]);
+    await control(page, "/player", "POST", { action: "stop" });
+    await expect.poll(async () => (await control(page, "/player")).state).toBe("stopped");
+  } finally {
+    release();
+    await page.unroute(reports);
+  }
+});
+
 test("Server restart receives browser Stop acknowledgment before draining the output transport", async ({ page }) => {
   const { audio, trackIDs } = await prepareBrowserPlayback(page, ["long.wav"]);
   await startBrowserPlayback(page, audio);
@@ -404,4 +434,31 @@ test("liked playlist creation reconciles an earlier event refresh and preserves 
     release();
     await page.unroute("**/api/v1/playlists/from-likes");
   }
+});
+
+test("unliking the last item on the last liked page returns to remaining tracks", async ({ page }) => {
+  const setup = await control(page, "/setup");
+  await control(page, setup.required ? "/setup" : "/login", "POST", {
+    username: "browser-smoke", password: "browser-smoke-password",
+  });
+  const sample = wave(0.01);
+  await Promise.all(Array.from({ length: 99 }, (_, index) =>
+    writeFile(resolve(work, "music", `liked-page-${String(index).padStart(3, "0")}.wav`), sample)));
+  await control(page, "/library/scans", "POST", {});
+  await expect.poll(async () => (await control(page, "/library/tracks?limit=200")).total).toBe(101);
+  const tracks = (await control(page, "/library/tracks?limit=200")).items;
+  for (const track of tracks) {
+    await control(page, `/library/tracks/${track.id}/like`, "PUT", { liked: true });
+  }
+  await page.goto(origin, { waitUntil: "domcontentloaded" });
+  await page.getByRole("button", { name: "Liked", exact: true }).click();
+  const remainingTrack = page.getByRole("button", { name: `Unlike ${tracks[0].title}`, exact: true });
+  await expect(remainingTrack).toBeVisible();
+  await page.getByRole("button", { name: "Next", exact: true }).click();
+  const lastLike = page.locator(".library-track-actions .library-like-button");
+  await expect(lastLike).toHaveCount(1);
+  await lastLike.click();
+  await expect(remainingTrack).toBeVisible();
+  expect((await control(page, "/library/tracks?liked=true")).total).toBe(100);
+  await expect(page.getByRole("button", { name: "Liked", exact: true })).toHaveAttribute("aria-pressed", "true");
 });

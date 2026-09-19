@@ -424,6 +424,12 @@ export default function Library({ revision, onNotice, onQueueChange }: Props) {
   const start = total ? offset + 1 : 0;
   const end = Math.min(offset + (page?.items.length ?? 0), total);
 
+  useEffect(() => {
+    if (page && offset > 0 && offset >= page.total) {
+      setOffset(Math.floor(Math.max(0, page.total - 1) / limit) * limit);
+    }
+  }, [limit, offset, page]);
+
   return (
     <section className="library-shell" aria-labelledby="library-heading">
       <header className="library-heading-row">

@@ -256,6 +256,13 @@ func TestNaturalCompletionCannotBeOverwrittenByDelayedPosition(t *testing.T) {
 	}); !errors.Is(err, ErrStaleReport) {
 		t.Fatalf("late position error=%v", err)
 	}
+	now := time.Now()
+	service.now = func() time.Time { return now }
+	now = now.Add(leaseDuration - time.Second)
+	if _, err := service.Renew(registration.ID, registration.OwnerToken, "192.0.2.10"); err != nil {
+		t.Fatal(err)
+	}
+	now = now.Add(2 * time.Second)
 	observed, err := service.Observe(t.Context(), registration.ID)
 	if err != nil || !observed.CompletionKnown || !observed.Completed || observed.State != "stopped" {
 		t.Fatalf("natural completion lost: %+v, %v", observed, err)
@@ -275,5 +282,31 @@ func TestLiveControlLeaseDoesNotInventFreshMediaObservation(t *testing.T) {
 	var actionError *output.ActionError
 	if _, err := service.Observe(t.Context(), registration.ID); !errors.As(err, &actionError) || actionError.Kind != output.ErrorTimeout {
 		t.Fatalf("stale media observation error=%v", err)
+	}
+}
+
+func TestTerminalErrorSurvivesSlowPlayerPolling(t *testing.T) {
+	service, registration := newTestService(t)
+	setTestResource(t, service, registration)
+	loaded, err := service.Observe(t.Context(), registration.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := service.Report(registration.ID, registration.OwnerToken, "192.0.2.10", Report{
+		Sequence:    loaded.CommandSequence,
+		Observation: &ObservationReport{Event: "error", PlayID: loaded.PlayID},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now()
+	service.now = func() time.Time { return now }
+	now = now.Add(leaseDuration - time.Second)
+	if _, err := service.Renew(registration.ID, registration.OwnerToken, "192.0.2.10"); err != nil {
+		t.Fatal(err)
+	}
+	now = now.Add(2 * time.Second)
+	observed, err := service.Observe(t.Context(), registration.ID)
+	if err != nil || observed.TransportStatus != "ERROR_OCCURRED" || observed.State != "stopped" {
+		t.Fatalf("confirmed error lost: %+v, %v", observed, err)
 	}
 }

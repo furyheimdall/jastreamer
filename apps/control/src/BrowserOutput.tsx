@@ -56,6 +56,7 @@ type CommandPoll = Lease & {
 type ActiveResource = {
   playID: string;
   url: string;
+  terminalSequence?: number;
 };
 
 type Observation = {
@@ -206,6 +207,10 @@ const BrowserOutput = forwardRef<BrowserOutputHandle, BrowserOutputProps>(functi
     const audio = audioRef.current;
     if (!aliveRef.current || !registration || !resource || resource !== expectedResource ||
       completedSequenceRef.current !== expectedSequence || !audio || expectedSequence === 0) return;
+    if (event === "ended" || event === "error") {
+      if (resource.terminalSequence === expectedSequence) return;
+      resource.terminalSequence = expectedSequence;
+    }
     if (event === "timeupdate") {
       const now = performance.now();
       if (audio.ended || timeReportPendingRef.current || now - lastTimeReportRef.current < 900) return;
@@ -351,7 +356,13 @@ const BrowserOutput = forwardRef<BrowserOutputHandle, BrowserOutputProps>(functi
         }
       }
       completedSequenceRef.current = command.sequence;
-      if (resourceRef.current) observeResource(audio, resourceRef.current, command.sequence);
+      const resource = resourceRef.current;
+      if (resource) {
+        observeResource(audio, resource, command.sequence);
+        // Media can finish or fail while the command acknowledgment is in flight.
+        if (audio.error) queueObservation("error", resource, command.sequence);
+        else if (audio.ended) queueObservation("ended", resource, command.sequence);
+      }
     } catch (error) {
       if (abort.signal.aborted) return;
       const errorCode = audio.error ? "media_error" : "action_failed";

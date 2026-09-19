@@ -337,7 +337,8 @@ func (service *Service) Observe(ctx context.Context, id string) (output.Observat
 	if value == nil || !service.now().Before(value.expiresAt) {
 		return output.Observation{}, output.NewActionError(output.ErrorTransport, "Observe", 0, ErrNotFound)
 	}
-	if value.resource != nil && service.now().Sub(value.observation.ObservedAt) >= leaseDuration {
+	if value.resource != nil && !value.observation.Completed && value.observation.TransportStatus != "ERROR_OCCURRED" &&
+		service.now().Sub(value.observation.ObservedAt) >= leaseDuration {
 		return output.Observation{}, output.NewActionError(output.ErrorTimeout, "Observe", 0, errors.New("browser media observation expired"))
 	}
 	return value.observation, nil
