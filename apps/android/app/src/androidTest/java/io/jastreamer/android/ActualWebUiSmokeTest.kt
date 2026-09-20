@@ -442,10 +442,12 @@ class ActualWebUiSmokeTest {
                 systemUiShowsMediaTitle(mediaTitle)
             }
             screenshotSystemUi("native-background")
-            repeat(2) {
-                instrumentation.uiAutomation.performGlobalAction(AccessibilityService.GLOBAL_ACTION_BACK)
-                SystemClock.sleep(200)
-            }
+            assertTrue(
+                "Android must dismiss its media panel without navigating the app",
+                instrumentation.uiAutomation.performGlobalAction(
+                    AccessibilityService.GLOBAL_ACTION_DISMISS_NOTIFICATION_SHADE,
+                ),
+            )
 
             scenario.moveToState(Lifecycle.State.RESUMED)
             scenario.recreate()
