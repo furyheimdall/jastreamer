@@ -1,0 +1,23 @@
+name: Windows diagnostic collector verification
+on:
+  push:
+    branches: [verify/windows-android-diagnostics-20260920]
+permissions:
+  contents: read
+jobs:
+  powershell51:
+    runs-on: windows-2022
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Exercise Windows PowerShell 5.1 and CMD launcher
+        shell: powershell
+        run: '& .github/diagnostics/windows-collector/Verify-WindowsCollector.ps1'
+      - name: Retain exact scripts and verification evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-collector-verification
+          path: .github/diagnostics/windows-collector/
+          if-no-files-found: error
+          retention-days: 7
