@@ -64,6 +64,13 @@ func (service *server) command(w http.ResponseWriter, r *http.Request) {
 	}
 	result, err := service.options.Player.Command(r.Context(), player.Command{Action: body.Action, EntryID: body.EntryID, PositionMS: body.PositionMS})
 	if err != nil {
+		status, reason := diagnosticFault(err)
+		operation := "player_command"
+		switch body.Action {
+		case "play", "pause", "stop", "next", "previous", "seek":
+			operation += "_" + body.Action
+		}
+		service.logRequestRejection(operation, "", status, reason)
 		writeError(w, err)
 		return
 	}
@@ -79,6 +86,8 @@ func (service *server) output(w http.ResponseWriter, r *http.Request) {
 	}
 	result, err := service.options.Player.SelectOutput(r.Context(), body.RendererID)
 	if err != nil {
+		status, reason := diagnosticFault(err)
+		service.logRequestRejection("select_output", body.RendererID, status, reason)
 		writeError(w, err)
 		return
 	}
