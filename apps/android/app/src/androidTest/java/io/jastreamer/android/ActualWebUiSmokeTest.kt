@@ -456,9 +456,13 @@ class ActualWebUiSmokeTest {
                     it.optLong("position_ms") >= 1_000L &&
                     it.optString("pending_command").isEmpty()
             }
+            onMain { controller.pause() }
+            waitForPlayer("pause replacement before resetting previous navigation") {
+                it.optString("state") == "paused" && it.optString("pending_command").isEmpty()
+            }
             onMain { controller.seekTo(0) }
             waitForPlayer("replacement seek completes before previous command") {
-                it.optString("state") == "playing" &&
+                it.optString("state") == "paused" &&
                     it.optLong("position_ms") < 1_000L &&
                     it.optString("pending_command").isEmpty()
             }
