@@ -19,6 +19,7 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
+import androidx.media3.common.FlagSet
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.okhttp.OkHttpDataSource
 import androidx.media3.datasource.HttpDataSource
@@ -34,6 +35,7 @@ import androidx.media3.session.SessionCommands
 import androidx.webkit.ProfileStore
 import androidx.webkit.WebViewFeature
 import java.io.IOException
+import java.util.IdentityHashMap
 import java.util.concurrent.TimeUnit
 import javax.net.ssl.SSLException
 import kotlinx.coroutines.CancellationException
@@ -1079,6 +1081,41 @@ class NativePlaybackService : MediaSessionService(), Player.Listener {
                 Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM,
             )
             .build()
+        private val listenerWrappers = IdentityHashMap<Player.Listener, Player.Listener>()
+
+        override fun addListener(listener: Player.Listener) {
+            synchronized(listenerWrappers) {
+                val wrapped = listenerWrappers.getOrPut(listener) {
+                    object : Player.Listener by listener {
+                        override fun onAvailableCommandsChanged(availableCommands: Player.Commands) {
+                            // Server controls stay available when the single-item decoder changes commands.
+                        }
+
+                        override fun onEvents(player: Player, events: Player.Events) {
+                            if (!events.contains(Player.EVENT_AVAILABLE_COMMANDS_CHANGED)) {
+                                listener.onEvents(player, events)
+                                return
+                            }
+                            if (events.size() == 1) return
+                            val flags = FlagSet.Builder()
+                            for (index in 0 until events.size()) {
+                                val event = events.get(index)
+                                if (event != Player.EVENT_AVAILABLE_COMMANDS_CHANGED) flags.add(event)
+                            }
+                            listener.onEvents(player, Player.Events(flags.build()))
+                        }
+                    }
+                }
+                super.addListener(wrapped)
+            }
+        }
+
+        override fun removeListener(listener: Player.Listener) {
+            synchronized(listenerWrappers) {
+                val wrapped = listenerWrappers.remove(listener) ?: return
+                super.removeListener(wrapped)
+            }
+        }
 
         override fun getAvailableCommands(): Player.Commands = commands
         override fun isCommandAvailable(command: Int): Boolean = commands.contains(command)
