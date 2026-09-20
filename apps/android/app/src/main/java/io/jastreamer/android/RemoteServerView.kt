@@ -75,7 +75,13 @@ class RemoteServerView(
     @MainThread
     fun retryLoad() {
         requireMainThread()
-        if (!disposed && !unusable) prepareLoad(language)
+        if (
+            !disposed &&
+            !unusable &&
+            (phase == LoadPhase.IDLE || phase == LoadPhase.LOADED)
+        ) {
+            prepareLoad(language)
+        }
     }
 
     @MainThread

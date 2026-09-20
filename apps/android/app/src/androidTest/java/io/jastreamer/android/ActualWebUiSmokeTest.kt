@@ -7,6 +7,7 @@ import android.content.Context
 import android.content.pm.ActivityInfo
 import android.content.res.Configuration
 import android.graphics.Bitmap
+import android.os.Looper
 import android.os.SystemClock
 import android.provider.MediaStore
 import android.view.InputDevice
@@ -385,8 +386,13 @@ class ActualWebUiSmokeTest {
             instrumentation.targetContext,
             ComponentName(instrumentation.targetContext, NativePlaybackService::class.java),
         )
-        val future = MediaController.Builder(instrumentation.targetContext, token).buildAsync()
+        val future = onMain {
+            MediaController.Builder(instrumentation.targetContext, token)
+                .setApplicationLooper(Looper.getMainLooper())
+                .buildAsync()
+        }
         val controller = future.get(10, TimeUnit.SECONDS)
+        var primaryFailure: Throwable? = null
         try {
             waitFor("real MediaSession playback and metadata") {
                 onMain {
@@ -414,10 +420,16 @@ class ActualWebUiSmokeTest {
                 }
             }
             onMain { controller.pause() }
+            waitForPlayer("background MediaSession pause reaches Server") {
+                it.optString("state") == "paused" && it.optString("pending_command").isEmpty()
+            }
             waitFor("background MediaSession pause takes effect") {
                 onMain { controller.isConnected && !controller.playWhenReady && !controller.isPlaying }
             }
             onMain { controller.play() }
+            waitForPlayer("background MediaSession play reaches Server") {
+                it.optString("state") == "playing" && it.optString("pending_command").isEmpty()
+            }
             waitFor("background MediaSession play takes effect") {
                 onMain { controller.isConnected && controller.playWhenReady && controller.isPlaying }
             }
@@ -471,16 +483,24 @@ class ActualWebUiSmokeTest {
             screenshot("native-recreated")
 
             onMain { controller.pause() }
-            waitForPlayer("system MediaSession pause reaches Server") { it.optString("state") == "paused" }
+            waitForPlayer("system MediaSession pause reaches Server") {
+                it.optString("state") == "paused" && it.optString("pending_command").isEmpty()
+            }
             onMain { controller.seekTo(1_000) }
             waitForPlayer("system MediaSession seek reaches Server") {
-                it.optString("state") == "paused" && it.optLong("position_ms") in 700L..2_500L
+                it.optString("state") == "paused" &&
+                    it.optLong("position_ms") in 700L..2_500L &&
+                    it.optString("pending_command").isEmpty()
             }
             onMain { controller.play() }
-            waitForPlayer("system MediaSession play reaches Server") { it.optString("state") == "playing" }
+            waitForPlayer("system MediaSession play reaches Server") {
+                it.optString("state") == "playing" && it.optString("pending_command").isEmpty()
+            }
             onMain { controller.seekToPreviousMediaItem() }
             waitForPlayer("system MediaSession previous reaches Server") {
-                it.optString("state") == "playing" && it.optJSONObject("track")?.optString("id") == shortId
+                it.optString("state") == "playing" &&
+                    it.optJSONObject("track")?.optString("id") == shortId &&
+                    it.optString("pending_command").isEmpty()
             }
             onMain { controller.pause() }
             waitForPlayer("short track is paused before exercising Next") {
@@ -608,9 +628,19 @@ class ActualWebUiSmokeTest {
             waitForPlayer("lease scenario finishes in authoritative stopped state") {
                 it.optString("state") == "stopped" && it.optString("pending_command").isEmpty()
             }
+        } catch (error: Throwable) {
+            primaryFailure = error
+            throw error
         } finally {
-            instrumentation.runOnMainSync { runCatching { controller.stop() } }
-            MediaController.releaseFuture(future)
+            val cleanupFailure = runCatching {
+                onMain {
+                    runCatching { controller.stop() }
+                    MediaController.releaseFuture(future)
+                }
+            }.exceptionOrNull()
+            if (cleanupFailure != null) {
+                primaryFailure?.addSuppressed(cleanupFailure) ?: throw cleanupFailure
+            }
         }
     }
 

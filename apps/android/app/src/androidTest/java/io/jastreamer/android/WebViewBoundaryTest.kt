@@ -192,7 +192,7 @@ class WebViewBoundaryTest {
 
         assertEquals("object", evaluate("typeof window.JastreamerAndroidAudio"))
         assertEquals(
-            "true",
+            true,
             evaluate(
                 """
                 (() => {
@@ -220,7 +220,7 @@ class WebViewBoundaryTest {
             evaluate("String(window.nativeBridgeReplies && window.nativeBridgeReplies.length)") == "1"
         }
         assertEquals(
-            "true",
+            true,
             evaluate(
                 """
                 (() => {
@@ -259,7 +259,7 @@ class WebViewBoundaryTest {
         SystemClock.sleep(500)
         assertEquals("0", evaluate("String(window.frameBridgeReplies)"))
         assertEquals(
-            "true",
+            true,
             evaluate(
                 """
                 (() => {
@@ -493,9 +493,9 @@ class WebViewBoundaryTest {
             (localStorage.getItem('boundary') || '');
         })()
         """.trimIndent(),
-    )
+    ) as? String
 
-    private fun evaluate(script: String): String? {
+    private fun evaluate(script: String): Any? {
         val completed = CountDownLatch(1)
         val encoded = AtomicReference<String?>()
         scenario.onActivity {
@@ -507,12 +507,10 @@ class WebViewBoundaryTest {
             }
         }
         assertTrue("Timed out evaluating fixture JavaScript", completed.await(5, TimeUnit.SECONDS))
-        val result = encoded.get() ?: return null
-        if (result == "null") return null
-        return JSONTokener(result).nextValue() as? String
+        return decodeJavascriptResult(encoded.get())
     }
 
-    private fun evaluateActivity(script: String): String? {
+    private fun evaluateActivity(script: String): Any? {
         val completed = CountDownLatch(1)
         val encoded = AtomicReference<String?>()
         scenario.onActivity { activity ->
@@ -532,10 +530,11 @@ class WebViewBoundaryTest {
             }
         }
         assertTrue("Timed out evaluating Activity WebView JavaScript", completed.await(5, TimeUnit.SECONDS))
-        val result = encoded.get() ?: return null
-        if (result == "null") return null
-        return JSONTokener(result).nextValue() as? String
+        return decodeJavascriptResult(encoded.get())
     }
+
+    private fun decodeJavascriptResult(encoded: String?): Any? =
+        encoded?.takeUnless { it == "null" }?.let { JSONTokener(it).nextValue() }
 
     private fun endpoint(origin: String, id: String) = ServerEndpoint(
         id = id,
