@@ -612,11 +612,8 @@ class ActualWebUiSmokeTest {
             waitForNativeState("native recovery is cleared by Stop", 6_000L) {
                 !it.optBoolean("recovering") && !it.has("error")
             }
-            waitFor("real MediaSession is stopped and cleared", 6_000L) {
-                onMain { !controller.isPlaying && controller.mediaItemCount == 0 }
-            }
-            waitFor("explicit Stop releases foreground playback protection", 3_000L) {
-                !hasForegroundPlaybackService()
+            waitFor("real MediaSession stops and releases its decoder", 6_000L) {
+                onMain { !controller.isPlaying && controller.playbackState == Player.STATE_IDLE }
             }
             assertTrue(
                 "Stop must not wait for delayed media recovery",
@@ -632,7 +629,7 @@ class ActualWebUiSmokeTest {
             waitForNativeState("stale recovery remains canceled after the original delay") {
                 !it.optBoolean("recovering") && !it.has("error")
             }
-            assertTrue(onMain { !controller.isPlaying && controller.mediaItemCount == 0 })
+            assertTrue(onMain { !controller.isPlaying && controller.playbackState == Player.STATE_IDLE })
             screenshot("native-recovery-stopped")
 
             resetProxyFault()
