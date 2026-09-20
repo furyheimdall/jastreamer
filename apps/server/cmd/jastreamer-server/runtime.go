@@ -119,6 +119,12 @@ func runRuntime(parent context.Context, value config.Config, configPath, restart
 		result.err = err
 		return result
 	}
+	stopLogging, err := startDiagnosticLogging(value.DataDir)
+	if err != nil {
+		result.err = err
+		return result
+	}
+	defer stopLogging()
 	db, err := database.Open(filepath.Join(value.DataDir, "server.sqlite"))
 	if err != nil {
 		result.err = err
@@ -349,18 +355,23 @@ func runRuntime(parent context.Context, value config.Config, configPath, restart
 		log.Printf("%s listening on %s", scheme, bound.listener.Addr())
 	}
 	result.started = true
+	log.Printf("diagnostic component=server event=runtime_started runtime_id=%q source_revision=%q", runtimeID, resolvedSourceRevision())
 	if required, setupErr := accounts.NeedsSetup(ctx); setupErr == nil && required {
 		log.Print("Initial setup required: create the administrator in the Web interface.")
 	}
+	stopReason := "signal"
 	select {
 	case <-parent.Done():
 		shuttingDown.Store(true)
 	case result.err = <-failures:
+		stopReason = "runtime_failure"
 		shuttingDown.Store(true)
 	case request := <-restartRequests:
+		stopReason = "configuration_restart"
 		result.restart = &request
 	}
 	shuttingDown.Store(true)
+	log.Printf("diagnostic component=server event=runtime_stopping runtime_id=%q reason=%q error_type=%T", runtimeID, stopReason, result.err)
 	lifecycleMu.Lock()
 	defer lifecycleMu.Unlock()
 	if advertisement != nil {

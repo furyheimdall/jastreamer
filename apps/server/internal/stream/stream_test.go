@@ -1,9 +1,11 @@
 package stream
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"io"
+	"log"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -17,6 +19,35 @@ import (
 	"github.com/jastreamer/jastreamer-server/internal/library"
 	"github.com/jastreamer/jastreamer-server/internal/output"
 )
+
+func TestRejectedMediaDiagnosticsRedactAndRateLimitUntrustedRequests(t *testing.T) {
+	var logs bytes.Buffer
+	previous := log.Writer()
+	log.SetOutput(&logs)
+	defer log.SetOutput(previous)
+	service := &Service{}
+	for range 12 {
+		request := httptest.NewRequest("PRIVATE_METHOD_CANARY", "http://server/media/private-path-canary", nil)
+		request.Header.Set("Authorization", "Bearer private-credential-canary")
+		response := httptest.NewRecorder()
+		service.Handler().ServeHTTP(response, request)
+		if response.Code != http.StatusNotFound {
+			t.Fatalf("invalid grant status = %d", response.Code)
+		}
+	}
+	recorded := logs.String()
+	if strings.Count(recorded, "event=media_http_rejected") != 1 {
+		t.Fatalf("repeated requests were not bounded: %s", recorded)
+	}
+	if !strings.Contains(recorded, `method="OTHER"`) {
+		t.Fatalf("untrusted method was not categorized: %s", recorded)
+	}
+	for _, secret := range []string{"PRIVATE_METHOD_CANARY", "private-path-canary", "private-credential-canary"} {
+		if strings.Contains(recorded, secret) {
+			t.Fatalf("diagnostics disclosed request data %q", secret)
+		}
+	}
+}
 
 const ffmpegHelperEnvironment = "JASTREAMER_STREAM_TEST_FFMPEG"
 

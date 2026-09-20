@@ -13,10 +13,13 @@ import (
 )
 
 type commandRecord struct {
-	id         string
-	action     string
-	entryID    string
-	positionMS int64
+	id           string
+	action       string
+	entryID      string
+	positionMS   int64
+	startedAt    time.Time
+	errorInfo    diagnosticErrorInfo
+	initialState storedState
 }
 
 type startResult struct {
@@ -194,6 +197,7 @@ func (s *Service) acceptCommandLocked(ctx context.Context, commandID, now string
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("player: commit command intent: %w", err)
 	}
+	s.logCommandAccepted(commandID, command.Action, st.rendererID, st.playID, st.currentEntryID, command.EntryID, "request", st.state, st.revision+1, command.PositionMS)
 	return nil
 }
 
@@ -233,8 +237,9 @@ func (s *Service) claimCommand(ctx context.Context) (commandRecord, bool, error)
 	if err != nil {
 		return commandRecord{}, false, err
 	}
-	now := s.now().UTC().Format(time.RFC3339Nano)
-	result, err := tx.ExecContext(ctx, "UPDATE player_commands SET status='running',started_at=? WHERE command_id=? AND status='pending'", now, command.id)
+	startedAt := s.now().UTC()
+	command.startedAt = startedAt
+	result, err := tx.ExecContext(ctx, "UPDATE player_commands SET status='running',started_at=? WHERE command_id=? AND status='pending'", startedAt.Format(time.RFC3339Nano), command.id)
 	if err != nil {
 		return commandRecord{}, false, err
 	}
@@ -252,12 +257,14 @@ func (s *Service) executeSafely(runCtx context.Context, command commandRecord) {
 	defer s.ensureCommandTerminal(command)
 	defer func() {
 		if recover() != nil {
+			command.errorInfo = diagnosticError(nil, "panic")
 			s.completeUnknown(command, "The renderer command ended unexpectedly; its outcome is unknown.")
 		}
 	}()
 	ctx, cancel := context.WithTimeout(runCtx, commandTimeout)
 	defer cancel()
 	if err := s.executeCommand(ctx, command); err != nil {
+		command.errorInfo = diagnosticError(err, "internal")
 		if ctx.Err() != nil || rendererOutcomeUnknown(err) {
 			s.completeUnknown(command, rendererUnknownOutcomeMessage(err))
 			return
@@ -271,12 +278,14 @@ func (s *Service) executeCommand(ctx context.Context, command commandRecord) err
 	if err != nil {
 		return err
 	}
+	command.initialState = st
 	if command.action == "stop" && recoveredPlaybackIntent(st) {
 		if st.playID != "" {
 			s.media.Revoke(st.playID)
 		}
+		command.errorInfo = diagnosticError(nil, "recovery_unconfirmed")
 		const message = "Server playback stopped and media access was revoked, but physical renderer playback could not be confirmed after recovery."
-		return s.completeUnconfirmedStop(command, st.currentEntryID, message)
+		return s.completeUnconfirmedStop(command, st, message)
 	}
 	device, found := s.devices.Device(st.rendererID)
 	if !found || !device.Online {
@@ -284,12 +293,14 @@ func (s *Service) executeCommand(ctx context.Context, command commandRecord) err
 			if st.playID != "" {
 				s.media.Revoke(st.playID)
 			}
+			command.errorInfo = diagnosticError(nil, "offline")
 			const message = "Server playback stopped and media access was revoked, but the offline renderer could not confirm physical stop."
-			return s.completeUnconfirmedStop(command, st.currentEntryID, message)
+			return s.completeUnconfirmedStop(command, st, message)
 		}
 		if st.playID != "" {
 			s.media.Revoke(st.playID)
 		}
+		command.errorInfo = diagnosticError(nil, "offline")
 		s.completeFailure(command, "The selected renderer is offline. Reconnect it and press Play to resume.", true, "")
 		return nil
 	}
@@ -388,6 +399,7 @@ func (s *Service) executePlay(ctx context.Context, command commandRecord, st sto
 		if rendererOutcomeUnknown(err) {
 			return err
 		}
+		command.errorInfo = diagnosticError(err, "start_failed")
 		s.completeFailure(command, rendererFailureMessage("play", err), false, target.id)
 		return nil
 	}
@@ -427,6 +439,7 @@ func (s *Service) executeNext(ctx context.Context, command commandRecord, st sto
 		if rendererOutcomeUnknown(err) {
 			return err
 		}
+		command.errorInfo = diagnosticError(err, "start_failed")
 		return s.completeAdvanceFailure(command, st.currentEntryID, target.id, rendererFailureMessage("next", err))
 	}
 	return s.completeStart(command, st.currentEntryID, EntryCompleted, started, controlAction)
@@ -478,6 +491,7 @@ func (s *Service) executePrevious(ctx context.Context, command commandRecord, st
 		if rendererOutcomeUnknown(err) {
 			return err
 		}
+		command.errorInfo = diagnosticError(err, "start_failed")
 		s.completeFailure(command, rendererFailureMessage("previous", err), false, target.id)
 		return nil
 	}
@@ -688,9 +702,11 @@ type successUpdate struct {
 }
 
 func (s *Service) completeSuccess(command commandRecord, update successUpdate) error {
-	now := s.now().UTC().Format(time.RFC3339Nano)
+	finished := s.now().UTC()
+	now := finished.Format(time.RFC3339Nano)
 	s.opMu.Lock()
 	tx, err := s.db.BeginTx(context.Background(), nil)
+	st := command.initialState
 	if err == nil {
 		setParts := "revision=revision+1,error='',resume_required=0,control_action=?,control_at=?"
 		controlAt := ""
@@ -739,6 +755,23 @@ func (s *Service) completeSuccess(command commandRecord, update successUpdate) e
 	if err != nil {
 		return err
 	}
+	resultState := st.state
+	resultPosition := st.positionMS
+	resultPlayID := st.playID
+	if update.setState {
+		resultState = update.state
+		if update.state == StateStopped {
+			resultPlayID = ""
+		}
+	}
+	if update.resetPosition {
+		resultPosition = 0
+	}
+	resultEntryID := st.currentEntryID
+	if update.queueEntryID != "" {
+		resultEntryID = update.queueEntryID
+	}
+	s.logCommandTerminal(command, "succeeded", "renderer_acknowledged", st, resultPlayID, resultEntryID, resultState, resultPosition, diagnosticErrorInfo{}, finished)
 	s.notify("player")
 	if update.queueEntryID != "" && update.queueStatus != "" {
 		s.notify("queue")
@@ -748,13 +781,15 @@ func (s *Service) completeSuccess(command commandRecord, update successUpdate) e
 }
 
 func (s *Service) completeStart(command commandRecord, oldEntryID, oldStatus string, started startResult, controlAction string) error {
-	now := s.now().UTC().Format(time.RFC3339Nano)
+	finished := s.now().UTC()
+	now := finished.Format(time.RFC3339Nano)
 	controlAt := ""
 	if controlAction != "" {
 		controlAt = now
 	}
 	s.opMu.Lock()
 	tx, err := s.db.BeginTx(context.Background(), nil)
+	st := command.initialState
 	if err == nil && oldEntryID != "" && oldEntryID != started.entry.id {
 		_, err = tx.ExecContext(context.Background(), "UPDATE player_queue SET status=? WHERE entry_id=?", oldStatus, oldEntryID)
 	}
@@ -782,6 +817,7 @@ func (s *Service) completeStart(command commandRecord, oldEntryID, oldStatus str
 	if err != nil {
 		return err
 	}
+	s.logCommandTerminal(command, "succeeded", "renderer_acknowledged", st, started.playID, started.entry.id, StateStarting, 0, diagnosticErrorInfo{}, finished)
 	s.notify("queue")
 	s.notify("player")
 	s.signalObserver()
@@ -789,9 +825,11 @@ func (s *Service) completeStart(command commandRecord, oldEntryID, oldStatus str
 }
 
 func (s *Service) completeAdvanceFailure(command commandRecord, oldEntryID, targetEntryID, message string) error {
-	now := s.now().UTC().Format(time.RFC3339Nano)
+	finished := s.now().UTC()
+	now := finished.Format(time.RFC3339Nano)
 	s.opMu.Lock()
 	tx, err := s.db.BeginTx(context.Background(), nil)
+	st := command.initialState
 	if err == nil && oldEntryID != "" {
 		_, err = tx.ExecContext(context.Background(), "UPDATE player_queue SET status='completed' WHERE entry_id=?", oldEntryID)
 	}
@@ -815,19 +853,24 @@ func (s *Service) completeAdvanceFailure(command commandRecord, oldEntryID, targ
 	}
 	s.opMu.Unlock()
 	if err == nil {
+		if command.errorInfo.category == "" {
+			command.errorInfo = diagnosticError(nil, "start_failed")
+		}
+		s.logCommandTerminal(command, "failed", "next_track_start_failed", st, "", targetEntryID, StateError, 0, command.errorInfo, finished)
 		s.notify("queue")
 		s.notify("player")
 	}
 	return err
 }
 
-func (s *Service) completeUnconfirmedStop(command commandRecord, currentEntryID, message string) error {
-	now := s.now().UTC().Format(time.RFC3339Nano)
+func (s *Service) completeUnconfirmedStop(command commandRecord, st storedState, message string) error {
+	finished := s.now().UTC()
+	now := finished.Format(time.RFC3339Nano)
 	s.opMu.Lock()
 	tx, err := s.db.BeginTx(context.Background(), nil)
 	queueChanged := false
-	if err == nil && currentEntryID != "" {
-		result, updateErr := tx.ExecContext(context.Background(), "UPDATE player_queue SET status='pending' WHERE entry_id=? AND status='playing'", currentEntryID)
+	if err == nil && st.currentEntryID != "" {
+		result, updateErr := tx.ExecContext(context.Background(), "UPDATE player_queue SET status='pending' WHERE entry_id=? AND status='playing'", st.currentEntryID)
 		err = updateErr
 		if err == nil {
 			changed, rowsErr := result.RowsAffected()
@@ -856,6 +899,10 @@ func (s *Service) completeUnconfirmedStop(command commandRecord, currentEntryID,
 	}
 	s.opMu.Unlock()
 	if err == nil {
+		if command.errorInfo.category == "" {
+			command.errorInfo = diagnosticError(nil, "unconfirmed")
+		}
+		s.logCommandTerminal(command, "unknown", "stop_unconfirmed", st, "", st.currentEntryID, StateStopped, 0, command.errorInfo, finished)
 		if queueChanged {
 			s.notify("queue")
 		}
@@ -869,7 +916,8 @@ func recoveredPlaybackIntent(st storedState) bool {
 }
 
 func (s *Service) completeFailure(command commandRecord, message string, unavailable bool, entryID string) {
-	now := s.now().UTC().Format(time.RFC3339Nano)
+	finished := s.now().UTC()
+	now := finished.Format(time.RFC3339Nano)
 	state := StateError
 	targetStatus := EntryError
 	if unavailable {
@@ -880,11 +928,11 @@ func (s *Service) completeFailure(command commandRecord, message string, unavail
 	s.opMu.Lock()
 	tx, err := s.db.BeginTx(context.Background(), nil)
 	queueChanged := false
+	var st storedState
 	if err == nil {
-		var currentEntryID string
-		err = tx.QueryRowContext(context.Background(), "SELECT current_entry_id FROM player_state WHERE singleton=1").Scan(&currentEntryID)
+		err = tx.QueryRowContext(context.Background(), "SELECT revision,renderer_id,current_entry_id,play_id,state,position_ms FROM player_state WHERE singleton=1").Scan(&st.revision, &st.rendererID, &st.currentEntryID, &st.playID, &st.state, &st.positionMS)
 		if entryID == "" {
-			entryID = currentEntryID
+			entryID = st.currentEntryID
 		}
 	}
 	if err == nil {
@@ -905,12 +953,12 @@ func (s *Service) completeFailure(command commandRecord, message string, unavail
 			queueChanged = queueChanged || changed > 0
 		}
 	}
+	clearPlayback := unavailable || explicitEntry
 	if err == nil {
 		queueIncrement := 0
 		if queueChanged {
 			queueIncrement = 1
 		}
-		clearPlayback := unavailable || explicitEntry
 		_, err = tx.ExecContext(context.Background(), `UPDATE player_state SET revision=revision+1,queue_revision=queue_revision+?,current_entry_id=CASE WHEN ?<>'' THEN ? ELSE current_entry_id END,state=?,resume_required=1,error=?,play_id=CASE WHEN ? THEN '' ELSE play_id END,current_uri=CASE WHEN ? THEN '' ELSE current_uri END,current_seekable=CASE WHEN ? THEN 0 ELSE current_seekable END,control_action='',control_at='' WHERE singleton=1`, queueIncrement, entryID, entryID, state, message, clearPlayback, clearPlayback, clearPlayback)
 	}
 	if err == nil {
@@ -927,6 +975,21 @@ func (s *Service) completeFailure(command commandRecord, message string, unavail
 	}
 	s.opMu.Unlock()
 	if err == nil {
+		if command.errorInfo.category == "" {
+			fallback := "rejected"
+			if unavailable {
+				fallback = "offline"
+			}
+			command.errorInfo = diagnosticError(nil, fallback)
+		}
+		resultPlayID := st.playID
+		if clearPlayback {
+			resultPlayID = ""
+		}
+		s.logCommandTerminal(command, "failed", "command_failed", st, resultPlayID, entryID, state, st.positionMS, command.errorInfo, finished)
+		if unavailable {
+			s.logRendererUnavailable(st.rendererID, st.playID, st.currentEntryID, st.state, "renderer_missing_or_offline", st.revision+1)
+		}
 		if queueChanged {
 			s.notify("queue")
 		}
@@ -935,16 +998,16 @@ func (s *Service) completeFailure(command commandRecord, message string, unavail
 }
 
 func (s *Service) completeUnknown(command commandRecord, message string) {
-	now := s.now().UTC().Format(time.RFC3339Nano)
+	finished := s.now().UTC()
+	now := finished.Format(time.RFC3339Nano)
 	s.opMu.Lock()
 	tx, err := s.db.BeginTx(context.Background(), nil)
 	queueChanged := false
-	playID := ""
+	var st storedState
 	if err == nil {
-		var currentEntryID string
-		err = tx.QueryRowContext(context.Background(), "SELECT current_entry_id,play_id FROM player_state WHERE singleton=1").Scan(&currentEntryID, &playID)
-		if err == nil && currentEntryID != "" {
-			result, updateErr := tx.ExecContext(context.Background(), "UPDATE player_queue SET status='pending' WHERE entry_id=? AND status='playing'", currentEntryID)
+		err = tx.QueryRowContext(context.Background(), "SELECT renderer_id,current_entry_id,play_id,state,position_ms FROM player_state WHERE singleton=1").Scan(&st.rendererID, &st.currentEntryID, &st.playID, &st.state, &st.positionMS)
+		if err == nil && st.currentEntryID != "" {
+			result, updateErr := tx.ExecContext(context.Background(), "UPDATE player_queue SET status='pending' WHERE entry_id=? AND status='playing'", st.currentEntryID)
 			err = updateErr
 			if err == nil {
 				changed, rowsErr := result.RowsAffected()
@@ -974,8 +1037,16 @@ func (s *Service) completeUnknown(command commandRecord, message string) {
 	}
 	s.opMu.Unlock()
 	if err == nil {
-		if playID != "" {
-			s.media.Revoke(playID)
+		if command.errorInfo.category == "" {
+			command.errorInfo = diagnosticError(nil, "unconfirmed")
+		}
+		resultState := StateUnavailable
+		if st.rendererID == "" {
+			resultState = StateStopped
+		}
+		s.logCommandTerminal(command, "unknown", "outcome_unconfirmed", st, "", st.currentEntryID, resultState, st.positionMS, command.errorInfo, finished)
+		if st.playID != "" {
+			s.media.Revoke(st.playID)
 		}
 		if queueChanged {
 			s.notify("queue")

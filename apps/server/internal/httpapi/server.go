@@ -51,6 +51,7 @@ type server struct {
 	activeConfig config.Config
 	mutations    mutationGate
 	throttle     loginThrottle
+	diagnostics  diagnosticLimiter
 	index        []byte
 	assets       http.Handler
 }
