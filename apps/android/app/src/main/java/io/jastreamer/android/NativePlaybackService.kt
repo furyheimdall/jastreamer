@@ -574,7 +574,9 @@ class NativePlaybackService : MediaSessionService(), Player.Listener {
             throw CommandFailure("action_failed", "Media identity changed")
         }
         val result = observation("stopped", playId)
-        cancelMediaWork()
+        // The Server also sends Stop between tracks. Keep only the stopped
+        // timeline; terminal registration loss still removes it and the notification.
+        cancelMediaWork(clearMediaItems = false)
         publicError = null
         notifyState()
         return result
