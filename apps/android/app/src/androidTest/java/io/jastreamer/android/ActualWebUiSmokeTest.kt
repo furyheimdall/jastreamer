@@ -451,9 +451,16 @@ class ActualWebUiSmokeTest {
                     it.optJSONObject("track")?.optString("id") == backgroundId &&
                     it.optString("pending_command").isEmpty()
             }
+            waitForPlayer("replacement advances before seeking back") {
+                it.optString("state") == "playing" &&
+                    it.optLong("position_ms") >= 1_000L &&
+                    it.optString("pending_command").isEmpty()
+            }
             onMain { controller.seekTo(0) }
-            waitFor("replacement position resets before previous command") {
-                onMain { controller.currentPosition < 500L }
+            waitForPlayer("replacement seek completes before previous command") {
+                it.optString("state") == "playing" &&
+                    it.optLong("position_ms") < 1_000L &&
+                    it.optString("pending_command").isEmpty()
             }
             onMain { controller.seekToPreviousMediaItem() }
             waitForPlayer("background previous restores the long track") {
