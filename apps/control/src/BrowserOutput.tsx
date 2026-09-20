@@ -80,7 +80,7 @@ export interface BrowserOutputHandle {
   retryPlayback: () => void;
 }
 
-interface BrowserOutputProps {
+export interface BrowserOutputProps {
   name: string;
   disconnectedError: string;
   registrationError: string;

@@ -85,7 +85,14 @@ class ServerProbe(client: OkHttpClient = OkHttpClient()) {
             throw ClientException(ClientErrorCode.REDIRECT, "Discovery redirects are not allowed")
         }
         if (!response.isSuccessful) {
-            throw ClientException(ClientErrorCode.HTTP_STATUS, response.code.toString())
+            throw ClientException(
+                ClientErrorCode.HTTP_STATUS,
+                response.code.toString(),
+                retryable = response.code == 408 ||
+                    response.code == 425 ||
+                    response.code == 429 ||
+                    response.code in 500..599,
+            )
         }
 
         val contentType = response.header("Content-Type")?.lowercase().orEmpty()

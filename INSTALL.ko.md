@@ -2,7 +2,7 @@
 
 [프로젝트 소개](README.ko.md) · [한국어 사용자 안내서](INSTRUCTION.ko.md) · [English installation guide](INSTALL.md)
 
-실제로 사용할 패키지와 플랫폼에 맞는 아래 분기를 선택하세요. Server가 Web 화면을 제공하며 선택 사항인 Desktop·네이티브 모바일·휴대전화 PWA는 기존 Server에 접속합니다. 로컬 재생은 별도로 설치하는 네이티브 오디오 엔진이 아니라 공유 Web 화면의 브라우저 출력을 사용합니다. [사용자 안내서](INSTRUCTION.ko.md#browser-output)를 참고하세요.
+실제로 사용할 패키지와 플랫폼에 맞는 아래 분기를 선택하세요. Server가 Web 화면을 제공하며 선택 사항인 Desktop·네이티브 모바일·휴대전화 PWA는 기존 Server에 접속합니다. 로컬 재생은 브라우저 오디오를 사용하지만 네이티브 Android 앱은 Media3 서비스를 사용합니다. 두 방식 모두 Server 대기열의 출력입니다. [사용자 안내서](INSTRUCTION.ko.md#browser-output)를 참고하세요.
 
 공개 프리뷰는 미서명이며 production 검증을 마친 릴리즈가 아닙니다. 선택한 릴리즈의 제한을 읽고 내려받은 모든 파일을 검증한 뒤 실제 네트워크와 수신기에서 동작을 확인하세요. 설치 후 화면 사용법과 문제 해결은 [한국어 사용자 안내서](INSTRUCTION.ko.md)를 참고하세요.
 
@@ -194,7 +194,9 @@ sudo apt install ./jastreamer-desktop_0.2.0_linux-amd64.deb
 <a id="android"></a>
 ## 7. 선택 사항인 네이티브 Android 클라이언트
 
-Kotlin 앱은 `_jastreamer._tcp` Server를 검색하고 `/api/v1/discovery`로 확인한 뒤 선택한 Server의 기존 Web 화면을 엽니다. 독립 네이티브 오디오 엔진을 추가하지 않으며 공유 Web 오디오는 WebView의 제약을 따릅니다. PWA 추가 설치, 로컬 음악 접근 권한이나 위치 권한은 필요하지 않습니다.
+Kotlin 앱은 `_jastreamer._tcp` Server를 검색하고 `/api/v1/discovery`로 확인한 뒤 선택한 Server의 Web 화면을 엽니다. **이 기기** 출력은 WebView 오디오 대신 Media3 포그라운드 서비스와 Android 시스템 미디어 제어를 사용하며 대기열은 계속 Server가 관리합니다. PWA 추가 설치, 로컬 음악 접근 권한이나 위치 권한은 필요하지 않습니다.
+
+네이티브 재생에는 호환되는 Android APK와 대응하는 Server/Web UI가 모두 필요합니다. APK만 업데이트해도 이전 Server가 제공하는 Web 페이지에 네이티브 지원이 추가되거나 Server가 업데이트되지는 않습니다. 호환되는 소스 리비전을 사용하고 Server 업데이트는 별도로 승인된 설치·업데이트 절차를 따르세요.
 
 현재 배포는 성공한 [Android CI 실행](https://github.com/furyheimdall/jastreamer/actions/workflows/android.yml)의 **개발·테스트 산출물**입니다. 의도한 소스 리비전을 고르고 `jastreamer-android-debug-test-signed-and-release-unsigned-<revision>` artifact를 받으세요. 설치 전에 `SHA256SUMS`, `provenance.json`, 소스 리비전, application ID와 서명 인증서를 검증합니다. PR 산출물은 보호된 main의 릴리즈가 아닙니다.
 

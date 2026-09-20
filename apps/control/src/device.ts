@@ -9,6 +9,10 @@ export const isPhone = !/\biPad\b/i.test(userAgent) && (
 export const isAppleMobile = /\biPhone\b|\biPad\b|\biPod\b/i.test(userAgent)
   || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
 
+export function localOutputName(nativeAndroid: boolean): string {
+  return nativeAndroid ? "Android · jastreamer" : browserOutputName();
+}
+
 // Browser-provided hints, not the operating system's private hostname.
 export function browserOutputName(): string {
   const platform = /\biPhone\b|\biPod\b/i.test(userAgent) ? "iPhone"

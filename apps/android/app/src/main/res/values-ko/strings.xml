@@ -1,6 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="android_control">Android Control</string>
+    <string name="native_playback_notification_channel">재생</string>
+    <string name="native_playback_notification_description">휴대전화 재생 및 미디어 컨트롤</string>
+    <string name="native_playback_error">휴대전화 재생을 계속할 수 없습니다.</string>
     <string name="select_server">서버를 선택하세요</string>
     <string name="selection_detail">같은 네트워크에서 확인된 JASTREAMER 서버를 직접 선택하세요. 자동으로 연결하지 않으며 재생은 서버가 관리합니다.</string>
     <string name="server_address">서버 주소</string>

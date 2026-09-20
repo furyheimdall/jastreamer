@@ -2,7 +2,7 @@
 
 [README](README.md) · [User guide](INSTRUCTION.md) · [한국어 설치 안내](INSTALL.ko.md)
 
-Choose the branch below for the package and platform you actually use. The Server hosts the Web interface; optional desktop, native mobile, and phone PWA clients connect to an existing Server. Local playback uses the shared Web interface's browser output, not a separately installed native audio engine; see the [user guide](INSTRUCTION.md#browser-output).
+Choose the branch below for the package and platform you actually use. The Server hosts the Web interface; optional desktop, native mobile, and phone PWA clients connect to an existing Server. Local playback uses browser audio except in the native Android app, which uses its Media3 service. Both remain outputs of the Server queue; see the [user guide](INSTRUCTION.md#browser-output).
 
 Public previews are unsigned and not production-qualified. Read the selected release's limitations, verify every downloaded artifact, and confirm operation on your own network and receivers.
 
@@ -194,7 +194,9 @@ Recent Servers, language, cookies, and sessions use `$XDG_CONFIG_HOME/jastreamer
 <a id="android"></a>
 ## Optional native Android client
 
-The Kotlin app discovers `_jastreamer._tcp` Servers, checks `/api/v1/discovery`, and opens the selected Server's existing Web UI. It adds no standalone native audio engine; shared Web audio remains subject to WebView restrictions. No PWA installation, local music permission, or location permission is needed.
+The Kotlin app discovers `_jastreamer._tcp` Servers, checks `/api/v1/discovery`, and opens the selected Server's Web UI. Its **This device** output uses a Media3 foreground service and Android system media controls, not WebView audio; the Server still owns the queue. No PWA installation, local music permission, or location permission is needed.
+
+Native playback requires both a compatible Android APK and the corresponding Server/Web UI. Updating only the APK cannot add native support to an older served Web page and does not update the Server. Use compatible source revisions; Server updates require their own authorized installation/update procedure.
 
 Current distribution is **development/testing only** through successful [Android CI runs](https://github.com/furyheimdall/jastreamer/actions/workflows/android.yml). Select the intended source revision and download its `jastreamer-android-debug-test-signed-and-release-unsigned-<revision>` artifact. Verify `SHA256SUMS`, `provenance.json`, the source revision, application ID and signing certificate before installation. A pull-request artifact is not a protected-main release.
 

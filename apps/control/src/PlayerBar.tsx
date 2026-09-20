@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
-import { api, ApiError } from "./api";
-import BrowserOutput, { type BrowserOutputHandle } from "./BrowserOutput";
+import { api } from "./api";
+import LocalOutput, { hasNativeAndroidAudio, type LocalOutputHandle } from "./LocalOutput";
 import { useI18n, type MessageKey } from "./i18n";
-import { browserOutputName, isPhone } from "./device";
+import { isPhone, localOutputName } from "./device";
 import type { Device, PairingRequest, PairingStatus, PlayerState, StatusWarning } from "./types";
 
 interface PlayerBarProps {
@@ -26,7 +26,7 @@ function timeLabel(milliseconds: number, locale: string): string {
 }
 
 function errorMessage(error: unknown, fallback: string): string {
-  return error instanceof ApiError ? error.message : fallback;
+  return error instanceof Error && error.message ? error.message : fallback;
 }
 
 function protocolLabel(protocol: string, t: (key: MessageKey) => string): string {
@@ -85,14 +85,16 @@ export default function PlayerBar({ revision, phoneExpanded, onPhoneExpandedChan
   const phoneExpandRef = useRef<HTMLButtonElement>(null);
   const phoneCollapseRef = useRef<HTMLButtonElement>(null);
   const observedPlayerError = useRef<{ revision: number; message: string } | null>(null);
-  const browserOutputRef = useRef<BrowserOutputHandle>(null);
-  const [defaultBrowserName] = useState(browserOutputName);
+  const localOutputRef = useRef<LocalOutputHandle>(null);
+  const [usesNativeOutput] = useState(hasNativeAndroidAudio);
+  const [defaultBrowserName] = useState(() => localOutputName(usesNativeOutput));
   const [browserAlias, setBrowserAlias] = useState("");
   const [nameDraft, setNameDraft] = useState("");
   const [nameStorageKey, setNameStorageKey] = useState<string | null>(null);
   const [nameEditorOpen, setNameEditorOpen] = useState(false);
   const [nameSaving, setNameSaving] = useState(false);
   const [nameError, setNameError] = useState("");
+  const [localOutputRecovery, setLocalOutputRecovery] = useState({ recovering: false, message: "" });
   const browserName = browserAlias || defaultBrowserName;
 
   useEffect(() => {
@@ -135,8 +137,8 @@ export default function PlayerBar({ revision, phoneExpanded, onPhoneExpandedChan
     setNameSaving(true);
     setNameError("");
     try {
-      if (!browserOutputRef.current) throw new Error(t("player.browser.registrationFailed"));
-      await browserOutputRef.current.rename(nextName);
+      if (!localOutputRef.current) throw new Error(t("player.browser.registrationFailed"));
+      await localOutputRef.current.rename(nextName);
       setBrowserAlias(alias);
       setNameDraft(alias);
       try {
@@ -168,9 +170,14 @@ export default function PlayerBar({ revision, phoneExpanded, onPhoneExpandedChan
     observedPlayerError.current = { revision: playerRevision, message };
     onNotice(message, true);
   }, [onNotice]);
-  const handleBrowserError = useCallback((message: string) => {
+  const handleLocalOutputError = useCallback((message: string) => {
     onNotice(message, true);
   }, [onNotice]);
+  const handleLocalOutputRecovery = useCallback((recovering: boolean, message: string) => {
+    setLocalOutputRecovery((current) => (
+      current.recovering === recovering && current.message === message ? current : { recovering, message }
+    ));
+  }, []);
 
   const load = useCallback(async () => {
     const [playerResult, rendererResult] = await Promise.allSettled([
@@ -302,8 +309,8 @@ export default function PlayerBar({ revision, phoneExpanded, onPhoneExpandedChan
     setBusy("output");
     try {
       if (rendererID === "browser:local") {
-        if (!browserOutputRef.current) throw new Error(t("player.browser.registrationFailed"));
-        rendererID = (await browserOutputRef.current.connect()).id;
+        if (!localOutputRef.current) throw new Error(t("player.browser.registrationFailed"));
+        rendererID = (await localOutputRef.current.connect()).id;
       }
       const next = await api<PlayerState>("/player/output", {
         method: "PUT",
@@ -396,9 +403,23 @@ export default function PlayerBar({ revision, phoneExpanded, onPhoneExpandedChan
   const canControl = Boolean(player?.renderer_id) && !player?.pending_command;
   const canUsePlayback = canControl && !pairingRequired;
   const canPause = player?.state === "playing" && player.capabilities.pause;
-  const browserRetry = browserAutoplayBlocked && selectedDevice?.id === localBrowserDevice?.id;
+  const browserRetry = !usesNativeOutput && browserAutoplayBlocked && selectedDevice?.id === localBrowserDevice?.id;
   const playing = player?.state === "playing" || player?.state === "starting";
   const duration = player?.duration_ms || player?.track?.duration_ms || 0;
+  const localOutputAdapter = (
+    <LocalOutput
+      ref={localOutputRef}
+      name={browserName}
+      disconnectedError={t("player.browser.disconnected")}
+      registrationError={t("player.browser.registrationFailed")}
+      actionError={t("player.browser.actionFailed")}
+      bridgeError={t("player.native.bridgeFailed")}
+      onDeviceChange={setLocalBrowserDevice}
+      onAutoplayBlocked={setBrowserAutoplayBlocked}
+      onRecoveryChange={handleLocalOutputRecovery}
+      onError={handleLocalOutputError}
+    />
+  );
   const outputPicker = (
     <div className="output-picker">
       <label htmlFor="player-output">{t("player.output")}</label>
@@ -533,13 +554,20 @@ export default function PlayerBar({ revision, phoneExpanded, onPhoneExpandedChan
         </section>
       )}
       {playing && <span className="playing-indicator">{t("player.playing")}</span>}
+      {localOutputRecovery.recovering && (
+        <span className="local-output-recovery" role="status">
+          {localOutputRecovery.message
+            ? t("player.native.recoveringDetail", { message: localOutputRecovery.message })
+            : t("player.native.recovering")}
+        </span>
+      )}
       {browserAutoplayBlocked && selectedDevice?.id === localBrowserDevice?.id && (
         <div className="browser-autoplay" role="alert">
           <span>{t("player.browser.autoplayBlocked")}</span>
           <button
             className="button button-primary"
             type="button"
-            onClick={() => browserOutputRef.current?.retryPlayback()}
+            onClick={() => localOutputRef.current?.retryPlayback?.()}
           >
             {t("player.browser.allowPlayback")}
           </button>
@@ -565,16 +593,7 @@ export default function PlayerBar({ revision, phoneExpanded, onPhoneExpandedChan
           collapsePhonePlayer();
         }}
       >
-        <BrowserOutput
-          ref={browserOutputRef}
-          name={browserName}
-          disconnectedError={t("player.browser.disconnected")}
-          registrationError={t("player.browser.registrationFailed")}
-          actionError={t("player.browser.actionFailed")}
-          onDeviceChange={setLocalBrowserDevice}
-          onAutoplayBlocked={setBrowserAutoplayBlocked}
-          onError={handleBrowserError}
-        />
+        {localOutputAdapter}
         {phoneExpanded && (
           <section
             className="phone-player-expanded"
@@ -691,6 +710,13 @@ export default function PlayerBar({ revision, phoneExpanded, onPhoneExpandedChan
               <strong>{loading ? t("player.loading") : player?.track?.title || t("player.noTrack")}</strong>
               <span>{player?.track?.artist || (selectedDevice ? deviceLabel(selectedDevice, t, localBrowserDevice?.id) : t("player.selectDevicePrompt"))}</span>
               {browserRetry && <span className="browser-autoplay-compact">{t("player.browser.autoplayBlocked")}</span>}
+              {localOutputRecovery.recovering && (
+                <span className="local-output-recovery local-output-recovery-compact">
+                  {localOutputRecovery.message
+                    ? t("player.native.recoveringDetail", { message: localOutputRecovery.message })
+                    : t("player.native.recovering")}
+                </span>
+              )}
               {error && (
                 <button className="player-error" type="button" onClick={() => onNotice(error, true)}>
                   {t("player.errorDetails")}
@@ -710,7 +736,7 @@ export default function PlayerBar({ revision, phoneExpanded, onPhoneExpandedChan
               type="button"
               aria-label={browserRetry ? t("player.browser.allowPlayback") : canPause ? t("player.pause") : t("player.play")}
               disabled={!browserRetry && (!(canPause ? canControl : canUsePlayback) || Boolean(busy))}
-              onClick={browserRetry ? () => browserOutputRef.current?.retryPlayback() : () => void command(canPause ? "pause" : "play")}
+              onClick={browserRetry ? () => localOutputRef.current?.retryPlayback?.() : () => void command(canPause ? "pause" : "play")}
             >
               <PlayerIcon name={canPause ? "pause" : "play"} />
             </button>
@@ -743,16 +769,7 @@ export default function PlayerBar({ revision, phoneExpanded, onPhoneExpandedChan
 
   return (
     <footer className="player-bar" aria-label={t("player.nowPlaying")}>
-      <BrowserOutput
-        ref={browserOutputRef}
-        name={browserName}
-        disconnectedError={t("player.browser.disconnected")}
-        registrationError={t("player.browser.registrationFailed")}
-        actionError={t("player.browser.actionFailed")}
-        onDeviceChange={setLocalBrowserDevice}
-        onAutoplayBlocked={setBrowserAutoplayBlocked}
-        onError={handleBrowserError}
-      />
+      {localOutputAdapter}
       <div className="now-playing">
         <button
           className="player-artwork"
@@ -798,7 +815,7 @@ export default function PlayerBar({ revision, phoneExpanded, onPhoneExpandedChan
             type="button"
             aria-label={browserRetry ? t("player.browser.allowPlayback") : canPause ? t("player.pause") : t("player.play")}
             disabled={!browserRetry && (!(canPause ? canControl : canUsePlayback) || Boolean(busy))}
-            onClick={browserRetry ? () => browserOutputRef.current?.retryPlayback() : () => void command(canPause ? "pause" : "play")}
+            onClick={browserRetry ? () => localOutputRef.current?.retryPlayback?.() : () => void command(canPause ? "pause" : "play")}
           >
             <PlayerIcon name={canPause ? "pause" : "play"} />
           </button>

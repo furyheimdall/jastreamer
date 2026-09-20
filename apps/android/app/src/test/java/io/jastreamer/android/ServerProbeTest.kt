@@ -32,6 +32,7 @@ class ServerProbeTest {
         val error = expectClientFailure { ServerProbe().probe(server.url("/").toString()) }
 
         assertEquals(ClientErrorCode.REDIRECT, error.code)
+        assertEquals(false, error.retryable)
         assertEquals(1, server.requestCount)
         assertEquals("/api/v1/discovery", server.takeRequest().path)
     }
@@ -69,6 +70,21 @@ class ServerProbeTest {
         }
 
         assertEquals(ClientErrorCode.IDENTITY_MISMATCH, error.code)
+        assertEquals(false, error.retryable)
+    }
+
+    @Test
+    fun `only transient HTTP discovery failures are retryable`() = runBlocking {
+        server.enqueue(MockResponse().setResponseCode(503))
+        server.enqueue(MockResponse().setResponseCode(401))
+
+        val unavailable = expectClientFailure { ServerProbe().probe(server.url("/").toString()) }
+        val unauthorized = expectClientFailure { ServerProbe().probe(server.url("/").toString()) }
+
+        assertEquals(ClientErrorCode.HTTP_STATUS, unavailable.code)
+        assertEquals(true, unavailable.retryable)
+        assertEquals(ClientErrorCode.HTTP_STATUS, unauthorized.code)
+        assertEquals(false, unauthorized.retryable)
     }
 
     @Test

@@ -635,6 +635,18 @@ textarea.input {
 .playing-indicator {
   color: var(--accent);
 }
+.local-output-recovery {
+  max-width: min(24rem, calc(100vw - 2rem));
+  color: #e6b963;
+  font-size: 0.72rem;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+.local-output-recovery-compact {
+  display: block;
+}
+
 .browser-autoplay {
   display: grid;
   width: min(24rem, calc(100vw - 2rem));

@@ -160,6 +160,128 @@ func TestStaleReportCannotCompleteCurrentCommand(t *testing.T) {
 	}
 }
 
+func TestAcceptedReportRetryDoesNotReplayOrRollBack(t *testing.T) {
+	service, registration := newTestService(t)
+	setTestResource(t, service, registration)
+
+	playResult := make(chan error, 1)
+	go func() { playResult <- service.Play(t.Context(), registration.ID) }()
+	playCommand := waitForCommand(t, service, registration)
+	acceptedObservation := successfulObservation(playCommand, "playing")
+	accepted := Report{
+		Sequence: playCommand.Sequence, Result: "succeeded", Observation: acceptedObservation,
+	}
+	if err := service.Report(registration.ID, registration.OwnerToken, "192.0.2.10", accepted); err != nil {
+		t.Fatal(err)
+	}
+	if err := <-playResult; err != nil {
+		t.Fatal(err)
+	}
+
+	// The accepted payload must be copied rather than retained through its caller-owned pointer.
+	acceptedObservation.PositionMS = 999
+	laterEvidence := successfulObservation(playCommand, "timeupdate")
+	laterEvidence.PositionMS = 2000
+	if err := service.Report(registration.ID, registration.OwnerToken, "192.0.2.10", Report{
+		Sequence: playCommand.Sequence, Observation: laterEvidence,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	pauseResult := make(chan error, 1)
+	go func() { pauseResult <- service.Pause(t.Context(), registration.ID) }()
+	pauseCommand := waitForCommand(t, service, registration)
+	retry := Report{
+		Sequence: playCommand.Sequence, Result: "succeeded", Observation: successfulObservation(playCommand, "playing"),
+	}
+	for _, owner := range []struct {
+		token   string
+		address string
+	}{
+		{token: "wrong-owner-token", address: "192.0.2.10"},
+		{token: registration.OwnerToken, address: "192.0.2.11"},
+	} {
+		if err := service.Report(registration.ID, owner.token, owner.address, retry); !errors.Is(err, ErrUnauthorized) {
+			t.Fatalf("unauthorized retry error=%v", err)
+		}
+	}
+	if err := service.Report(registration.ID, registration.OwnerToken, "192.0.2.10", retry); err != nil {
+		t.Fatalf("identical retry error=%v", err)
+	}
+	changed := retry
+	changedObservation := *retry.Observation
+	changedObservation.PositionMS++
+	changed.Observation = &changedObservation
+	if err := service.Report(registration.ID, registration.OwnerToken, "192.0.2.10", changed); !errors.Is(err, ErrStaleReport) {
+		t.Fatalf("changed retry error=%v", err)
+	}
+	select {
+	case err := <-pauseResult:
+		t.Fatalf("old retry resolved newer command: %v", err)
+	default:
+	}
+	observed, err := service.Observe(t.Context(), registration.ID)
+	if err != nil || observed.PositionMS != laterEvidence.PositionMS || observed.CommandSequence != playCommand.Sequence {
+		t.Fatalf("old retry replaced newer evidence: %+v, %v", observed, err)
+	}
+
+	pauseReport := Report{
+		Sequence: pauseCommand.Sequence, Result: "succeeded", Observation: successfulObservation(pauseCommand, "pause"),
+	}
+	if err := service.Report(registration.ID, registration.OwnerToken, "192.0.2.10", pauseReport); err != nil {
+		t.Fatal(err)
+	}
+	if err := <-pauseResult; err != nil {
+		t.Fatal(err)
+	}
+	if err := service.Report(registration.ID, registration.OwnerToken, "192.0.2.10", retry); !errors.Is(err, ErrStaleReport) {
+		t.Fatalf("superseded retry error=%v", err)
+	}
+	if err := service.Report(registration.ID, registration.OwnerToken, "192.0.2.10", pauseReport); err != nil {
+		t.Fatalf("latest identical retry error=%v", err)
+	}
+}
+
+func TestAcceptedFailureRetryHonorsCancellationFence(t *testing.T) {
+	service, registration := newTestService(t)
+	setTestResource(t, service, registration)
+
+	playResult := make(chan error, 1)
+	go func() { playResult <- service.Play(t.Context(), registration.ID) }()
+	playCommand := waitForCommand(t, service, registration)
+	failed := Report{Sequence: playCommand.Sequence, Result: "failed", ErrorCode: "action_failed"}
+	if err := service.Report(registration.ID, registration.OwnerToken, "192.0.2.10", failed); err != nil {
+		t.Fatal(err)
+	}
+	var actionError *output.ActionError
+	if err := <-playResult; !errors.As(err, &actionError) || actionError.Kind != output.ErrorFault {
+		t.Fatalf("failed command error=%v", err)
+	}
+	if err := service.Report(registration.ID, registration.OwnerToken, "192.0.2.10", failed); err != nil {
+		t.Fatalf("identical failed retry error=%v", err)
+	}
+	changed := failed
+	changed.ErrorCode = "media_error"
+	if err := service.Report(registration.ID, registration.OwnerToken, "192.0.2.10", changed); !errors.Is(err, ErrStaleReport) {
+		t.Fatalf("changed failed retry error=%v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	pauseResult := make(chan error, 1)
+	go func() { pauseResult <- service.Pause(ctx, registration.ID) }()
+	cancelledCommand := waitForCommand(t, service, registration)
+	cancel()
+	if err := <-pauseResult; !errors.As(err, &actionError) || actionError.Kind != output.ErrorCancelled {
+		t.Fatalf("cancelled command error=%v", err)
+	}
+	if cancelledCommand.Sequence <= failed.Sequence {
+		t.Fatalf("cancelled sequence=%d, accepted sequence=%d", cancelledCommand.Sequence, failed.Sequence)
+	}
+	if err := service.Report(registration.ID, registration.OwnerToken, "192.0.2.10", failed); !errors.Is(err, ErrStaleReport) {
+		t.Fatalf("retry behind cancellation fence error=%v", err)
+	}
+}
+
 func TestLeaseLossCancelsPendingCommandAndRemovesDevice(t *testing.T) {
 	service, registration := newTestService(t)
 	setTestResource(t, service, registration)
