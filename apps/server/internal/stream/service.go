@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net"
 	"net/http"
 	"net/netip"
@@ -15,6 +16,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/jastreamer/jastreamer-server/internal/library"
 	"github.com/jastreamer/jastreamer-server/internal/output"
@@ -31,6 +33,8 @@ var (
 )
 
 const tokenBytes = 32
+
+const diagnosticLogInterval = 30 * time.Second
 
 type Config struct {
 	BaseURL           func(output.Device) (string, error)
@@ -51,10 +55,12 @@ type Service struct {
 	ffmpeg            *transcoder
 	browserAuthorized func(*http.Request) bool
 
-	mu         sync.Mutex
-	byToken    map[string]*binding
-	byPlay     map[string]*binding
-	nextActive uint64
+	mu                  sync.Mutex
+	byToken             map[string]*binding
+	byPlay              map[string]*binding
+	nextActive          uint64
+	malformedDiagnostic diagnosticWindow
+	missingDiagnostic   diagnosticWindow
 }
 
 type boundArtwork struct {
@@ -64,18 +70,38 @@ type boundArtwork struct {
 }
 
 type binding struct {
-	token          string
-	playID         string
-	trackID        string
-	sourceIP       netip.Addr
-	representation representation
-	cast           bool
-	browser        bool
-	artwork        *boundArtwork
-	fileInfo       os.FileInfo
-	ctx            context.Context
-	cancel         context.CancelFunc
-	active         map[uint64]io.Closer
+	token             string
+	rendererID        string
+	playID            string
+	trackID           string
+	sourceIP          netip.Addr
+	representation    representation
+	cast              bool
+	browser           bool
+	artwork           *boundArtwork
+	fileInfo          os.FileInfo
+	ctx               context.Context
+	cancel            context.CancelFunc
+	active            map[uint64]io.Closer
+	requestDiagnostic diagnosticWindow
+	rejectDiagnostic  diagnosticWindow
+	failureDiagnostic diagnosticWindow
+}
+
+type diagnosticWindow struct {
+	last       time.Time
+	suppressed uint64
+}
+
+func (window *diagnosticWindow) allow(now time.Time) (uint64, bool) {
+	if window.last.IsZero() || now.Sub(window.last) >= diagnosticLogInterval {
+		suppressed := window.suppressed
+		window.last = now
+		window.suppressed = 0
+		return suppressed, true
+	}
+	window.suppressed++
+	return 0, false
 }
 
 func New(lib *library.Service, config Config) (*Service, error) {
@@ -176,6 +202,7 @@ func (service *Service) Prepare(ctx context.Context, device output.Device, track
 	bindingContext, cancel := context.WithCancel(context.Background())
 	value := &binding{
 		token:          token,
+		rendererID:     device.ID,
 		playID:         playID,
 		trackID:        openedTrack.ID,
 		sourceIP:       sourceIP,
@@ -197,6 +224,10 @@ func (service *Service) Prepare(ctx context.Context, device output.Device, track
 	service.byPlay[playID] = value
 	service.byToken[token] = value
 	service.mu.Unlock()
+	if obsolete != nil {
+		log.Printf("diagnostic component=stream event=grant_revoked renderer_id=%q play_id=%q reason=%q", obsolete.rendererID, obsolete.playID, "replaced")
+	}
+	log.Printf("diagnostic component=stream event=grant_created renderer_id=%q play_id=%q mode=%q", value.rendererID, value.playID, value.mediaMode())
 	service.cancelBinding(obsolete)
 
 	mediaPath := "/media/" + token
@@ -237,11 +268,16 @@ func matchingTrackSnapshot(opened, inspected library.Track) bool {
 func (service *Service) Revoke(playID string) {
 	service.mu.Lock()
 	value := service.byPlay[playID]
+	active := 0
 	if value != nil {
 		delete(service.byPlay, playID)
 		delete(service.byToken, value.token)
+		active = len(value.active)
 	}
 	service.mu.Unlock()
+	if value != nil {
+		log.Printf("diagnostic component=stream event=grant_revoked renderer_id=%q play_id=%q reason=%q active_requests=%d", value.rendererID, value.playID, "explicit", active)
+	}
 	service.cancelBinding(value)
 }
 
@@ -349,4 +385,11 @@ func (service *Service) release(value *binding, id uint64, resource io.Closer) {
 	delete(value.active, id)
 	service.mu.Unlock()
 	_ = resource.Close()
+}
+
+func (value *binding) mediaMode() string {
+	if value.representation.transformed {
+		return "transcoded"
+	}
+	return "original"
 }

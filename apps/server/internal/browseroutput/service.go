@@ -52,6 +52,7 @@ type registration struct {
 	resourceSeq  uint64
 	observation  output.Observation
 	lastAccepted acceptedReport
+	diagnostics  registrationDiagnostics
 }
 
 type Service struct {
@@ -146,6 +147,7 @@ func (service *Service) Register(address, name string, protocolInfo []string) (R
 		id: "browser:" + idToken, token: ownerToken, address: address, name: name,
 		protocolInfo: info, expiresAt: now.Add(leaseDuration), lastSeen: now,
 		observation: output.Observation{State: "stopped", HasURI: true, ObservedAt: now, TransportStatus: "OK"},
+		diagnostics: registrationDiagnostics{createdAt: now, lastSummaryAt: now},
 	}
 	service.mu.Lock()
 	if service.closed {
@@ -158,6 +160,7 @@ func (service *Service) Register(address, name string, protocolInfo []string) (R
 		return Registration{}, ErrCapacity
 	}
 	service.devices[value.id] = value
+	service.logRegistrationCreatedLocked(value, now)
 	device := service.deviceLocked(value.id, value)
 	service.mu.Unlock()
 	service.notify("renderers")
@@ -194,6 +197,8 @@ func (service *Service) Renew(id, token, address string) (Lease, error) {
 		return Lease{}, err
 	}
 	service.renewLocked(value)
+	service.recordRenewLocked(value)
+	service.maybeLogHealthLocked(value, value.lastSeen)
 	return service.leaseLocked(value), nil
 }
 
@@ -205,6 +210,7 @@ func (service *Service) Poll(id, token, address string) (CommandPoll, error) {
 		return CommandPoll{}, err
 	}
 	service.renewLocked(value)
+	service.recordPollLocked(value)
 	result := CommandPoll{
 		LeaseExpiresAt: value.expiresAt, LeaseDurationMS: leaseDuration.Milliseconds(), CancelBeforeSequence: value.cancelBefore,
 		PollAfterMS: pollAfter.Milliseconds(),
@@ -216,7 +222,9 @@ func (service *Service) Poll(id, token, address string) (CommandPoll, error) {
 			copy.Resource = &resource
 		}
 		result.Command = &copy
+		service.recordCommandDeliveryLocked(value, &value.pending.command)
 	}
+	service.maybeLogHealthLocked(value, value.lastSeen)
 	return result, nil
 }
 
@@ -225,7 +233,8 @@ func (service *Service) Disconnect(id, token, address string) error {
 	value, err := service.ownerLocked(id, token, address)
 	if err == nil {
 		delete(service.devices, id)
-		service.cancelPendingLocked(value, output.NewActionError(output.ErrorCancelled, "BrowserDisconnect", 0, errors.New("browser output disconnected")))
+		service.cancelPendingLocked(value, "explicit_disconnect", output.NewActionError(output.ErrorCancelled, "BrowserDisconnect", 0, errors.New("browser output disconnected")))
+		service.logDisconnectLocked(value)
 	}
 	service.mu.Unlock()
 	if err == nil {
@@ -243,62 +252,74 @@ func (service *Service) Report(id, token, address string, report Report) error {
 	}
 	service.renewLocked(value)
 	if report.Sequence <= value.cancelBefore {
-		return ErrStaleReport
+		return service.rejectReportLocked(value, "cancelled_sequence", ErrStaleReport)
 	}
 	if report.Result != "" && value.lastAccepted.matches(report) {
+		service.recordReportLocked(value)
+		value.diagnostics.duplicateReportCount++
+		service.maybeLogHealthLocked(value, value.lastSeen)
 		return nil
 	}
 	if report.Result == "" {
 		if report.ErrorCode != "" || report.Observation == nil {
-			return ErrInvalidRequest
+			return service.rejectReportLocked(value, "invalid_observation_envelope", ErrInvalidRequest)
 		}
 		if value.observation.PlayID == report.Observation.PlayID &&
 			report.Sequence < value.observation.CommandSequence {
-			return ErrStaleReport
+			return service.rejectReportLocked(value, "superseded_observation", ErrStaleReport)
 		}
 		if (value.observation.Completed || value.observation.TransportStatus == "ERROR_OCCURRED") &&
 			value.observation.PlayID == report.Observation.PlayID &&
 			report.Sequence <= value.observation.CommandSequence {
-			return ErrStaleReport
+			return service.rejectReportLocked(value, "terminal_observation", ErrStaleReport)
 		}
 		observation, observationErr := service.observationLocked(value, report.Sequence, report.Observation, nil)
 		if observationErr != nil {
-			return observationErr
+			return service.rejectReportLocked(value, reportRejectionReason(observationErr), observationErr)
 		}
+		previous := value.observation
 		value.observation = observation
+		service.recordReportLocked(value)
+		service.logObservationTransitionLocked(value, previous, observation)
+		service.maybeLogHealthLocked(value, value.lastSeen)
 		return nil
 	}
 	if report.Result != "succeeded" && report.Result != "failed" {
-		return ErrInvalidRequest
+		return service.rejectReportLocked(value, "invalid_result", ErrInvalidRequest)
 	}
 	pending := value.pending
 	if pending == nil || report.Sequence != pending.command.Sequence {
-		return ErrStaleReport
+		return service.rejectReportLocked(value, "no_matching_command", ErrStaleReport)
 	}
 	if report.Result == "failed" {
 		if !validReportError(report.ErrorCode) {
-			return ErrInvalidRequest
+			return service.rejectReportLocked(value, "invalid_error_code", ErrInvalidRequest)
 		}
+		previous := value.observation
 		if report.Observation != nil {
 			if observation, observationErr := service.observationLocked(value, report.Sequence, report.Observation, pending); observationErr == nil {
 				value.observation = observation
+				service.logObservationTransitionLocked(value, previous, observation)
 			}
 		}
 		actionErr := reportActionError(pending.command.Action, report.ErrorCode)
 		value.lastAccepted = copyAcceptedReport(report)
 		value.pending = nil
 		pending.result <- actionErr
+		service.recordReportLocked(value)
+		service.logCommandResultLocked(value, &pending.command, "failed", report.ErrorCode)
+		service.maybeLogHealthLocked(value, value.lastSeen)
 		return nil
 	}
 	if report.ErrorCode != "" || report.Observation == nil {
-		return ErrInvalidRequest
+		return service.rejectReportLocked(value, "invalid_success_envelope", ErrInvalidRequest)
 	}
 	observation, err := service.observationLocked(value, report.Sequence, report.Observation, pending)
 	if err != nil || !matchesSuccessfulAction(pending.command.Action, report.Observation.Event) {
 		if err != nil {
-			return err
+			return service.rejectReportLocked(value, reportRejectionReason(err), err)
 		}
-		return ErrInvalidRequest
+		return service.rejectReportLocked(value, "action_event_mismatch", ErrInvalidRequest)
 	}
 	switch pending.command.Action {
 	case "set_uri":
@@ -309,10 +330,15 @@ func (service *Service) Report(id, token, address string, report Report) error {
 		value.resource = nil
 		value.resourceSeq = report.Sequence
 	}
+	previous := value.observation
 	value.lastAccepted = copyAcceptedReport(report)
 	value.observation = observation
 	value.pending = nil
 	pending.result <- nil
+	service.recordReportLocked(value)
+	service.logObservationTransitionLocked(value, previous, observation)
+	service.logCommandResultLocked(value, &pending.command, "succeeded", "")
+	service.maybeLogHealthLocked(value, value.lastSeen)
 	return nil
 }
 
@@ -374,15 +400,17 @@ func (service *Service) Revoke(playID string) {
 		if value.resource == nil || value.resource.PlayID != playID {
 			continue
 		}
+		revokedPlayID := value.resource.PlayID
 		if value.nextSequence > value.cancelBefore {
 			value.cancelBefore = value.nextSequence
 		}
-		service.cancelPendingLocked(value, output.NewActionError(output.ErrorCancelled, "Revoke", 0, ErrStaleReport))
+		service.cancelPendingLocked(value, "media_revoked", output.NewActionError(output.ErrorCancelled, "Revoke", 0, ErrStaleReport))
 		value.resource = nil
 		value.resourceSeq = value.nextSequence
 		value.observation = output.Observation{
 			State: "stopped", HasURI: true, ObservedAt: service.now().UTC(), TransportStatus: "OK",
 		}
+		service.logResourceRevokedLocked(value, revokedPlayID)
 	}
 	service.mu.Unlock()
 }
@@ -415,6 +443,7 @@ func (service *Service) dispatch(ctx context.Context, id string, command Command
 	command.Sequence = value.nextSequence
 	pending := &pendingCommand{command: command, result: make(chan error, 1)}
 	value.pending = pending
+	service.logCommandDispatchedLocked(value, &pending.command)
 	service.mu.Unlock()
 
 	select {
@@ -427,6 +456,7 @@ func (service *Service) dispatch(ctx context.Context, id string, command Command
 			if command.Sequence > current.cancelBefore {
 				current.cancelBefore = command.Sequence
 			}
+			service.logCommandCancelledLocked(current, &command, "context_cancelled")
 		}
 		service.mu.Unlock()
 		return output.NewActionError(output.ErrorCancelled, command.Action, 0, context.Cause(ctx))
@@ -542,10 +572,16 @@ func reportActionError(action, code string) error {
 
 func (service *Service) ownerLocked(id, token, address string) (*registration, error) {
 	value := service.devices[id]
-	if value == nil || !service.now().Before(value.expiresAt) {
+	now := service.now()
+	if value == nil || !now.Before(value.expiresAt) {
 		return nil, ErrNotFound
 	}
-	if address != value.address || !sameToken(token, value.token) {
+	if address != value.address {
+		service.logOwnerRejectionLocked(value, "address_mismatch", now)
+		return nil, ErrUnauthorized
+	}
+	if !sameToken(token, value.token) {
+		service.logOwnerRejectionLocked(value, "owner_token_mismatch", now)
 		return nil, ErrUnauthorized
 	}
 	return value, nil
@@ -553,6 +589,11 @@ func (service *Service) ownerLocked(id, token, address string) (*registration, e
 
 func (service *Service) renewLocked(value *registration) {
 	now := service.now().UTC()
+	gap := now.Sub(value.lastSeen)
+	if gap < 0 {
+		gap = 0
+	}
+	value.diagnostics.lastSeenGap = gap
 	value.lastSeen = now
 	value.expiresAt = now.Add(leaseDuration)
 }
@@ -586,21 +627,24 @@ func (service *Service) removeExpiredLocked(now time.Time) bool {
 			continue
 		}
 		delete(service.devices, id)
-		service.cancelPendingLocked(value, output.NewActionError(output.ErrorTransport, "BrowserLease", 0, ErrNotFound))
+		service.logLeaseExpiredLocked(value, now)
+		service.cancelPendingLocked(value, "lease_expired", output.NewActionError(output.ErrorTransport, "BrowserLease", 0, ErrNotFound))
 		changed = true
 	}
 	return changed
 }
 
-func (service *Service) cancelPendingLocked(value *registration, err error) {
+func (service *Service) cancelPendingLocked(value *registration, reason string, err error) {
 	if value.pending == nil {
 		return
 	}
-	if value.pending.command.Sequence > value.cancelBefore {
-		value.cancelBefore = value.pending.command.Sequence
+	pending := value.pending
+	if pending.command.Sequence > value.cancelBefore {
+		value.cancelBefore = pending.command.Sequence
 	}
-	value.pending.result <- err
+	pending.result <- err
 	value.pending = nil
+	service.logCommandCancelledLocked(value, &pending.command, reason)
 }
 
 func (service *Service) shutdown() {
@@ -610,9 +654,11 @@ func (service *Service) shutdown() {
 		return
 	}
 	service.closed = true
+	service.logServiceShutdownLocked(len(service.devices))
 	for id, value := range service.devices {
 		delete(service.devices, id)
-		service.cancelPendingLocked(value, output.NewActionError(output.ErrorCancelled, "BrowserShutdown", 0, context.Canceled))
+		service.logShutdownLocked(value)
+		service.cancelPendingLocked(value, "shutdown", output.NewActionError(output.ErrorCancelled, "BrowserShutdown", 0, context.Canceled))
 	}
 	service.mu.Unlock()
 }

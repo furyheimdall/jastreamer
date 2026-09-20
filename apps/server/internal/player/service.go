@@ -330,6 +330,7 @@ func (s *Service) SelectOutput(ctx context.Context, rendererID string) (State, e
 	}
 	s.opMu.Lock()
 	st, err := s.loadState(ctx)
+	selectedState := StateStopped
 	if err == nil && st.state != StateStopped {
 		err = fault.New(409, "PLAYER_NOT_STOPPED", "Stop playback before changing the renderer.")
 	}
@@ -341,13 +342,12 @@ func (s *Service) SelectOutput(ctx context.Context, rendererID string) (State, e
 		}
 	}
 	if err == nil {
-		state := StateStopped
 		message := ""
 		if !device.Online {
-			state = StateUnavailable
+			selectedState = StateUnavailable
 			message = "The selected renderer is offline."
 		}
-		_, err = s.db.ExecContext(ctx, `UPDATE player_state SET revision=revision+1,renderer_id=?,play_id='',current_uri='',current_seekable=0,state=?,resume_required=0,error=?,position_ms=0,duration_ms=0,observed_at='',last_observed_state='',last_observed_uri='',last_observed_position_ms=0,last_observed_duration_ms=0,last_observed_has_position=0,last_observed_at='',control_action='',control_at='' WHERE singleton=1`, rendererID, state, message)
+		_, err = s.db.ExecContext(ctx, `UPDATE player_state SET revision=revision+1,renderer_id=?,play_id='',current_uri='',current_seekable=0,state=?,resume_required=0,error=?,position_ms=0,duration_ms=0,observed_at='',last_observed_state='',last_observed_uri='',last_observed_position_ms=0,last_observed_duration_ms=0,last_observed_has_position=0,last_observed_at='',control_action='',control_at='' WHERE singleton=1`, rendererID, selectedState, message)
 		if err != nil {
 			err = fmt.Errorf("player: select renderer: %w", err)
 		}
@@ -360,6 +360,7 @@ func (s *Service) SelectOutput(ctx context.Context, rendererID string) (State, e
 	if err != nil {
 		return State{}, err
 	}
+	s.logOutputSelected(st, rendererID, selectedState, device.Online)
 	s.notify("player")
 	return s.Snapshot(ctx)
 }
@@ -459,13 +460,34 @@ func (s *Service) signalObserver() {
 func (s *Service) markInterruptedCommands() {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
-	now := s.now().UTC().Format(time.RFC3339Nano)
+	finished := s.now().UTC()
+	now := finished.Format(time.RFC3339Nano)
 	s.opMu.Lock()
 	tx, err := s.db.BeginTx(ctx, nil)
 	queueChanged := false
-	playID := ""
+	var st storedState
 	if err == nil {
-		err = tx.QueryRowContext(ctx, "SELECT play_id FROM player_state WHERE singleton=1").Scan(&playID)
+		err = tx.QueryRowContext(ctx, "SELECT renderer_id,current_entry_id,play_id,state,position_ms FROM player_state WHERE singleton=1").Scan(&st.rendererID, &st.currentEntryID, &st.playID, &st.state, &st.positionMS)
+	}
+	var commands []commandRecord
+	if err == nil {
+		rows, queryErr := tx.QueryContext(ctx, `SELECT command_id,action,entry_id,position_ms,started_at FROM player_commands WHERE service_epoch=? AND status IN ('pending','running')`, s.epoch)
+		if queryErr == nil {
+			for rows.Next() {
+				var command commandRecord
+				var startedAt string
+				if scanErr := rows.Scan(&command.id, &command.action, &command.entryID, &command.positionMS, &startedAt); scanErr != nil {
+					commands = nil
+					break
+				}
+				command.startedAt, _ = time.Parse(time.RFC3339Nano, startedAt)
+				commands = append(commands, command)
+			}
+			if rows.Err() != nil {
+				commands = nil
+			}
+			_ = rows.Close()
+		}
 	}
 	var interrupted int64
 	if err == nil {
@@ -502,8 +524,16 @@ func (s *Service) markInterruptedCommands() {
 	}
 	s.opMu.Unlock()
 	if err == nil && interrupted > 0 {
-		if playID != "" {
-			s.media.Revoke(playID)
+		resultState := StateUnavailable
+		if st.rendererID == "" {
+			resultState = StateStopped
+		}
+		for _, command := range commands {
+			command.errorInfo = diagnosticError(nil, "service_stopped")
+			s.logCommandTerminal(command, "unknown", "service_stopped", st, "", st.currentEntryID, resultState, st.positionMS, command.errorInfo, finished)
+		}
+		if st.playID != "" {
+			s.media.Revoke(st.playID)
 		}
 		if queueChanged {
 			s.notify("queue")
