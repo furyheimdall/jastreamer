@@ -2,7 +2,7 @@
 
 [Installation and upgrades](INSTALL.md) · [한국어 사용자 안내서](INSTRUCTION.ko.md) · [Project overview](README.md)
 
-jastreamer runs a Server on Linux or native Windows. Both host the embedded Web interface, send music to UPnP/DLNA outputs, and can optionally enable Google Cast. AirPlay sending is available only in the Linux container package. Optional desktop, native mobile and PWA clients connect to a Server. **This device** adds browser audio to the same Server queue without a standalone native audio engine.
+jastreamer runs a Server on Linux or native Windows. Both host the embedded Web interface, send music to UPnP/DLNA outputs, and can optionally enable Google Cast. AirPlay sending is available only in the Linux container package. Optional desktop, native mobile and PWA clients connect to a Server. **This device** adds local audio to the same Server queue: browser audio in browsers, Desktop and iOS, or a native Media3 service in the Android app.
 
 ## Installation and updates
 
@@ -30,13 +30,15 @@ The queue is Server-wide, preserves order and duplicates, and survives restarts.
 - The result is an ordinary saved snapshot: later like changes do not rewrite it. Creating it does not change Queue or start playback; use its normal playback or queue actions explicitly.
 
 <a id="browser-output"></a>
-### This device: browser audio output
+### This device: local audio output
 
-1. Stop playback, then choose the output marked **(This device)** under **Output device**, for example **Windows · Chrome (This device) [Web browser]**. On a phone, expand the compact player to reach the selector.
+The browser instructions below apply to browsers, PWA, Desktop and iOS. For the native Android app, see [Android local playback](#android-controls). Both appear as **Local audio** and use the Server queue.
+
+1. Stop playback, then choose the output marked **(This device)** under **Output device**, for example **Windows · Chrome (This device) [Local audio]**. On a phone, expand the compact player to reach the selector.
 2. Choose a track or use the existing queue and press **Play**. If the browser blocks audio, select **Allow playback** on that page. If the pending request has already failed, dismiss the error and press Play again; commands are not silently replayed.
 3. Use Pause, Stop, Previous, Next and supported Seek normally. The browser is an output of the existing Server queue, not a separate local queue.
 
-The default name describes the OS/browser information available to the page, not the computer's hostname or a phone's user-assigned name. Use the pencil button **Name this browser output** beside the output selector to save an alias such as **Office PC**. **Use default name**, or saving an empty alias, restores the automatic name. Names are limited to 80 UTF-8 bytes; Korean characters can use several bytes each.
+The default name describes the OS/browser information available to the page, not the computer's hostname or a phone's user-assigned name. Use the pencil button **Name this local output** beside the output selector to save an alias such as **Office PC**. **Use default name**, or saving an empty alias, restores the automatic name. Names are limited to 80 UTF-8 bytes; Korean characters can use several bytes each.
 
 The alias is saved in this browser profile for this Server UUID and exact origin (including port). It does not follow you to another browser/profile, private browsing session or replacement Server. Storage failures are reported rather than claimed as saved. Clearing browser storage removes the alias.
 
@@ -44,7 +46,7 @@ Only the page that registered and owns the output adds **(This device)**, for ex
 
 Control uses same-origin authenticated HTTP JSON; audio uses HTTP(S) GET/Range through the browser's audio element. This is not UPnP, HLS, DASH or WebRTC. The browser and operating system choose the physical speaker/headphones; there is no hardware-output picker, native WASAPI/ASIO engine, exclusive mode or bit-perfect guarantee. Supported formats depend on the browser decoder. Conversion requires enabled transcoding and configured FFmpeg; converted WAV streams cannot seek.
 
-Keep the owning page open. Closing or reloading it releases the local output; loss of its live registration makes the output unavailable without discarding the queue. Stop if needed, reselect **This device**, then explicitly Play to resume. Closing another Control does not stop the owning browser, and network outputs remain independent of Control lifetime. Mobile background/lock-screen playback depends on the browser/WebView and OS and is not guaranteed; there is no offline playback or native background-audio service.
+Keep the owning browser page open. Closing or reloading it releases that browser output; loss of its live registration makes the output unavailable without discarding the queue. Stop if needed, reselect **This device**, then explicitly Play to resume. Closing another Control does not stop the owning browser, and network outputs remain independent of Control lifetime. Background/lock-screen playback in browsers, PWA, Desktop Web content and iOS depends on the browser/WebView and OS and is not guaranteed. These clients have no offline playback or native background-audio service; the native Android app uses the service described below.
 
 <a id="phone-controls"></a>
 ### Phone controls
@@ -60,14 +62,19 @@ The optional **Install jastreamer** card is in **Settings**. It does not change 
 <a id="android-controls"></a>
 ### Native Android controls
 
-The native Kotlin app adds Server selection around the same Web interface; [installation and APK update rules](INSTALL.md#android) are separate from PWA installation.
+The native Kotlin app adds Server selection and native local playback around the shared Web interface; [compatible Server/Web UI versions, installation and APK update rules](INSTALL.md#android) are separate from PWA installation.
 
 - Choose a discovered or recent Server, or enter its HTTP(S) root address and select **Verify and connect**. The app does not connect automatically on a fresh launch. Recent entries are rechecked, and discovery names are accepted only after an HTTP identity check.
 - The native header identifies the selected Server and its origin, including port. **Servers** returns to selection without stopping network-output playback. A changed Server UUID is rejected for a saved entry rather than silently reusing its session.
 - Cookies and local Web storage are isolated by Server UUID plus complete origin. Different ports are different profiles, even on the same host. Changing addresses can therefore require login again.
 - Back first dismisses the keyboard when Android handles it, then navigates Web history when available, then returns to Server selection. Back from selection leaves the app. Rotation retains the live Web page and unsaved form state; returning from the background checks Server identity again before exposing the page.
 - Native language controls and **Settings → Language / 언어** support English and Korean. A Web-language change is reflected in the native shell when the page finishes loading or you leave/pause it. The existing phone/tablet layout rules, four tabs, player controls and touch targets remain unchanged.
-- The native shell sends no Play or Stop when closing, backgrounding, changing Servers or reopening. Playback and queue state belong to the Server. If the Web page owns **This device**, losing that page or its live registration releases the browser output as described above. There is no standalone native audio engine, offline player, service-worker command queue, or native JavaScript bridge.
+- The native shell sends no Play or Stop just because its screen closes, backgrounds, changes Servers or reopens. The Server owns the queue, current track and next-track decision. Browsing another Server does not stop an existing native output; stop that output before registering local playback with a different Server.
+- To play on the phone, stop playback and explicitly select **Android · jastreamer (This device) [Local audio]**, or its saved alias, then press **Play**. The Media3 foreground service plays authenticated same-origin HTTP(S) GET/Range through the phone's OS-selected speaker, headphones or Bluetooth route. Supported formats depend on Media3/Android decoders; there is no exclusive-mode or bit-perfect guarantee.
+- Android's system media card and lock-screen controls send Play, Pause, Stop, Previous, Next and supported Seek to the Server; they do not create an Android queue. Native playback continues independently of WebView backgrounding or Activity/WebView recreation. The same app reattaches its exact live registration after recreation; another browser or device does not inherit its **(This device)** marker.
+- Transient media failures retry at most three times within a 12-second recovery window, retaining the current track, position and latest Play/Pause intent. Stop, track replacement, authentication loss and registration-lease expiry cancel recovery. Permanent failures are shown rather than retried indefinitely. Host connection revalidation also uses bounded retries; TLS and Server-identity failures remain terminal.
+- Process termination or an expired/lost registration stops local playback. There is no automatic re-registration or Play after a process restart or terminal loss: resolve the error, sign in if needed, stop Server playback if necessary, then explicitly select the local output and Play. Android/OEM process and battery restrictions still apply; there is no offline player or service-worker command queue.
+- Only the verified Server's current main-frame document receives a restricted native interface for local-output connection, status and naming. It exposes no cookies, registration credentials, arbitrary native calls or filesystem access. Other clients retain browser audio; iOS does not gain this interface.
 - External navigation, new windows, downloads and native permission requests are blocked. The Server's same-origin Content Security Policy also protects its Web network requests; Android request interception alone is not a universal sandbox for arbitrary hostile HTML. Use only a Server you trust, especially over unencrypted HTTP.
 
 The PWA installation card in the shared Web UI is for browser use; the native Android client needs no additional PWA installation.

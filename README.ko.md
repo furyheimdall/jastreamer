@@ -33,7 +33,7 @@ jastreamer 0.2.0은 신뢰하는 사설 LAN에서 사용하는 자체 호스팅 
 - 최초 계정 생성, 비밀번호 로그인·변경·복구와 로그인 상태 유지
 - 기본 사설 LAN HTTP와 운영자가 제공한 PEM 인증서·키를 사용하는 선택적 내장 HTTPS
 - iPhone·Android 휴대전화용 네 탭 화면, 간결하게 접히는 재생 제어와 선택 사항인 설치형 Web 앱(PWA)
-- 확인된 Server 검색, 최근 서버·주소 입력과 서버별 WebView 세션 격리를 제공하는 네이티브 Android 클라이언트
+- 확인된 Server 검색, 격리된 WebView 세션과 시스템 미디어 제어를 갖춘 Server 주도 Media3 로컬 재생을 제공하는 네이티브 Android 클라이언트
 - 같은 Server Web 화면을 사용하는 네이티브 SwiftUI/WKWebView iOS 소스와 시뮬레이터 CI
 
 휴대전화 화면은 iPhone과 Android 휴대전화 브라우저에서만 자동으로 사용되며 iPad와 다른 태블릿은 기존 화면을 유지합니다. PWA는 Server의 네트워크 클라이언트일 뿐 보관함 cache나 오프라인 재생을 제공하지 않습니다.
@@ -43,7 +43,7 @@ jastreamer 0.2.0은 신뢰하는 사설 LAN에서 사용하는 자체 호스팅 
 - **Linux Server:** 내장 Web 화면, Python 3.12, 오디오 전용 FFmpeg 8.1.2와 pyatv 0.18.0 AirPlay 송신 프로그램을 포함하는 `amd64`·`arm64` 컨테이너입니다. Synology Container Manager에서는 제공된 Compose 정의를 사용합니다.
 - **네이티브 Windows Server:** 내장 Web 화면, UPnP/DLNA와 선택적 Google Cast를 제공하는 미서명 x64 무설치 ZIP입니다. AirPlay 송신 프로그램, 네이티브 오디오 엔진 또는 FFmpeg 변환기를 포함하지 않으며 Windows 서비스가 아닙니다.
 - **선택 사항인 데스크톱 앱:** Windows 10/11 x64 무설치 ZIP 또는 Linux amd64 DEB로 제공됩니다. Server를 찾거나 HTTP(S) 주소를 입력받아 Server의 Web 화면을 표시합니다. Server나 독립 네이티브 오디오 엔진을 추가하지 않으며 로컬 출력은 공유 Web 화면을 사용합니다. ARM64 데스크톱 패키지는 없으며 Linux arm64 클라이언트는 브라우저를 사용할 수 있습니다.
-- **Android 클라이언트:** Android 10 이상과 독립 프로필을 지원하는 최신 WebView가 필요한 Kotlin/WebView 앱입니다. Server의 휴대전화·태블릿 화면을 그대로 사용합니다. [Android CI](https://github.com/furyheimdall/jastreamer/actions/workflows/android.yml)는 개발·테스트 APK와 미서명 release 빌드를 제공하며 production 서명이나 Play Store 배포는 아닙니다. [Android 설치](INSTALL.ko.md#android)를 참고하세요.
+- **Android 클라이언트:** Android 10 이상과 독립 프로필을 지원하는 최신 WebView가 필요한 Kotlin/WebView 앱입니다. Server의 휴대전화·태블릿 화면을 그대로 사용하며 Media3 포그라운드 서비스로 네이티브 로컬 재생을 제공합니다. [Android CI](https://github.com/furyheimdall/jastreamer/actions/workflows/android.yml)는 개발·테스트 APK와 미서명 release 빌드를 제공하며 production 서명이나 Play Store 배포는 아닙니다. [Android 설치](INSTALL.ko.md#android)를 참고하세요.
 - **iOS 소스와 CI:** iOS/iPadOS 18.4 이상용 SwiftUI/WKWebView 앱입니다. [iOS CI](https://github.com/furyheimdall/jastreamer/actions/workflows/ios.yml)는 iPhone 시뮬레이터에서 실제 Web 화면을 검증하고 미서명 기기용 개발 번들과 시뮬레이터 전용 번들을 만듭니다. 설치 가능한 iPhone 패키지, TestFlight나 App Store 릴리즈는 제공하지 않습니다. [iOS 개발 범위](INSTALL.ko.md#ios)를 참고하세요.
 
 Google Cast 자체에는 어느 Server 플랫폼에서도 Chrome이나 Python helper가 필요하지 않습니다. 전체 [GitHub Releases 목록](https://github.com/furyheimdall/jastreamer/releases)에서 올바르게 표시된 프리뷰까지 포함해 가장 최근의 호환되는 게시 Server 릴리즈를 선택하고 provenance와 패키지 checksum 또는 정확한 이미지 다이제스트를 검증하세요. 가변 `latest`를 사용하거나 `/releases/latest`가 프리뷰를 포함한다고 가정하지 마세요.
