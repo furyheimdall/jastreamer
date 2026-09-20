@@ -583,6 +583,8 @@ class ActualWebUiSmokeTest {
             assertTrue(onMain { !controller.isPlaying && controller.mediaItemCount == 0 })
             screenshot("native-recovery-stopped")
 
+            resetProxyFault()
+
             onMain { controller.play() }
             waitForPlayer("long media restarts before the lease watchdog scenario") {
                 it.optString("state") == "playing" &&
