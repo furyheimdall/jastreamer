@@ -14,12 +14,11 @@ import androidx.annotation.OptIn
 import androidx.core.content.ContextCompat
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
-import androidx.media3.common.ForwardingPlayer
+import androidx.media3.common.ForwardingSimpleBasePlayer
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
-import androidx.media3.common.FlagSet
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.okhttp.OkHttpDataSource
 import androidx.media3.datasource.HttpDataSource
@@ -34,8 +33,9 @@ import androidx.media3.session.MediaSessionService
 import androidx.media3.session.SessionCommands
 import androidx.webkit.ProfileStore
 import androidx.webkit.WebViewFeature
+import com.google.common.util.concurrent.Futures
+import com.google.common.util.concurrent.ListenableFuture
 import java.io.IOException
-import java.util.IdentityHashMap
 import java.util.concurrent.TimeUnit
 import javax.net.ssl.SSLException
 import kotlinx.coroutines.CancellationException
@@ -179,7 +179,7 @@ class NativePlaybackService : MediaSessionService(), Player.Listener {
         serviceJob.cancel()
         session.release()
         player.removeListener(this)
-        player.release()
+        routedPlayer.release()
         registration = null
         currentResource = null
         super.onDestroy()
@@ -1068,12 +1068,13 @@ class NativePlaybackService : MediaSessionService(), Player.Listener {
         return PlaybackFailure(classified.reportCode, classified.publicMessage)
     }
 
-    private inner class ServerRoutedPlayer(player: Player) : ForwardingPlayer(player) {
+    private inner class ServerRoutedPlayer(player: Player) : ForwardingSimpleBasePlayer(player) {
         private val commands = Player.Commands.Builder()
             .addAllReadOnlyCommands()
             .addAll(
                 Player.COMMAND_PLAY_PAUSE,
                 Player.COMMAND_STOP,
+                Player.COMMAND_RELEASE,
                 Player.COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM,
                 Player.COMMAND_SEEK_TO_PREVIOUS,
                 Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM,
@@ -1081,57 +1082,29 @@ class NativePlaybackService : MediaSessionService(), Player.Listener {
                 Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM,
             )
             .build()
-        private val listenerWrappers = IdentityHashMap<Player.Listener, Player.Listener>()
 
-        override fun addListener(listener: Player.Listener) {
-            synchronized(listenerWrappers) {
-                val wrapped = listenerWrappers.getOrPut(listener) {
-                    object : Player.Listener by listener {
-                        override fun onAvailableCommandsChanged(availableCommands: Player.Commands) {
-                            // Server controls stay available when the single-item decoder changes commands.
-                        }
+        // The decoder has one item; queue navigation belongs to the Server. Let Media3
+        // derive consistent listener events from this state instead of decoder commands.
+        override fun getState() = super.getState().buildUpon().setAvailableCommands(commands).build()
 
-                        override fun onEvents(player: Player, events: Player.Events) {
-                            if (!events.contains(Player.EVENT_AVAILABLE_COMMANDS_CHANGED)) {
-                                listener.onEvents(player, events)
-                                return
-                            }
-                            if (events.size() == 1) return
-                            val flags = FlagSet.Builder()
-                            for (index in 0 until events.size()) {
-                                val event = events.get(index)
-                                if (event != Player.EVENT_AVAILABLE_COMMANDS_CHANGED) flags.add(event)
-                            }
-                            listener.onEvents(player, Player.Events(flags.build()))
-                        }
-                    }
-                }
-                super.addListener(wrapped)
-            }
+        override fun handleSetPlayWhenReady(playWhenReady: Boolean): ListenableFuture<*> {
+            sendPlayerControl(if (playWhenReady) "play" else "pause")
+            return Futures.immediateVoidFuture()
         }
 
-        override fun removeListener(listener: Player.Listener) {
-            synchronized(listenerWrappers) {
-                val wrapped = listenerWrappers.remove(listener) ?: return
-                super.removeListener(wrapped)
-            }
+        override fun handleStop(): ListenableFuture<*> {
+            sendPlayerControl("stop")
+            return Futures.immediateVoidFuture()
         }
 
-        override fun getAvailableCommands(): Player.Commands = commands
-        override fun isCommandAvailable(command: Int): Boolean = commands.contains(command)
-        override fun play() = sendPlayerControl("play")
-        override fun pause() = sendPlayerControl("pause")
-        override fun setPlayWhenReady(playWhenReady: Boolean) = sendPlayerControl(if (playWhenReady) "play" else "pause")
-        override fun stop() = sendPlayerControl("stop")
-        override fun seekTo(positionMs: Long) = sendPlayerControl("seek", positionMs.coerceAtLeast(0L))
-        override fun seekTo(mediaItemIndex: Int, positionMs: Long) = seekTo(positionMs)
-        override fun seekToNext() = sendPlayerControl("next")
-        override fun seekToNextMediaItem() = sendPlayerControl("next")
-        override fun seekToPrevious() = sendPlayerControl("previous")
-        override fun seekToPreviousMediaItem() = sendPlayerControl("previous")
-        override fun hasNextMediaItem(): Boolean = registration != null
-        override fun hasPreviousMediaItem(): Boolean = registration != null
-        override fun prepare() = Unit
+        override fun handleSeek(mediaItemIndex: Int, positionMs: Long, seekCommand: Int): ListenableFuture<*> {
+            when (seekCommand) {
+                Player.COMMAND_SEEK_TO_NEXT, Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM -> sendPlayerControl("next")
+                Player.COMMAND_SEEK_TO_PREVIOUS, Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM -> sendPlayerControl("previous")
+                else -> sendPlayerControl("seek", positionMs.coerceAtLeast(0L))
+            }
+            return Futures.immediateVoidFuture()
+        }
     }
 
     private inner class SessionCallback : MediaSession.Callback {
