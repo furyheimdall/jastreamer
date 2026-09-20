@@ -608,6 +608,9 @@ class ActualWebUiSmokeTest {
             waitFor("real MediaSession is stopped and cleared", 6_000L) {
                 onMain { !controller.isPlaying && controller.mediaItemCount == 0 }
             }
+            waitFor("explicit Stop releases foreground playback protection", 3_000L) {
+                !hasForegroundPlaybackService()
+            }
             assertTrue(
                 "Stop must not wait for delayed media recovery",
                 SystemClock.elapsedRealtime() - stopDuringRecoveryAt < 6_000L,
@@ -657,6 +660,9 @@ class ActualWebUiSmokeTest {
             )
             waitFor("lease expiry physically stops buffered native media", 3_000L) {
                 onMain { !controller.isPlaying && controller.mediaItemCount == 0 }
+            }
+            waitFor("lease expiry releases foreground playback protection", 3_000L) {
+                !hasForegroundPlaybackService()
             }
             waitForRendererAbsent("expired native output disappears from Server", deviceId, 5_000L)
 
