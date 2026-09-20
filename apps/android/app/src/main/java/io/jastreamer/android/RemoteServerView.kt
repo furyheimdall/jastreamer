@@ -526,7 +526,9 @@ class RemoteServerView(
                 return
             }
             lastBlockedUrl = null
-            if (phase == LoadPhase.LOADED || phase == LoadPhase.IDLE) beginObservedNavigation()
+            // Late callbacks from a failed document cannot make it healthy again.
+            // Initial loads and retries enter LOADING explicitly.
+            if (phase == LoadPhase.LOADED) beginObservedNavigation()
         }
 
         override fun onPageCommitVisible(view: WebView, url: String) {

@@ -609,7 +609,7 @@ class WebViewBoundaryTest {
                                 """
                                 <!doctype html>
                                 <html><head><meta name="viewport" content="width=device-width"></head>
-                                <body>ready</body></html>
+                                <body>${if (responseCode == 200) "ready" else "unavailable"}</body></html>
                                 """.trimIndent(),
                             )
                     } else {
