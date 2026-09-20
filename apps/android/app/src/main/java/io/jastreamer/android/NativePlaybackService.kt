@@ -584,7 +584,8 @@ class NativePlaybackService : MediaSessionService(), Player.Listener {
 
     private suspend fun executeSeek(expected: Registration, command: JSONObject, sequence: Long): JSONObject {
         val active = requireActive(command, sequence)
-        val requested = command.optLong("position_ms", -1L)
+        // The Server omits position_ms when its value is zero.
+        val requested = if (command.has("position_ms")) command.optLong("position_ms", -1L) else 0L
         if (requested < 0L) throw CommandFailure("action_failed", "Invalid seek position")
         val interruptedRecovery = cancelBackgroundRecovery()
         val shouldPlay = active.wantsPlayback
