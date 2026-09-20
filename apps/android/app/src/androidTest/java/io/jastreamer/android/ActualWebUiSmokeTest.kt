@@ -1,6 +1,7 @@
 package io.jastreamer.android
 
 import android.accessibilityservice.AccessibilityService
+import android.app.ActivityManager
 import android.content.ComponentName
 import android.content.ContentValues
 import android.content.Context
@@ -325,12 +326,14 @@ class ActualWebUiSmokeTest {
               for (let attempt = 0; attempt < 100; attempt++) {
                 tracks = await api('/library/tracks?limit=200');
                 if (tracks.items.some(track => track.root_id === 'android-smoke' && track.path === 'long.wav') &&
-                    tracks.items.some(track => track.root_id === 'android-smoke' && track.path === 'short.wav')) break;
+                    tracks.items.some(track => track.root_id === 'android-smoke' && track.path === 'short.wav') &&
+                    tracks.items.some(track => track.root_id === 'android-smoke' && track.path === 'artwork/background.wav')) break;
                 await new Promise(resolve => setTimeout(resolve, 100));
               }
               const long = tracks.items.find(track => track.root_id === 'android-smoke' && track.path === 'long.wav');
               const short = tracks.items.find(track => track.root_id === 'android-smoke' && track.path === 'short.wav');
-              if (!long || !short) throw new Error('isolated audio fixtures were not scanned');
+              const background = tracks.items.find(track => track.root_id === 'android-smoke' && track.path === 'artwork/background.wav');
+              if (!long || !short || !background) throw new Error('isolated audio fixtures were not scanned');
               const player = await api('/player');
               if (player.state !== 'stopped') {
                 await api('/player', 'POST', {action:'stop'});
@@ -341,7 +344,7 @@ class ActualWebUiSmokeTest {
               }
               const queue = await api('/queue');
               const replacement = await api('/queue', 'POST', {
-                action:'replace', track_ids:[short.id, long.id], revision:queue.revision
+                action:'replace', track_ids:[short.id, long.id, background.id], revision:queue.revision
               });
               await api('/player/output', 'PUT', {renderer_id:native.device.id});
               await api('/player', 'POST', {action:'play'});
@@ -349,6 +352,7 @@ class ActualWebUiSmokeTest {
                 deviceId:native.device.id,
                 longId:long.id,
                 shortId:short.id,
+                backgroundId:background.id,
                 initialEntryId:replacement.entries[0].id
               };
             })().then(
@@ -366,6 +370,7 @@ class ActualWebUiSmokeTest {
         val deviceId = setup.getString("deviceId")
         val longId = setup.getString("longId")
         val shortId = setup.getString("shortId")
+        val backgroundId = setup.getString("backgroundId")
         val initialEntryId = setup.getString("initialEntryId")
         waitForPlayer("native media retry preserves the starting queue entry") { player ->
             player.optString("state") == "playing" &&
@@ -392,6 +397,12 @@ class ActualWebUiSmokeTest {
                 .buildAsync()
         }
         val controller = future.get(10, TimeUnit.SECONDS)
+        val activityManager = instrumentation.targetContext.getSystemService(ActivityManager::class.java)
+        @Suppress("DEPRECATION")
+        fun hasForegroundPlaybackService(): Boolean =
+            activityManager.getRunningServices(32).any {
+                it.service.className == NativePlaybackService::class.java.name && it.foreground
+            }
         var primaryFailure: Throwable? = null
         try {
             waitFor("real MediaSession playback and metadata") {
@@ -418,6 +429,37 @@ class ActualWebUiSmokeTest {
                         controller.isPlaying &&
                         controller.currentPosition >= backgroundPosition + 500L
                 }
+            }
+            waitFor("Android identifies the playing service as foreground") {
+                hasForegroundPlaybackService()
+            }
+            armMediaFault("delay", delayMillis = 1_000)
+            onMain { controller.seekToNextMediaItem() }
+            waitFor("background track replacement retains foreground protection") {
+                assertTrue(
+                    "Background track replacement must not drop the Android foreground playback service",
+                    hasForegroundPlaybackService(),
+                )
+                onMain {
+                    controller.isPlaying &&
+                        controller.mediaMetadata.title?.toString()?.contains("background", ignoreCase = true) == true
+                }
+            }
+            assertTrue("Replacement artwork must have loaded", onMain { controller.mediaMetadata.artworkData != null })
+            waitForPlayer("Server confirms the background track replacement") {
+                it.optString("state") == "playing" &&
+                    it.optJSONObject("track")?.optString("id") == backgroundId &&
+                    it.optString("pending_command").isEmpty()
+            }
+            onMain { controller.seekTo(0) }
+            waitFor("replacement position resets before previous command") {
+                onMain { controller.currentPosition < 500L }
+            }
+            onMain { controller.seekToPreviousMediaItem() }
+            waitForPlayer("background previous restores the long track") {
+                it.optString("state") == "playing" &&
+                    it.optJSONObject("track")?.optString("id") == longId &&
+                    it.optString("pending_command").isEmpty()
             }
             onMain { controller.pause() }
             waitForPlayer("background MediaSession pause reaches Server") {

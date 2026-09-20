@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Run Android instrumentation against an isolated, real Server and embedded Web UI."""
 
+import base64
 import json
 import signal
 import socket
@@ -49,13 +50,18 @@ def main():
         music = work / "music"
         music.mkdir()
         silence = bytes(44100 * 2)
-        for name, seconds in (("short.wav", 3), ("long.wav", 600)):
-            with wave.open(str(music / name), "wb") as audio:
+        for name, seconds in (("short.wav", 3), ("long.wav", 600), ("artwork/background.wav", 120)):
+            destination = music / name
+            destination.parent.mkdir(exist_ok=True)
+            with wave.open(str(destination), "wb") as audio:
                 audio.setnchannels(1)
                 audio.setsampwidth(2)
                 audio.setframerate(44100)
                 for _ in range(seconds):
                     audio.writeframesraw(silence)
+        (music / "artwork" / "cover.png").write_bytes(base64.b64decode(
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGNQaHAAAAGkAOGt06eBAAAAAElFTkSuQmCC"
+        ))
         config = work / "server.json"
         config.write_text(json.dumps({
             "version": 1,
