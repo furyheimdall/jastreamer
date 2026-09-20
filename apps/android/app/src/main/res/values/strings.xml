@@ -2,6 +2,9 @@
 <resources>
     <string name="app_name" translatable="false">jastreamer</string>
     <string name="android_control">Android Control</string>
+    <string name="native_playback_notification_channel">Playback</string>
+    <string name="native_playback_notification_description">Phone playback and media controls</string>
+    <string name="native_playback_error">Phone playback could not continue.</string>
     <string name="select_server">Select a server</string>
     <string name="selection_detail">Choose a verified JASTREAMER Server on your network. Connections are always your choice; playback stays on the Server.</string>
     <string name="server_address">Server address</string>

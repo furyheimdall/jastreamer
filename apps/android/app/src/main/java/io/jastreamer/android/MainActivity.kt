@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.res.Configuration
 import android.graphics.Color
 import android.os.Bundle
+import android.os.SystemClock
 import android.text.InputType
 import android.text.TextUtils
 import android.view.Gravity
@@ -74,6 +75,9 @@ class MainActivity : ComponentActivity() {
     private var retryTarget: Pair<String, String?>? = null
     private var foreground = false
     private var destroyed = false
+    private var recoveryFailures = 0
+    private var recoveryDeadlineMillis = 0L
+    private var remoteRequiresReload = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -159,6 +163,16 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    override fun onResume() {
+        super.onResume()
+        remote?.resume()
+    }
+
+    override fun onPause() {
+        remote?.pause()
+        super.onPause()
+    }
+
     override fun onStop() {
         foreground = false
         generation++
@@ -201,6 +215,7 @@ class MainActivity : ComponentActivity() {
         generation++
         val attempt = generation
         connectionJob?.cancel()
+        resetRecovery()
         disposeRemote()
         selected = null
         retryTarget = input to expectedId
@@ -214,14 +229,25 @@ class MainActivity : ComponentActivity() {
             .hideSoftInputFromWindow(address.windowToken, 0)
         connectionJob = lifecycleScope.launch {
             try {
-                val server = probe.probe(input, expectedId)
+                val server = probeForConnection(input, expectedId)
                 withContext(Dispatchers.IO) { store.remember(server) }
                 if (attempt != generation || !foreground) return@launch
                 val epoch = ++remoteEpoch
-                val view = RemoteServerView(
-                    this@MainActivity, server, language,
+                lateinit var view: RemoteServerView
+                view = RemoteServerView(
+                    this@MainActivity,
+                    server,
+                    language,
+                    canStartNativePlayback = {
+                        epoch == remoteEpoch &&
+                            foreground &&
+                            !destroyed &&
+                            lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)
+                    },
                     onLoaded = {
                         if (epoch == remoteEpoch && !destroyed) {
+                            remoteRequiresReload = false
+                            resetRecovery()
                             progress.visibility = View.GONE
                         }
                     },
@@ -232,7 +258,8 @@ class MainActivity : ComponentActivity() {
                                     this@MainActivity, errorText(failure), android.widget.Toast.LENGTH_LONG,
                                 ).show()
                             } else {
-                                showChooser(failure)
+                                remoteRequiresReload = true
+                                recoverConnection(server, view, initialFailure = failure)
                             }
                         }
                     },
@@ -241,6 +268,7 @@ class MainActivity : ComponentActivity() {
                     },
                 )
                 remote = view
+                remoteRequiresReload = true
                 selected = server
                 retryTarget = server.origin to server.id
                 connecting = false
@@ -258,26 +286,91 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private suspend fun probeForConnection(input: String, expectedId: String?): ServerEndpoint {
+        while (true) {
+            try {
+                return probe.probe(input, expectedId).also { resetRecovery() }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (failure: ClientException) {
+                if (expectedId == null || !acceptRecoveryFailure(failure)) throw failure
+                delay(recoveryDelayMillis())
+            }
+        }
+    }
+
     private fun revalidateConnection() {
         val server = selected ?: return
         val view = remote ?: return
+        recoverConnection(server, view)
+    }
+
+    private fun recoverConnection(
+        server: ServerEndpoint,
+        view: RemoteServerView,
+        initialFailure: ClientException? = null,
+    ) {
+        if (initialFailure != null && !acceptRecoveryFailure(initialFailure)) {
+            showChooser(initialFailure)
+            return
+        }
         val attempt = ++generation
         connectionJob?.cancel()
         progress.visibility = View.VISIBLE
         connectionJob = lifecycleScope.launch {
-            try {
-                probe.probe(server.origin, server.id)
-                if (attempt == generation && foreground && remote === view) {
+            var lastFailure = initialFailure
+            while (attempt == generation && !destroyed && remote === view) {
+                if (!foreground) return@launch
+                if (lastFailure != null) {
+                    if (SystemClock.elapsedRealtime() >= recoveryDeadlineMillis) {
+                        showChooser(lastFailure)
+                        return@launch
+                    }
+                    delay(recoveryDelayMillis())
+                }
+                try {
+                    probe.probe(server.origin, server.id)
+                    if (attempt != generation || !foreground || remote !== view) return@launch
                     view.visibility = View.VISIBLE
                     view.resume()
-                    progress.visibility = View.GONE
+                    if (remoteRequiresReload) {
+                        view.retryLoad()
+                    } else {
+                        resetRecovery()
+                        progress.visibility = View.GONE
+                    }
+                    return@launch
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (failure: ClientException) {
+                    if (attempt != generation || remote !== view) return@launch
+                    if (!acceptRecoveryFailure(failure)) {
+                        showChooser(failure)
+                        return@launch
+                    }
+                    lastFailure = failure
                 }
-            } catch (cancelled: CancellationException) {
-                throw cancelled
-            } catch (failure: ClientException) {
-                if (attempt == generation) showChooser(failure)
             }
         }
+    }
+
+    private fun acceptRecoveryFailure(failure: ClientException): Boolean {
+        if (!failure.retryable) return false
+        val now = SystemClock.elapsedRealtime()
+        if (recoveryDeadlineMillis == 0L) recoveryDeadlineMillis = now + RECOVERY_WINDOW_MILLIS
+        recoveryFailures++
+        return recoveryFailures <= MAX_RECOVERY_FAILURES && now < recoveryDeadlineMillis
+    }
+
+    private fun recoveryDelayMillis(): Long = when (recoveryFailures) {
+        0, 1 -> 250L
+        2 -> 500L
+        else -> 1_000L
+    }
+
+    private fun resetRecovery() {
+        recoveryFailures = 0
+        recoveryDeadlineMillis = 0L
     }
 
     private fun disposeRemote() {
@@ -286,6 +379,7 @@ class MainActivity : ComponentActivity() {
         previous.pause()
         remoteEpoch++
         remote = null
+        resetRecovery()
         content.removeView(previous)
         previous.dispose()
     }
@@ -552,5 +646,7 @@ class MainActivity : ComponentActivity() {
         private val BACKGROUND = Color.rgb(12, 23, 19)
         private val FOREGROUND = Color.rgb(234, 245, 238)
         private val MUTED = Color.rgb(164, 186, 172)
+        private const val MAX_RECOVERY_FAILURES = 4
+        private const val RECOVERY_WINDOW_MILLIS = 25_000L
     }
 }

@@ -1,8 +1,9 @@
 package io.jastreamer.android
 
 import android.accessibilityservice.AccessibilityService
-import android.content.Context
+import android.content.ComponentName
 import android.content.ContentValues
+import android.content.Context
 import android.content.pm.ActivityInfo
 import android.content.res.Configuration
 import android.graphics.Bitmap
@@ -18,6 +19,9 @@ import android.widget.EditText
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.lifecycle.Lifecycle
+import androidx.media3.common.Player
+import androidx.media3.session.MediaController
+import androidx.media3.session.SessionToken
 import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
@@ -25,6 +29,8 @@ import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicReference
 import org.json.JSONArray
+import org.json.JSONObject
+import org.json.JSONTokener
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -104,10 +110,37 @@ class ActualWebUiSmokeTest {
             screenshot("real-web-phone-library")
             assertStopped()
 
+            evaluate("window.androidRecoveryMarker = 'view-' + Math.random(); 'marked'")
+            armDiscoveryFault("disconnect")
             scenario.moveToState(Lifecycle.State.CREATED)
             scenario.moveToState(Lifecycle.State.RESUMED)
-            waitFor("session after background return") { evaluate("!!document.querySelector('.phone-player-bar')") == "true" }
+            waitFor("transient revalidation retry preserves the live WebView") {
+                webViewVisible() &&
+                    evaluate(
+                        "!!document.querySelector('.phone-player-bar') && /^view-/.test(window.androidRecoveryMarker)",
+                    ) == "true"
+            }
             assertStopped()
+
+            armDiscoveryFault("delay", delayMillis = 10_000)
+            scenario.moveToState(Lifecycle.State.CREATED)
+            scenario.moveToState(Lifecycle.State.RESUMED)
+            SystemClock.sleep(300)
+            scenario.moveToState(Lifecycle.State.CREATED)
+            val cancelledAt = SystemClock.elapsedRealtime()
+            scenario.moveToState(Lifecycle.State.RESUMED)
+            waitFor("background cancellation does not await a stale delayed probe") {
+                webViewVisible() &&
+                    evaluate(
+                        "!!document.querySelector('.phone-player-bar') && /^view-/.test(window.androidRecoveryMarker)",
+                    ) == "true"
+            }
+            assertTrue(
+                "A cancelled 10 second probe must not gate the next foreground revalidation",
+                SystemClock.elapsedRealtime() - cancelledAt < 6_000,
+            )
+            assertStopped()
+
             scenario.recreate()
             waitFor("session after activity recreation") { evaluate("!!document.querySelector('.phone-player-bar')") == "true" }
             assertStopped()
@@ -141,6 +174,7 @@ class ActualWebUiSmokeTest {
             }
             assertStopped()
             screenshot("real-web-phone-korean")
+            exerciseNativePlayback()
         }
     }
 
@@ -150,6 +184,62 @@ class ActualWebUiSmokeTest {
             activity.findViewById<View>(R.id.connect_button).performClick()
         }
     }
+
+    private fun armDiscoveryFault(mode: String, delayMillis: Int? = null) {
+        armProxyFault("/api/v1/discovery", prefix = false, mode = mode, delayMillis = delayMillis)
+    }
+
+    private fun armMediaFault(mode: String, delayMillis: Int? = null, count: Int = 1) {
+        armProxyFault("/media/", prefix = true, mode = mode, delayMillis = delayMillis, count = count)
+    }
+
+    private fun armProxyFault(
+        path: String,
+        prefix: Boolean,
+        mode: String,
+        delayMillis: Int?,
+        count: Int = 1,
+    ) {
+        require(count in 1..8)
+        val delay = delayMillis?.let { ",delay_ms:$it" }.orEmpty()
+        val prefixField = if (prefix) ",prefix:true" else ""
+        evaluate(
+            """
+            window.androidFaultArmed = false;
+            fetch('/__android_smoke/fault', {
+              method:'POST',
+              headers:{'Content-Type':'application/json'},
+              body:JSON.stringify({path:'$path',count:$count,mode:'$mode'$delay$prefixField})
+            }).then(response => {
+              if (!response.ok) throw new Error('fault control HTTP ' + response.status);
+              window.androidFaultArmed = true;
+            }).catch(error => { window.androidFaultArmed = String(error); });
+            'arming';
+            """.trimIndent(),
+        )
+        waitFor("$path fault arm") {
+            evaluate("window.androidFaultArmed === true") == "true"
+        }
+    }
+
+    private fun resetProxyFault() {
+        evaluate(
+            """
+            window.androidFaultReset = false;
+            fetch('/__android_smoke/fault/reset', {method:'POST'})
+              .then(response => {
+                if (!response.ok) throw new Error('fault reset HTTP ' + response.status);
+                window.androidFaultReset = true;
+              })
+              .catch(error => { window.androidFaultReset = String(error); });
+            'resetting';
+            """.trimIndent(),
+        )
+        waitFor("proxy fault reset") {
+            evaluate("window.androidFaultReset === true") == "true"
+        }
+    }
+
     private fun keyboardVisible(): Boolean {
         var visible = false
         scenario.onActivity { activity ->
@@ -191,6 +281,468 @@ class ActualWebUiSmokeTest {
     }
 
 
+    private fun exerciseNativePlayback() {
+        armMediaFault("disconnect")
+        evaluate(
+            """
+            window.androidNativeSetup = undefined;
+            (async () => {
+              window.androidRequestNative = (action, name) => new Promise((resolve, reject) => {
+                const id = 'android-smoke-' + action + '-' + Date.now() + '-' + Math.random();
+                const timer = setTimeout(() => reject(new Error('native ' + action + ' timeout')), 10000);
+                const listener = event => {
+                  let message;
+                  try { message = JSON.parse(event.data); } catch (_) { return; }
+                  if (message.id !== id) return;
+                  clearTimeout(timer);
+                  JastreamerAndroidAudio.removeEventListener('message', listener);
+                  if (message.error) reject(new Error(message.error.code + ': ' + message.error.message));
+                  else resolve(message);
+                };
+                JastreamerAndroidAudio.addEventListener('message', listener);
+                JastreamerAndroidAudio.postMessage(JSON.stringify({
+                  id, action, ...(name === undefined ? {} : {name})
+                }));
+              });
+              const api = async (path, method = 'GET', body) => {
+                const response = await fetch('/api/v1' + path, {
+                  method,
+                  credentials: 'same-origin',
+                  headers: {
+                    'Accept': 'application/json',
+                    'Content-Type': 'application/json',
+                    'X-Jastreamer-Request': 'web'
+                  },
+                  ...(body === undefined ? {} : {body: JSON.stringify(body)})
+                });
+                if (!response.ok) throw new Error(method + ' ' + path + ': HTTP ' + response.status);
+                return response.status === 204 ? null : response.json();
+              };
+              const native = await window.androidRequestNative('connect', 'Android smoke output');
+              await api('/library/scans', 'POST', {});
+              let tracks;
+              for (let attempt = 0; attempt < 100; attempt++) {
+                tracks = await api('/library/tracks?limit=200');
+                if (tracks.items.some(track => track.root_id === 'android-smoke' && track.path === 'long.wav') &&
+                    tracks.items.some(track => track.root_id === 'android-smoke' && track.path === 'short.wav')) break;
+                await new Promise(resolve => setTimeout(resolve, 100));
+              }
+              const long = tracks.items.find(track => track.root_id === 'android-smoke' && track.path === 'long.wav');
+              const short = tracks.items.find(track => track.root_id === 'android-smoke' && track.path === 'short.wav');
+              if (!long || !short) throw new Error('isolated audio fixtures were not scanned');
+              const player = await api('/player');
+              if (player.state !== 'stopped') {
+                await api('/player', 'POST', {action:'stop'});
+                for (let attempt = 0; attempt < 100; attempt++) {
+                  if ((await api('/player')).state === 'stopped') break;
+                  await new Promise(resolve => setTimeout(resolve, 100));
+                }
+              }
+              const queue = await api('/queue');
+              const replacement = await api('/queue', 'POST', {
+                action:'replace', track_ids:[short.id, long.id], revision:queue.revision
+              });
+              await api('/player/output', 'PUT', {renderer_id:native.device.id});
+              await api('/player', 'POST', {action:'play'});
+              return {
+                deviceId:native.device.id,
+                longId:long.id,
+                shortId:short.id,
+                initialEntryId:replacement.entries[0].id
+              };
+            })().then(
+              value => { window.androidNativeSetup = value; },
+              error => { window.androidNativeSetup = {error:String(error && error.message || error)}; }
+            );
+            'started';
+            """.trimIndent(),
+        )
+        waitFor("native playback fixture setup") {
+            evaluate("window.androidNativeSetup !== undefined") == "true"
+        }
+        val setup = JSONObject(requireNotNull(evaluate("window.androidNativeSetup")))
+        check(!setup.has("error")) { setup.optString("error") }
+        val deviceId = setup.getString("deviceId")
+        val longId = setup.getString("longId")
+        val shortId = setup.getString("shortId")
+        val initialEntryId = setup.getString("initialEntryId")
+        waitForPlayer("native media retry preserves the starting queue entry") { player ->
+            player.optString("state") == "playing" &&
+                player.optString("renderer_id") == deviceId &&
+                player.optString("current_entry_id") == initialEntryId &&
+                player.optJSONObject("track")?.optString("id") == shortId &&
+                player.optString("error").isEmpty()
+        }
+        waitForPlayer("natural completion advances authoritatively to the long track") { player ->
+            player.optString("state") == "playing" &&
+                player.optString("renderer_id") == deviceId &&
+                player.optJSONObject("track")?.optString("id") == longId &&
+                player.optString("current_entry_id") != initialEntryId &&
+                player.optString("error").isEmpty()
+        }
+
+        val token = SessionToken(
+            instrumentation.targetContext,
+            ComponentName(instrumentation.targetContext, NativePlaybackService::class.java),
+        )
+        val future = MediaController.Builder(instrumentation.targetContext, token).buildAsync()
+        val controller = future.get(10, TimeUnit.SECONDS)
+        try {
+            waitFor("real MediaSession playback and metadata") {
+                onMain {
+                    controller.isConnected &&
+                        controller.isPlaying &&
+                        controller.duration >= 590_000L &&
+                        controller.mediaMetadata.title?.toString()?.contains("long", ignoreCase = true) == true
+                }
+            }
+            assertTrue(onMain { controller.availableCommands.contains(Player.COMMAND_PLAY_PAUSE) })
+            assertTrue(onMain { controller.availableCommands.contains(Player.COMMAND_STOP) })
+            assertTrue(onMain { controller.availableCommands.contains(Player.COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM) })
+            assertTrue(onMain { controller.availableCommands.contains(Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM) })
+            assertTrue(onMain { controller.availableCommands.contains(Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM) })
+            screenshot("native-playing")
+
+            scenario.moveToState(Lifecycle.State.CREATED)
+            val backgroundPosition = onMain { controller.currentPosition }
+            SystemClock.sleep(1_500)
+            waitFor("native playback advances while the Activity stays backgrounded") {
+                onMain {
+                    controller.isConnected &&
+                        controller.isPlaying &&
+                        controller.currentPosition >= backgroundPosition + 500L
+                }
+            }
+            onMain { controller.pause() }
+            waitFor("background MediaSession pause takes effect") {
+                onMain { controller.isConnected && !controller.playWhenReady && !controller.isPlaying }
+            }
+            onMain { controller.play() }
+            waitFor("background MediaSession play takes effect") {
+                onMain { controller.isConnected && controller.playWhenReady && controller.isPlaying }
+            }
+            val mediaTitle = requireNotNull(onMain { controller.mediaMetadata.title?.toString() })
+            assertTrue(
+                "Android must expose expanded system media controls",
+                instrumentation.uiAutomation.performGlobalAction(AccessibilityService.GLOBAL_ACTION_QUICK_SETTINGS),
+            )
+            waitFor("active transport session in Android system media controls") {
+                systemUiShowsMediaTitle(mediaTitle)
+            }
+            screenshotSystemUi("native-background")
+            repeat(2) {
+                instrumentation.uiAutomation.performGlobalAction(AccessibilityService.GLOBAL_ACTION_BACK)
+                SystemClock.sleep(200)
+            }
+
+            scenario.moveToState(Lifecycle.State.RESUMED)
+            scenario.recreate()
+            waitFor("native playback survives Activity recreation") {
+                onMain { controller.isConnected && controller.isPlaying } &&
+                    evaluate("typeof window.JastreamerAndroidAudio === 'object'") == "true"
+            }
+            evaluate(
+                """
+                window.androidRecreatedNativeStatus = undefined;
+                (() => {
+                  const id = 'android-smoke-recreated-status';
+                  const listener = event => {
+                    let message;
+                    try { message = JSON.parse(event.data); } catch (_) { return; }
+                    if (message.id !== id) return;
+                    JastreamerAndroidAudio.removeEventListener('message', listener);
+                    window.androidRecreatedNativeStatus = message;
+                  };
+                  JastreamerAndroidAudio.addEventListener('message', listener);
+                  JastreamerAndroidAudio.postMessage(JSON.stringify({id,action:'status'}));
+                })();
+                'sent';
+                """.trimIndent(),
+            )
+            waitFor("recreated document reattaches the exact native owner") {
+                evaluate("window.androidRecreatedNativeStatus !== undefined") == "true"
+            }
+            assertEquals(
+                deviceId,
+                decodeJavascriptString(
+                    "window.androidRecreatedNativeStatus.device && window.androidRecreatedNativeStatus.device.id",
+                ),
+            )
+            screenshot("native-recreated")
+
+            onMain { controller.pause() }
+            waitForPlayer("system MediaSession pause reaches Server") { it.optString("state") == "paused" }
+            onMain { controller.seekTo(1_000) }
+            waitForPlayer("system MediaSession seek reaches Server") {
+                it.optString("state") == "paused" && it.optLong("position_ms") in 700L..2_500L
+            }
+            onMain { controller.play() }
+            waitForPlayer("system MediaSession play reaches Server") { it.optString("state") == "playing" }
+            onMain { controller.seekToPreviousMediaItem() }
+            waitForPlayer("system MediaSession previous reaches Server") {
+                it.optString("state") == "playing" && it.optJSONObject("track")?.optString("id") == shortId
+            }
+            onMain { controller.pause() }
+            waitForPlayer("short track is paused before exercising Next") {
+                it.optString("state") == "paused" &&
+                    it.optJSONObject("track")?.optString("id") == shortId &&
+                    it.optString("pending_command").isEmpty()
+            }
+            onMain { controller.seekToNextMediaItem() }
+            waitForPlayer("system MediaSession next reaches Server") {
+                it.optString("state") == "playing" &&
+                    it.optJSONObject("track")?.optString("id") == longId &&
+                    it.optString("pending_command").isEmpty()
+            }
+            waitFor("long media is actually playing before recovery") {
+                onMain {
+                    controller.isPlaying &&
+                        controller.duration >= 590_000L &&
+                        controller.currentPosition >= 0L
+                }
+            }
+
+            armMediaFault("delay", delayMillis = 10_000, count = 8)
+            onMain { controller.seekTo(570_000L) }
+            waitForPlayer("the long-track seek command finishes before recovery controls") {
+                it.optString("state") == "playing" &&
+                    it.optJSONObject("track")?.optString("id") == longId &&
+                    it.optLong("position_ms") in 568_000L..572_500L &&
+                    it.optString("pending_command").isEmpty()
+            }
+            waitForNativeState("autonomous native recovery becomes observable") {
+                it.optBoolean("recovering") &&
+                    it.optJSONObject("device")?.optString("id") == deviceId
+            }
+
+            onMain { controller.pause() }
+            waitForPlayer("Pause is accepted while autonomous recovery is active") {
+                it.optString("state") == "paused" &&
+                    it.optJSONObject("track")?.optString("id") == longId &&
+                    it.optString("pending_command").isEmpty()
+            }
+            waitFor("MediaSession records paused intent while buffering", 2_000L) {
+                onMain { !controller.playWhenReady }
+            }
+            SystemClock.sleep(4_500)
+            waitForNativeState("recovery remains active across the next delayed retry", 2_000L) {
+                it.optBoolean("recovering")
+            }
+            assertTrue(
+                "Autonomous retry must preserve the later Pause intent",
+                onMain { !controller.playWhenReady },
+            )
+
+            val stopDuringRecoveryAt = SystemClock.elapsedRealtime()
+            onMain { controller.stop() }
+            waitForPlayer("Stop cancels autonomous native media recovery", 6_000L) {
+                it.optString("state") == "stopped" && it.optString("pending_command").isEmpty()
+            }
+            waitForNativeState("native recovery is cleared by Stop", 6_000L) {
+                !it.optBoolean("recovering") && !it.has("error")
+            }
+            waitFor("real MediaSession is stopped and cleared", 6_000L) {
+                onMain { !controller.isPlaying && controller.mediaItemCount == 0 }
+            }
+            assertTrue(
+                "Stop must not wait for delayed media recovery",
+                SystemClock.elapsedRealtime() - stopDuringRecoveryAt < 6_000L,
+            )
+
+            SystemClock.sleep(10_500)
+            waitForPlayer("stale media recovery cannot restart after Stop") {
+                it.optString("state") == "stopped" &&
+                    it.optString("pending_command").isEmpty() &&
+                    it.optString("error").isEmpty()
+            }
+            waitForNativeState("stale recovery remains canceled after the original delay") {
+                !it.optBoolean("recovering") && !it.has("error")
+            }
+            assertTrue(onMain { !controller.isPlaying && controller.mediaItemCount == 0 })
+            screenshot("native-recovery-stopped")
+
+            onMain { controller.play() }
+            waitForPlayer("long media restarts before the lease watchdog scenario") {
+                it.optString("state") == "playing" &&
+                    it.optJSONObject("track")?.optString("id") == longId &&
+                    it.optString("pending_command").isEmpty()
+            }
+            waitFor("restarted long media is physically playing") {
+                onMain { controller.isPlaying && controller.mediaItemCount == 1 }
+            }
+
+            armProxyFault(
+                path = "/api/v1/browser-output/",
+                prefix = true,
+                mode = "delay",
+                delayMillis = 15_000,
+                count = 8,
+            )
+            val leaseFaultStartedAt = SystemClock.elapsedRealtime()
+            waitForNativeState("monotonic lease watchdog expires the native registration", 18_000L) {
+                it.optJSONObject("device") == null &&
+                    !it.optBoolean("recovering") &&
+                    it.optJSONObject("error")?.optString("code") == "lease_expired"
+            }
+            val leaseExpiryElapsed = SystemClock.elapsedRealtime() - leaseFaultStartedAt
+            assertTrue(
+                "The native registration must expire at its monotonic lease deadline, not after a later HTTP timeout",
+                leaseExpiryElapsed in 10_000L..17_500L,
+            )
+            waitFor("lease expiry physically stops buffered native media", 3_000L) {
+                onMain { !controller.isPlaying && controller.mediaItemCount == 0 }
+            }
+            waitForRendererAbsent("expired native output disappears from Server", deviceId, 5_000L)
+
+            resetProxyFault()
+            SystemClock.sleep(3_000)
+            waitForNativeState("fault reset does not automatically register native output", 2_000L) {
+                it.optJSONObject("device") == null &&
+                    !it.optBoolean("recovering") &&
+                    it.optJSONObject("error")?.optString("code") == "lease_expired"
+            }
+            waitForRendererAbsent("expired output stays absent after fault reset", deviceId, 2_000L)
+            assertTrue(onMain { !controller.isPlaying && controller.mediaItemCount == 0 })
+
+            stopServerPlaybackAfterLeaseLoss()
+            waitForPlayer("lease scenario finishes in authoritative stopped state") {
+                it.optString("state") == "stopped" && it.optString("pending_command").isEmpty()
+            }
+        } finally {
+            instrumentation.runOnMainSync { runCatching { controller.stop() } }
+            MediaController.releaseFuture(future)
+        }
+    }
+
+    private fun <T> onMain(block: () -> T): T {
+        val result = AtomicReference<Result<T>>()
+        instrumentation.runOnMainSync { result.set(runCatching(block)) }
+        return requireNotNull(result.get()).getOrThrow()
+    }
+
+    private fun waitForPlayer(
+        description: String,
+        timeoutMillis: Long = 30_000L,
+        condition: (JSONObject) -> Boolean,
+    ) {
+        var latest: JSONObject? = null
+        waitFor(description, timeoutMillis) {
+            evaluate(
+                """
+                window.androidSmokePlayerPoll = undefined;
+                fetch('/api/v1/player', {credentials:'same-origin'})
+                  .then(async response => {
+                    if (!response.ok) throw new Error('HTTP ' + response.status);
+                    window.androidSmokePlayerPoll = await response.json();
+                  })
+                  .catch(error => { window.androidSmokePlayerPoll = {poll_error:String(error)}; });
+                'polling';
+                """.trimIndent(),
+            )
+            val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(2)
+            while (System.nanoTime() < deadline &&
+                evaluate("window.androidSmokePlayerPoll !== undefined") != "true"
+            ) {
+                Thread.sleep(25)
+            }
+            val encoded = evaluate("window.androidSmokePlayerPoll") ?: return@waitFor false
+            latest = JSONObject(encoded)
+            condition(requireNotNull(latest))
+        }
+    }
+
+    private fun waitForNativeState(
+        description: String,
+        timeoutMillis: Long = 30_000L,
+        condition: (JSONObject) -> Boolean,
+    ) {
+        var latest: JSONObject? = null
+        waitFor(description, timeoutMillis) {
+            evaluate(
+                """
+                window.androidSmokeNativeState = undefined;
+                (() => {
+                  const id = 'android-smoke-status-' + Date.now() + '-' + Math.random();
+                  const listener = event => {
+                    let message;
+                    try { message = JSON.parse(event.data); } catch (_) { return; }
+                    if (message.id !== id) return;
+                    JastreamerAndroidAudio.removeEventListener('message', listener);
+                    window.androidSmokeNativeState = message;
+                  };
+                  JastreamerAndroidAudio.addEventListener('message', listener);
+                  setTimeout(() => JastreamerAndroidAudio.removeEventListener('message', listener), 2000);
+                  JastreamerAndroidAudio.postMessage(JSON.stringify({id,action:'status'}));
+                })();
+                'polling';
+                """.trimIndent(),
+            )
+            val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(2)
+            while (System.nanoTime() < deadline &&
+                evaluate("window.androidSmokeNativeState !== undefined") != "true"
+            ) {
+                Thread.sleep(25)
+            }
+            val encoded = evaluate("window.androidSmokeNativeState") ?: return@waitFor false
+            latest = JSONObject(encoded)
+            condition(requireNotNull(latest))
+        }
+    }
+
+    private fun waitForRendererAbsent(
+        description: String,
+        deviceId: String,
+        timeoutMillis: Long,
+    ) {
+        waitFor(description, timeoutMillis) {
+            evaluate(
+                """
+                window.androidSmokeRenderers = undefined;
+                fetch('/api/v1/renderers', {credentials:'same-origin'})
+                  .then(async response => {
+                    if (!response.ok) throw new Error('HTTP ' + response.status);
+                    window.androidSmokeRenderers = await response.json();
+                  })
+                  .catch(error => { window.androidSmokeRenderers = {poll_error:String(error)}; });
+                'polling';
+                """.trimIndent(),
+            )
+            val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(2)
+            while (System.nanoTime() < deadline &&
+                evaluate("window.androidSmokeRenderers !== undefined") != "true"
+            ) {
+                Thread.sleep(25)
+            }
+            evaluate(
+                "Array.isArray(window.androidSmokeRenderers && window.androidSmokeRenderers.items) && " +
+                    "!window.androidSmokeRenderers.items.some(device => device.id === '$deviceId')",
+            ) == "true"
+        }
+    }
+
+    private fun stopServerPlaybackAfterLeaseLoss() {
+        evaluate(
+            """
+            window.androidLeaseStop = undefined;
+            fetch('/api/v1/player', {
+              method:'POST',
+              credentials:'same-origin',
+              headers:{'Content-Type':'application/json','X-Jastreamer-Request':'web'},
+              body:JSON.stringify({action:'stop'})
+            }).then(async response => {
+              if (!response.ok) throw new Error('HTTP ' + response.status);
+              window.androidLeaseStop = await response.json();
+            }).catch(error => { window.androidLeaseStop = {request_error:String(error)}; });
+            'stopping';
+            """.trimIndent(),
+        )
+        waitFor("Server accepts the final offline Stop") {
+            evaluate("window.androidLeaseStop !== undefined") == "true"
+        }
+        val result = JSONObject(requireNotNull(evaluate("window.androidLeaseStop")))
+        check(!result.has("request_error")) { result.optString("request_error") }
+    }
+
     private fun assertStopped() {
         evaluate("""
             window.androidSmokePlayer = null;
@@ -231,6 +783,12 @@ class ActualWebUiSmokeTest {
         return result.get()
     }
 
+    private fun decodeJavascriptString(script: String): String? {
+        val encoded = evaluate(script) ?: return null
+        if (encoded == "null") return null
+        return JSONTokener(encoded).nextValue() as? String
+    }
+
     private fun webView(view: View): WebView? {
         if (view is WebView) return view
         if (view is ViewGroup) {
@@ -239,6 +797,25 @@ class ActualWebUiSmokeTest {
             }
         }
         return null
+    }
+
+    private fun webViewVisible(): Boolean {
+        var visible = false
+        scenario.onActivity { activity ->
+            val browser = webView(activity.window.decorView)
+            visible = browser?.visibility == View.VISIBLE && browser.isShown
+        }
+        return visible
+    }
+
+    private fun systemUiShowsMediaTitle(title: String): Boolean {
+        val root = instrumentation.uiAutomation.rootInActiveWindow ?: return false
+        return try {
+            root.packageName?.toString() == SYSTEM_UI_PACKAGE &&
+                root.findAccessibilityNodeInfosByText(title).any { it.isVisibleToUser }
+        } finally {
+            root.recycle()
+        }
     }
 
     private fun orientation(): Int {
@@ -270,6 +847,16 @@ class ActualWebUiSmokeTest {
 
     private fun screenshot(name: String) {
         awaitRenderedFrame()
+        captureScreenshot(name)
+    }
+
+    private fun screenshotSystemUi(name: String) {
+        instrumentation.waitForIdleSync()
+        SystemClock.sleep(500)
+        captureScreenshot(name)
+    }
+
+    private fun captureScreenshot(name: String) {
         val bitmap = requireNotNull(instrumentation.uiAutomation.takeScreenshot()) { "Emulator screenshot unavailable" }
         val resolver = instrumentation.targetContext.contentResolver
         val values = ContentValues().apply {
@@ -288,13 +875,21 @@ class ActualWebUiSmokeTest {
         bitmap.recycle()
     }
 
-    private fun waitFor(description: String, condition: () -> Boolean) {
-        val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(30)
+    private fun waitFor(
+        description: String,
+        timeoutMillis: Long = 30_000L,
+        condition: () -> Boolean,
+    ) {
+        val deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(timeoutMillis)
         while (System.nanoTime() < deadline) {
             if (condition()) return
             Thread.sleep(100)
         }
-        screenshot("failure-${description.replace(' ', '-')}")
+        captureScreenshot("failure-${description.replace(' ', '-')}")
         throw AssertionError("Timed out waiting for $description")
+    }
+
+    private companion object {
+        const val SYSTEM_UI_PACKAGE = "com.android.systemui"
     }
 }

@@ -37,3 +37,9 @@ if (( capture_status != 0 )) || [[ ! -s "${screenshots[0]}" || ! -s "${evidence}
   echo 'Instrumented tests passed, but required Android visual evidence could not be collected' >&2
   exit 65
 fi
+for required in native-playing native-background native-recreated native-recovery-stopped; do
+  if [[ ! -s "${evidence}/screenshots/${required}.png" ]]; then
+    echo "Missing native playback evidence: ${required}.png" >&2
+    exit 65
+  fi
+done

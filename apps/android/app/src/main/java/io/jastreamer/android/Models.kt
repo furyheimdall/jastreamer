@@ -28,6 +28,9 @@ class ClientException(
     val code: ClientErrorCode,
     val detail: String? = null,
     cause: Throwable? = null,
+    val retryable: Boolean = code == ClientErrorCode.UNREACHABLE ||
+        code == ClientErrorCode.TIMEOUT ||
+        code == ClientErrorCode.WEB_LOAD,
 ) : Exception(detail ?: code.name, cause)
 
 data class DiscoveryState(

@@ -29,6 +29,13 @@ type pendingCommand struct {
 	command Command
 	result  chan error
 }
+type acceptedReport struct {
+	sequence       uint64
+	result         string
+	errorCode      string
+	observation    ObservationReport
+	hasObservation bool
+}
 
 type registration struct {
 	id           string
@@ -44,6 +51,7 @@ type registration struct {
 	resource     *output.Resource
 	resourceSeq  uint64
 	observation  output.Observation
+	lastAccepted acceptedReport
 }
 
 type Service struct {
@@ -234,6 +242,12 @@ func (service *Service) Report(id, token, address string, report Report) error {
 		return err
 	}
 	service.renewLocked(value)
+	if report.Sequence <= value.cancelBefore {
+		return ErrStaleReport
+	}
+	if report.Result != "" && value.lastAccepted.matches(report) {
+		return nil
+	}
 	if report.Result == "" {
 		if report.ErrorCode != "" || report.Observation == nil {
 			return ErrInvalidRequest
@@ -271,6 +285,7 @@ func (service *Service) Report(id, token, address string, report Report) error {
 			}
 		}
 		actionErr := reportActionError(pending.command.Action, report.ErrorCode)
+		value.lastAccepted = copyAcceptedReport(report)
 		value.pending = nil
 		pending.result <- actionErr
 		return nil
@@ -294,6 +309,7 @@ func (service *Service) Report(id, token, address string, report Report) error {
 		value.resource = nil
 		value.resourceSeq = report.Sequence
 	}
+	value.lastAccepted = copyAcceptedReport(report)
 	value.observation = observation
 	value.pending = nil
 	pending.result <- nil
@@ -488,6 +504,29 @@ func matchesSuccessfulAction(action, event string) bool {
 		return false
 	}
 }
+func copyAcceptedReport(report Report) acceptedReport {
+	accepted := acceptedReport{
+		sequence:  report.Sequence,
+		result:    report.Result,
+		errorCode: report.ErrorCode,
+	}
+	if report.Observation != nil {
+		accepted.observation = *report.Observation
+		accepted.hasObservation = true
+	}
+	return accepted
+}
+
+func (accepted acceptedReport) matches(report Report) bool {
+	if accepted.result == "" ||
+		accepted.sequence != report.Sequence ||
+		accepted.result != report.Result ||
+		accepted.errorCode != report.ErrorCode ||
+		accepted.hasObservation != (report.Observation != nil) {
+		return false
+	}
+	return !accepted.hasObservation || accepted.observation == *report.Observation
+}
 
 func validReportError(code string) bool {
 	return code == "media_unsupported" || code == "media_error" || code == "action_failed"
@@ -524,7 +563,7 @@ func (service *Service) leaseLocked(value *registration) Lease {
 
 func (service *Service) deviceLocked(id string, value *registration) output.Device {
 	return output.Device{
-		ID: id, Name: value.name, Manufacturer: "JaStreamer", Model: "Web browser",
+		ID: id, Name: value.name, Manufacturer: "JaStreamer", Model: "Local audio",
 		Address: value.address, Online: true, LastSeen: value.lastSeen.UTC().Format(time.RFC3339Nano),
 		Capabilities: output.Capabilities{Play: true, Pause: true, Stop: true, Seek: true},
 		ProtocolInfo: append([]string(nil), value.protocolInfo...), Protocol: output.ProtocolBrowser,

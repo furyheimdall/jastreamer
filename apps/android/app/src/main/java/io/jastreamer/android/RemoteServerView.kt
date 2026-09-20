@@ -36,6 +36,7 @@ class RemoteServerView(
     context: Context,
     private val server: ServerEndpoint,
     language: String,
+    private val canStartNativePlayback: () -> Boolean,
     private val onLoaded: () -> Unit,
     private val onError: (ClientException) -> Unit,
     private val onLanguageChanged: (String) -> Unit,
@@ -46,6 +47,7 @@ class RemoteServerView(
     private val rootUrl = "${server.origin}/"
     private lateinit var webView: WebView
     private lateinit var cookieManager: CookieManager
+    private var nativeBridge: NativeAudioBridge? = null
     private var language = requireLanguage(language)
     private var generation = 0L
     private var activeGeneration: Long? = null
@@ -71,15 +73,26 @@ class RemoteServerView(
     }
 
     @MainThread
+    fun retryLoad() {
+        requireMainThread()
+        if (!disposed && !unusable) prepareLoad(language)
+    }
+
+    @MainThread
     fun resume() {
         requireMainThread()
-        if (!disposed && !unusable) webView.onResume()
+        if (!disposed && !unusable) {
+            webView.onResume()
+            nativeBridge?.setHostInteractive(true)
+        }
     }
 
     @MainThread
     fun pause() {
         requireMainThread()
-        if (disposed || unusable || pausing) return
+        if (disposed) return
+        nativeBridge?.setHostInteractive(false)
+        if (unusable || pausing) return
         pausing = true
         try {
             observeLanguageCookie()
@@ -122,6 +135,8 @@ class RemoteServerView(
         requireMainThread()
         if (disposed) return
         disposed = true
+        nativeBridge?.dispose()
+        nativeBridge = null
 
         if (!unusable) {
             observeLanguageCookie()
@@ -138,6 +153,11 @@ class RemoteServerView(
         phase = LoadPhase.IDLE
         cancelTimeout()
         if (!unusable) {
+            try {
+                WebViewCompat.removeWebMessageListener(webView, NativeAudioBridge.OBJECT_NAME)
+            } catch (_: RuntimeException) {
+                // The WebView is being destroyed and no native capability remains reachable.
+            }
             webView.stopLoading()
             webView.setDownloadListener(null)
             removeView(webView)
@@ -152,6 +172,12 @@ class RemoteServerView(
             throw ClientException(
                 ClientErrorCode.WEBVIEW_UNSUPPORTED,
                 "The installed Android System WebView does not support isolated profiles",
+            )
+        }
+        if (!WebViewFeature.isFeatureSupported(WebViewFeature.WEB_MESSAGE_LISTENER)) {
+            throw ClientException(
+                ClientErrorCode.WEBVIEW_UNSUPPORTED,
+                "The installed Android System WebView does not support restricted native messages",
             )
         }
 
@@ -212,6 +238,21 @@ class RemoteServerView(
                     if (isAllowed(request.url.toString(), allowedOrigin)) null else blockedResponse()
             })
 
+            val bridge = NativeAudioBridge(candidate, server) {
+                !disposed &&
+                    !unusable &&
+                    isShown &&
+                    windowVisibility == VISIBLE &&
+                    canStartNativePlayback()
+            }
+            WebViewCompat.addWebMessageListener(
+                candidate,
+                NativeAudioBridge.OBJECT_NAME,
+                setOf(server.origin),
+                bridge,
+            )
+            nativeBridge = bridge
+
             candidate.webViewClient = RestrictedWebViewClient()
             candidate.webChromeClient = RestrictedWebChromeClient()
             candidate.setDownloadListener { url, _, _, _, _ ->
@@ -227,6 +268,8 @@ class RemoteServerView(
             webView = candidate
             addView(candidate, LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
         } catch (failure: RuntimeException) {
+            nativeBridge?.dispose()
+            nativeBridge = null
             candidate.destroy()
             throw ClientException(
                 ClientErrorCode.WEBVIEW_UNSUPPORTED,
@@ -237,6 +280,7 @@ class RemoteServerView(
     }
 
     private fun prepareLoad(nextLanguage: String) {
+        nativeBridge?.invalidateDocument()
         val token = ++generation
         activeGeneration = token
         pendingLanguage = nextLanguage
@@ -335,6 +379,7 @@ class RemoteServerView(
         pendingLanguage = null
         phase = LoadPhase.IDLE
         cancelTimeout()
+        nativeBridge?.invalidateDocument()
         if (!unusable) webView.stopLoading()
         onError(failure)
     }
@@ -344,6 +389,7 @@ class RemoteServerView(
         if (token != null && phase == LoadPhase.LOADING) {
             fail(token, failure)
         } else if (token == null && phase == LoadPhase.LOADED && !disposed && !unusable) {
+            nativeBridge?.invalidateDocument()
             onError(failure)
         }
     }
@@ -377,6 +423,7 @@ class RemoteServerView(
             phase = LoadPhase.IDLE
             pendingLanguage = null
             cancelTimeout()
+            nativeBridge?.invalidateDocument()
             webView.stopLoading()
         }
         onError(
@@ -425,6 +472,8 @@ class RemoteServerView(
         pendingLanguage = null
         phase = LoadPhase.IDLE
         cancelTimeout()
+        nativeBridge?.dispose()
+        nativeBridge = null
         unusable = true
         removeView(view)
         view.destroy()
@@ -432,6 +481,7 @@ class RemoteServerView(
             ClientException(
                 ClientErrorCode.WEB_LOAD,
                 if (detail.didCrash()) "WebView renderer crashed" else "WebView renderer was terminated",
+                retryable = false,
             ),
         )
         return true
@@ -463,6 +513,7 @@ class RemoteServerView(
 
         override fun onPageStarted(view: WebView, url: String, favicon: Bitmap?) {
             if (disposed || unusable || view !== webView) return
+            nativeBridge?.documentStarted()
             if (!isAllowed(url, server.origin)) {
                 view.stopLoading()
                 denyNavigation(url, redirect = false, abortActiveLoad = true)
@@ -472,9 +523,19 @@ class RemoteServerView(
             if (phase == LoadPhase.LOADED || phase == LoadPhase.IDLE) beginObservedNavigation()
         }
 
+        override fun onPageCommitVisible(view: WebView, url: String) {
+            if (disposed || unusable || view !== webView) return
+            if (phase == LoadPhase.LOADING && isAllowed(url, server.origin)) {
+                nativeBridge?.documentCommitted()
+            }
+        }
+
         override fun onPageFinished(view: WebView, url: String) {
             if (disposed || unusable || view !== webView) return
-            if (isAllowed(url, server.origin)) completeLoad()
+            if (phase == LoadPhase.LOADING && isAllowed(url, server.origin)) {
+                nativeBridge?.documentCommitted()
+                completeLoad()
+            }
         }
 
         override fun onReceivedError(
@@ -496,10 +557,23 @@ class RemoteServerView(
                 WebViewClient.ERROR_IO -> ClientErrorCode.UNREACHABLE
                 else -> ClientErrorCode.WEB_LOAD
             }
+            val retryable = code == ClientErrorCode.UNREACHABLE ||
+                code == ClientErrorCode.TIMEOUT ||
+                (
+                    code == ClientErrorCode.WEB_LOAD &&
+                        error.errorCode != WebViewClient.ERROR_UNSUPPORTED_SCHEME &&
+                        error.errorCode != WebViewClient.ERROR_AUTHENTICATION &&
+                        error.errorCode != WebViewClient.ERROR_PROXY_AUTHENTICATION &&
+                        error.errorCode != WebViewClient.ERROR_UNSUPPORTED_AUTH_SCHEME &&
+                        error.errorCode != WebViewClient.ERROR_BAD_URL &&
+                        error.errorCode != WebViewClient.ERROR_FILE &&
+                        error.errorCode != WebViewClient.ERROR_FILE_NOT_FOUND &&
+                        error.errorCode != WebViewClient.ERROR_UNSAFE_RESOURCE
+                    )
             activeGeneration?.let { token ->
                 fail(
                     token,
-                    ClientException(code, "${error.description}: ${request.url}"),
+                    ClientException(code, "${error.description}: ${request.url}", retryable = retryable),
                 )
             }
         }
@@ -515,11 +589,16 @@ class RemoteServerView(
                 !isAllowed(request.url.toString(), server.origin)
             ) return
             activeGeneration?.let { token ->
+                val status = errorResponse.statusCode
                 fail(
                     token,
                     ClientException(
                         ClientErrorCode.HTTP_STATUS,
-                        "HTTP ${errorResponse.statusCode} for ${request.url}",
+                        "HTTP $status for ${request.url}",
+                        retryable = status == 408 ||
+                            status == 425 ||
+                            status == 429 ||
+                            status in 500..599,
                     ),
                 )
             }
@@ -548,7 +627,11 @@ class RemoteServerView(
         ) {
             handler.cancel()
             failOrReport(
-                ClientException(ClientErrorCode.WEB_LOAD, "HTTP authentication was rejected for $host"),
+                ClientException(
+                    ClientErrorCode.WEB_LOAD,
+                    "HTTP authentication was rejected for $host",
+                    retryable = false,
+                ),
             )
         }
 
@@ -564,7 +647,11 @@ class RemoteServerView(
         ) {
             callback.backToSafety(true)
             failOrReport(
-                ClientException(ClientErrorCode.WEB_LOAD, "Unsafe content was blocked: ${request.url}"),
+                ClientException(
+                    ClientErrorCode.WEB_LOAD,
+                    "Unsafe content was blocked: ${request.url}",
+                    retryable = false,
+                ),
             )
         }
 
