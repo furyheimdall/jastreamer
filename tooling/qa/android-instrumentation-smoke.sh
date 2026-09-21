@@ -15,7 +15,7 @@ adb logcat -c
 adb shell settings put secure show_ime_with_hard_keyboard 1
 
 test_status=0
-tooling/qa/android-server-smoke.py \
+tooling/qa/android-server-smoke.py --verify-native-playback-errors \
   apps/android/gradlew -p apps/android --no-daemon --stacktrace \
   :app:connectedDebugAndroidTest \
   -Pandroid.testInstrumentationRunnerArguments.serverUrl=http://127.0.0.1:18080 \
