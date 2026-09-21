@@ -76,16 +76,20 @@ func TestAcceptedBrowserErrorRecordedOnceAfterValidation(t *testing.T) {
 
 func TestImportNativePlaybackHistoryRotationsIsSafeAndIdempotent(t *testing.T) {
 	history, dir := newHistoryService(t)
+	logDir := filepath.Join(dir, "logs")
+	if err := os.Mkdir(logDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
 	playbackErrors, err := json.Marshal([]PlaybackError{testPlaybackError("playback")})
 	if err != nil {
 		t.Fatal(err)
 	}
 	line := fmt.Sprintf("2026/09/21 01:02:03.123456 diagnostic component=browseroutput event=native_playback_error renderer_id=%q play_id=%q sequence=%d command_id=%q playback_errors=%q\n", "browser:old-id", "play-old", 41, "browser:old-id/41", string(playbackErrors))
-	if err := os.WriteFile(filepath.Join(dir, "server.log.3"), []byte(strings.Repeat("x", maximumDiagnosticLogLine+1)+"\n"+line), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(logDir, "server.log.3"), []byte(strings.Repeat("x", maximumDiagnosticLogLine+1)+"\n"+line), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	malformed := "2026/09/21 01:02:04.000000 diagnostic component=browseroutput event=native_playback_error renderer_id=\"browser:bad\" play_id=\"play\" sequence=1 command_id=\"browser:bad/1\" playback_errors=\"/private/music/song.flac\"\n"
-	if err := os.WriteFile(filepath.Join(dir, "server.log"), []byte(malformed+line), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(logDir, "server.log"), []byte(malformed+line), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	for range 2 {
