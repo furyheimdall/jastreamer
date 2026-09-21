@@ -76,8 +76,9 @@ internal class OfflineImportSmoke(
             // Invoke the same narrow logout notification as the account button before revoking the session.
             bridge("logout", JSONObject())
             request("/api/v1/logout", "POST", JSONObject(), expectedStatus = 204)
+            val origin = JSONObject(requireNotNull(evaluate("({origin:location.origin})"))).getString("origin")
             val endpoint = runBlocking {
-                ServerProbe().probe(requireNotNull(evaluate("location.origin")))
+                ServerProbe().probe(origin)
             }
             val cookiesCleared = CountDownLatch(1)
             main {
