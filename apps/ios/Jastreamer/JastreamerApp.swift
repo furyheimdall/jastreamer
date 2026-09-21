@@ -101,8 +101,6 @@ private struct ClientShell: View {
                 )
             }
         }
-        // WebKit owns keyboard occlusion; native selection uses SwiftUI keyboard avoidance.
-        .ignoresSafeArea(.keyboard, edges: model.currentServer == nil ? [] : .bottom)
         .background(Color(uiColor: .systemBackground))
         .tint(Color(red: 0.20, green: 0.42, blue: 0.29))
         .alert(text("error.title"), isPresented: Binding(
