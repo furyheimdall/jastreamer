@@ -201,7 +201,7 @@ internal class OfflineImportSmoke(
     }
 
     private fun download(source: JSONObject, quality: String): OfflineTrack {
-        val selector = "button[data-download-kind=track][data-download-id='${source.getString("id")}']:not([data-download-confirm])"
+        val selector = "button[data-download-kind=track][data-download-id='${source.getString("id")}'][aria-disabled=false]:not(:disabled):not([data-download-confirm])"
         await("track download control") { evaluate("!!document.querySelector(${JSONObject.quote(selector)})") == "true" }
         evaluate("document.querySelector(${JSONObject.quote(selector)}).click()")
         await("download quality confirmation") { evaluate("!!document.querySelector('button[data-download-confirm]')") == "true" }

@@ -271,10 +271,13 @@ final class JastreamerUITests: XCTestCase {
         replaceText(in: address, with: origin)
         app.buttons["connect-server"].tap()
         allowLocalNetworkAccessIfRequested()
-        // Query native readiness before traversing WebKit's still-launching accessibility process.
+        // Native chrome can appear before WebKit starts loading; require rendered document content.
         let connected = XCTWaiter.wait(for: [XCTNSPredicateExpectation(
             predicate: NSPredicate { _, _ in
-                app.buttons["switch-server"].exists && !app.progressIndicators.firstMatch.exists
+                app.buttons["switch-server"].exists &&
+                    app.descendants(matching: .any)["web-control"].exists &&
+                    !app.progressIndicators.firstMatch.exists &&
+                    app.webViews.firstMatch.staticTexts.firstMatch.exists
             },
             object: nil
         )], timeout: 25)

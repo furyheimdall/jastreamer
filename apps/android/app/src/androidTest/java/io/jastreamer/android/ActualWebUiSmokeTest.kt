@@ -196,6 +196,8 @@ class ActualWebUiSmokeTest {
             assertStopped()
             screenshot("real-web-phone-korean")
             exerciseNativePlayback()
+            evaluate("document.querySelector('.error-dialog-close')?.click(); 'dismissed';")
+            awaitRenderedFrame()
             OfflineImportSmoke(scenario, ::evaluate, ::screenshot).run()
         }
     }
