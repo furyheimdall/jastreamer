@@ -59,7 +59,7 @@ Keep the owning browser page open. Closing or reloading it releases that browser
 <a id="phone-controls"></a>
 ### Phone controls
 
-The focused phone layout is selected automatically only for iPhone browsers or Android browsers whose user agent reports both Android and Mobile. An iPad, Android tablet, or merely narrow desktop window retains the existing layout. The phone header retains jastreamer identity and logout, and the four bottom tabs are **Library**, **Playlists**, **Queue**, and **Settings**.
+The focused phone layout is selected automatically only for iPhone browsers or Android browsers whose user agent reports both Android and Mobile. An iPad, Android tablet, or merely narrow desktop window retains the existing layout. The phone header retains the account name and logout, and the four bottom tabs are **Library**, **Playlists**, **Queue**, and **Settings**. Ordinary browsers retain the jastreamer logo. Inside the Android, Desktop, and iOS apps, only the duplicate Web header/sidebar logo is hidden; account controls remain available.
 
 The compact player keeps Play/Pause and Stop immediately available. Use its expand arrow to show Seek, Previous, Next, output selection and refresh, and AirPlay pairing when required; collapse it to return to the compact player. Primary playback, navigation and track-action buttons have at least 44-by-44-pixel targets, and the header, player, and bottom navigation account for device safe areas.
 
@@ -74,6 +74,7 @@ The native Kotlin app adds Server selection and native local playback around the
 
 - Choose a discovered or recent Server, or enter its HTTP(S) root address and select **Verify and connect**. The app does not connect automatically on a fresh launch. Recent entries are rechecked, and discovery names are accepted only after an HTTP identity check.
 - The native header identifies the selected Server and its origin, including port. **Servers** returns to selection without stopping network-output playback. A changed Server UUID is rejected for a saved entry rather than silently reusing its session.
+- Android applies system-bar and keyboard insets once in the native shell, rather than adding the same safe-area gap again inside Web content.
 - Cookies and local Web storage are isolated by Server UUID plus complete origin. Different ports are different profiles, even on the same host. Changing addresses can therefore require login again.
 - Back first dismisses the keyboard when Android handles it, then navigates Web history when available, then returns to Server selection. Back from selection leaves the app. Rotation retains the live Web page and unsaved form state; returning from the background checks Server identity again before exposing the page.
 - Native language controls and **Settings → Language / 언어** support English and Korean. A Web-language change is reflected in the native shell when the page finishes loading or you leave/pause it. The existing phone/tablet layout rules, four tabs, player controls and touch targets remain unchanged.

@@ -210,6 +210,7 @@ class RemoteServerView(
             cookieManager.setAcceptThirdPartyCookies(candidate, false)
 
             candidate.settings.apply {
+                userAgentString = "$userAgentString JaStreamerAndroid/${BuildConfig.VERSION_NAME}"
                 javaScriptEnabled = true
                 domStorageEnabled = true
                 databaseEnabled = false

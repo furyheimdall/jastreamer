@@ -109,7 +109,8 @@ class MainActivity : ComponentActivity() {
                     WindowInsetsCompat.Type.displayCutout() or WindowInsetsCompat.Type.ime(),
             )
             view.setPadding(safe.left, safe.top, safe.right, safe.bottom)
-            insets
+            // The root owns these insets; WebView must not apply the same safe area again.
+            WindowInsetsCompat.CONSUMED
         }
         ViewCompat.requestApplyInsets(root)
         renderSelector(savedInstanceState?.getString("address").orEmpty())

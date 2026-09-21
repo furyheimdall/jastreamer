@@ -85,6 +85,8 @@ final class RestrictedWebController: NSObject, ObservableObject {
         self.onLanguageChanged = onLanguageChanged
 
         let configuration = WKWebViewConfiguration()
+        let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "unknown"
+        configuration.applicationNameForUserAgent = "JaStreamerIOS/\(version)"
         configuration.websiteDataStore = dataStore
         configuration.userContentController = userContentController
         configuration.defaultWebpagePreferences.allowsContentJavaScript = true

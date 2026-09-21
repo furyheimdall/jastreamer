@@ -39,9 +39,7 @@ final class JastreamerUITests: XCTestCase {
 
         let address = app.textFields["server-address"]
         XCTAssertTrue(address.waitForExistence(timeout: 10), "The native server chooser must be visible")
-        address.tap()
-        address.typeText("https://user@example.invalid")
-        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5), "The native address field must use the software keyboard")
+        replaceText(in: address, with: "https://user@example.invalid")
         attachScreenshot(name: "native-address-keyboard")
         app.keyboards.buttons["Go"].tap()
         let invalidAlert = app.alerts.firstMatch
@@ -277,6 +275,10 @@ final class JastreamerUITests: XCTestCase {
 
     private func replaceText(in field: XCUIElement, with value: String) {
         field.tap()
+        XCTAssertTrue(
+            XCUIApplication().keyboards.buttons["Go"].waitForExistence(timeout: 5),
+            "The native URL keyboard must be ready before entering a Server address"
+        )
         let existing = field.value as? String ?? ""
         if !existing.isEmpty, existing != field.placeholderValue {
             field.press(forDuration: 1)
