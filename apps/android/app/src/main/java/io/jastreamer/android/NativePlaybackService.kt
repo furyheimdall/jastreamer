@@ -93,10 +93,10 @@ class NativePlaybackService : MediaSessionService(), Player.Listener {
     private var leaseExpiryElapsed = 0L
     private var sequenceFence = SequenceFence()
     private val controlMutex = Mutex()
-    private val playerErrors = ArrayDeque<PlaybackException>()
+    private val playerErrors = ArrayDeque<PlayerFailure>()
     private var pendingTerminal: TerminalEvent? = null
     private var acknowledgingCommand = false
-    private var deferredPlaybackError: PlaybackException? = null
+    private var deferredPlaybackError: PlayerFailure? = null
 
     private val noisyReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
@@ -460,13 +460,14 @@ class NativePlaybackService : MediaSessionService(), Player.Listener {
         } catch (error: CancellationException) {
             throw error
         } catch (error: Throwable) {
+            val playbackErrors = playbackErrorsForFailure(error, action, sequence)
             if (action == "set_uri") cancelMediaWork()
             val code = when (error) {
                 is CommandFailure -> error.reportCode
                 is PlaybackFailure -> error.reportCode
                 else -> "action_failed"
             }
-            val body = reportBody(sequence, "failed", errorCode = code)
+            val body = reportBody(sequence, "failed", errorCode = code, playbackErrors = playbackErrors)
             try {
                 sendFrozenReport(expected, body)
                 sequenceFence.complete(sequence)
@@ -535,8 +536,16 @@ class NativePlaybackService : MediaSessionService(), Player.Listener {
             .build()
         val active = ActiveResource(playId, item, sequence)
         currentResource = active
-        player.setMediaSource(expected.client.mediaSource(item))
-        prepareWithRecovery(expected, active, startPositionMillis = 0L, playWhenReady = false)
+        try {
+            player.setMediaSource(expected.client.mediaSource(item))
+            prepareWithRecovery(expected, active, startPositionMillis = 0L, playWhenReady = false)
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: PlaybackFailure) {
+            throw error
+        } catch (error: Throwable) {
+            throw preparationFailure(active, error)
+        }
         notifyState()
         return observation("loaded", playId)
     }
@@ -550,7 +559,9 @@ class NativePlaybackService : MediaSessionService(), Player.Listener {
             prepareWithRecovery(expected, active, player.currentPosition.coerceAtLeast(0L), true)
         } else {
             player.play()
-            val error = awaitPlayerEffect(EFFECT_TIMEOUT_MILLIS) { player.isPlaying }
+            val error = awaitPlayerEffect(EFFECT_TIMEOUT_MILLIS, NativePlaybackErrorStage.COMMAND) {
+                player.isPlaying
+            }
             if (error != null) {
                 recoverCommandMedia(expected, active, error, player.currentPosition.coerceAtLeast(0L), true)
             }
@@ -562,7 +573,9 @@ class NativePlaybackService : MediaSessionService(), Player.Listener {
         val active = requireActive(command, sequence)
         active.wantsPlayback = false
         player.pause()
-        val error = awaitPlayerEffect(EFFECT_TIMEOUT_MILLIS) { !player.playWhenReady }
+        val error = awaitPlayerEffect(EFFECT_TIMEOUT_MILLIS, NativePlaybackErrorStage.COMMAND) {
+            !player.playWhenReady
+        }
         if (error != null) throw playbackFailure(error)
         return observation("pause", active.playId)
     }
@@ -594,7 +607,7 @@ class NativePlaybackService : MediaSessionService(), Player.Listener {
             prepareWithRecovery(expected, active, requested, shouldPlay)
         } else {
             player.seekTo(requested)
-            val error = awaitPlayerEffect(EFFECT_TIMEOUT_MILLIS) {
+            val error = awaitPlayerEffect(EFFECT_TIMEOUT_MILLIS, NativePlaybackErrorStage.COMMAND) {
                 kotlin.math.abs(player.currentPosition - requested) <= SEEK_TOLERANCE_MILLIS ||
                     (player.duration > 0L && requested >= player.duration && player.currentPosition >= player.duration - SEEK_TOLERANCE_MILLIS)
             }
@@ -621,17 +634,23 @@ class NativePlaybackService : MediaSessionService(), Player.Listener {
     private suspend fun recoverCommandMedia(
         expected: Registration,
         active: ActiveResource,
-        error: PlaybackException,
+        error: PlayerFailure,
         positionMillis: Long,
         playWhenReady: Boolean,
     ) {
+        active.playbackErrors.add(error.diagnostic)
         val classification = classifyPlayback(error)
         if (classification.fatalRegistration) {
             loseRegistration(expected, classification.publicCode, classification.publicMessage)
             throw CancellationException("Registration invalidated by media transport")
         }
         if (!classification.transient) {
-            throw PlaybackFailure(classification.reportCode, classification.publicMessage)
+            throw PlaybackFailure(
+                classification.reportCode,
+                classification.publicMessage,
+                error.diagnostic,
+                error.error,
+            )
         }
         prepareWithRecovery(
             expected,
@@ -639,6 +658,7 @@ class NativePlaybackService : MediaSessionService(), Player.Listener {
             startPositionMillis = positionMillis,
             playWhenReady = playWhenReady,
             initialRetry = 1,
+            priorFailure = error,
         )
     }
 
@@ -649,10 +669,12 @@ class NativePlaybackService : MediaSessionService(), Player.Listener {
         startPositionMillis: Long,
         playWhenReady: Boolean,
         initialRetry: Int = 0,
+        priorFailure: PlayerFailure? = null,
     ) {
         val deadline = SystemClock.elapsedRealtime() + NativePlaybackPolicy.MEDIA_RECOVERY_DEADLINE_MILLIS
         var retry = initialRetry
         var position = startPositionMillis
+        var lastFailure = priorFailure
         active.wantsPlayback = playWhenReady
         preparing = true
         try {
@@ -660,9 +682,11 @@ class NativePlaybackService : MediaSessionService(), Player.Listener {
                 currentCoroutineContext().ensureActive()
                 if (retry > 0) {
                     val delayMillis = NativePlaybackPolicy.recoveryDelayMillis(retry)
-                        ?: throw PlaybackFailure("media_error", "Media recovery exhausted")
+                        ?: throw playbackFailure(lastFailure ?: effectTimeoutFailure(NativePlaybackErrorStage.PREPARE))
                     val remaining = deadline - SystemClock.elapsedRealtime()
-                    if (remaining <= delayMillis) throw PlaybackFailure("media_error", "Media recovery timed out")
+                    if (remaining <= delayMillis) {
+                        throw playbackFailure(lastFailure ?: effectTimeoutFailure(NativePlaybackErrorStage.PREPARE))
+                    }
                     setRecovering(true)
                     delay(delayMillis)
                     player.stop()
@@ -672,14 +696,19 @@ class NativePlaybackService : MediaSessionService(), Player.Listener {
                 player.prepare()
                 if (active.wantsPlayback) player.play() else player.pause()
                 val remaining = deadline - SystemClock.elapsedRealtime()
-                if (remaining <= 0L) throw PlaybackFailure("media_error", "Media recovery timed out")
-                val error = awaitPlayerEffect(remaining) {
+                if (remaining <= 0L) {
+                    throw playbackFailure(lastFailure ?: effectTimeoutFailure(NativePlaybackErrorStage.PREPARE))
+                }
+                val error = awaitPlayerEffect(remaining, NativePlaybackErrorStage.PREPARE) {
                     player.playbackState == Player.STATE_READY && (!active.wantsPlayback || player.isPlaying)
                 }
                 if (error == null) {
+                    active.playbackErrors.clear()
                     setRecovering(false)
                     return
                 }
+                active.playbackErrors.add(error.diagnostic)
+                lastFailure = error
                 position = player.currentPosition.coerceAtLeast(position)
                 val classification = classifyPlayback(error)
                 if (!classification.transient || retry >= NativePlaybackPolicy.MAX_MEDIA_RETRIES) {
@@ -687,27 +716,62 @@ class NativePlaybackService : MediaSessionService(), Player.Listener {
                         loseRegistration(expected, classification.publicCode, classification.publicMessage)
                         throw CancellationException("Registration invalidated by media transport")
                     }
-                    throw PlaybackFailure(classification.reportCode, classification.publicMessage)
+                    throw PlaybackFailure(
+                        classification.reportCode,
+                        classification.publicMessage,
+                        error.diagnostic,
+                        error.error,
+                    )
                 }
                 retry++
             }
             throw CancellationException("Media source changed")
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: PlaybackFailure) {
+            throw error
+        } catch (error: Throwable) {
+            throw preparationFailure(active, error)
         } finally {
             preparing = false
         }
     }
 
-    private suspend fun awaitPlayerEffect(timeoutMillis: Long, predicate: () -> Boolean): PlaybackException? {
+    private fun preparationFailure(active: ActiveResource, error: Throwable): PlaybackFailure {
+        val diagnostic = NativePlaybackError.capture(
+            NativePlaybackErrorStage.PREPARE,
+            error,
+            player.currentPosition.coerceAtLeast(0L),
+        )
+        active.playbackErrors.add(diagnostic)
+        return PlaybackFailure(
+            reportCode = "action_failed",
+            message = getString(R.string.native_playback_error),
+            diagnostic = diagnostic,
+            cause = error,
+        )
+    }
+    private suspend fun awaitPlayerEffect(
+        timeoutMillis: Long,
+        stage: NativePlaybackErrorStage,
+        predicate: () -> Boolean,
+    ): PlayerFailure? {
         val deadline = SystemClock.elapsedRealtime() + timeoutMillis.coerceAtLeast(1L)
         while (!predicate()) {
             currentCoroutineContext().ensureActive()
             if (playerErrors.isNotEmpty()) return playerErrors.removeFirst()
-            if (SystemClock.elapsedRealtime() >= deadline) {
-                return PlaybackException("Media operation timed out", null, PlaybackException.ERROR_CODE_TIMEOUT)
-            }
+            if (SystemClock.elapsedRealtime() >= deadline) return effectTimeoutFailure(stage)
             delay(25L)
         }
         return null
+    }
+
+    private fun effectTimeoutFailure(stage: NativePlaybackErrorStage): PlayerFailure {
+        val error = PlaybackException("Media operation timed out", null, PlaybackException.ERROR_CODE_TIMEOUT)
+        return PlayerFailure(
+            error = error,
+            diagnostic = NativePlaybackError.capture(stage, error, player.currentPosition.coerceAtLeast(0L)),
+        )
     }
 
     private fun drainPlayerErrors() {
@@ -715,29 +779,40 @@ class NativePlaybackService : MediaSessionService(), Player.Listener {
     }
 
     override fun onPlayerError(error: PlaybackException) {
-        playerErrors.addLast(error)
+        val stage = when {
+            preparing -> NativePlaybackErrorStage.PREPARE
+            activeExecution != null -> NativePlaybackErrorStage.COMMAND
+            else -> NativePlaybackErrorStage.PLAYBACK
+        }
+        val failure = PlayerFailure(
+            error = error,
+            diagnostic = NativePlaybackError.capture(stage, error, player.currentPosition.coerceAtLeast(0L)),
+        )
+        currentResource?.playbackErrors?.add(failure.diagnostic)
+        playerErrors.addLast(failure)
         if (preparing) return
         if (activeExecution != null) {
-            if (acknowledgingCommand) deferredPlaybackError = error
+            if (acknowledgingCommand) deferredPlaybackError = failure
             return
         }
         val expected = registration ?: return
         val active = currentResource ?: return
-        recoverAfterCommand(expected, active, error)
+        recoverAfterCommand(expected, active, failure)
     }
 
     private fun recoverAfterCommand(
         expected: Registration,
         active: ActiveResource,
-        error: PlaybackException,
+        error: PlayerFailure,
     ) {
         if (recoveryJob != null || currentResource !== active || active.terminalReported) return
+        active.playbackErrors.add(error.diagnostic)
         val classification = classifyPlayback(error)
         if (!classification.transient) {
             if (classification.fatalRegistration) {
                 loseRegistration(expected, classification.publicCode, classification.publicMessage)
             } else {
-                finishTerminalError(expected, active, classification.publicMessage)
+                finishTerminalError(expected, active, classification.publicMessage, error.diagnostic)
             }
             return
         }
@@ -746,11 +821,26 @@ class NativePlaybackService : MediaSessionService(), Player.Listener {
         recoveryJob = scope.launch {
             setRecovering(true)
             try {
-                prepareWithRecovery(expected, active, position, shouldPlay, initialRetry = 1)
+                prepareWithRecovery(
+                    expected,
+                    active,
+                    position,
+                    shouldPlay,
+                    initialRetry = 1,
+                    priorFailure = error,
+                )
             } catch (error: CancellationException) {
                 throw error
             } catch (error: Throwable) {
-                finishTerminalError(expected, active, getString(R.string.native_playback_error))
+                val diagnostic = when (error) {
+                    is PlaybackFailure -> error.diagnostic
+                    else -> NativePlaybackError.capture(
+                        NativePlaybackErrorStage.PREPARE,
+                        error,
+                        player.currentPosition.coerceAtLeast(0L),
+                    )
+                }
+                finishTerminalError(expected, active, getString(R.string.native_playback_error), diagnostic)
             } finally {
                 if (recoveryJob === currentCoroutineContext()[Job]) recoveryJob = null
                 if (registration === expected && currentResource === active) setRecovering(false)
@@ -764,7 +854,7 @@ class NativePlaybackService : MediaSessionService(), Player.Listener {
         val active = currentResource ?: return
         if (active.terminalReported) return
         active.terminalReported = true
-        val event = TerminalEvent("ended", active.playId, active.sequence)
+        val event = TerminalEvent("ended", active.playId, active.sequence, emptyList())
         if (activeExecution != null) {
             pendingTerminal = event
         } else {
@@ -779,12 +869,18 @@ class NativePlaybackService : MediaSessionService(), Player.Listener {
         }
     }
 
-    private fun finishTerminalError(expected: Registration, active: ActiveResource, message: String) {
+    private fun finishTerminalError(
+        expected: Registration,
+        active: ActiveResource,
+        message: String,
+        diagnostic: NativePlaybackError? = null,
+    ) {
         if (active.terminalReported || currentResource !== active) return
+        diagnostic?.let(active.playbackErrors::add)
         active.terminalReported = true
         player.stop()
         setError("media_error", message)
-        val event = TerminalEvent("error", active.playId, active.sequence)
+        val event = TerminalEvent("error", active.playId, active.sequence, active.playbackErrors.snapshot())
         if (activeExecution != null) pendingTerminal = event else scope.launch { sendTerminalObservation(expected, event) }
     }
 
@@ -797,7 +893,11 @@ class NativePlaybackService : MediaSessionService(), Player.Listener {
     private suspend fun sendTerminalObservation(expected: Registration, event: TerminalEvent) {
         if (registration !== expected || event.sequence <= 0L) return
         val active = currentResource?.takeIf { it.playId == event.playId && it.sequence == event.sequence } ?: return
-        val body = reportBody(event.sequence, observation = observation(event.event, event.playId))
+        val body = reportBody(
+            event.sequence,
+            observation = observation(event.event, event.playId),
+            playbackErrors = event.playbackErrors.takeIf { event.event == "error" },
+        )
         try {
             sendFrozenReport(expected, body, active)
         } catch (_: Throwable) {
@@ -887,14 +987,38 @@ class NativePlaybackService : MediaSessionService(), Player.Listener {
         result: String? = null,
         errorCode: String? = null,
         observation: JSONObject? = null,
+        playbackErrors: List<NativePlaybackError>? = null,
     ): String = JSONObject()
         .put("sequence", sequence)
         .also { value ->
             if (result != null) value.put("result", result)
             if (errorCode != null) value.put("error_code", errorCode)
             if (observation != null) value.put("observation", observation)
+            if (!playbackErrors.isNullOrEmpty()) {
+                value.put("playback_errors", JSONArray(playbackErrors.map(NativePlaybackError::toJson)))
+            }
         }
         .toString()
+
+    private fun playbackErrorsForFailure(
+        error: Throwable,
+        action: String,
+        sequence: Long,
+    ): List<NativePlaybackError> {
+        val diagnostic = when (error) {
+            is PlaybackFailure -> error.diagnostic
+            is CommandFailure -> null
+            else -> NativePlaybackError.capture(
+                NativePlaybackErrorStage.COMMAND,
+                error,
+                player.currentPosition.coerceAtLeast(0L),
+            )
+        } ?: return emptyList()
+        val active = currentResource?.takeIf { action != "set_uri" || it.sequence == sequence }
+            ?: return listOf(diagnostic)
+        active.playbackErrors.add(diagnostic)
+        return active.playbackErrors.snapshot()
+    }
 
     private fun sendPlayerControl(action: String, positionMillis: Long? = null) {
         val expected = registration ?: return
@@ -953,6 +1077,7 @@ class NativePlaybackService : MediaSessionService(), Player.Listener {
         pendingTerminal = null
         acknowledgingCommand = false
         deferredPlaybackError = null
+        playerErrors.clear()
         player.stop()
         if (clearMediaItems) player.clearMediaItems()
         currentResource = null
@@ -1054,12 +1179,14 @@ class NativePlaybackService : MediaSessionService(), Player.Listener {
         return result
     }
 
-    private fun classifyPlayback(error: PlaybackException): PlaybackClassification {
-        val httpStatus = causeChain(error).filterIsInstance<HttpDataSource.InvalidResponseCodeException>()
+    private fun classifyPlayback(error: PlayerFailure): PlaybackClassification {
+        val playbackException = error.error
+        val httpStatus = causeChain(playbackException).filterIsInstance<HttpDataSource.InvalidResponseCodeException>()
             .firstOrNull()?.responseCode
-        val transient = NativePlaybackPolicy.isTransientMediaError(error.errorCode, httpStatus, error)
-        val unsupported = error.errorCode in 3001..4005
-        val fatalRegistration = httpStatus == 401 || hasCause<SSLException>(error)
+        val errorCode = playbackException.errorCode
+        val transient = NativePlaybackPolicy.isTransientMediaError(errorCode, httpStatus, playbackException)
+        val unsupported = errorCode in 3001..4005
+        val fatalRegistration = httpStatus == 401 || hasCause<SSLException>(playbackException)
         return PlaybackClassification(
             transient = transient,
             fatalRegistration = fatalRegistration,
@@ -1069,9 +1196,14 @@ class NativePlaybackService : MediaSessionService(), Player.Listener {
         )
     }
 
-    private fun playbackFailure(error: PlaybackException): PlaybackFailure {
+    private fun playbackFailure(error: PlayerFailure): PlaybackFailure {
         val classified = classifyPlayback(error)
-        return PlaybackFailure(classified.reportCode, classified.publicMessage)
+        return PlaybackFailure(
+            classified.reportCode,
+            classified.publicMessage,
+            error.diagnostic,
+            error.error,
+        )
     }
 
     private inner class ServerRoutedPlayer(player: Player) : ForwardingSimpleBasePlayer(player) {
@@ -1145,10 +1277,16 @@ class NativePlaybackService : MediaSessionService(), Player.Listener {
         var sequence: Long,
         var wantsPlayback: Boolean = false,
         var terminalReported: Boolean = false,
+        val playbackErrors: NativePlaybackErrorBuffer = NativePlaybackErrorBuffer(),
     )
 
     private data class PublicError(val code: String, val message: String)
-    private data class TerminalEvent(val event: String, val playId: String, val sequence: Long)
+    private data class TerminalEvent(
+        val event: String,
+        val playId: String,
+        val sequence: Long,
+        val playbackErrors: List<NativePlaybackError>,
+    )
     private data class PlaybackClassification(
         val transient: Boolean,
         val fatalRegistration: Boolean,
@@ -1157,8 +1295,17 @@ class NativePlaybackService : MediaSessionService(), Player.Listener {
         val publicMessage: String,
     )
 
+    private data class PlayerFailure(
+        val error: PlaybackException,
+        val diagnostic: NativePlaybackError,
+    )
     private class CommandFailure(val reportCode: String, message: String) : Exception(message)
-    private class PlaybackFailure(val reportCode: String, message: String) : Exception(message)
+    private class PlaybackFailure(
+        val reportCode: String,
+        message: String,
+        val diagnostic: NativePlaybackError,
+        cause: Throwable?,
+    ) : Exception(message, cause)
 
     companion object {
         private val SYSTEM_PLAYER_COMMANDS = Player.Commands.Builder()

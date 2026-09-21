@@ -5,9 +5,11 @@ import (
 	"crypto/rand"
 	"crypto/subtle"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"mime"
+	"regexp"
 	"sort"
 	"strings"
 	"sync"
@@ -18,11 +20,23 @@ import (
 )
 
 const (
-	leaseDuration    = 15 * time.Second
-	pollAfter        = 250 * time.Millisecond
-	maximumDevices   = 32
-	maximumMIMETypes = 24
-	maximumMediaMS   = int64((7 * 24 * time.Hour) / time.Millisecond)
+	leaseDuration              = 15 * time.Second
+	pollAfter                  = 250 * time.Millisecond
+	maximumDevices             = 32
+	maximumMIMETypes           = 24
+	maximumMediaMS             = int64((7 * 24 * time.Hour) / time.Millisecond)
+	maximumPlaybackErrors      = 4
+	maximumPlaybackErrorCauses = 4
+	maximumPlaybackErrorStack  = 6
+	maximumPlaybackErrorName   = 96
+	maximumPlaybackCauseType   = 160
+	maximumPlaybackStackFrame  = 200
+)
+
+var (
+	playbackErrorNamePattern = regexp.MustCompile(`^[A-Z0-9_]+$`)
+	playbackCauseTypePattern = regexp.MustCompile(`^[A-Za-z0-9_.$]+$`)
+	playbackStackPattern     = regexp.MustCompile(`^[A-Za-z0-9_.$]+#[A-Za-z0-9_.$<>-]+:-?[0-9]+$`)
 )
 
 type pendingCommand struct {
@@ -35,6 +49,7 @@ type acceptedReport struct {
 	errorCode      string
 	observation    ObservationReport
 	hasObservation bool
+	playbackErrors string
 }
 
 type registration struct {
@@ -251,10 +266,18 @@ func (service *Service) Report(id, token, address string, report Report) error {
 		return err
 	}
 	service.renewLocked(value)
+	if err := validatePlaybackErrors(report); err != nil {
+		return service.rejectReportLocked(value, "invalid_playback_errors", err)
+	}
 	if report.Sequence <= value.cancelBefore {
 		return service.rejectReportLocked(value, "cancelled_sequence", ErrStaleReport)
 	}
-	if report.Result != "" && value.lastAccepted.matches(report) {
+	playbackErrors := ""
+	if len(report.PlaybackErrors) != 0 {
+		payload, _ := json.Marshal(report.PlaybackErrors)
+		playbackErrors = string(payload)
+	}
+	if report.Result != "" && value.lastAccepted.matches(report, playbackErrors) {
 		service.recordReportLocked(value)
 		value.diagnostics.duplicateReportCount++
 		service.maybeLogHealthLocked(value, value.lastSeen)
@@ -281,6 +304,7 @@ func (service *Service) Report(id, token, address string, report Report) error {
 		value.observation = observation
 		service.recordReportLocked(value)
 		service.logObservationTransitionLocked(value, previous, observation)
+		service.logNativePlaybackErrorsLocked(value, observation.PlayID, report.Sequence, playbackErrors)
 		service.maybeLogHealthLocked(value, value.lastSeen)
 		return nil
 	}
@@ -303,11 +327,12 @@ func (service *Service) Report(id, token, address string, report Report) error {
 			}
 		}
 		actionErr := reportActionError(pending.command.Action, report.ErrorCode)
-		value.lastAccepted = copyAcceptedReport(report)
+		value.lastAccepted = copyAcceptedReport(report, playbackErrors)
 		value.pending = nil
 		pending.result <- actionErr
 		service.recordReportLocked(value)
 		service.logCommandResultLocked(value, &pending.command, "failed", report.ErrorCode)
+		service.logNativePlaybackErrorsLocked(value, pending.command.PlayID, report.Sequence, playbackErrors)
 		service.maybeLogHealthLocked(value, value.lastSeen)
 		return nil
 	}
@@ -331,7 +356,7 @@ func (service *Service) Report(id, token, address string, report Report) error {
 		value.resourceSeq = report.Sequence
 	}
 	previous := value.observation
-	value.lastAccepted = copyAcceptedReport(report)
+	value.lastAccepted = copyAcceptedReport(report, playbackErrors)
 	value.observation = observation
 	value.pending = nil
 	pending.result <- nil
@@ -534,7 +559,7 @@ func matchesSuccessfulAction(action, event string) bool {
 		return false
 	}
 }
-func copyAcceptedReport(report Report) acceptedReport {
+func copyAcceptedReport(report Report, playbackErrors string) acceptedReport {
 	accepted := acceptedReport{
 		sequence:  report.Sequence,
 		result:    report.Result,
@@ -544,10 +569,11 @@ func copyAcceptedReport(report Report) acceptedReport {
 		accepted.observation = *report.Observation
 		accepted.hasObservation = true
 	}
+	accepted.playbackErrors = playbackErrors
 	return accepted
 }
 
-func (accepted acceptedReport) matches(report Report) bool {
+func (accepted acceptedReport) matches(report Report, playbackErrors string) bool {
 	if accepted.result == "" ||
 		accepted.sequence != report.Sequence ||
 		accepted.result != report.Result ||
@@ -555,7 +581,56 @@ func (accepted acceptedReport) matches(report Report) bool {
 		accepted.hasObservation != (report.Observation != nil) {
 		return false
 	}
-	return !accepted.hasObservation || accepted.observation == *report.Observation
+	if accepted.hasObservation && accepted.observation != *report.Observation {
+		return false
+	}
+	return accepted.playbackErrors == playbackErrors
+}
+
+func validatePlaybackErrors(report Report) error {
+	if len(report.PlaybackErrors) > maximumPlaybackErrors {
+		return ErrInvalidRequest
+	}
+	if len(report.PlaybackErrors) == 0 {
+		return nil
+	}
+	if report.Result != "failed" &&
+		(report.Result != "" || report.Observation == nil || report.Observation.Event != "error") {
+		return ErrInvalidRequest
+	}
+	for _, playbackError := range report.PlaybackErrors {
+		if playbackError.Stage != "prepare" && playbackError.Stage != "command" && playbackError.Stage != "playback" {
+			return ErrInvalidRequest
+		}
+		if playbackError.ErrorCode == nil || *playbackError.ErrorCode < 0 || *playbackError.ErrorCode > 999999 ||
+			len(playbackError.ErrorName) == 0 || len(playbackError.ErrorName) > maximumPlaybackErrorName ||
+			!playbackErrorNamePattern.MatchString(playbackError.ErrorName) ||
+			(*playbackError.ErrorCode == 0) != (playbackError.ErrorName == "NATIVE_ERROR") ||
+			playbackError.OccurredAtMS == nil || *playbackError.OccurredAtMS <= 0 ||
+			playbackError.PositionMS == nil || *playbackError.PositionMS < 0 || *playbackError.PositionMS > maximumMediaMS ||
+			len(playbackError.Causes) == 0 || len(playbackError.Causes) > maximumPlaybackErrorCauses {
+			return ErrInvalidRequest
+		}
+		for _, cause := range playbackError.Causes {
+			if len(cause.Type) == 0 || len(cause.Type) > maximumPlaybackCauseType ||
+				!playbackCauseTypePattern.MatchString(cause.Type) ||
+				cause.Stack == nil || len(cause.Stack) > maximumPlaybackErrorStack {
+				return ErrInvalidRequest
+			}
+			if cause.HTTPStatus != nil && (*cause.HTTPStatus < 100 || *cause.HTTPStatus > 599) {
+				return ErrInvalidRequest
+			}
+			if cause.PlatformCode != nil && (*cause.PlatformCode < -1<<31 || *cause.PlatformCode > 1<<31-1) {
+				return ErrInvalidRequest
+			}
+			for _, frame := range cause.Stack {
+				if len(frame) == 0 || len(frame) > maximumPlaybackStackFrame || !playbackStackPattern.MatchString(frame) {
+					return ErrInvalidRequest
+				}
+			}
+		}
+	}
+	return nil
 }
 
 func validReportError(code string) bool {
