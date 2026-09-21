@@ -148,5 +148,8 @@ UPnP·Google Cast·AirPlay 기능은 수신기마다 다릅니다. 실제 장비
 | 설정 저장 실패 | Windows 나란한 파일 또는 Linux config 폴더와 `server.json`을 Server 계정/UID 10001이 쓸 수 있는지 확인 |
 | AirPlay 인증 실패 | 지원되는 Linux Server 전용: 재생 정지, 표시된 PIN·암호 재입력, 패키지의 `/usr/local/bin/jastreamer-airplay`·FFmpeg 경로 유지; 네이티브 Windows는 다른 경로로 AirPlay를 활성화할 수 없음 |
 | 비밀번호 분실 | 서버를 멈추고 같은 config/data를 연결한 유지보수 컨테이너에서 `jastreamer-server --reset-password USER --config /etc/jastreamer/server.json` 실행; 새 비밀번호는 입력 프롬프트에만 입력 |
+| Android 화면을 끈 뒤 재생이 멈추거나 로컬 출력이 오프라인이 됨 | 가능하면 재연결 전에 발생 시각과 `<data_dir>/logs/server.log*` 보존. Server는 등록·갱신 만료, 마지막 명령 조회·갱신·상태 보고 시각, 명령 결과와 미디어 접근 권한·전송 실패를 기록함. 서버가 관찰한 단계는 확인할 수 있지만 Android가 앱을 절전·종료한 원인까지 확정하는 로그는 아님 |
 
 문제를 보고할 때 Server 버전, 정확한 이미지 다이제스트 또는 Windows ZIP SHA-256, Server 플랫폼·아키텍처, 관련 로그와 수신기 모델을 포함하세요. 비밀번호, 쿠키, 인증서와 개인 키는 제거하고 원본 진단 문구는 그대로 보존하세요.
+
+Server 진단 로그는 UTC 시각으로 콘솔과 `<data_dir>/logs/server.log`에 함께 기록됩니다. 기본 Linux 컨테이너 경로는 `/var/lib/jastreamer/logs/server.log`이며, 기존 데이터 마운트에 저장되어 컨테이너를 교체해도 남습니다. 현재 파일과 `server.log.1`–`server.log.3`을 각각 최대 5 MiB로 순환 보관합니다. 정상 로컬 출력 활동은 등록별 최대 30초에 한 번 요약하고 반복 요청 실패는 기록 빈도를 제한합니다. 진단 이벤트는 생성된 출력·재생·명령 ID로 연관 관계를 남기며, 인증정보·쿠키·미디어 URL·파일명·출력 표시 이름은 기록하지 않습니다. POSIX 시스템에서는 로그 디렉터리를 0700, 파일을 0600 권한으로 생성하며, Windows에서는 데이터 디렉터리의 접근 권한을 Server 계정으로 제한하세요. 영구 로그 기록을 시작하지 못하면 Server 콘솔이나 Compose 로그를 확인하세요. 정확한 발생 시각과 남아 있는 로그 파일 전체를 함께 수집하고 데이터 디렉터리를 HTTP로 공개하지 마세요.

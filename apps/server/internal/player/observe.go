@@ -143,10 +143,11 @@ type observationResult struct {
 const observationWarningThreshold = 3
 
 type observationFailure struct {
-	rendererID string
-	playID     string
-	count      int
-	warning    StatusWarning
+	rendererID     string
+	playID         string
+	currentEntryID string
+	count          int
+	warning        StatusWarning
 }
 
 func (s *Service) applyObservationFailure(ctx context.Context, observationError error) bool {
@@ -165,7 +166,7 @@ func (s *Service) applyObservationFailure(ctx context.Context, observationError 
 	next := previous
 	newStreak := previous.count == 0 || previous.playID != st.playID || previous.rendererID != st.rendererID
 	if newStreak {
-		next = observationFailure{rendererID: st.rendererID, playID: st.playID}
+		next = observationFailure{rendererID: st.rendererID, playID: st.playID, currentEntryID: st.currentEntryID}
 		next.warning.ID = st.revision + 1
 	}
 	if next.count < observationWarningThreshold {
@@ -179,12 +180,17 @@ func (s *Service) applyObservationFailure(ctx context.Context, observationError 
 		message = fmt.Sprintf("Renderer status could not be confirmed (%s). Existing playback has not been restarted.", actionError)
 	}
 	next.warning.Message = message
+	logTransition := newStreak || st.state != StateUnavailable ||
+		(next.count >= observationWarningThreshold && previous.count < observationWarningThreshold)
 	changed := newStreak || st.state != StateUnavailable ||
 		(next.count >= observationWarningThreshold &&
 			(previous.count < observationWarningThreshold || previous.warning.Message != message))
 	if changed {
 		if _, err := s.db.ExecContext(ctx, `UPDATE player_state SET revision=revision+1,state='unavailable' WHERE singleton=1`); err != nil {
 			return false
+		}
+		if logTransition {
+			s.logObservationFailure(st, next.count, diagnosticError(observationError, "observe_failed"), next.count >= observationWarningThreshold)
 		}
 	}
 	s.observationFailure = next
@@ -200,8 +206,9 @@ func (s *Service) applyRendererUnavailable(ctx context.Context, message string) 
 		return "", false
 	}
 	defer tx.Rollback()
-	var state, currentEntryID, playID, oldMessage string
-	if err := tx.QueryRowContext(ctx, "SELECT state,current_entry_id,play_id,error FROM player_state WHERE singleton=1").Scan(&state, &currentEntryID, &playID, &oldMessage); err != nil {
+	var state, rendererID, currentEntryID, playID, oldMessage string
+	var revision int64
+	if err := tx.QueryRowContext(ctx, "SELECT revision,state,renderer_id,current_entry_id,play_id,error FROM player_state WHERE singleton=1").Scan(&revision, &state, &rendererID, &currentEntryID, &playID, &oldMessage); err != nil {
 		return "", false
 	}
 	if state == StateStopped && playID == "" {
@@ -229,6 +236,7 @@ func (s *Service) applyRendererUnavailable(ctx context.Context, message string) 
 	if err := tx.Commit(); err != nil {
 		return "", false
 	}
+	s.logRendererUnavailable(rendererID, playID, currentEntryID, state, "renderer_offline", revision+1)
 	s.startup = startupObservationEvidence{}
 	return playID, true
 }
@@ -236,16 +244,21 @@ func (s *Service) applyRendererUnavailable(ctx context.Context, message string) 
 func (s *Service) applyObservation(ctx context.Context, observation output.Observation) (result observationResult) {
 	s.opMu.Lock()
 	defer s.opMu.Unlock()
-	warningCleared := s.observationFailure.count >= observationWarningThreshold
+	failure := s.observationFailure
+	warningCleared := failure.count >= observationWarningThreshold
 	s.observationFailure = observationFailure{}
 	// A successful query clears its warning even when ownership reconciliation
 	// produces no other state or position change.
 	defer func() {
 		if warningCleared {
 			if !result.playerChanged && !result.positionChanged {
-				_, _ = s.db.ExecContext(ctx, `UPDATE player_state SET revision=revision+1 WHERE singleton=1`)
+				if _, err := s.db.ExecContext(ctx, `UPDATE player_state SET revision=revision+1 WHERE singleton=1`); err == nil {
+					result.playerChanged = true
+				}
 			}
-			result.playerChanged = true
+		}
+		if failure.count > 0 && result.playerChanged {
+			s.logObservationRecovered(failure, observation)
 		}
 	}()
 	tx, err := s.db.BeginTx(ctx, nil)
@@ -318,10 +331,10 @@ func (s *Service) applyObservation(ctx context.Context, observation output.Obser
 	ownedURI := observation.HasURI && st.currentURI != "" && observation.URI == st.currentURI
 	uriCleared := observation.HasURI && st.currentURI != "" && observation.URI == ""
 	if observation.HasURI && st.currentURI != "" && observation.URI != "" && !ownedURI {
-		return s.commitExternalObservation(ctx, tx, st, observation, position, duration, observedAt, "Renderer playback changed outside JaStreamer. Press Play to resume.")
+		return s.commitExternalObservation(ctx, tx, st, observation, position, duration, observedAt, "external_playback", "Renderer playback changed outside JaStreamer. Press Play to resume.")
 	}
 	if terminalEnd {
-		return s.commitTerminalAdvance(ctx, tx, st, observedAt)
+		return s.commitTerminalAdvance(ctx, tx, st, observation, observedAt)
 	}
 
 	if (normalized == "stopped" || normalized == "unknown") && (!observation.HasURI || ownedURI || uriCleared) {
@@ -338,7 +351,7 @@ func (s *Service) applyObservation(ctx context.Context, observation output.Obser
 		}
 		if normalized == "stopped" {
 			if strings.EqualFold(strings.TrimSpace(observation.TransportStatus), "ERROR_OCCURRED") {
-				return s.commitInterruptedObservation(ctx, tx, st, observation, position, duration, observedAt, StateError, "The renderer reported a playback error. Press Play to resume.")
+				return s.commitInterruptedObservation(ctx, tx, st, observation, position, duration, observedAt, StateError, "renderer_playback_error", "The renderer reported a playback error. Press Play to resume.")
 			}
 			if s.withinStartupGrace(st, observation) {
 				return s.commitStartupStoppedObservation(ctx, tx, st, observation, position, duration, observedAt)
@@ -348,14 +361,14 @@ func (s *Service) applyObservation(ctx context.Context, observation output.Obser
 			return s.commitNaturalEnd(ctx, tx, st, observation, position, duration, observedAt)
 		}
 		if normalized == "stopped" {
-			return s.commitInterruptedObservation(ctx, tx, st, observation, position, duration, observedAt, StateStopped, "Playback stopped on the renderer. Press Play to resume.")
+			return s.commitInterruptedObservation(ctx, tx, st, observation, position, duration, observedAt, StateStopped, "renderer_stopped", "Playback stopped on the renderer. Press Play to resume.")
 		}
-		return s.commitExternalObservation(ctx, tx, st, observation, position, duration, observedAt, "The renderer cleared the current media without reliable end-of-track evidence. Press Play to resume.")
+		return s.commitExternalObservation(ctx, tx, st, observation, position, duration, observedAt, "media_cleared_without_completion", "The renderer cleared the current media without reliable end-of-track evidence. Press Play to resume.")
 	}
 
 	if normalized == "playing" || normalized == "paused" || normalized == "transitioning" {
 		if observation.HasURI && st.currentURI != "" && !ownedURI {
-			return s.commitExternalObservation(ctx, tx, st, observation, position, duration, observedAt, "Renderer playback could not be correlated with the current track. Press Play to resume.")
+			return s.commitExternalObservation(ctx, tx, st, observation, position, duration, observedAt, "uncorrelated_playback", "Renderer playback could not be correlated with the current track. Press Play to resume.")
 		}
 		state := StateStarting
 		if normalized == "playing" {
@@ -404,7 +417,7 @@ func (s *Service) applyObservation(ctx context.Context, observation output.Obser
 		return result
 	}
 
-	return s.commitExternalObservation(ctx, tx, st, observation, position, duration, observedAt, "The renderer reported an unavailable playback state. Press Play to resume.")
+	return s.commitExternalObservation(ctx, tx, st, observation, position, duration, observedAt, "unavailable_state", "The renderer reported an unavailable playback state. Press Play to resume.")
 }
 
 func (s *Service) withinStartupGrace(st storedState, observation output.Observation) bool {
@@ -435,11 +448,11 @@ const observationEvidenceRevisionSQL = `UPDATE player_state SET revision=revisio
 const observationEvidenceAndControlSQL = `UPDATE player_state SET observed_at=?,last_observed_state=?,last_observed_uri=?,last_observed_position_ms=?,last_observed_duration_ms=?,last_observed_has_position=?,last_observed_at=?,control_action='',control_at='' WHERE singleton=1`
 const observationStoppedControlSQL = `UPDATE player_state SET play_id='',current_uri='',current_seekable=0,observed_at=?,last_observed_state=?,last_observed_uri=?,last_observed_position_ms=?,last_observed_duration_ms=?,last_observed_has_position=?,last_observed_at=?,resume_required=0,error='',control_action='',control_at='' WHERE singleton=1`
 
-func (s *Service) commitExternalObservation(ctx context.Context, tx *sql.Tx, st storedState, observation output.Observation, position, duration int64, observedAt, message string) observationResult {
-	return s.commitInterruptedObservation(ctx, tx, st, observation, position, duration, observedAt, StateUnavailable, message)
+func (s *Service) commitExternalObservation(ctx context.Context, tx *sql.Tx, st storedState, observation output.Observation, position, duration int64, observedAt, reason, message string) observationResult {
+	return s.commitInterruptedObservation(ctx, tx, st, observation, position, duration, observedAt, StateUnavailable, reason, message)
 }
 
-func (s *Service) commitInterruptedObservation(ctx context.Context, tx *sql.Tx, st storedState, observation output.Observation, position, duration int64, observedAt, state, message string) observationResult {
+func (s *Service) commitInterruptedObservation(ctx context.Context, tx *sql.Tx, st storedState, observation output.Observation, position, duration int64, observedAt, state, reason, message string) observationResult {
 	result := observationResult{playerChanged: true, revokePlayID: st.playID}
 	queueChanged := false
 	if st.currentEntryID != "" {
@@ -459,6 +472,7 @@ func (s *Service) commitInterruptedObservation(ctx context.Context, tx *sql.Tx, 
 	if err := tx.Commit(); err != nil {
 		return observationResult{}
 	}
+	s.logObservationInterrupted(st, observation, state, reason, position)
 	s.startup = startupObservationEvidence{}
 	result.queueChanged = queueChanged
 	return result
@@ -484,7 +498,7 @@ func (s *Service) observeTerminalPosition(st storedState, observation output.Obs
 	return now.Sub(s.terminal.since) >= 2*time.Second
 }
 
-func (s *Service) commitTerminalAdvance(ctx context.Context, tx *sql.Tx, st storedState, observedAt string) observationResult {
+func (s *Service) commitTerminalAdvance(ctx context.Context, tx *sql.Tx, st storedState, observation output.Observation, observedAt string) observationResult {
 	insert, err := tx.ExecContext(ctx, "INSERT OR IGNORE INTO player_natural_ends(play_id,entry_id,ended_at) VALUES(?,?,?)", st.playID, st.currentEntryID, observedAt)
 	if err != nil {
 		return observationResult{}
@@ -508,6 +522,8 @@ func (s *Service) commitTerminalAdvance(ctx context.Context, tx *sql.Tx, st stor
 	if err := tx.Commit(); err != nil {
 		return observationResult{}
 	}
+	s.logNaturalTransition(st, observation, commandID, "next", "", st.state, "terminal_position", st.positionMS)
+	s.logCommandAccepted(commandID, "next", st.rendererID, st.playID, st.currentEntryID, "", "terminal_position", st.state, st.revision+1, 0)
 	return observationResult{playerChanged: true, commandQueued: true}
 }
 
@@ -534,8 +550,10 @@ func (s *Service) commitNaturalEnd(ctx context.Context, tx *sql.Tx, st storedSta
 		return observationResult{}
 	}
 	state := StateStopped
+	var commandID string
 	if nextEntryID != "" {
-		commandID, idErr := randomID("command")
+		var idErr error
+		commandID, idErr = randomID("command")
 		if idErr != nil {
 			return observationResult{}
 		}
@@ -550,6 +568,10 @@ func (s *Service) commitNaturalEnd(ctx context.Context, tx *sql.Tx, st storedSta
 	}
 	if err := tx.Commit(); err != nil {
 		return observationResult{}
+	}
+	s.logNaturalTransition(st, observation, commandID, "natural_next", nextEntryID, state, "natural_end", position)
+	if commandID != "" {
+		s.logCommandAccepted(commandID, "natural_next", st.rendererID, st.playID, st.currentEntryID, nextEntryID, "natural_end", state, st.revision+1, 0)
 	}
 	s.startup = startupObservationEvidence{}
 	return result

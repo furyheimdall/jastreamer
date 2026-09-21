@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"net/url"
 	"os"
@@ -21,14 +22,24 @@ type byteRange struct {
 	length int64
 }
 
+type mediaHTTPResult struct {
+	status        int
+	bytes         int64
+	rangeStatus   string
+	errorCategory string
+	err           error
+}
+
 func (service *Service) Handler() http.Handler {
 	return http.HandlerFunc(service.serveHTTP)
 }
 
 func (service *Service) serveHTTP(writer http.ResponseWriter, request *http.Request) {
+	startedAt := time.Now()
 	writer.Header().Set("X-Content-Type-Options", "nosniff")
 	token, artwork, ok := mediaRequest(request.URL.Path)
 	if !ok {
+		service.logUnboundRejection(request.Method, http.StatusNotFound, "malformed_grant", startedAt)
 		writeStreamError(writer, http.StatusNotFound, "MEDIA_NOT_FOUND")
 		return
 	}
@@ -36,27 +47,33 @@ func (service *Service) serveHTTP(writer http.ResponseWriter, request *http.Requ
 	value := service.byToken[token]
 	service.mu.Unlock()
 	if value == nil {
+		service.logUnboundRejection(request.Method, http.StatusNotFound, "grant_not_found", startedAt)
 		writeStreamError(writer, http.StatusNotFound, "MEDIA_NOT_FOUND")
 		return
 	}
 	remoteIP, err := rendererIP(request.RemoteAddr)
 	if err != nil || remoteIP != value.sourceIP {
+		service.logBindingRejection(value, request.Method, http.StatusForbidden, "source_mismatch", startedAt)
 		writeStreamError(writer, http.StatusForbidden, "MEDIA_FORBIDDEN")
 		return
 	}
 	if value.browser && (service.browserAuthorized == nil || !service.browserAuthorized(request)) {
+		service.logBindingRejection(value, request.Method, http.StatusForbidden, "session_unauthorized", startedAt)
 		writeStreamError(writer, http.StatusForbidden, "MEDIA_FORBIDDEN")
 		return
 	}
 	if artwork && value.artwork == nil {
+		service.logBindingRejection(value, request.Method, http.StatusNotFound, "artwork_unavailable", startedAt)
 		writeStreamError(writer, http.StatusNotFound, "MEDIA_NOT_FOUND")
 		return
 	}
 	if value.cast {
 		if !serveCastCORS(writer, request) {
+			service.logBindingRejection(value, request.Method, http.StatusForbidden, "origin_rejected", startedAt)
 			return
 		}
 	} else if !allowSameOriginMediaRequest(request) {
+		service.logBindingRejection(value, request.Method, http.StatusForbidden, "origin_rejected", startedAt)
 		writeStreamError(writer, http.StatusForbidden, "ORIGIN_NOT_ALLOWED")
 		return
 	}
@@ -70,6 +87,7 @@ func (service *Service) serveHTTP(writer http.ResponseWriter, request *http.Requ
 			allowed += ", OPTIONS"
 		}
 		writer.Header().Set("Allow", allowed)
+		service.logBindingRejection(value, request.Method, http.StatusMethodNotAllowed, "method_rejected", startedAt)
 		writeStreamError(writer, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED")
 		return
 	}
@@ -81,29 +99,41 @@ func (service *Service) serveHTTP(writer http.ResponseWriter, request *http.Requ
 		stopWriteCancellation()
 		cancel()
 	}()
+	kind := "media"
 	if artwork {
-		service.serveArtwork(writer, request, ctx, value)
+		kind = "artwork"
+	}
+	if artwork {
+		started, sampled, suppressed := service.beginMediaRequest(value, request.Method, kind)
+		result := service.serveArtwork(writer, request, ctx, value)
+		service.finishMediaRequest(value, request, kind, started, sampled, suppressed, result)
 		return
 	}
 	file, track, err := service.openBound(ctx, value)
 	if err != nil {
-		writeStreamError(writer, streamErrorStatus(err), streamErrorCode(err))
+		status := streamErrorStatus(err)
+		service.logBindingRejection(value, request.Method, status, streamErrorCategory(err), startedAt)
+		writeStreamError(writer, status, streamErrorCode(err))
 		return
 	}
 	activeID, registered := service.register(value, file)
 	if !registered {
 		_ = file.Close()
+		service.logBindingRejection(value, request.Method, http.StatusNotFound, "grant_revoked", startedAt)
 		writeStreamError(writer, http.StatusNotFound, "MEDIA_NOT_FOUND")
 		return
 	}
 	defer service.release(value, activeID, file)
 
 	writer.Header().Set("Cache-Control", "private, no-store")
+	started, sampled, suppressed := service.beginMediaRequest(value, request.Method, kind)
+	var result mediaHTTPResult
 	if value.representation.transformed {
-		service.serveTransformed(writer, request, ctx, file, value.representation)
-		return
+		result = service.serveTransformed(writer, request, ctx, file, value.representation)
+	} else {
+		result = service.serveOriginal(writer, request, ctx, file, track.Size, value.representation.mime)
 	}
-	service.serveOriginal(writer, request, ctx, file, track.Size, value.representation.mime)
+	service.finishMediaRequest(value, request, kind, started, sampled, suppressed, result)
 }
 
 func serveCastCORS(writer http.ResponseWriter, request *http.Request) bool {
@@ -205,6 +235,87 @@ func interruptWriteOnCancel(ctx context.Context, writer http.ResponseWriter) fun
 	}
 }
 
+func (service *Service) logUnboundRejection(method string, status int, reason string, started time.Time) {
+	method = diagnosticMethod(method)
+	now := time.Now()
+	service.mu.Lock()
+	window := &service.malformedDiagnostic
+	if reason == "grant_not_found" {
+		window = &service.missingDiagnostic
+	}
+	suppressed, allowed := window.allow(now)
+	service.mu.Unlock()
+	if allowed {
+		log.Printf("diagnostic component=stream event=media_http_rejected method=%q status=%d bytes=0 elapsed_ms=%d range=%q cancel=false error_category=%q reason=%q suppressed=%d", method, status, now.Sub(started).Milliseconds(), "not_evaluated", reason, reason, suppressed)
+	}
+}
+
+func (service *Service) logBindingRejection(value *binding, method string, status int, reason string, started time.Time) {
+	method = diagnosticMethod(method)
+	now := time.Now()
+	service.mu.Lock()
+	suppressed, allowed := value.rejectDiagnostic.allow(now)
+	service.mu.Unlock()
+	if allowed {
+		log.Printf("diagnostic component=stream event=media_http_rejected renderer_id=%q play_id=%q method=%q status=%d bytes=0 elapsed_ms=%d range=%q cancel=false error_category=%q reason=%q suppressed=%d", value.rendererID, value.playID, method, status, now.Sub(started).Milliseconds(), "not_evaluated", reason, reason, suppressed)
+	}
+}
+
+func (service *Service) beginMediaRequest(value *binding, method, kind string) (time.Time, bool, uint64) {
+	method = diagnosticMethod(method)
+	now := time.Now()
+	service.mu.Lock()
+	suppressed, sampled := value.requestDiagnostic.allow(now)
+	service.mu.Unlock()
+	if sampled {
+		log.Printf("diagnostic component=stream event=media_http_started renderer_id=%q play_id=%q method=%q kind=%q suppressed=%d", value.rendererID, value.playID, method, kind, suppressed)
+	}
+	return now, sampled, suppressed
+}
+
+func (service *Service) finishMediaRequest(value *binding, request *http.Request, kind string, started time.Time, sampled bool, suppressed uint64, result mediaHTTPResult) {
+	category := result.errorCategory
+	canceled := false
+	switch {
+	case context.Cause(value.ctx) != nil:
+		category = "grant_revoked"
+		canceled = true
+	case context.Cause(request.Context()) != nil:
+		category = "client_canceled"
+		canceled = true
+	case category == "canceled":
+		category = "request_canceled"
+		canceled = true
+	}
+	if category == "" {
+		category = "none"
+	}
+	if !sampled && category != "none" {
+		service.mu.Lock()
+		failureSuppressed, allowed := value.failureDiagnostic.allow(time.Now())
+		service.mu.Unlock()
+		if !allowed {
+			return
+		}
+		sampled = true
+		suppressed = failureSuppressed
+	}
+	if !sampled {
+		return
+	}
+	elapsed := time.Since(started).Milliseconds()
+	log.Printf("diagnostic component=stream event=media_http_finished renderer_id=%q play_id=%q method=%q kind=%q status=%d bytes=%d elapsed_ms=%d range=%q cancel=%t error_category=%q error_type=%T suppressed=%d", value.rendererID, value.playID, diagnosticMethod(request.Method), kind, result.status, result.bytes, elapsed, result.rangeStatus, canceled, category, result.err, suppressed)
+}
+
+func diagnosticMethod(method string) string {
+	switch method {
+	case http.MethodGet, http.MethodHead, http.MethodOptions, http.MethodPost, http.MethodPut, http.MethodDelete, http.MethodPatch:
+		return method
+	default:
+		return "OTHER"
+	}
+}
+
 func mediaRequest(path string) (string, bool, bool) {
 	if !strings.HasPrefix(path, "/media/") {
 		return "", false, false
@@ -221,21 +332,21 @@ func mediaRequest(path string) (string, bool, bool) {
 	return value, artwork, err == nil && len(decoded) == tokenBytes
 }
 
-func (service *Service) serveArtwork(writer http.ResponseWriter, request *http.Request, ctx context.Context, value *binding) {
+func (service *Service) serveArtwork(writer http.ResponseWriter, request *http.Request, ctx context.Context, value *binding) mediaHTTPResult {
 	file, mime, size, err := service.openBoundArtwork(ctx, value)
 	if err != nil {
 		writeStreamError(writer, http.StatusNotFound, "MEDIA_NOT_FOUND")
-		return
+		return mediaHTTPResult{status: http.StatusNotFound, rangeStatus: "not_evaluated", errorCategory: "media_unavailable", err: err}
 	}
 	activeID, registered := service.register(value, file)
 	if !registered {
 		_ = file.Close()
 		writeStreamError(writer, http.StatusNotFound, "MEDIA_NOT_FOUND")
-		return
+		return mediaHTTPResult{status: http.StatusNotFound, rangeStatus: "not_evaluated", errorCategory: "grant_revoked", err: context.Canceled}
 	}
 	defer service.release(value, activeID, file)
 	writer.Header().Set("Cache-Control", "private, no-store")
-	service.serveOriginal(writer, request, ctx, file, size, mime)
+	return service.serveOriginal(writer, request, ctx, file, size, mime)
 }
 
 func (service *Service) openBoundArtwork(ctx context.Context, value *binding) (*os.File, string, int64, error) {
@@ -284,57 +395,66 @@ func (service *Service) openBound(ctx context.Context, value *binding) (*os.File
 	return file, track, nil
 }
 
-func (service *Service) serveOriginal(writer http.ResponseWriter, request *http.Request, ctx context.Context, file *os.File, size int64, mime string) {
+func (service *Service) serveOriginal(writer http.ResponseWriter, request *http.Request, ctx context.Context, file *os.File, size int64, mime string) mediaHTTPResult {
 	writer.Header().Set("Content-Type", mime)
 	writer.Header().Set("Accept-Ranges", "bytes")
 	selected := byteRange{start: 0, length: size}
 	status := http.StatusOK
+	rangeStatus := "none"
 	if header := request.Header.Get("Range"); header != "" {
 		var err error
 		selected, err = parseRange(header, size)
 		if err != nil {
 			writer.Header().Set("Content-Range", "bytes */"+strconv.FormatInt(size, 10))
 			writeStreamError(writer, http.StatusRequestedRangeNotSatisfiable, "MEDIA_RANGE_UNSATISFIABLE")
-			return
+			return mediaHTTPResult{status: http.StatusRequestedRangeNotSatisfiable, rangeStatus: "rejected", errorCategory: "range"}
 		}
 		status = http.StatusPartialContent
+		rangeStatus = "accepted"
 		writer.Header().Set("Content-Range", fmt.Sprintf("bytes %d-%d/%d", selected.start, selected.start+selected.length-1, size))
 	}
 	if selected.start != 0 {
 		if _, err := file.Seek(selected.start, io.SeekStart); err != nil {
 			writeStreamError(writer, http.StatusInternalServerError, "MEDIA_UNAVAILABLE")
-			return
+			return mediaHTTPResult{status: http.StatusInternalServerError, rangeStatus: rangeStatus, errorCategory: "source_io", err: err}
 		}
 	}
 	writer.Header().Set("Content-Length", strconv.FormatInt(selected.length, 10))
 	writer.WriteHeader(status)
 	if request.Method == http.MethodHead || selected.length == 0 {
-		return
+		return mediaHTTPResult{status: status, rangeStatus: rangeStatus, errorCategory: "none"}
 	}
-	_ = copyFileRange(ctx, writer, file, selected.length)
+	written, err := copyFileRange(ctx, writer, file, selected.length)
+	return mediaHTTPResult{status: status, bytes: written, rangeStatus: rangeStatus, errorCategory: copyErrorCategory(err), err: err}
 }
 
-func (service *Service) serveTransformed(writer http.ResponseWriter, request *http.Request, ctx context.Context, file *os.File, selected representation) {
+func (service *Service) serveTransformed(writer http.ResponseWriter, request *http.Request, ctx context.Context, file *os.File, selected representation) mediaHTTPResult {
 	// Chromium opens even nonseekable media with a byte-zero range. A complete
 	// 200 response is valid for that initial stream; nonzero seeks remain denied.
+	rangeStatus := "none"
 	initialCastRange := selected.transcode == transcodeWAV && request.Header.Get("Range") == "bytes=0-"
-	if request.Header.Get("Range") != "" && !initialCastRange {
-		writeStreamError(writer, http.StatusRequestedRangeNotSatisfiable, "MEDIA_RANGE_UNSUPPORTED")
-		return
+	if request.Header.Get("Range") != "" {
+		if !initialCastRange {
+			writeStreamError(writer, http.StatusRequestedRangeNotSatisfiable, "MEDIA_RANGE_UNSUPPORTED")
+			return mediaHTTPResult{status: http.StatusRequestedRangeNotSatisfiable, rangeStatus: "rejected", errorCategory: "range"}
+		}
+		rangeStatus = "accepted_zero"
 	}
 	writer.Header().Set("Content-Type", selected.mime)
 	if request.Method == http.MethodHead {
 		writer.WriteHeader(http.StatusOK)
-		return
+		return mediaHTTPResult{status: http.StatusOK, rangeStatus: rangeStatus, errorCategory: "none"}
 	}
 	stream, err := service.ffmpeg.open(ctx, file, selected.transcode)
 	if err != nil {
-		writeStreamError(writer, streamErrorStatus(err), streamErrorCode(err))
-		return
+		status := streamErrorStatus(err)
+		writeStreamError(writer, status, streamErrorCode(err))
+		return mediaHTTPResult{status: status, rangeStatus: rangeStatus, errorCategory: streamErrorCategory(err), err: err}
 	}
 	defer stream.Close()
 	writer.WriteHeader(http.StatusOK)
-	_ = copyStream(ctx, writer, stream)
+	written, err := copyStream(ctx, writer, stream)
+	return mediaHTTPResult{status: http.StatusOK, bytes: written, rangeStatus: rangeStatus, errorCategory: copyErrorCategory(err), err: err}
 }
 
 func parseRange(value string, size int64) (byteRange, error) {
@@ -372,11 +492,12 @@ func parseRange(value string, size int64) (byteRange, error) {
 	return byteRange{start: start, length: end - start + 1}, nil
 }
 
-func copyFileRange(ctx context.Context, destination io.Writer, source io.Reader, remaining int64) error {
+func copyFileRange(ctx context.Context, destination io.Writer, source io.Reader, remaining int64) (int64, error) {
 	var buffer [64 * 1024]byte
+	var total int64
 	for remaining > 0 {
 		if err := context.Cause(ctx); err != nil {
-			return err
+			return total, err
 		}
 		chunk := int64(len(buffer))
 		if remaining < chunk {
@@ -385,45 +506,48 @@ func copyFileRange(ctx context.Context, destination io.Writer, source io.Reader,
 		count, readErr := source.Read(buffer[:chunk])
 		if count > 0 {
 			written, writeErr := destination.Write(buffer[:count])
+			total += int64(written)
 			remaining -= int64(written)
 			if writeErr != nil {
-				return writeErr
+				return total, writeErr
 			}
 			if written != count {
-				return io.ErrShortWrite
+				return total, io.ErrShortWrite
 			}
 		}
 		if readErr != nil {
 			if errors.Is(readErr, io.EOF) && remaining == 0 {
-				return nil
+				return total, nil
 			}
-			return readErr
+			return total, readErr
 		}
 	}
-	return nil
+	return total, nil
 }
 
-func copyStream(ctx context.Context, destination io.Writer, source io.Reader) error {
+func copyStream(ctx context.Context, destination io.Writer, source io.Reader) (int64, error) {
 	var buffer [64 * 1024]byte
+	var total int64
 	for {
 		if err := context.Cause(ctx); err != nil {
-			return err
+			return total, err
 		}
 		count, readErr := source.Read(buffer[:])
 		if count > 0 {
 			written, writeErr := destination.Write(buffer[:count])
+			total += int64(written)
 			if writeErr != nil {
-				return writeErr
+				return total, writeErr
 			}
 			if written != count {
-				return io.ErrShortWrite
+				return total, io.ErrShortWrite
 			}
 		}
 		if readErr != nil {
 			if errors.Is(readErr, io.EOF) {
-				return nil
+				return total, nil
 			}
-			return readErr
+			return total, readErr
 		}
 	}
 }
@@ -460,6 +584,37 @@ func streamErrorCode(err error) string {
 	default:
 		return "MEDIA_UNAVAILABLE"
 	}
+}
+
+func streamErrorCategory(err error) string {
+	switch {
+	case errors.Is(err, ErrTrackUnavailable):
+		return "media_unavailable"
+	case errors.Is(err, ErrStaleMedia):
+		return "media_stale"
+	case errors.Is(err, ErrUnsupportedMedia):
+		return "media_unsupported"
+	case errors.Is(err, ErrRangeNotSatisfiable):
+		return "range"
+	case errors.Is(err, ErrTranscodeBusy):
+		return "transcode_busy"
+	case errors.Is(err, ErrTranscodeFailed):
+		return "transcode_failed"
+	case errors.Is(err, context.Canceled), errors.Is(err, context.DeadlineExceeded):
+		return "canceled"
+	default:
+		return "internal"
+	}
+}
+
+func copyErrorCategory(err error) string {
+	if err == nil {
+		return "none"
+	}
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return "canceled"
+	}
+	return "transport"
 }
 
 func writeStreamError(writer http.ResponseWriter, status int, code string) {

@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"errors"
+	"log"
 	"net/http"
 	"time"
 
@@ -22,6 +23,9 @@ func sessionID(r *http.Request) string {
 func (service *server) require(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if _, err := service.options.Auth.Validate(r.Context(), sessionID(r)); err != nil {
+			operation, id := protectedOperation(r)
+			status, reason := diagnosticFault(err)
+			service.logRequestRejection(operation, id, status, reason)
 			writeError(w, err)
 			return
 		}
@@ -32,6 +36,8 @@ func (service *server) require(next http.HandlerFunc) http.HandlerFunc {
 func (service *server) setupState(w http.ResponseWriter, r *http.Request) {
 	required, err := service.options.Auth.NeedsSetup(r.Context())
 	if err != nil {
+		status, reason := diagnosticFault(err)
+		service.logRequestRejection("setup_state", "", status, reason)
 		writeError(w, err)
 		return
 	}
@@ -48,9 +54,12 @@ func (service *server) session(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		var known *fault.Error
 		if !errors.As(err, &known) || known.Status != http.StatusUnauthorized {
+			status, reason := diagnosticFault(err)
+			service.logRequestRejection("session", "", status, reason)
 			writeError(w, err)
 			return
 		}
+		service.logSessionValidationFailure(known.Status, http.StatusOK, known.Code)
 		expireCookie(w, r)
 		reply(w, 200, map[string]bool{"authenticated": false})
 		return
@@ -64,6 +73,7 @@ func (service *server) login(w http.ResponseWriter, r *http.Request) { service.s
 func (service *server) signIn(w http.ResponseWriter, r *http.Request, setup bool) {
 	if !service.throttle.allow(remoteIP(r).String()) {
 		w.Header().Set("Retry-After", "60")
+		service.logRequestRejection(signInOperation(setup), "", http.StatusTooManyRequests, "LOGIN_RATE_LIMIT")
 		writeError(w, fault.New(429, "LOGIN_RATE_LIMIT", "잠시 기다린 뒤 다시 로그인하세요."))
 		return
 	}
@@ -82,6 +92,8 @@ func (service *server) signIn(w http.ResponseWriter, r *http.Request, setup bool
 		result, err = service.options.Auth.Login(r.Context(), body.Username, body.Password)
 	}
 	if err != nil {
+		status, reason := diagnosticFault(err)
+		service.logRequestRejection(signInOperation(setup), "", status, reason)
 		writeError(w, err)
 		return
 	}
@@ -90,6 +102,8 @@ func (service *server) signIn(w http.ResponseWriter, r *http.Request, setup bool
 			var known *fault.Error
 			if !errors.As(err, &known) || known.Status != http.StatusUnauthorized {
 				_ = service.options.Auth.Logout(r.Context(), result.ID)
+				status, reason := diagnosticFault(err)
+				service.logRequestRejection(signInOperation(setup), "", status, reason)
 				writeError(w, err)
 				return
 			}
@@ -109,6 +123,8 @@ func expireCookie(w http.ResponseWriter, r *http.Request) {
 
 func (service *server) logout(w http.ResponseWriter, r *http.Request) {
 	if err := service.options.Auth.Logout(r.Context(), sessionID(r)); err != nil {
+		status, reason := diagnosticFault(err)
+		service.logRequestRejection("logout", "", status, reason)
 		writeError(w, err)
 		return
 	}
@@ -119,6 +135,7 @@ func (service *server) logout(w http.ResponseWriter, r *http.Request) {
 
 func (service *server) password(w http.ResponseWriter, r *http.Request) {
 	if !service.throttle.allow(remoteIP(r).String()) {
+		service.logRequestRejection("change_password", "", http.StatusTooManyRequests, "LOGIN_RATE_LIMIT")
 		writeError(w, fault.New(429, "LOGIN_RATE_LIMIT", "잠시 기다린 뒤 다시 시도하세요."))
 		return
 	}
@@ -130,10 +147,35 @@ func (service *server) password(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := service.options.Auth.ChangePassword(r.Context(), sessionID(r), body.Current, body.New); err != nil {
+		status, reason := diagnosticFault(err)
+		service.logRequestRejection("change_password", "", status, reason)
 		writeError(w, err)
 		return
 	}
 	expireCookie(w, r)
 	service.options.Events.Publish("session")
 	reply(w, 204, nil)
+}
+
+func diagnosticFault(err error) (int, string) {
+	var known *fault.Error
+	if errors.As(err, &known) {
+		return known.Status, known.Code
+	}
+	return http.StatusInternalServerError, "INTERNAL_ERROR"
+}
+
+func signInOperation(setup bool) string {
+	if setup {
+		return "setup"
+	}
+	return "login"
+}
+
+func (service *server) logSessionValidationFailure(status, responseStatus int, reason string) {
+	suppressed, allowed := service.diagnostics.allow("session_validation:" + reason)
+	if !allowed {
+		return
+	}
+	log.Printf("diagnostic component=httpapi event=session_validation_failed operation=%q status=%d response_status=%d reason=%q suppressed=%d", "session", status, responseStatus, reason, suppressed)
 }
