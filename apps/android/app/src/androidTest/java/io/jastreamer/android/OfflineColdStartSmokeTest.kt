@@ -47,9 +47,20 @@ class OfflineColdStartSmokeTest {
     }
 
     private fun seed() {
-        instrumentation.runOnMainSync { OfflinePlayback.stop() }
+        instrumentation.runOnMainSync {
+            if (OfflinePlayback.state.value.owner == OfflinePlaybackPolicy.OWNER_LOCAL) {
+                NativePlaybackRegistry.service?.prepareServerHandoff(
+                    confirmHandoff = true,
+                    requestGeneration = OfflinePlaybackRequestFence.beginRequest(),
+                )
+            }
+        }
         context.stopService(Intent(context, NativePlaybackService::class.java))
         instrumentation.waitForIdleSync()
+        await("previous playback ownership releases before cold-start seeding") {
+            OfflinePlayback.state.value.owner == OfflinePlaybackPolicy.OWNER_NONE &&
+                !OfflinePlayback.state.value.playing
+        }
         val audio = File.createTempFile("offline-cold-", ".wav", context.cacheDir)
         val sampleRate = 44100
         val seconds = 12
