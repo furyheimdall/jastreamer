@@ -1,4 +1,5 @@
 import Foundation
+import UIKit
 import XCTest
 
 final class JastreamerUITests: XCTestCase {
@@ -281,20 +282,29 @@ final class JastreamerUITests: XCTestCase {
     }
 
     private func replaceText(in field: XCUIElement, with value: String) {
+        if Thread.isMainThread {
+            MainActor.assumeIsolated { UIPasteboard.general.string = value }
+        } else {
+            DispatchQueue.main.sync { UIPasteboard.general.string = value }
+        }
         field.tap()
         XCTAssertTrue(
             XCUIApplication().keyboards.buttons["Go"].waitForExistence(timeout: 5),
             "The native URL keyboard must be ready before entering a Server address"
         )
+        field.press(forDuration: 1)
         let existing = field.value as? String ?? ""
         if !existing.isEmpty, existing != field.placeholderValue {
-            field.press(forDuration: 1)
             let selectAll = XCUIApplication().descendants(matching: .any)
                 .matching(identifier: "Select All").firstMatch
             XCTAssertTrue(selectAll.waitForExistence(timeout: 5), "Select the complete previous address before replacing it")
             selectAll.tap()
         }
-        field.typeText(value)
+        // Paste through the real native menu; synthetic key bursts can be truncated by Simulator.
+        let paste = XCUIApplication().descendants(matching: .any)
+            .matching(identifier: "Paste").firstMatch
+        XCTAssertTrue(paste.waitForExistence(timeout: 5), "The native Paste action must be available")
+        paste.tap()
         XCTAssertEqual(field.value as? String, value, "The entered address must exactly match the intended Server")
     }
 
