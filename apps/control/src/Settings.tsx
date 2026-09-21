@@ -3,12 +3,15 @@ import { api, ApiError } from "./api";
 import { useI18n, type Language, type MessageKey } from "./i18n";
 import AirPlayHelpDialog from "./AirPlayHelpDialog";
 import InstallApp from "./InstallApp";
+import { HistoryPanel, VerificationStatus } from "./Diagnostics";
 import ServerPathPicker from "./ServerPathPicker";
 import type { ConfigDocument, ConfigRoot, FilesystemEntryKind, NetworkInterfacesDocument, RestartResponse, ScanJob, ServerConfig } from "./types";
 
 interface SettingsProps {
   configRevision: number;
   libraryRevision: number;
+  historyRevision: number;
+  verificationRevision: number;
   onNotice: (message: string, error?: boolean) => void;
   onSignedOut: () => void;
 }
@@ -109,7 +112,7 @@ function reconnectURL(value: string): URL | null {
   }
 }
 
-export default function Settings({ configRevision, libraryRevision, onNotice, onSignedOut }: SettingsProps) {
+export default function Settings({ configRevision, libraryRevision, historyRevision, verificationRevision, onNotice, onSignedOut }: SettingsProps) {
   const { language, locale, t, setLanguage } = useI18n();
   const [document, setDocument] = useState<ConfigDocument | null>(null);
   const [draft, setDraft] = useState<ServerConfig | null>(null);
@@ -637,6 +640,7 @@ export default function Settings({ configRevision, libraryRevision, onNotice, on
         {settingsHeader}
         {languageSettings}
         <InstallApp />
+        <HistoryPanel revision={historyRevision} />
         <div className="loading-block" aria-live="polite">{t("settings.loading")}</div>
       </section>
     );
@@ -648,6 +652,7 @@ export default function Settings({ configRevision, libraryRevision, onNotice, on
         {settingsHeader}
         {languageSettings}
         <InstallApp />
+        <HistoryPanel revision={historyRevision} />
         <div className="inline-error" role="alert">
           <span>{error || t("settings.loadFailed")}</span>
           <button className="button button-ghost" type="button" onClick={() => void loadConfig()}>
@@ -696,6 +701,7 @@ export default function Settings({ configRevision, libraryRevision, onNotice, on
       {settingsHeader}
       {languageSettings}
       <InstallApp />
+      <HistoryPanel revision={historyRevision} />
 
       {error && <p className="error-text" role="alert">{error}</p>}
       {remoteConfigPending && (
@@ -1041,6 +1047,7 @@ export default function Settings({ configRevision, libraryRevision, onNotice, on
               })}
             </ul>
           )}
+          <VerificationStatus revision={verificationRevision} />
         </section>
 
         <section className="settings-card">

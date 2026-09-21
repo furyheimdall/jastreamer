@@ -21,7 +21,7 @@ func (testMedia) Revoke(string) {}
 
 func newTestService(t *testing.T) (*Service, Registration) {
 	t.Helper()
-	service, err := New(testMedia{}, func(string) {})
+	service, err := New(testMedia{}, func(string) {}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

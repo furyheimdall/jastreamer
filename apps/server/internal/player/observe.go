@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -106,8 +107,9 @@ func (s *Service) observeSelected(ctx context.Context) {
 	observation, err := s.devices.Observe(observeCtx, st.rendererID)
 	cancel()
 	if err != nil {
-		changed := s.applyObservationFailure(ctx, err)
+		changed, historyRecord := s.applyObservationFailure(ctx, err)
 		s.rendererMu.Unlock()
+		s.recordPlayerHistory(historyRecord)
 		if changed {
 			s.notify("player")
 		}
@@ -118,6 +120,7 @@ func (s *Service) observeSelected(ctx context.Context) {
 	}
 	result := s.applyObservation(ctx, observation)
 	s.rendererMu.Unlock()
+	s.recordPlayerHistory(result.historyRecord)
 	if result.revokePlayID != "" {
 		s.media.Revoke(result.revokePlayID)
 	}
@@ -138,6 +141,7 @@ type observationResult struct {
 	positionChanged bool
 	commandQueued   bool
 	revokePlayID    string
+	historyRecord   *playerHistoryRecord
 }
 
 const observationWarningThreshold = 3
@@ -150,17 +154,17 @@ type observationFailure struct {
 	warning        StatusWarning
 }
 
-func (s *Service) applyObservationFailure(ctx context.Context, observationError error) bool {
+func (s *Service) applyObservationFailure(ctx context.Context, observationError error) (bool, *playerHistoryRecord) {
 	s.opMu.Lock()
 	defer s.opMu.Unlock()
 	s.terminal = terminalPositionEvidence{}
 	st, err := s.loadState(ctx)
 	if err != nil {
-		return false
+		return false, nil
 	}
 	if st.playID == "" || st.state == StateStopped {
 		s.observationFailure = observationFailure{}
-		return false
+		return false, nil
 	}
 	previous := s.observationFailure
 	next := previous
@@ -187,14 +191,33 @@ func (s *Service) applyObservationFailure(ctx context.Context, observationError 
 			(previous.count < observationWarningThreshold || previous.warning.Message != message))
 	if changed {
 		if _, err := s.db.ExecContext(ctx, `UPDATE player_state SET revision=revision+1,state='unavailable' WHERE singleton=1`); err != nil {
-			return false
+			return false, nil
 		}
 		if logTransition {
 			s.logObservationFailure(st, next.count, diagnosticError(observationError, "observe_failed"), next.count >= observationWarningThreshold)
 		}
 	}
 	s.observationFailure = next
-	return changed
+	var historyRecord *playerHistoryRecord
+	if next.count >= observationWarningThreshold && previous.count < observationWarningThreshold {
+		info := diagnosticError(observationError, "observe_failed")
+		stage := info.action
+		if stage == "" {
+			stage = "Observe"
+		}
+		code := info.category
+		if info.code != 0 {
+			code += ":" + strconv.Itoa(info.code)
+		}
+		position := st.positionMS
+		historyRecord = &playerHistoryRecord{
+			key:        observationHistoryKey(st.rendererID, st.playID, stage, next.warning.ID, "unknown"),
+			receivedAt: s.now().UTC(), rendererID: st.rendererID, entryID: st.currentEntryID, playID: st.playID,
+			stage: stage, code: code, message: message, outcome: "unknown", positionMS: &position,
+			details: map[string]any{"category": info.category, "renderer_action": info.action, "renderer_code": info.code, "failure_count": next.count},
+		}
+	}
+	return changed, historyRecord
 }
 
 func (s *Service) applyRendererUnavailable(ctx context.Context, message string) (string, bool) {
@@ -259,6 +282,17 @@ func (s *Service) applyObservation(ctx context.Context, observation output.Obser
 		}
 		if failure.count > 0 && result.playerChanged {
 			s.logObservationRecovered(failure, observation)
+		}
+		if failure.count >= observationWarningThreshold && result.playerChanged && result.historyRecord == nil &&
+			!strings.EqualFold(strings.TrimSpace(observation.TransportStatus), "ERROR_OCCURRED") {
+			position := observation.PositionMS
+			result.historyRecord = &playerHistoryRecord{
+				key:        observationHistoryKey(failure.rendererID, failure.playID, "Observe", failure.warning.ID, "recovered"),
+				receivedAt: s.now().UTC(), rendererID: failure.rendererID, entryID: failure.currentEntryID, playID: failure.playID,
+				stage: "Observe", code: "observation_recovered", message: "Renderer status reporting recovered.",
+				outcome: "recovered", positionMS: &position,
+				details: map[string]any{"failure_count": failure.count, "observed_state": normalizeObservedState(observation.State), "transport_status": diagnosticTransportStatus(observation.TransportStatus)},
+			}
 		}
 	}()
 	tx, err := s.db.BeginTx(ctx, nil)
@@ -482,6 +516,15 @@ func (s *Service) commitInterruptedObservation(ctx context.Context, tx *sql.Tx, 
 	s.logObservationInterrupted(st, observation, state, reason, position)
 	s.startup = startupObservationEvidence{}
 	result.queueChanged = queueChanged
+	if reason == "renderer_playback_error" {
+		value := position
+		result.historyRecord = &playerHistoryRecord{
+			key:        observationHistoryKey(st.rendererID, st.playID, "Observe", st.revision+1, "failed"),
+			receivedAt: s.now().UTC(), rendererID: st.rendererID, entryID: st.currentEntryID, playID: st.playID,
+			stage: "Observe", code: "renderer_playback_error", message: message, outcome: "failed", positionMS: &value,
+			details: map[string]any{"observed_state": normalizeObservedState(observation.State), "transport_status": diagnosticTransportStatus(observation.TransportStatus)},
+		}
+	}
 	return result
 }
 
@@ -540,6 +583,13 @@ func (s *Service) commitMediaFailureAdvance(ctx context.Context, tx *sql.Tx, st 
 		s.logCommandAccepted(commandID, "error_next", st.rendererID, st.playID, st.currentEntryID, nextEntryID, "media_failure", state, st.revision+1, 0)
 	}
 	s.startup = startupObservationEvidence{}
+	value := position
+	result.historyRecord = &playerHistoryRecord{
+		key:        observationHistoryKey(st.rendererID, st.playID, "Playback", st.revision+1, "failed"),
+		receivedAt: s.now().UTC(), rendererID: st.rendererID, entryID: st.currentEntryID, playID: st.playID,
+		stage: "Playback", code: "media_failed", message: message, outcome: "failed", positionMS: &value,
+		details: map[string]any{"observed_state": normalizeObservedState(observation.State), "transport_status": diagnosticTransportStatus(observation.TransportStatus)},
+	}
 	return result
 }
 

@@ -1,6 +1,10 @@
 package library
 
-import "encoding/json"
+import (
+	"encoding/json"
+
+	"github.com/jastreamer/jastreamer-server/internal/errorhistory"
+)
 
 type Root struct {
 	ID   string `json:"id"`
@@ -113,6 +117,26 @@ type ScanJob struct {
 	StartedAt   string `json:"started_at"`
 	FinishedAt  string `json:"finished_at"`
 	Error       string `json:"error"`
+}
+
+type VerificationOptions struct {
+	FFmpegPath       string
+	History          *errorhistory.Service
+	IsPlaybackActive func() bool
+}
+
+type VerificationStatus struct {
+	State             string `json:"state"`
+	Reason            string `json:"reason"`
+	Total             int64  `json:"total"`
+	Pending           int64  `json:"pending"`
+	Verified          int64  `json:"verified"`
+	Failed            int64  `json:"failed"`
+	Unverified        int64  `json:"unverified"`
+	CurrentTrackID    string `json:"current_track_id"`
+	CurrentTrackTitle string `json:"current_track_title"`
+	Engine            string `json:"engine"`
+	Error             string `json:"error"`
 }
 
 type storedMetadata struct {

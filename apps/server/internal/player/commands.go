@@ -923,6 +923,7 @@ func (s *Service) completeMediaStartFailure(command commandRecord, target queueR
 		command.errorInfo = diagnosticError(nil, "media")
 	}
 	s.logCommandTerminal(command, "failed", "media_failed", st, "", target.id, state, 0, command.errorInfo, finished)
+	s.recordPlayerHistory(s.commandHistoryRecord(command, st, target.id, message, "failed", finished))
 	if nextCommandID != "" {
 		s.logCommandAccepted(nextCommandID, "error_next", st.rendererID, "", target.id, nextEntryID, "media_failure", state, st.revision+1, 0)
 		s.signalWorker()
@@ -965,6 +966,7 @@ func (s *Service) completeAdvanceFailure(command commandRecord, oldEntryID, targ
 			command.errorInfo = diagnosticError(nil, "start_failed")
 		}
 		s.logCommandTerminal(command, "failed", "next_track_start_failed", st, "", targetEntryID, StateError, 0, command.errorInfo, finished)
+		s.recordPlayerHistory(s.commandHistoryRecord(command, st, targetEntryID, message, "failed", finished))
 		s.notify("queue")
 		s.notify("player")
 	}
@@ -1011,6 +1013,7 @@ func (s *Service) completeUnconfirmedStop(command commandRecord, st storedState,
 			command.errorInfo = diagnosticError(nil, "unconfirmed")
 		}
 		s.logCommandTerminal(command, "unknown", "stop_unconfirmed", st, "", st.currentEntryID, StateStopped, 0, command.errorInfo, finished)
+		s.recordPlayerHistory(s.commandHistoryRecord(command, st, st.currentEntryID, message, "unknown", finished))
 		if queueChanged {
 			s.notify("queue")
 		}
@@ -1095,6 +1098,7 @@ func (s *Service) completeFailure(command commandRecord, message string, unavail
 			resultPlayID = ""
 		}
 		s.logCommandTerminal(command, "failed", "command_failed", st, resultPlayID, entryID, state, st.positionMS, command.errorInfo, finished)
+		s.recordPlayerHistory(s.commandHistoryRecord(command, st, entryID, message, "failed", finished))
 		if unavailable {
 			s.logRendererUnavailable(st.rendererID, st.playID, st.currentEntryID, st.state, "renderer_missing_or_offline", st.revision+1)
 		}
@@ -1153,6 +1157,7 @@ func (s *Service) completeUnknown(command commandRecord, message string) {
 			resultState = StateStopped
 		}
 		s.logCommandTerminal(command, "unknown", "outcome_unconfirmed", st, "", st.currentEntryID, resultState, st.positionMS, command.errorInfo, finished)
+		s.recordPlayerHistory(s.commandHistoryRecord(command, st, st.currentEntryID, message, "unknown", finished))
 		if st.playID != "" {
 			s.media.Revoke(st.playID)
 		}

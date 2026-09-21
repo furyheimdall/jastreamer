@@ -1,6 +1,7 @@
 import { useSyncExternalStore } from "react";
 import { appMessages } from "./locales/app";
 import { commonMessages } from "./locales/common";
+import { diagnosticsMessages } from "./locales/diagnostics";
 import { libraryMessages } from "./locales/library";
 import { playerMessages } from "./locales/player";
 import { pwaMessages } from "./locales/pwa";
@@ -8,7 +9,7 @@ import { pwaMessages } from "./locales/pwa";
 export type Language = "en" | "ko";
 const storageKey = "jastreamer.language";
 const cookieName = "jastreamer_language";
-const messages = { ...commonMessages, ...appMessages, ...libraryMessages, ...playerMessages, ...pwaMessages };
+const messages = { ...commonMessages, ...appMessages, ...diagnosticsMessages, ...libraryMessages, ...playerMessages, ...pwaMessages };
 export type MessageKey = keyof typeof messages;
 
 function isLanguage(value: unknown): value is Language {
