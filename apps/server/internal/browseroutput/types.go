@@ -56,9 +56,26 @@ type ObservationReport struct {
 	HasPosition bool   `json:"has_position"`
 }
 
+type PlaybackErrorCause struct {
+	Type         string   `json:"type"`
+	Stack        []string `json:"stack"`
+	HTTPStatus   *int64   `json:"http_status,omitempty"`
+	PlatformCode *int64   `json:"platform_code,omitempty"`
+}
+
+type PlaybackError struct {
+	Stage        string               `json:"stage"`
+	ErrorCode    *int64               `json:"error_code"`
+	ErrorName    string               `json:"error_name"`
+	OccurredAtMS *int64               `json:"occurred_at_ms"`
+	PositionMS   *int64               `json:"position_ms"`
+	Causes       []PlaybackErrorCause `json:"causes"`
+}
+
 type Report struct {
-	Sequence    uint64             `json:"sequence"`
-	Result      string             `json:"result,omitempty"`
-	ErrorCode   string             `json:"error_code,omitempty"`
-	Observation *ObservationReport `json:"observation,omitempty"`
+	Sequence       uint64             `json:"sequence"`
+	Result         string             `json:"result,omitempty"`
+	ErrorCode      string             `json:"error_code,omitempty"`
+	Observation    *ObservationReport `json:"observation,omitempty"`
+	PlaybackErrors []PlaybackError    `json:"playback_errors,omitempty"`
 }

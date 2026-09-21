@@ -92,6 +92,13 @@ func (service *Service) logCommandResultLocked(value *registration, command *Com
 	log.Printf("diagnostic component=browseroutput event=command_result renderer_id=%q command_id=%q sequence=%d action=%q play_id=%q status=%q reason=%q acknowledged_at=%q state=%q transport_status=%q position_ms=%d", value.id, diagnosticCommandID(value.id, command.Sequence), command.Sequence, command.Action, command.PlayID, status, reason, diagnosticTimestamp(now), value.observation.State, value.observation.TransportStatus, value.observation.PositionMS)
 }
 
+func (service *Service) logNativePlaybackErrorsLocked(value *registration, playID string, sequence uint64, playbackErrors string) {
+	if playbackErrors == "" {
+		return
+	}
+	log.Printf("diagnostic component=browseroutput event=native_playback_error renderer_id=%q play_id=%q sequence=%d command_id=%q playback_errors=%q", value.id, playID, sequence, diagnosticCommandID(value.id, sequence), playbackErrors)
+}
+
 func (service *Service) logCommandCancelledLocked(value *registration, command *Command, reason string) {
 	log.Printf("diagnostic component=browseroutput event=command_cancelled renderer_id=%q command_id=%q sequence=%d action=%q play_id=%q status=%q reason=%q", value.id, diagnosticCommandID(value.id, command.Sequence), command.Sequence, command.Action, command.PlayID, "cancelled", reason)
 }
