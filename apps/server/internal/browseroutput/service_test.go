@@ -432,3 +432,114 @@ func TestTerminalErrorSurvivesSlowPlayerPolling(t *testing.T) {
 		t.Fatalf("confirmed error lost: %+v, %v", observed, err)
 	}
 }
+
+func TestMediaFailedCommandReportMapsOnlyEligibleActions(t *testing.T) {
+	service, registration := newTestService(t)
+	result := make(chan error, 1)
+	go func() {
+		result <- service.SetURI(t.Context(), registration.ID, output.Resource{
+			URL: "/media/grant", Mime: "audio/wav", TrackID: "track-1", PlayID: "play-1", Seekable: true,
+		})
+	}()
+	command := waitForCommand(t, service, registration)
+	if err := service.Report(registration.ID, registration.OwnerToken, "192.0.2.10", Report{
+		Sequence: command.Sequence, Result: "failed", ErrorCode: "media_failed",
+		Observation: &ObservationReport{Event: "error", PlayID: command.PlayID},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	var actionError *output.ActionError
+	if err := <-result; !errors.As(err, &actionError) || actionError.Kind != output.ErrorMedia {
+		t.Fatalf("media failure error=%v", err)
+	}
+	observed, err := service.Observe(t.Context(), registration.ID)
+	if err != nil || !observed.MediaFailed || observed.Completed {
+		t.Fatalf("media failure mapping=%+v, %v", observed, err)
+	}
+
+	setTestResource(t, service, registration)
+	playResult := make(chan error, 1)
+	go func() { playResult <- service.Play(t.Context(), registration.ID) }()
+	play := waitForCommand(t, service, registration)
+	if err := service.Report(registration.ID, registration.OwnerToken, "192.0.2.10", Report{
+		Sequence: play.Sequence, Result: "failed", ErrorCode: "media_failed",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := <-playResult; !errors.As(err, &actionError) || actionError.Kind != output.ErrorMedia {
+		t.Fatalf("play media failure error=%v", err)
+	}
+
+	pauseResult := make(chan error, 1)
+	go func() { pauseResult <- service.Pause(t.Context(), registration.ID) }()
+	pause := waitForCommand(t, service, registration)
+	if err := service.Report(registration.ID, registration.OwnerToken, "192.0.2.10", Report{
+		Sequence: pause.Sequence, Result: "failed", ErrorCode: "media_failed",
+	}); !errors.Is(err, ErrInvalidRequest) {
+		t.Fatalf("pause media_failed error=%v", err)
+	}
+	if err := service.Report(registration.ID, registration.OwnerToken, "192.0.2.10", Report{
+		Sequence: pause.Sequence, Result: "failed", ErrorCode: "action_failed",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := <-pauseResult; !errors.As(err, &actionError) || actionError.Kind != output.ErrorFault {
+		t.Fatalf("pause fallback error=%v", err)
+	}
+}
+
+func TestMediaFailedObservationRequiresErrorEvent(t *testing.T) {
+	service, registration := newTestService(t)
+	setTestResource(t, service, registration)
+	loaded, err := service.Observe(t.Context(), registration.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := service.Report(registration.ID, registration.OwnerToken, "192.0.2.10", Report{
+		Sequence: loaded.CommandSequence, ErrorCode: "media_failed",
+		Observation: &ObservationReport{Event: "timeupdate", PlayID: loaded.PlayID, State: "playing"},
+	}); !errors.Is(err, ErrInvalidRequest) {
+		t.Fatalf("non-error media_failed observation error=%v", err)
+	}
+	if err := service.Report(registration.ID, registration.OwnerToken, "192.0.2.10", Report{
+		Sequence: loaded.CommandSequence, ErrorCode: "media_error",
+		Observation: &ObservationReport{Event: "error", PlayID: loaded.PlayID},
+	}); !errors.Is(err, ErrInvalidRequest) {
+		t.Fatalf("generic unsolicited error code error=%v", err)
+	}
+	if err := service.Report(registration.ID, registration.OwnerToken, "192.0.2.10", Report{
+		Sequence: loaded.CommandSequence, ErrorCode: "media_failed",
+		Observation: &ObservationReport{Event: "error", PlayID: loaded.PlayID},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	observed, err := service.Observe(t.Context(), registration.ID)
+	if err != nil || !observed.MediaFailed || observed.TransportStatus != "ERROR_OCCURRED" {
+		t.Fatalf("terminal media failure observation=%+v, %v", observed, err)
+	}
+}
+
+func TestSuccessfulReportRejectsErrorCode(t *testing.T) {
+	service, registration := newTestService(t)
+	result := make(chan error, 1)
+	go func() {
+		result <- service.SetURI(t.Context(), registration.ID, output.Resource{
+			URL: "/media/grant", Mime: "audio/wav", TrackID: "track-1", PlayID: "play-1", Seekable: true,
+		})
+	}()
+	command := waitForCommand(t, service, registration)
+	if err := service.Report(registration.ID, registration.OwnerToken, "192.0.2.10", Report{
+		Sequence: command.Sequence, Result: "succeeded", ErrorCode: "media_failed",
+		Observation: successfulObservation(command, "loaded"),
+	}); !errors.Is(err, ErrInvalidRequest) {
+		t.Fatalf("successful media_failed report error=%v", err)
+	}
+	if err := service.Report(registration.ID, registration.OwnerToken, "192.0.2.10", Report{
+		Sequence: command.Sequence, Result: "succeeded", Observation: successfulObservation(command, "loaded"),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := <-result; err != nil {
+		t.Fatal(err)
+	}
+}

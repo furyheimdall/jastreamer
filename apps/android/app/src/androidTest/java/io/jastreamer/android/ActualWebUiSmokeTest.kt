@@ -678,7 +678,54 @@ class ActualWebUiSmokeTest {
             screenshot("native-playback-error")
             resetProxyFault()
 
+            evaluate("document.querySelector('.error-dialog-close')?.click(); 'dismissed';")
+            awaitRenderedFrame()
+            armMediaFault("malformed_media")
             onMain { controller.play() }
+            waitForPlayer("unreadable media advances to the next track without losing registration") {
+                it.optString("state") == "playing" &&
+                    it.optString("renderer_id") == deviceId &&
+                    it.optJSONObject("track")?.optString("id") == backgroundId &&
+                    it.optString("pending_command").isEmpty()
+            }
+            waitFor("the next track is actually playing through Media3") {
+                onMain {
+                    controller.isPlaying &&
+                        controller.mediaMetadata.title?.toString()?.contains("background", ignoreCase = true) == true
+                }
+            }
+            assertTrue(
+                "Automatic continuation must not leave a blocking error dialog",
+                evaluate("document.querySelector('[role=\"alertdialog\"]') === null") == "true",
+            )
+            screenshot("native-media-failure-continued")
+            evaluate(
+                """
+                window.androidSkippedMedia = undefined;
+                (async () => {
+                  const queue = await (await fetch('/api/v1/queue', {credentials:'same-origin'})).json();
+                  const failed = queue.entries.find(entry => entry.track_id === ${JSONObject.quote(longId)});
+                  if (!failed || failed.status !== 'error') throw new Error('failed queue entry was not retained');
+                  const response = await fetch('/api/v1/player', {
+                    method:'POST', credentials:'same-origin',
+                    headers:{'Content-Type':'application/json','X-Jastreamer-Request':'web'},
+                    body:JSON.stringify({action:'play', entry_id:failed.id})
+                  });
+                  if (!response.ok) throw new Error('explicit failed-entry replay: HTTP ' + response.status);
+                  return {failedEntryId:failed.id};
+                })().then(
+                  value => { window.androidSkippedMedia = value; },
+                  error => { window.androidSkippedMedia = {error:String(error && error.message || error)}; }
+                );
+                'started';
+                """.trimIndent(),
+            )
+            waitFor("failed entry remains selectable for explicit replay") {
+                evaluate("window.androidSkippedMedia !== undefined") == "true"
+            }
+            val skippedMedia = JSONObject(requireNotNull(evaluate("window.androidSkippedMedia")))
+            check(!skippedMedia.has("error")) { skippedMedia.optString("error") }
+
             waitForPlayer("long media restarts before the lease watchdog scenario") {
                 it.optString("state") == "playing" &&
                     it.optJSONObject("track")?.optString("id") == longId &&

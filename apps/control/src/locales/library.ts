@@ -139,6 +139,7 @@ export const libraryMessages = {
   "queue.unknownTitle": { en: "Untitled", ko: "제목 없음" },
   "queue.unknownArtist": { en: "Unknown artist", ko: "아티스트 정보 없음" },
   "queue.fileUnavailable": { en: "File unavailable", ko: "파일을 사용할 수 없음" },
+  "queue.playbackFailed": { en: "Playback failed", ko: "재생 실패" },
   "queue.trackActions": { en: "Queue actions for {title}", ko: "{title} 대기열 작업" },
   "queue.moveUp": { en: "Move up one position", ko: "한 칸 위로" },
   "queue.moveDown": { en: "Move down one position", ko: "한 칸 아래로" },

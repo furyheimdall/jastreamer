@@ -150,6 +150,12 @@ func (s *Service) acceptCommandLocked(ctx context.Context, commandID, now string
 	}
 	st.currentSeekable = seekable != 0
 	st.resumeRequired = resume != 0
+	if command.Action == "stop" {
+		const superseded = "Automatic media-failure advance was superseded by explicit Stop."
+		if _, err := tx.ExecContext(ctx, `UPDATE player_commands SET status='failed',error=?,completed_at=? WHERE service_epoch=? AND action='error_next' AND status='pending'`, superseded, now, s.epoch); err != nil {
+			return fmt.Errorf("player: supersede automatic advance: %w", err)
+		}
+	}
 	var active int
 	if err := tx.QueryRowContext(ctx, "SELECT COUNT(*) FROM player_commands WHERE service_epoch=? AND status IN ('pending','running')", s.epoch).Scan(&active); err != nil {
 		return fmt.Errorf("player: inspect command queue: %w", err)
@@ -305,7 +311,7 @@ func (s *Service) executeCommand(ctx context.Context, command commandRecord) err
 		return nil
 	}
 	switch command.action {
-	case "play", "natural_next":
+	case "play", "natural_next", "error_next":
 		return s.executePlay(ctx, command, st, device)
 	case "pause":
 		if !device.Capabilities.Pause {
@@ -371,6 +377,11 @@ func (s *Service) executePlay(ctx context.Context, command commandRecord, st sto
 			}
 			return err
 		}); err != nil {
+			if isMediaFailure(err) {
+				command.errorInfo = diagnosticError(err, "start_failed")
+				s.media.Revoke(st.playID)
+				return s.completeMediaStartFailure(command, target, rendererFailureMessage("play", err))
+			}
 			return err
 		}
 		return s.completeSuccess(command, successUpdate{
@@ -400,6 +411,9 @@ func (s *Service) executePlay(ctx context.Context, command commandRecord, st sto
 			return err
 		}
 		command.errorInfo = diagnosticError(err, "start_failed")
+		if isMediaFailure(err) {
+			return s.completeMediaStartFailure(command, target, rendererFailureMessage("play", err))
+		}
 		s.completeFailure(command, rendererFailureMessage("play", err), false, target.id)
 		return nil
 	}
@@ -440,6 +454,9 @@ func (s *Service) executeNext(ctx context.Context, command commandRecord, st sto
 			return err
 		}
 		command.errorInfo = diagnosticError(err, "start_failed")
+		if isMediaFailure(err) {
+			return s.completeMediaStartFailure(command, target, rendererFailureMessage("next", err))
+		}
 		return s.completeAdvanceFailure(command, st.currentEntryID, target.id, rendererFailureMessage("next", err))
 	}
 	return s.completeStart(command, st.currentEntryID, EntryCompleted, started, controlAction)
@@ -492,6 +509,9 @@ func (s *Service) executePrevious(ctx context.Context, command commandRecord, st
 			return err
 		}
 		command.errorInfo = diagnosticError(err, "start_failed")
+		if isMediaFailure(err) {
+			return s.completeMediaStartFailure(command, target, rendererFailureMessage("previous", err))
+		}
 		s.completeFailure(command, rendererFailureMessage("previous", err), false, target.id)
 		return nil
 	}
@@ -554,6 +574,11 @@ func rendererOutcomeUnknown(err error) bool {
 	default:
 		return false
 	}
+}
+
+func isMediaFailure(err error) bool {
+	var actionErr *output.ActionError
+	return errors.As(err, &actionErr) && actionErr.Kind == output.ErrorMedia
 }
 
 type safeRendererError interface {
@@ -674,8 +699,8 @@ func (s *Service) adjacentEntry(ctx context.Context, current string, direction i
 
 func commandFailureMessage(action string) string {
 	switch action {
-	case "play", "natural_next":
-		return "The renderer could not start this track. The queue was preserved; press Play to retry."
+	case "play", "natural_next", "error_next":
+		return "The renderer could not start this track. The failed entry was retained."
 	case "pause":
 		return "The renderer could not pause playback."
 	case "stop":
@@ -821,6 +846,89 @@ func (s *Service) completeStart(command commandRecord, oldEntryID, oldStatus str
 	s.notify("queue")
 	s.notify("player")
 	s.signalObserver()
+	return nil
+}
+
+func (s *Service) completeMediaStartFailure(command commandRecord, target queueRecord, message string) error {
+	finished := s.now().UTC()
+	now := finished.Format(time.RFC3339Nano)
+	s.opMu.Lock()
+	tx, err := s.db.BeginTx(context.Background(), nil)
+	st := command.initialState
+	queueChanged := false
+	if err == nil {
+		oldStatus := EntryPending
+		if command.action == "next" {
+			oldStatus = EntryCompleted
+		}
+		result, updateErr := tx.ExecContext(context.Background(), "UPDATE player_queue SET status=? WHERE status='playing' AND entry_id<>?", oldStatus, target.id)
+		err = updateErr
+		if err == nil {
+			changed, rowsErr := result.RowsAffected()
+			err = rowsErr
+			queueChanged = changed > 0
+		}
+	}
+	if err == nil {
+		result, updateErr := tx.ExecContext(context.Background(), "UPDATE player_queue SET status='error' WHERE entry_id=? AND status<>'error'", target.id)
+		err = updateErr
+		if err == nil {
+			changed, rowsErr := result.RowsAffected()
+			err = rowsErr
+			queueChanged = queueChanged || changed > 0
+		}
+	}
+	var nextEntryID string
+	if err == nil {
+		queryErr := tx.QueryRowContext(context.Background(), "SELECT entry_id FROM player_queue WHERE position>? ORDER BY position LIMIT 1", target.position).Scan(&nextEntryID)
+		if queryErr != nil && queryErr != sql.ErrNoRows {
+			err = queryErr
+		}
+	}
+	var nextCommandID string
+	if err == nil && nextEntryID != "" {
+		nextCommandID, err = randomID("command")
+	}
+	if err == nil && nextCommandID != "" {
+		_, err = tx.ExecContext(context.Background(), `INSERT INTO player_commands(command_id,service_epoch,action,entry_id,position_ms,status,error,created_at,started_at,completed_at) VALUES(?,?, 'error_next',?,0,'pending','',?,'','')`, nextCommandID, s.epoch, nextEntryID, now)
+	}
+	state := StateError
+	controlAction := ""
+	playerMessage := message
+	if nextEntryID != "" {
+		state = StateStarting
+		controlAction = "error_next"
+		playerMessage = ""
+	}
+	if err == nil {
+		_, err = tx.ExecContext(context.Background(), `UPDATE player_state SET revision=revision+1,queue_revision=queue_revision+?,current_entry_id=CASE WHEN ?<>'' THEN ? ELSE ? END,play_id='',current_uri='',current_seekable=0,state=?,position_ms=0,duration_ms=0,resume_required=0,error=?,control_action=?,control_at=? WHERE singleton=1`, boolInt(queueChanged), nextEntryID, nextEntryID, target.id, state, playerMessage, controlAction, now)
+	}
+	if err == nil {
+		_, err = tx.ExecContext(context.Background(), "UPDATE player_commands SET status='failed',error=?,completed_at=? WHERE command_id=? AND status='running'", message, now, command.id)
+	}
+	if err == nil {
+		err = tx.Commit()
+	}
+	if err == nil {
+		s.startup = startupObservationEvidence{}
+	}
+	if err != nil && tx != nil {
+		_ = tx.Rollback()
+	}
+	s.opMu.Unlock()
+	if err != nil {
+		return err
+	}
+	if command.errorInfo.category == "" {
+		command.errorInfo = diagnosticError(nil, "media")
+	}
+	s.logCommandTerminal(command, "failed", "media_failed", st, "", target.id, state, 0, command.errorInfo, finished)
+	if nextCommandID != "" {
+		s.logCommandAccepted(nextCommandID, "error_next", st.rendererID, "", target.id, nextEntryID, "media_failure", state, st.revision+1, 0)
+		s.signalWorker()
+	}
+	s.notify("queue")
+	s.notify("player")
 	return nil
 }
 

@@ -129,6 +129,8 @@ An isolated renderer-status query failure does not restart playback or open a po
 
 Playback-start errors identify the failed stage (`LoadTrack`, `PrepareMedia`, `SetURI`, or `Play`) and include a safe error code when available. For UPnP rejections, retain the action name and numeric fault code when reporting the error; for Cast, retain the action, player state, idle reason, and error text. Do not reset the queue or disable the firewall to clear a generic failure; timeout/transport failures still mean the command outcome is unknown.
 
+For **local audio** (browser or native Android), an unrecoverable track/media-engine failure during Play marks the entry **Playback failed** and lets the Server start the next entry in queue order. This is not natural completion: failed entries, duplicates and ordering are preserved, and you can explicitly retry a failed entry. Continuation does not open a blocking error dialog; if no next entry remains, playback stops with an error. Paused/stopped sessions do not resume, and network, authentication, permission, lease-loss or unclassified renderer failures do not skip tracks. Recoverable damaged frames are left to the decoder; JaStreamer does not blindly seek ahead. Android continuation requires a matching Server and APK: update the Server first using the [update procedures](INSTALL.md#upgrade).
+
 UPnP, Google Cast, and AirPlay capabilities vary by receiver. Confirm audible playback and the controls you need on your equipment.
 
 ## 2. Troubleshooting
