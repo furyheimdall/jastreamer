@@ -235,6 +235,14 @@ textarea.input {
   padding: 0 0.55rem 1.8rem;
 }
 
+html[data-client] .app-shell :is(.sidebar, .mobile-header) > .brand {
+  display: none;
+}
+
+html[data-client] .app-shell .mobile-header {
+  justify-content: flex-end;
+}
+
 .brand-mark {
   display: inline-grid;
   width: 2.25rem;

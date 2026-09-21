@@ -109,6 +109,19 @@ class ActualWebUiSmokeTest {
                     return box.width >= 44 && box.height >= 44 && box.top >= 0 && box.bottom <= innerHeight + 1;
                 })
             """.trimIndent()))
+            assertEquals("Embedded chrome must hide only duplicate branding, not the signed-in account controls", "true", evaluate("""
+                (() => {
+                    const brand = document.querySelector('.mobile-header .brand');
+                    const account = document.querySelector('.mobile-account');
+                    const logout = account?.querySelector('button');
+                    if (!account || !logout) return false;
+                    const target = logout.getBoundingClientRect();
+                    return (!brand || !brand.checkVisibility()) && account.checkVisibility() && logout.checkVisibility()
+                        && account.textContent.includes('android-smoke')
+                        && target.width >= 44 && target.height >= 44
+                        && target.top >= 0 && target.bottom <= innerHeight;
+                })()
+            """.trimIndent()))
             screenshot("real-web-phone-library")
             assertStopped()
 

@@ -154,6 +154,9 @@ try {
   let page = await connect(shell, a);
   await createAccount(page, 'desktop-a');
   assert.equal(await username(page), 'desktop-a');
+  assert.equal(await page.locator('.sidebar > .brand').isVisible(), false, 'The native shell must not duplicate Web branding');
+  assert.equal(await page.locator('.sidebar-account').getByText('desktop-a', { exact: true }).isVisible(), true, 'The signed-in account must remain visible');
+  assert.equal(await page.locator('.sidebar-account').getByRole('button', { name: 'Sign out', exact: true }).isVisible(), true, 'Sign out must remain available');
   const privileges = await page.evaluate(() => ({
     node: typeof require,
     process: typeof process,

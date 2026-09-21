@@ -261,6 +261,7 @@ async function loadRemoteServer(server, token) {
     },
   });
   remoteView = view;
+  view.webContents.setUserAgent(`${view.webContents.getUserAgent()} JaStreamerDesktop/${app.getVersion()}`);
   configureSession(view.webContents.session);
   restrictRemoteContents(view.webContents, server.origin);
   view.webContents.on("will-attach-webview", (event) => event.preventDefault());

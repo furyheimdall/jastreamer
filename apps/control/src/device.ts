@@ -6,6 +6,11 @@ export const isPhone = !/\biPad\b/i.test(userAgent) && (
   || (/\bAndroid\b/i.test(userAgent) && /\bMobile\b/i.test(userAgent))
 );
 
+// Presentation only; native capabilities and authentication use their own checks.
+export const embeddedClient = /\bJaStreamerAndroid\//i.test(userAgent) ? "android"
+  : /\bJaStreamerDesktop\//i.test(userAgent) ? "desktop"
+  : /\bJaStreamerIOS\//i.test(userAgent) ? "ios" : null;
+
 export const isAppleMobile = /\biPhone\b|\biPad\b|\biPod\b/i.test(userAgent)
   || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
 
