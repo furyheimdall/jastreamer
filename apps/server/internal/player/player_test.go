@@ -1919,6 +1919,39 @@ func TestConsecutiveStartupMediaFailuresContinueToSafeSuccessor(t *testing.T) {
 	}
 }
 
+func TestPreviousStartupMediaFailureReturnsToNextStoredEntry(t *testing.T) {
+	service, _, devices := newPlayerTestService(t)
+	ctx := t.Context()
+	queue, err := service.MutateQueue(ctx, QueueMutation{Action: "append", TrackIDs: []string{"a", "b"}, Revision: 0})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.Command(ctx, Command{Action: "play", EntryID: queue.Entries[1].ID}); err != nil {
+		t.Fatal(err)
+	}
+	runAcceptedCommand(t, service)
+	devices.fail["set_uri"] = output.NewActionError(output.ErrorMedia, "SetURI", 0, errors.New("terminal media engine failure"))
+	if _, err := service.Command(ctx, Command{Action: "previous"}); err != nil {
+		t.Fatal(err)
+	}
+	runAcceptedCommand(t, service)
+	state := service.mustState(t)
+	if state.State != StateStarting || state.CurrentEntryID != queue.Entries[1].ID || state.PendingCommand != "next" {
+		t.Fatalf("previous failed media did not schedule its successor: %#v", state)
+	}
+	delete(devices.fail, "set_uri")
+	runAcceptedCommand(t, service)
+	state = service.mustState(t)
+	finished, err := service.Queue(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state.CurrentEntryID != queue.Entries[1].ID || state.State != StateStarting ||
+		finished.Entries[0].Status != EntryError || finished.Entries[1].Status != EntryPlaying {
+		t.Fatalf("previous failed media state=%#v queue=%#v", state, finished.Entries)
+	}
+}
+
 func TestLastEntryMediaFailureStopsWithError(t *testing.T) {
 	service, db, devices := newPlayerTestService(t)
 	ctx := t.Context()

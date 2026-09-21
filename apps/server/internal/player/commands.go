@@ -509,6 +509,9 @@ func (s *Service) executePrevious(ctx context.Context, command commandRecord, st
 			return err
 		}
 		command.errorInfo = diagnosticError(err, "start_failed")
+		if isMediaFailure(err) {
+			return s.completeMediaStartFailure(command, target, rendererFailureMessage("previous", err))
+		}
 		s.completeFailure(command, rendererFailureMessage("previous", err), false, target.id)
 		return nil
 	}
