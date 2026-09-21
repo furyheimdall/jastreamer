@@ -33,8 +33,11 @@ object OfflinePlayback {
             OfflinePlaybackPolicy.normalized(OfflineLibrary.get(context.applicationContext).loadQueue())
         }
         withContext(Dispatchers.Main.immediate) {
-            if (NativePlaybackRegistry.service == null) {
-                mutableState.value = OfflinePlaybackState(queue = queue)
+            val service = NativePlaybackRegistry.service
+            when {
+                service == null -> mutableState.value = OfflinePlaybackState(queue = queue)
+                mutableState.value.owner == OfflinePlaybackPolicy.OWNER_NONE ->
+                    service.replaceRestoredOfflineQueue(queue)
             }
         }
     }

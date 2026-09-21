@@ -535,6 +535,59 @@ class OfflineLibraryTest {
         }
     }
 
+    @Test
+    fun contextStorageAliasDoesNotTrustDescendantSymlinksOrUnapprovedRoots() {
+        val marker = UUID.randomUUID().toString()
+        val bytes = "trusted-root-$marker".toByteArray()
+        val imported = library.importTrack(
+            temporary("trusted.flac", bytes),
+            manifest(bytes, "Trusted storage root"),
+        )
+        val realDirectory = File(context.cacheDir, "real-$marker")
+        val realSource = File(realDirectory, "source.flac")
+        val linkedFile = File(context.cacheDir, "linked-file-$marker")
+        val linkedDirectory = File(context.cacheDir, "linked-directory-$marker")
+        val outside = File(context.codeCacheDir, "outside-$marker.flac")
+        try {
+            realDirectory.mkdirs()
+            realSource.writeBytes(bytes)
+            outside.parentFile?.mkdirs()
+            outside.writeBytes(bytes)
+            Files.createSymbolicLink(linkedFile.toPath(), realSource.toPath())
+            Files.createSymbolicLink(linkedDirectory.toPath(), realDirectory.toPath())
+
+            expectCode("invalid_path") {
+                library.importTrack(linkedFile, manifest(bytes, "Linked file"))
+            }
+            expectCode("invalid_path") {
+                library.importTrack(
+                    File(linkedDirectory, realSource.name),
+                    manifest(bytes, "Linked directory"),
+                )
+            }
+            expectCode("invalid_path") {
+                library.importTrack(outside, manifest(bytes, "Outside approved roots"))
+            }
+            expectCode("invalid_path") {
+                library.importTrack(
+                    musicFile(imported.relativePath),
+                    manifest(bytes, "Managed reimport"),
+                )
+            }
+
+            assertTrue(realSource.exists())
+            assertTrue(Files.isSymbolicLink(linkedFile.toPath()))
+            assertTrue(Files.isSymbolicLink(linkedDirectory.toPath()))
+            assertTrue(outside.exists())
+        } finally {
+            Files.deleteIfExists(linkedFile.toPath())
+            Files.deleteIfExists(linkedDirectory.toPath())
+            realSource.delete()
+            realDirectory.delete()
+            outside.delete()
+            if (library.track(imported.id) != null) library.deleteTracks(listOf(imported.id))
+        }
+    }
 
     @Test
     fun folderOperationsRejectEscapesSymlinksAndDescendantCyclesWithoutTouchingOutsideFiles() {

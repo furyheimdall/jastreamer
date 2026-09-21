@@ -156,9 +156,12 @@ class OfflineNativeUiTest {
             ready
         }
         scenario.onActivity { it.findViewById<View>(R.id.saved_music_button).performClick() }
-        waitFor("saved music root") {
+        waitFor("saved music library is loaded") {
             var ready = false
-            scenario.onActivity { ready = it.findViewById<View>(R.id.offline_music_root)?.isShown == true }
+            scenario.onActivity { activity ->
+                ready = activity.findViewById<View>(R.id.offline_music_root)?.isShown == true &&
+                    findButtonOrNull(activity.window.decorView, activity.getStringForTest(R.string.offline_folders)) != null
+            }
             ready
         }
     }

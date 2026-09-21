@@ -807,10 +807,9 @@ object OfflineDownloads {
                 if (current.importedTrackId != null) return@forEachIndexed
                 val part = store!!.partialFile(job.id, current.index)
                 if (
-                    current.sourceVersion.isNotBlank() &&
-                    (current.sourceVersion != next.sourceVersion ||
-                        current.sha256 != next.sha256 ||
-                        current.byteSize != next.byteSize)
+                    (current.sourceVersion.isNotBlank() && current.sourceVersion != next.sourceVersion) ||
+                    (current.sha256.isNotBlank() &&
+                        (current.sha256 != next.sha256 || current.byteSize != next.byteSize))
                 ) {
                     part.delete()
                     throw OfflineDownloadException("source_changed", "Download source changed while resuming")

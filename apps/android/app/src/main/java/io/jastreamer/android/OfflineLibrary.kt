@@ -13,6 +13,7 @@ import java.io.FileOutputStream
 import java.io.IOException
 import java.nio.file.AtomicMoveNotSupportedException
 import java.nio.file.LinkOption
+import java.nio.file.Path
 import java.nio.file.Files
 import java.nio.file.StandardCopyOption
 import java.security.MessageDigest
@@ -54,6 +55,12 @@ class OfflineAudioHandle internal constructor(
  */
 class OfflineLibrary private constructor(context: Context) {
     private val appContext = context.applicationContext
+    private val trustedStorageRoots = listOf(appContext.filesDir, appContext.cacheDir).map { root ->
+        TrustedStorageRoot(
+            declared = root.toPath().toAbsolutePath().normalize(),
+            resolved = canonicalPath(root),
+        )
+    }
     private val lock = Any()
     private val base = File(appContext.filesDir, "offline")
     private val musicRoot = File(base, "music")
@@ -1413,12 +1420,41 @@ class OfflineLibrary private constructor(context: Context) {
     private fun requireRegularUnlinkedFile(file: File) {
         if (!pathOccupied(file)) missing("Required local file is missing.")
         val absolute = file.toPath().toAbsolutePath().normalize()
-        val canonical = try {
-            file.canonicalFile.toPath().toAbsolutePath().normalize()
-        } catch (error: IOException) {
-            throw storageFailure("Could not validate a local file path.", error)
+        var trustedRoot: TrustedStorageRoot? = null
+        var relative: Path? = null
+        var inspectedRoot: Path? = null
+        for (root in trustedStorageRoots) {
+            when {
+                absolute == root.declared || absolute.startsWith(root.declared) -> {
+                    trustedRoot = root
+                    relative = root.declared.relativize(absolute)
+                    inspectedRoot = root.declared
+                }
+                absolute == root.resolved || absolute.startsWith(root.resolved) -> {
+                    trustedRoot = root
+                    relative = root.resolved.relativize(absolute)
+                    inspectedRoot = root.resolved
+                }
+            }
+            if (trustedRoot != null) break
         }
-        if (absolute != canonical || Files.isSymbolicLink(file.toPath()) || !file.isFile) {
+        val root = trustedRoot ?: invalidPath("Local file path escapes private app storage.")
+        val suffix = relative!!
+        val expectedResolved = root.resolved.resolve(suffix).normalize()
+        if (expectedResolved != root.resolved && !expectedResolved.startsWith(root.resolved)) {
+            invalidPath("Local file path escapes private app storage.")
+        }
+        var current = inspectedRoot!!
+        suffix.forEach { component ->
+            current = current.resolve(component)
+            if (Files.isSymbolicLink(current)) {
+                invalidPath("Only regular files without symbolic-link traversal are allowed.")
+            }
+        }
+        if (
+            canonicalPath(file) != expectedResolved ||
+            !Files.isRegularFile(absolute, LinkOption.NOFOLLOW_LINKS)
+        ) {
             invalidPath("Only regular files without symbolic-link traversal are allowed.")
         }
     }
@@ -1452,12 +1488,18 @@ class OfflineLibrary private constructor(context: Context) {
     }
 
     private fun rejectManagedImportSource(file: File) {
-        val source = file.toPath().toAbsolutePath().normalize()
-        val completedMusic = musicRoot.toPath().toAbsolutePath().normalize()
-        val completedArtwork = artworkRoot.toPath().toAbsolutePath().normalize()
+        val source = canonicalPath(file)
+        val completedMusic = canonicalPath(musicRoot)
+        val completedArtwork = canonicalPath(artworkRoot)
         if (source.startsWith(completedMusic) || source.startsWith(completedArtwork)) {
             invalidPath("Completed library files cannot be re-imported as transfer temporaries.")
         }
+    }
+
+    private fun canonicalPath(file: File): Path = try {
+        file.canonicalFile.toPath().toAbsolutePath().normalize()
+    } catch (error: IOException) {
+        throw storageFailure("Could not validate a local file path.", error)
     }
 
     private fun atomicMove(source: File, destination: File) {
@@ -1524,6 +1566,8 @@ class OfflineLibrary private constructor(context: Context) {
     private fun integrity(message: String): Nothing = throw OfflineLibraryException("checksum", message)
     private fun storageFailure(message: String, cause: Throwable? = null) = OfflineLibraryException("storage", message, cause)
     private fun safeMessage(error: Throwable): String = error.message?.take(500) ?: error.javaClass.simpleName
+
+    private data class TrustedStorageRoot(val declared: Path, val resolved: Path)
 
     private data class FolderRecord(val folder: OfflineFolder, val relativePath: String, val pendingDelete: Boolean)
 

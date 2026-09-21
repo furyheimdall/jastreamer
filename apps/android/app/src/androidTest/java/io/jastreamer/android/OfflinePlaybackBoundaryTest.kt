@@ -19,6 +19,7 @@ import java.util.UUID
 import java.util.concurrent.ConcurrentLinkedQueue
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicReference
 import kotlin.math.PI
 import kotlin.math.sin
@@ -49,14 +50,14 @@ class OfflinePlaybackBoundaryTest {
 
     @Before
     fun setUp() {
-        forceStopService()
+        releasePlayback()
         originalQueue = library.loadQueue()
         runBlocking { OfflinePlayback.restore(context) }
     }
 
     @After
     fun tearDown() {
-        forceStopService()
+        releasePlayback()
         originalQueue?.let(library::saveQueue)
         if (createdTrackIds.isNotEmpty()) {
             val result = library.deleteTracks(createdTrackIds)
@@ -233,7 +234,11 @@ class OfflinePlaybackBoundaryTest {
                     assertEquals(0, fixture.registrationDeletes())
                     assertFalse(OfflinePlayback.state.value.queue.entries.any { entry -> entry.trackId == track.id })
                 } finally {
-                    forceStopService()
+                    fixture.removeRegistration()
+                    await("fixture registration releases Server ownership", 5_000L) {
+                        OfflinePlayback.state.value.owner == "none"
+                    }
+                    releasePlayback()
                 }
             }
         }
@@ -312,11 +317,20 @@ class OfflinePlaybackBoundaryTest {
         }
     }
 
-    private fun forceStopService() {
-        instrumentation.runOnMainSync { OfflinePlayback.stop() }
+    private fun releasePlayback() {
+        instrumentation.runOnMainSync {
+            if (OfflinePlayback.state.value.owner == "local") {
+                val requestGeneration = OfflinePlaybackRequestFence.beginRequest()
+                NativePlaybackRegistry.service?.prepareServerHandoff(
+                    confirmHandoff = true,
+                    requestGeneration = requestGeneration,
+                )
+            }
+        }
         context.stopService(Intent(context, NativePlaybackService::class.java))
-        await("playback service detaches", 5_000L) {
-            onMain { NativePlaybackRegistry.service == null }
+        await("playback ownership releases", 5_000L) {
+            val state = OfflinePlayback.state.value
+            state.owner == "none" && !state.playing
         }
     }
 
@@ -391,6 +405,7 @@ class OfflinePlaybackBoundaryTest {
         val deviceId = "device-${UUID.randomUUID()}"
         private val registrationId = "registration-${UUID.randomUUID()}"
         private val ownerToken = "owner-${UUID.randomUUID()}"
+        private val removed = AtomicBoolean()
         private val requests = ConcurrentLinkedQueue<SeenRequest>()
         private val server = MockWebServer()
         val endpoint: ServerEndpoint
@@ -421,9 +436,17 @@ class OfflinePlaybackBoundaryTest {
                                 .toString(),
                         )
                         request.method == "GET" && path == "/api/v1/browser-output/registrations/$registrationId/commands" ->
-                            json("""{"lease_duration_ms":15000,"poll_after_ms":1000}""")
+                            if (removed.get()) {
+                                MockResponse().setResponseCode(404)
+                            } else {
+                                json("""{"lease_duration_ms":15000,"poll_after_ms":1000}""")
+                            }
                         request.method == "PUT" && path == "/api/v1/browser-output/registrations/$registrationId/lease" ->
-                            json("""{"lease_duration_ms":15000}""")
+                            if (removed.get()) {
+                                MockResponse().setResponseCode(404)
+                            } else {
+                                json("""{"lease_duration_ms":15000}""")
+                            }
                         request.method == "DELETE" && path == "/api/v1/browser-output/registrations/$registrationId" ->
                             MockResponse().setResponseCode(204)
                         else -> MockResponse().setResponseCode(404)
@@ -446,6 +469,10 @@ class OfflinePlaybackBoundaryTest {
 
         fun registrationDeletes(): Int = requests.count {
             it.method == "DELETE" && it.path == "/api/v1/browser-output/registrations/$registrationId"
+        }
+
+        fun removeRegistration() {
+            removed.set(true)
         }
 
         override fun close() = server.shutdown()
