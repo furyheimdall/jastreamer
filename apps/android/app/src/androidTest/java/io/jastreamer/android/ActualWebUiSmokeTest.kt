@@ -51,6 +51,12 @@ class ActualWebUiSmokeTest {
         RecentServerStore(instrumentation.targetContext).setLanguage("en")
         scenario = ActivityScenario.launch(MainActivity::class.java)
         scenario.use {
+            waitFor("native chooser window focus") {
+                var focused = false
+                scenario.onActivity { focused = it.hasWindowFocus() }
+                focused
+            }
+            awaitRenderedFrame()
             scenario.onActivity { activity ->
                 val address = activity.findViewById<EditText>(R.id.server_address)
                 address.requestFocus()
