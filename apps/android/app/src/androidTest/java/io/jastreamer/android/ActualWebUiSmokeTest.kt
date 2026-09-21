@@ -196,6 +196,7 @@ class ActualWebUiSmokeTest {
             assertStopped()
             screenshot("real-web-phone-korean")
             exerciseNativePlayback()
+            OfflineImportSmoke(scenario, ::evaluate, ::screenshot).run()
         }
     }
 

@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="offline_playback_error">Saved music playback could not continue.</string>
+    <string name="offline_playback_decode_error">This saved track could not be decoded. Trying the next playable track.</string>
+    <string name="offline_playback_all_failed">None of the remaining saved tracks could be decoded.</string>
+    <string name="offline_playback_missing">This saved audio is missing or pending deletion.</string>
+    <string name="offline_playback_handoff_server_title">Switch to Server playback?</string>
+    <string name="offline_playback_handoff_server_message">Saved music will stop. Its queue and position will stay on this device.</string>
+    <string name="offline_playback_handoff_confirm">Stop and switch</string>
+    <string name="offline_playback_handoff_cancel">Keep saved music</string>
+</resources>

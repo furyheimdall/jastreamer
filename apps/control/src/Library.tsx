@@ -3,12 +3,14 @@ import { addTracks, api, playTracks } from "./api";
 import type { Album, Artist, Folder, Genre, Page, Playlist, Track } from "./types";
 import TrackInfoDialog from "./TrackInfoDialog";
 import { useI18n, type MessageKey } from "./i18n";
+import { NativeDownloadAction, type JastreamerDownloads } from "./JastreamerDownloads";
 import "./library.css";
 
 type Props = {
   revision: number;
   onNotice: (message: string, error?: boolean) => void;
   onQueueChange: () => void;
+  downloads: JastreamerDownloads;
 };
 
 type LibraryKind = "albums" | "artists" | "genres" | "folders" | "tracks";
@@ -120,7 +122,7 @@ function paramsFor(kind: LibraryKind | "tracks", search: string, offset: number,
   return params;
 }
 
-export default function Library({ revision, onNotice, onQueueChange }: Props) {
+export default function Library({ revision, onNotice, onQueueChange, downloads }: Props) {
   const { locale, t } = useI18n();
   const numberFormatter = useMemo(() => new Intl.NumberFormat(locale), [locale]);
   const [kind, setKind] = useState<LibraryKind>("albums");
@@ -446,7 +448,7 @@ export default function Library({ revision, onNotice, onQueueChange }: Props) {
 
       <nav className="library-tabs" aria-label={t("library.categoriesLabel")}>
         {tabs.map((tab) => (
-          <button key={tab.kind} className={`library-tab${kind === tab.kind && !scope && !likedOnly ? " library-tab-active" : ""}`} type="button" onClick={() => { setKind(tab.kind); setScope(null); setLikedOnly(false); }} aria-current={kind === tab.kind && !scope && !likedOnly ? "page" : undefined}>{t(tab.labelKey)}</button>
+          <button data-library-kind={tab.kind} key={tab.kind} className={`library-tab${kind === tab.kind && !scope && !likedOnly ? " library-tab-active" : ""}`} type="button" onClick={() => { setKind(tab.kind); setScope(null); setLikedOnly(false); }} aria-current={kind === tab.kind && !scope && !likedOnly ? "page" : undefined}>{t(tab.labelKey)}</button>
         ))}
         <button className={`library-tab library-liked-filter${likedOnly ? " library-tab-active" : ""}`} type="button" aria-pressed={likedOnly} onClick={() => { setLikedOnly((current) => !current); setKind("tracks"); setScope(null); }}><Icon name="heart" /> {t("library.likedFilter")}</button>
       </nav>
@@ -474,6 +476,7 @@ export default function Library({ revision, onNotice, onQueueChange }: Props) {
             <button className="button button-ghost" type="button" disabled={actionBusy || (!loading && !page?.total)} onClick={() => runScopeQueue("next")}><Icon name="next" /> {t("library.playNext")}</button>
             <button className="button button-ghost" type="button" disabled={actionBusy || (!loading && !page?.total)} onClick={() => runScopeQueue("append")}><Icon name="append" /> {t("library.addToEnd")}</button>
             <button className="button button-ghost" type="button" disabled={actionBusy || (!loading && !page?.total)} onClick={openScopePicker}><Icon name="playlist" /> {t("library.addToSaved")}</button>
+            {scope.kind === "album" && <NativeDownloadAction downloads={downloads} target={{ kind: "album", id: scope.id }} title={scope.title} />}
           </div>
         </div>
       )}
@@ -487,19 +490,27 @@ export default function Library({ revision, onNotice, onQueueChange }: Props) {
 
       {!loading && !error && !scope && kind === "albums" && (
         <div className="library-album-grid">
-          {(page?.items as Album[] | undefined)?.map((album) => (
-            <button className="library-album-card" type="button" key={album.id} onClick={() => openItem(album)}>
-              <Artwork
-                id={album.artwork_id}
-                label={t("library.artwork", { name: album.title })}
-                missingLabel={t("library.noArtwork", { name: album.title })}
-              />
-              <span className="library-card-title">{album.title}</span>
-              <span className="library-card-meta">
-                {album.artist || t("library.unknownArtist")} · {t(album.track_count === 1 ? "library.oneTrack" : "library.manyTracks", { count: numberFormatter.format(album.track_count) })}
-              </span>
-            </button>
-          ))}
+          {(page?.items as Album[] | undefined)?.map((album) => {
+            const card = (
+              <button className="library-album-card" type="button" key={album.id} onClick={() => openItem(album)}>
+                <Artwork
+                  id={album.artwork_id}
+                  label={t("library.artwork", { name: album.title })}
+                  missingLabel={t("library.noArtwork", { name: album.title })}
+                />
+                <span className="library-card-title">{album.title}</span>
+                <span className="library-card-meta">
+                  {album.artist || t("library.unknownArtist")} · {t(album.track_count === 1 ? "library.oneTrack" : "library.manyTracks", { count: numberFormatter.format(album.track_count) })}
+                </span>
+              </button>
+            );
+            return downloads.available ? (
+              <article className="library-album-tile" key={album.id}>
+                {card}
+                <NativeDownloadAction downloads={downloads} target={{ kind: "album", id: album.id }} title={album.title} />
+              </article>
+            ) : card;
+          })}
         </div>
       )}
 
@@ -543,6 +554,7 @@ export default function Library({ revision, onNotice, onQueueChange }: Props) {
               <time className="library-track-duration">{formatDuration(track.duration_ms)}</time>
               <div className="library-track-actions" aria-label={t("library.trackActions", { title: track.title })}>
                 <button className="library-like-button" type="button" title={t(track.liked ? "library.unlikeTitle" : "library.likeTitle")} aria-label={t(track.liked ? "library.unlikeTrack" : "library.likeTrack", { title: track.title })} aria-pressed={track.liked} disabled={likeBusy.has(track.id)} onClick={() => toggleLiked(track)}><Icon name="heart" /></button>
+                <NativeDownloadAction downloads={downloads} target={{ kind: "track", id: track.id }} title={track.title} disabled={!track.available} variant="icon" />
                 <button type="button" title={t("library.playNow")} aria-label={t("library.playNowTrack", { title: track.title })} disabled={!track.available || actionBusy} onClick={() => runQueue([track], "play")}><Icon name="play" /></button>
                 <button type="button" title={t("library.playNextTitle")} aria-label={t("library.playNextTrack", { title: track.title })} disabled={!track.available || actionBusy} onClick={() => runQueue([track], "next")}><Icon name="next" /></button>
                 <button type="button" title={t("library.addToEnd")} aria-label={t("library.addEndTrack", { title: track.title })} disabled={!track.available || actionBusy} onClick={() => runQueue([track], "append")}><Icon name="append" /></button>
@@ -573,7 +585,7 @@ export default function Library({ revision, onNotice, onQueueChange }: Props) {
           </section>
         </div>
       )}
-      <TrackInfoDialog trackId={infoTrackID} revision={revision} onNotice={onNotice} onClose={() => setInfoTrackID(null)} />
+      <TrackInfoDialog trackId={infoTrackID} revision={revision} onNotice={onNotice} onClose={() => setInfoTrackID(null)} downloads={downloads} />
     </section>
   );
 }

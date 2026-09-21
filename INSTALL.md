@@ -2,7 +2,7 @@
 
 [README](README.md) · [User guide](INSTRUCTION.md) · [한국어 설치 안내](INSTALL.ko.md)
 
-Choose the branch below for the package and platform you actually use. The Server hosts the Web interface; optional desktop, native mobile, and phone PWA clients connect to an existing Server. Local playback uses browser audio except in the native Android app, which uses its Media3 service. Both remain outputs of the Server queue; see the [user guide](INSTRUCTION.md#browser-output).
+Choose the branch below for the package and platform you actually use. The Server hosts the Web interface; optional desktop, native mobile, and phone PWA clients can connect to it. Server-mode local playback uses browser audio except on native Android, where a Media3 service remains an output of the Server queue. Android **Saved music** uses the same service under separate local ownership, with an independent device queue and no Server requirement; see the [user guide](INSTRUCTION.md#android-controls).
 
 Public previews are unsigned and not production-qualified. Read the selected release's limitations, verify every downloaded artifact, and confirm operation on your own network and receivers.
 
@@ -23,7 +23,7 @@ Public previews are unsigned and not production-qualified. Read the selected rel
 - **Native Windows Server:** Windows x64 and a writable local installation folder. The portable Server is not installed as a Windows service.
 - **Windows desktop:** Windows 10/11 x64. There is no Windows ARM64 desktop package.
 - **Linux desktop:** a graphical Linux `amd64` system. Ubuntu 24.04 amd64 is the native installation and sandbox qualification target; there is no Linux ARM64 desktop package.
-- **Android client:** Android 10/API 29 or newer and an Android System WebView provider supporting `MULTI_PROFILE`. OS version alone does not establish support; the app checks at runtime and refuses a shared-session fallback.
+- **Android client:** Android 10/API 29 or newer. Server profiles, Server-controlled phone output, and new imports require an Android System WebView provider supporting `MULTI_PROFILE`; OS version alone does not establish support, and the app refuses a shared-session fallback. The native Saved music library itself does not require a Server profile.
 - **iOS source/CI:** iOS/iPadOS 18.4 or newer; macOS with Xcode 16.4 and the iOS 18.5 simulator runtime for the pinned CI scenario. There is no installable device package in this scope.
 - The newest compatible, published, non-draft Server release selected from the complete [GitHub Releases listing](https://github.com/furyheimdall/jastreamer/releases), including any entry correctly labelled as a preview, or a verified separately supplied offline artifact. Preview status and physical-device verification limits still apply.
 - A trusted private LAN between the Server, browser/client, and outputs. Automatic discovery needs multicast.
@@ -194,15 +194,15 @@ Recent Servers, language, cookies, and sessions use `$XDG_CONFIG_HOME/jastreamer
 <a id="android"></a>
 ## Optional native Android client
 
-The Kotlin app discovers `_jastreamer._tcp` Servers, checks `/api/v1/discovery`, and opens the selected Server's Web UI. Its **This device** output uses a Media3 foreground service and Android system media controls, not WebView audio; the Server still owns the queue. No PWA installation, local music permission, or location permission is needed.
+The Kotlin app discovers `_jastreamer._tcp` Servers, checks `/api/v1/discovery`, and opens a selected Server's Web UI. It also contains an independent **Saved music** library, download manager, local playlists/folders/queue, and Media3 playback of app-owned files. Server mode still uses the same Media3 service for **This device**, with the Server owning that queue and Android system media controls reporting commands to it. Saved-music mode instead owns a separate device queue and needs neither Server access nor login. No PWA installation, broad local-music permission, or location permission is needed.
 
-Native playback requires both a compatible Android APK and the corresponding Server/Web UI. Updating only the APK cannot add native support to an older served Web page and does not update the Server. Use compatible source revisions; Server updates require their own authorized installation/update procedure.
+New imports require a compatible Android APK and Server/Web UI that advertise the platform-neutral **v1 download capability**. Updating only the APK cannot add those controls or endpoints to an older served Web page and does not update the Server. An older or unavailable Server must not block the app or affect already completed saved music; its supported Server-control features remain usable. Use compatible source revisions, and treat a Server update as its own authorized installation/update procedure.
 
-Current distribution is **development/testing only** through successful [Android CI runs](https://github.com/furyheimdall/jastreamer/actions/workflows/android.yml). Select the intended source revision and download its `jastreamer-android-debug-test-signed-and-release-unsigned-<revision>` artifact. Verify `SHA256SUMS`, `provenance.json`, the source revision, application ID and signing certificate before installation. A pull-request artifact is not a protected-main release.
+Current Android distribution is **development/testing only**, not a published production release. The independent player and v1 imports exist in the current source, but physical-phone installation, networking, original/AAC audible playback, Bluetooth/headset behavior, and update preservation remain qualification work rather than release claims. A successful [Android CI run](https://github.com/furyheimdall/jastreamer/actions/workflows/android.yml) can provide `jastreamer-android-debug-test-signed-and-release-unsigned-<revision>` for its tested source revision. Verify `SHA256SUMS`, `provenance.json`, the revision, application ID, and signing certificate before any separately approved test installation. A pull-request artifact is not a protected-main release.
 
-- `*_debug-test-signed.apk` is installable for testing, has application ID `io.jastreamer.android.debug`, and uses a generated debug certificate. It is separate from the production application ID `io.jastreamer.android`.
-- `*_release-unsigned.apk` is not installable until signed. Production signing-key custody, approved distribution and a stable update certificate are separate prerequisites; no private key is included.
-- Debug certificates can differ between CI runs. If an installed APK has a different certificate, stop rather than uninstalling or clearing app data to force an update. That would erase local sessions and preferences. A normal in-place update requires the same application ID/certificate and a compatible, nondecreasing version code.
+- `*_debug-test-signed.apk` is installable only for development testing, has application ID `io.jastreamer.android.debug`, and uses a generated debug certificate. It is separate from the production application ID `io.jastreamer.android`.
+- `*_release-unsigned.apk` is not installable until signed. Production signing-key custody, approved distribution, and a stable update certificate are separate prerequisites; no private key is included.
+- Debug certificates can differ between CI runs. If an installed APK has a different certificate, stop: never uninstall the app or clear its data to force an update. Either action would erase the app-owned music and state described below. A normal in-place update requires the same application ID and certificate plus a compatible, nondecreasing version code.
 
 For an explicitly approved test installation, transfer the verified debug APK to the Android device, open it, and grant that file-opening application's **Install unknown apps** permission only if needed. Remove that installation-source permission afterward. Do not disable Play Protect, certificate checks, or device security. An already-authorized ADB connection can instead use `adb install -r <verified-debug-apk>`. Do not authorize debugging or install host SDK tools implicitly.
 
@@ -210,11 +210,13 @@ Use HTTP only on a trusted private LAN; it remains unencrypted. HTTPS must valid
 
 Discovery probes the advertised LAN IP addresses. If a valid HTTPS certificate covers only a hostname, enter that hostname manually; do not bypass the certificate mismatch.
 
-An in-place APK update preserves private preferences and each Server UUID/origin profile. Removing an entry from **Recent servers** only removes that list entry; it does not log out or erase its WebView profile. Sign out inside the Server UI when needed. Uninstalling or clearing Android app storage removes all app profiles, and app data is excluded from Android cloud/device-transfer backup. Never copy profiles or session cookies into reports.
+A same-application-ID, same-signer in-place APK update preserves app-private saved audio, copied artwork, local playlists, the device queue and position, folders, download and language preferences, recent Servers, and isolated Server profiles. **Remove from recent servers** removes only that shortcut; it neither signs out nor removes the profile or saved music. Sign out inside the Server UI to end that session and stop its incomplete imports. Removing a session/profile does not revoke or delete completed device-owned music.
 
-For source development, use the pinned Gradle Wrapper in `apps/android` with JDK 17, SDK platform 36 and Build Tools 35.0.0 after any required host-tooling approval. Run `./gradlew :app:testDebugUnitTest :app:lint :app:assembleDebug :app:assembleRelease`. Full instrumentation uses an isolated API 36 emulator and the real Server/Web fixture in `.github/workflows/android.yml`; it is not a test against an installed user's Server. Emulator success does not establish physical-phone networking or audible receiver playback.
+Uninstalling the app or using Android **Clear storage/data** erases the entire app container, including owned music, artwork, local playlists, queue, folders, preferences, and Server profiles. This private data is excluded from Android cloud/device-transfer backup. Do not use uninstall or data clearing as an update or signer-mismatch workaround, and never copy profiles or session cookies into reports.
 
-See [Android controls](INSTRUCTION.md#android-controls) for selection, back navigation, language and lifecycle behavior.
+For source development, use the pinned Gradle Wrapper in `apps/android` with JDK 17, SDK platform 36 and Build Tools 35.0.0 after any required host-tooling approval. Run `./gradlew :app:testDebugUnitTest :app:lint :app:assembleDebug :app:assembleRelease`. Full instrumentation uses an isolated API 36 emulator and the real Server/Web fixture in `.github/workflows/android.yml`; it is not a test against an installed user's Server. Emulator success does not establish physical-phone installation/networking, update preservation, Bluetooth/headset behavior, or audible original/AAC playback.
+
+See [Android controls](INSTRUCTION.md#android-controls) for Server mode, saved music, downloads, local management, playback handoff, language, and lifecycle behavior.
 
 <a id="ios"></a>
 ## Native iOS source and CI

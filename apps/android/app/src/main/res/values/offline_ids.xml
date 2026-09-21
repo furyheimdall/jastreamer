@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <item name="saved_music_button" type="id" />
+    <item name="downloads_button" type="id" />
+    <item name="saved_music_summary" type="id" />
+    <item name="offline_music_root" type="id" />
+    <item name="offline_header_title" type="id" />
+    <item name="offline_servers_button" type="id" />
+    <item name="offline_downloads_button" type="id" />
+    <item name="offline_navigation" type="id" />
+    <item name="offline_content" type="id" />
+    <item name="offline_library_button" type="id" />
+    <item name="offline_playlists_button" type="id" />
+    <item name="offline_queue_button" type="id" />
+    <item name="offline_settings_button" type="id" />
+    <item name="offline_search" type="id" />
+    <item name="offline_empty" type="id" />
+    <item name="offline_list" type="id" />
+    <item name="offline_selection_bar" type="id" />
+    <item name="offline_mini_player" type="id" />
+    <item name="offline_player_title" type="id" />
+    <item name="offline_mini_position" type="id" />
+    <item name="offline_player_position" type="id" />
+    <item name="offline_player_seek" type="id" />
+    <item name="offline_new_folder_button" type="id" />
+    <item name="offline_rename_folder_button" type="id" />
+    <item name="offline_move_folder_button" type="id" />
+    <item name="offline_move_folders_button" type="id" />
+    <item name="offline_delete_folder_button" type="id" />
+    <item name="offline_move_tracks_button" type="id" />
+    <item name="offline_destination_list" type="id" />
+    <item name="offline_download_list" type="id" />
+    <item name="offline_storage_usage" type="id" />
+    <item name="offline_diagnostics" type="id" />
+    <item name="offline_previous_page" type="id" />
+    <item name="offline_next_page" type="id" />
+</resources>

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { api, ApiError } from "./api";
 import { useI18n } from "./i18n";
+import { NativeDownloadAction, type JastreamerDownloads } from "./JastreamerDownloads";
 import type { Track, TrackInfo } from "./types";
 import "./TrackInfoDialog.css";
 
@@ -10,6 +11,7 @@ type Props = {
   revision: number;
   onNotice: (message: string, error?: boolean) => void;
   onClose: () => void;
+  downloads: JastreamerDownloads;
 };
 
 type LoadedInfo = {
@@ -103,7 +105,7 @@ function Detail({ label, value, wide = false, code = false }: { label: string; v
   );
 }
 
-export default function TrackInfoDialog({ trackId, revision, onNotice, onClose }: Props) {
+export default function TrackInfoDialog({ trackId, revision, onNotice, onClose, downloads }: Props) {
   const { locale, t } = useI18n();
   const [loaded, setLoaded] = useState<LoadedInfo | null>(null);
   const [failure, setFailure] = useState<FailedInfo | null>(null);
@@ -268,17 +270,20 @@ export default function TrackInfoDialog({ trackId, revision, onNotice, onClose }
                 <strong>{present(track.title, unavailable)}</strong>
                 <span>{present(track.artist, unavailable)}</span>
                 <span>{present(track.album, unavailable)}</span>
-                <button
-                  className="button button-ghost library-like-button track-info-like"
-                  type="button"
-                  aria-label={t(track.liked ? "library.unlikeTrack" : "library.likeTrack", { title: track.title })}
-                  aria-pressed={track.liked}
-                  disabled={likeBusy.has(track.id)}
-                  onClick={() => void toggleLiked(track)}
-                >
-                  <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M20.8 5.8a5.5 5.5 0 0 0-7.8 0L12 6.9l-1.1-1.1a5.5 5.5 0 0 0-7.8 7.8L12 22l8.8-8.4a5.5 5.5 0 0 0 0-7.8z" /></svg>
-                  {t(track.liked ? "library.unlikeTitle" : "library.likeTitle")}
-                </button>
+                <div className="track-info-actions">
+                  <button
+                    className="button button-ghost library-like-button track-info-like"
+                    type="button"
+                    aria-label={t(track.liked ? "library.unlikeTrack" : "library.likeTrack", { title: track.title })}
+                    aria-pressed={track.liked}
+                    disabled={likeBusy.has(track.id)}
+                    onClick={() => void toggleLiked(track)}
+                  >
+                    <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M20.8 5.8a5.5 5.5 0 0 0-7.8 0L12 6.9l-1.1-1.1a5.5 5.5 0 0 0-7.8 7.8L12 22l8.8-8.4a5.5 5.5 0 0 0 0-7.8z" /></svg>
+                    {t(track.liked ? "library.unlikeTitle" : "library.likeTitle")}
+                  </button>
+                  <NativeDownloadAction downloads={downloads} target={{ kind: "track", id: track.id }} title={track.title} disabled={!track.available} />
+                </div>
               </div>
             </div>
 

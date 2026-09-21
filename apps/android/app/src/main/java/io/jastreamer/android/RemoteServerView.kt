@@ -40,6 +40,7 @@ class RemoteServerView(
     private val onLoaded: () -> Unit,
     private val onError: (ClientException) -> Unit,
     private val onLanguageChanged: (String) -> Unit,
+    private val onOpenLibrary: () -> Unit,
 ) : FrameLayout(context) {
     private enum class LoadPhase { IDLE, PREPARING, LOADING, LOADED }
 
@@ -48,6 +49,7 @@ class RemoteServerView(
     private lateinit var webView: WebView
     private lateinit var cookieManager: CookieManager
     private var nativeBridge: NativeAudioBridge? = null
+    private var downloadBridge: NativeDownloadBridge? = null
     private var language = requireLanguage(language)
     private var generation = 0L
     private var activeGeneration: Long? = null
@@ -90,6 +92,7 @@ class RemoteServerView(
         if (!disposed && !unusable) {
             webView.onResume()
             nativeBridge?.setHostInteractive(true)
+            downloadBridge?.setHostInteractive(true)
         }
     }
 
@@ -98,6 +101,7 @@ class RemoteServerView(
         requireMainThread()
         if (disposed) return
         nativeBridge?.setHostInteractive(false)
+        downloadBridge?.setHostInteractive(false)
         if (unusable || pausing) return
         pausing = true
         try {
@@ -143,6 +147,8 @@ class RemoteServerView(
         disposed = true
         nativeBridge?.dispose()
         nativeBridge = null
+        downloadBridge?.dispose()
+        downloadBridge = null
 
         if (!unusable) {
             observeLanguageCookie()
@@ -161,6 +167,11 @@ class RemoteServerView(
         if (!unusable) {
             try {
                 WebViewCompat.removeWebMessageListener(webView, NativeAudioBridge.OBJECT_NAME)
+            } catch (_: RuntimeException) {
+                // The WebView is being destroyed and no native capability remains reachable.
+            }
+            try {
+                WebViewCompat.removeWebMessageListener(webView, NativeDownloadBridge.OBJECT_NAME)
             } catch (_: RuntimeException) {
                 // The WebView is being destroyed and no native capability remains reachable.
             }
@@ -259,6 +270,25 @@ class RemoteServerView(
                 bridge,
             )
             nativeBridge = bridge
+            val downloads = NativeDownloadBridge(
+                candidate,
+                server,
+                canDownload = {
+                    !disposed &&
+                        !unusable &&
+                        isShown &&
+                        windowVisibility == VISIBLE &&
+                        canStartNativePlayback()
+                },
+                onOpenLibrary = onOpenLibrary,
+            )
+            WebViewCompat.addWebMessageListener(
+                candidate,
+                NativeDownloadBridge.OBJECT_NAME,
+                setOf(server.origin),
+                downloads,
+            )
+            downloadBridge = downloads
 
             candidate.webViewClient = RestrictedWebViewClient()
             candidate.webChromeClient = RestrictedWebChromeClient()
@@ -277,6 +307,8 @@ class RemoteServerView(
         } catch (failure: RuntimeException) {
             nativeBridge?.dispose()
             nativeBridge = null
+            downloadBridge?.dispose()
+            downloadBridge = null
             candidate.destroy()
             throw ClientException(
                 ClientErrorCode.WEBVIEW_UNSUPPORTED,
@@ -288,6 +320,7 @@ class RemoteServerView(
 
     private fun prepareLoad(nextLanguage: String) {
         nativeBridge?.invalidateDocument()
+        downloadBridge?.invalidateDocument()
         val token = ++generation
         activeGeneration = token
         pendingLanguage = nextLanguage
@@ -387,6 +420,7 @@ class RemoteServerView(
         phase = LoadPhase.IDLE
         cancelTimeout()
         nativeBridge?.invalidateDocument()
+        downloadBridge?.invalidateDocument()
         if (!unusable) webView.stopLoading()
         onError(failure)
     }
@@ -397,6 +431,7 @@ class RemoteServerView(
             fail(token, failure)
         } else if (token == null && phase == LoadPhase.LOADED && !disposed && !unusable) {
             nativeBridge?.invalidateDocument()
+            downloadBridge?.invalidateDocument()
             onError(failure)
         }
     }
@@ -431,6 +466,7 @@ class RemoteServerView(
             pendingLanguage = null
             cancelTimeout()
             nativeBridge?.invalidateDocument()
+            downloadBridge?.invalidateDocument()
             webView.stopLoading()
         }
         onError(
@@ -481,6 +517,8 @@ class RemoteServerView(
         cancelTimeout()
         nativeBridge?.dispose()
         nativeBridge = null
+        downloadBridge?.dispose()
+        downloadBridge = null
         unusable = true
         removeView(view)
         view.destroy()
@@ -521,6 +559,7 @@ class RemoteServerView(
         override fun onPageStarted(view: WebView, url: String, favicon: Bitmap?) {
             if (disposed || unusable || view !== webView) return
             nativeBridge?.documentStarted()
+            downloadBridge?.documentStarted()
             if (!isAllowed(url, server.origin)) {
                 view.stopLoading()
                 denyNavigation(url, redirect = false, abortActiveLoad = true)
@@ -536,6 +575,7 @@ class RemoteServerView(
             if (disposed || unusable || view !== webView) return
             if (phase == LoadPhase.LOADING && isAllowed(url, server.origin)) {
                 nativeBridge?.documentCommitted()
+                downloadBridge?.documentCommitted()
             }
         }
 
@@ -543,6 +583,7 @@ class RemoteServerView(
             if (disposed || unusable || view !== webView) return
             if (phase == LoadPhase.LOADING && isAllowed(url, server.origin)) {
                 nativeBridge?.documentCommitted()
+                downloadBridge?.documentCommitted()
                 completeLoad()
             }
         }

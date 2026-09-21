@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="offline_download_notification_channel">Music downloads</string>
+    <string name="offline_download_notification_description">Imports music into saved music</string>
+    <string name="offline_download_notification_title">Importing saved music</string>
+    <string name="offline_download_status_waiting">Waiting to continue</string>
+    <string name="offline_download_status_preparing">Preparing on the server</string>
+    <string name="offline_download_status_downloading">Downloading and verifying</string>
+    <string name="offline_download_status_importing">Saving verified music</string>
+    <string name="offline_download_confirm_title">Save music on this device?</string>
+    <string name="offline_download_confirm_summary">%1$s\n%2$s\nQuality: %3$s</string>
+    <string name="offline_download_choose_folder">Save to folder</string>
+    <string name="offline_download_imported_folder">Imported music</string>
+    <string name="offline_download_root_folder">Music root</string>
+    <string name="offline_download_confirm">Download</string>
+    <string name="offline_download_quality_original">Original</string>
+    <string name="offline_download_quality_aac">Space saving (AAC 256 kbps)</string>
+    <plurals name="offline_download_track_count">
+        <item quantity="one">%d track</item>
+        <item quantity="other">%d tracks</item>
+    </plurals>
+</resources>

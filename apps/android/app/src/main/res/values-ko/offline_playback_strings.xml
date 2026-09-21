@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="offline_playback_error">저장된 음악을 계속 재생할 수 없습니다.</string>
+    <string name="offline_playback_decode_error">이 저장된 트랙을 디코딩할 수 없습니다. 다음 재생 가능한 트랙을 시도합니다.</string>
+    <string name="offline_playback_all_failed">남은 저장된 트랙을 디코딩할 수 없습니다.</string>
+    <string name="offline_playback_missing">이 저장된 오디오가 없거나 삭제 대기 중입니다.</string>
+    <string name="offline_playback_handoff_server_title">서버 재생으로 전환할까요?</string>
+    <string name="offline_playback_handoff_server_message">저장된 음악 재생을 중지합니다. 대기열과 재생 위치는 이 기기에 유지됩니다.</string>
+    <string name="offline_playback_handoff_confirm">중지하고 전환</string>
+    <string name="offline_playback_handoff_cancel">저장된 음악 계속 듣기</string>
+</resources>

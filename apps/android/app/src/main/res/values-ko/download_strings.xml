@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="offline_download_notification_channel">음악 다운로드</string>
+    <string name="offline_download_notification_description">저장된 음악으로 음악 가져오기</string>
+    <string name="offline_download_notification_title">음악 저장 중</string>
+    <string name="offline_download_status_waiting">계속할 수 있을 때까지 기다리는 중</string>
+    <string name="offline_download_status_preparing">서버에서 준비 중</string>
+    <string name="offline_download_status_downloading">다운로드 및 확인 중</string>
+    <string name="offline_download_status_importing">확인된 음악 저장 중</string>
+    <string name="offline_download_confirm_title">이 기기에 음악을 저장할까요?</string>
+    <string name="offline_download_confirm_summary">%1$s\n%2$s\n음질: %3$s</string>
+    <string name="offline_download_choose_folder">저장할 폴더</string>
+    <string name="offline_download_imported_folder">가져온 음악</string>
+    <string name="offline_download_root_folder">음악 루트</string>
+    <string name="offline_download_confirm">다운로드</string>
+    <string name="offline_download_quality_original">원본</string>
+    <string name="offline_download_quality_aac">공간 절약(AAC 256kbps)</string>
+    <plurals name="offline_download_track_count">
+        <item quantity="other">%d곡</item>
+    </plurals>
+</resources>

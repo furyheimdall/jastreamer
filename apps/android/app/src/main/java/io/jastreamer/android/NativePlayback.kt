@@ -18,15 +18,15 @@ class NativePlaybackException(
 
 object NativePlayback {
     @MainThread
-    suspend fun connect(context: Context, server: ServerEndpoint, name: String): JSONObject {
+    suspend fun connect(
+        context: Context,
+        server: ServerEndpoint,
+        name: String,
+        confirmHandoff: Boolean = false,
+    ): JSONObject {
         requireMainThread()
+        val requestGeneration = OfflinePlaybackRequestFence.beginRequest()
         val safeName = NativePlaybackPolicy.requireName(name)
-        val verified = try {
-            ServerProbe().probe(server.origin, server.id)
-        } catch (error: ClientException) {
-            throw error.asNativePlaybackException()
-        }
-        val normalizedServer = server.copy(id = verified.id, origin = verified.origin)
         val appContext = context.applicationContext
         try {
             appContext.startService(Intent(appContext, NativePlaybackService::class.java))
@@ -38,7 +38,14 @@ object NativePlayback {
         } catch (error: TimeoutCancellationException) {
             throw NativePlaybackException("service_unavailable", "Phone playback is unavailable.", error)
         }
-        return service.connect(normalizedServer, safeName)
+        val operationToken = service.prepareServerHandoff(confirmHandoff, requestGeneration)
+        val verified = try {
+            ServerProbe().probe(server.origin, server.id)
+        } catch (error: ClientException) {
+            throw error.asNativePlaybackException()
+        }
+        val normalizedServer = server.copy(id = verified.id, origin = verified.origin)
+        return service.connect(normalizedServer, safeName, operationToken)
     }
 
     @MainThread
