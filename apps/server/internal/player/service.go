@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/jastreamer/jastreamer-server/internal/errorhistory"
 	"github.com/jastreamer/jastreamer-server/internal/fault"
 	"github.com/jastreamer/jastreamer-server/internal/library"
 	"github.com/jastreamer/jastreamer-server/internal/output"
@@ -54,6 +55,7 @@ type Service struct {
 	devices            deviceAPI
 	media              mediaAPI
 	pollInterval       time.Duration
+	history            *errorhistory.Service
 	notify             func(string)
 	epoch              string
 	wake               chan struct{}
@@ -93,8 +95,12 @@ type storedState struct {
 	controlAt               string
 }
 
-func New(ctx context.Context, db *sql.DB, lib *library.Service, outputs *output.Manager, pollInterval time.Duration, notify func(string)) (*Service, error) {
-	return newService(ctx, db, lib, outputs, outputs, pollInterval, notify)
+func New(ctx context.Context, db *sql.DB, lib *library.Service, outputs *output.Manager, pollInterval time.Duration, notify func(string), history *errorhistory.Service) (*Service, error) {
+	service, err := newService(ctx, db, lib, outputs, outputs, pollInterval, notify)
+	if service != nil {
+		service.history = history
+	}
+	return service, err
 }
 
 func newService(ctx context.Context, db *sql.DB, lib libraryAPI, devices deviceAPI, media mediaAPI, pollInterval time.Duration, notify func(string)) (*Service, error) {
@@ -316,6 +322,25 @@ func (s *Service) Snapshot(ctx context.Context) (State, error) {
 		return State{}, fmt.Errorf("player: load pending command: %w", err)
 	}
 	return result, nil
+}
+
+// IsPlaybackActive performs the minimal durable-state probe used to keep
+// background work from competing with playback. It does not contact outputs.
+func (s *Service) IsPlaybackActive(ctx context.Context) (bool, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	var active int
+	err := s.db.QueryRowContext(ctx, `SELECT CASE
+ WHEN state IN ('starting','playing') THEN 1
+ WHEN state='unavailable' AND play_id<>'' AND current_uri<>'' AND resume_required=0 THEN 1
+ WHEN EXISTS(SELECT 1 FROM player_commands WHERE service_epoch=? AND status IN ('pending','running')) THEN 1
+ ELSE 0 END
+FROM player_state WHERE singleton=1`, s.epoch).Scan(&active)
+	if err != nil {
+		return false, fmt.Errorf("player: inspect playback activity: %w", err)
+	}
+	return active != 0, nil
 }
 
 func (s *Service) SelectOutput(ctx context.Context, rendererID string) (State, error) {

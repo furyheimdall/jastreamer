@@ -3,6 +3,7 @@ package player
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -10,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jastreamer/jastreamer-server/internal/errorhistory"
 	"github.com/jastreamer/jastreamer-server/internal/fault"
 	"github.com/jastreamer/jastreamer-server/internal/library"
 	"github.com/jastreamer/jastreamer-server/internal/output"
@@ -2199,4 +2201,82 @@ func TestConfirmedStopSurvivesOutputLossWithoutAnotherObservation(t *testing.T) 
 		retained.Entries[1].Status != EntryPending {
 		t.Fatalf("confirmed stop changed the retained queue: %#v", retained)
 	}
+}
+
+func TestNonBrowserRendererFailurePersistsSafeHistory(t *testing.T) {
+	service, db, devices := newPlayerTestService(t)
+	history, err := errorhistory.New(t.Context(), db, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	service.history = history
+	devices.mu.Lock()
+	devices.device.Name = "Living room"
+	devices.device.Protocol = output.ProtocolUPnP
+	devices.fail["set_uri"] = output.NewActionError(output.ErrorFault, "SetURI", 714, errors.New("private endpoint detail"))
+	devices.mu.Unlock()
+	queue, err := service.MutateQueue(t.Context(), QueueMutation{Action: "append", TrackIDs: []string{"a"}, Revision: 0})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.Command(t.Context(), Command{Action: "play", EntryID: queue.Entries[0].ID}); err != nil {
+		t.Fatal(err)
+	}
+	runAcceptedCommand(t, service)
+	result, err := history.List(t.Context(), errorhistory.ListOptions{Limit: 50})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Total != 1 || result.Items[0].RendererName != "Living room" || result.Items[0].Protocol != output.ProtocolUPnP ||
+		result.Items[0].TrackID != "a" || result.Items[0].Stage != "SetURI" || result.Items[0].Code != "fault:714" ||
+		result.Items[0].Outcome != "failed" {
+		t.Fatalf("renderer history=%#v", result)
+	}
+	encoded, err := json.Marshal(result)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(encoded), "private endpoint detail") {
+		t.Fatal("raw renderer error escaped into history")
+	}
+}
+
+func TestIsPlaybackActiveUsesDurableActivityOnly(t *testing.T) {
+	service, db, _ := newPlayerTestService(t)
+	ctx := t.Context()
+	setState := func(state, playID, uri string, resumeRequired int) {
+		t.Helper()
+		if _, err := db.ExecContext(ctx, "UPDATE player_state SET state=?,play_id=?,current_uri=?,resume_required=? WHERE singleton=1", state, playID, uri, resumeRequired); err != nil {
+			t.Fatal(err)
+		}
+	}
+	assertActive := func(want bool) {
+		t.Helper()
+		active, err := service.IsPlaybackActive(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if active != want {
+			t.Fatalf("IsPlaybackActive=%t, want %t", active, want)
+		}
+	}
+	setState(StatePaused, "play", "owned", 0)
+	assertActive(false)
+	setState(StateStarting, "play", "owned", 0)
+	assertActive(true)
+	setState(StatePlaying, "play", "owned", 0)
+	assertActive(true)
+	setState(StateUnavailable, "play", "owned", 0)
+	assertActive(true)
+	setState(StateUnavailable, "play", "owned", 1)
+	assertActive(false)
+	setState(StateStopped, "", "", 0)
+	if _, err := db.ExecContext(ctx, `INSERT INTO player_commands(command_id,service_epoch,action,entry_id,position_ms,status,error,created_at,started_at,completed_at) VALUES('activity-command',?,'play','',0,'pending','',?,'','')`, service.epoch, time.Now().UTC().Format(time.RFC3339Nano)); err != nil {
+		t.Fatal(err)
+	}
+	assertActive(true)
+	if _, err := db.ExecContext(ctx, "UPDATE player_commands SET status='succeeded' WHERE command_id='activity-command'"); err != nil {
+		t.Fatal(err)
+	}
+	assertActive(false)
 }

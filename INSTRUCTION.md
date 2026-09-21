@@ -19,6 +19,14 @@ Use the [installation guide](INSTALL.md) for requirements, release verification,
 5. Browse Library or Playlists, add tracks or grouped views to Queue, and select an output while playback is stopped. Refresh outputs if a newly powered receiver is missing.
 6. Use the player controls for Play/Pause, Stop, Previous, Next, and Seek when supported by the receiver. AirPlay may require a PIN or password; pair only while stopped.
 
+### Playback and file-check history
+
+Open **Settings → Playback and file-check history** to view the Server's shared, persistent history. Filter by result type or renderer. Renderer reports include the renderer name and ID, track, error code, playback position when supplied, and expandable structured diagnostics. Older imported records may identify a renderer only by ID. The newest 5,000 records are retained; viewing them never changes playback.
+
+**Scan now** first indexes metadata for browsing. After a successful scan, **Background audio verification** separately checks every indexed audio file, including unchanged files. It decodes one file at a time with the Server's configured FFmpeg and pauses during playback or another scan. FLAC checks also compare the decoded sample count and the STREAMINFO checksum when present. A completed index is not a passed integrity check.
+
+Failed checks and files that could not be verified appear in the same history with the music-folder name and relative path. Missing engines, unsupported formats, timeouts, and changed or unreadable files are not reported as healthy. Progress resumes after a Server restart. These checks never repair, rewrite, delete, or automatically remove source files or queue entries.
+
 The queue is Server-wide, preserves order and duplicates, and survives restarts. A Server restart does not automatically resume playback. Cast uses that same single queue, loads media with Cast autoplay disabled, and sends Play explicitly. Receiver groups and gapless playback are not supported.
 
 <a id="likes"></a>

@@ -22,6 +22,7 @@ import (
 	"github.com/jastreamer/jastreamer-server/internal/database"
 	"github.com/jastreamer/jastreamer-server/internal/discovery"
 	"github.com/jastreamer/jastreamer-server/internal/dlna"
+	"github.com/jastreamer/jastreamer-server/internal/errorhistory"
 	"github.com/jastreamer/jastreamer-server/internal/events"
 	"github.com/jastreamer/jastreamer-server/internal/fault"
 	"github.com/jastreamer/jastreamer-server/internal/library"
@@ -36,6 +37,7 @@ type apiFixture struct {
 	metadata   discovery.Metadata
 	config     config.Config
 	configPath string
+	history    *errorhistory.Service
 }
 
 func startAPI(t *testing.T, secure bool) apiFixture {
@@ -61,6 +63,10 @@ func startAPIWithRestart(t *testing.T, secure bool, restart *RestartHooks) apiFi
 		t.Fatal(err)
 	}
 	hub := events.New()
+	history, err := errorhistory.New(ctx, db, hub.Publish)
+	if err != nil {
+		t.Fatal(err)
+	}
 	catalog, err := library.New(ctx, db, nil, filepath.Join(dir, "artwork"), hub.Publish)
 	if err != nil {
 		t.Fatal(err)
@@ -74,7 +80,7 @@ func startAPIWithRestart(t *testing.T, secure bool, restart *RestartHooks) apiFi
 		t.Fatal(err)
 	}
 	outputs := output.NewManager(output.Backend{Protocol: output.ProtocolUPnP, Controller: devices, Media: media})
-	playback, err := player.New(ctx, db, catalog, outputs, time.Second, hub.Publish)
+	playback, err := player.New(ctx, db, catalog, outputs, time.Second, hub.Publish, history)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -84,7 +90,7 @@ func startAPIWithRestart(t *testing.T, secure bool, restart *RestartHooks) apiFi
 	if err = config.Save(path, cfg); err != nil {
 		t.Fatal(err)
 	}
-	handler := New(Options{Context: ctx, ConfigPath: path, Config: cfg, RuntimeID: "runtime_test", Restart: restart, Auth: accounts, Discovery: discoveryService, Library: catalog, Devices: outputs, Player: playback, Stream: media, Events: hub, UI: fstest.MapFS{"index.html": &fstest.MapFile{Data: []byte("<!doctype html><title>Sign in</title>")}}})
+	handler := New(Options{Context: ctx, ConfigPath: path, Config: cfg, RuntimeID: "runtime_test", Restart: restart, Auth: accounts, Discovery: discoveryService, Library: catalog, History: history, Devices: outputs, Player: playback, Stream: media, Events: hub, UI: fstest.MapFS{"index.html": &fstest.MapFile{Data: []byte("<!doctype html><title>Sign in</title>")}}})
 	var server *httptest.Server
 	if secure {
 		server = httptest.NewTLSServer(handler)
@@ -95,7 +101,7 @@ func startAPIWithRestart(t *testing.T, secure bool, restart *RestartHooks) apiFi
 	client := server.Client()
 	client.Timeout = 5 * time.Second
 	client.Jar, _ = cookiejar.New(nil)
-	return apiFixture{server: server, client: client, metadata: discoveryService.Metadata(), config: cfg, configPath: path}
+	return apiFixture{server: server, client: client, metadata: discoveryService.Metadata(), config: cfg, configPath: path, history: history}
 }
 
 func (fixture apiFixture) request(t *testing.T, method, path, body string, change func(*http.Request)) *http.Response {
@@ -538,5 +544,64 @@ func TestConfigRestartStateDistinguishesLiveAndExternalRoots(t *testing.T) {
 	response.Body.Close()
 	if !state.RestartRequired {
 		t.Fatal("GET treated externally changed roots as already live-applied")
+	}
+}
+
+func TestHistoryAndVerificationRequireAuthentication(t *testing.T) {
+	fixture := startAPI(t, false)
+	expectStatus(t, fixture.request(t, "GET", "/api/v1/history", "", nil), http.StatusUnauthorized)
+	expectStatus(t, fixture.request(t, "GET", "/api/v1/library/verification", "", nil), http.StatusUnauthorized)
+}
+
+func TestHistoryFiltersPagesAndNeverReturnsNullArrays(t *testing.T) {
+	fixture := startAPI(t, false)
+	fixture.setup(t)
+	now := time.Now().UTC()
+	historyEvents := []errorhistory.Event{
+		{Key: "renderer-one", ReceivedAt: now, Kind: "renderer", RendererID: "renderer-1", RendererName: "Room", Protocol: "upnp", Stage: "Play", Code: "transport", Message: "Renderer failed.", Outcome: "unknown", Details: json.RawMessage(`{"category":"transport"}`)},
+		{Key: "integrity-one", ReceivedAt: now.Add(time.Second), Kind: "integrity", TrackID: "track-1", TrackTitle: "Song", RootName: "Music", RelativePath: "album/song.flac", Stage: "decode", Code: "invalid_data", Message: "Audio verification failed.", Outcome: "failed", Details: json.RawMessage(`{"engine":"ffmpeg"}`)},
+	}
+	for _, event := range historyEvents {
+		if err := fixture.history.Record(t.Context(), event); err != nil {
+			t.Fatal(err)
+		}
+	}
+	response := fixture.request(t, "GET", "/api/v1/history?kind=renderer&renderer_id=renderer-1&offset=0&limit=1", "", nil)
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		t.Fatalf("HTTP status=%d, want %d", response.StatusCode, http.StatusOK)
+	}
+	var result errorhistory.ListResult
+	if err := json.NewDecoder(response.Body).Decode(&result); err != nil {
+		t.Fatal(err)
+	}
+	if result.Total != 1 || len(result.Items) != 1 || result.Items[0].Kind != "renderer" || len(result.Renderers) != 1 || result.RetentionLimit != errorhistory.RetentionLimit {
+		t.Fatalf("history response=%#v", result)
+	}
+	empty := fixture.request(t, "GET", "/api/v1/history?kind=renderer&renderer_id=missing", "", nil)
+	defer empty.Body.Close()
+	var emptyResult errorhistory.ListResult
+	if err := json.NewDecoder(empty.Body).Decode(&emptyResult); err != nil {
+		t.Fatal(err)
+	}
+	if emptyResult.Items == nil || emptyResult.Renderers == nil {
+		t.Fatalf("history arrays must not be null: %#v", emptyResult)
+	}
+}
+
+func TestAuthenticatedVerificationStatus(t *testing.T) {
+	fixture := startAPI(t, false)
+	fixture.setup(t)
+	response := fixture.request(t, "GET", "/api/v1/library/verification", "", nil)
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		t.Fatalf("HTTP status=%d, want %d", response.StatusCode, http.StatusOK)
+	}
+	var status library.VerificationStatus
+	if err := json.NewDecoder(response.Body).Decode(&status); err != nil {
+		t.Fatal(err)
+	}
+	if status.State == "" || status.Pending < 0 || status.Verified < 0 || status.Failed < 0 || status.Unverified < 0 {
+		t.Fatalf("verification status=%#v", status)
 	}
 }

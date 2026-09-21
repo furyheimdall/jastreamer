@@ -43,6 +43,7 @@ func (service *Service) StartScan(ctx context.Context) (ScanJob, error) {
 	}
 	scanCtx, cancel := context.WithCancel(service.ctx)
 	service.cancels[id] = cancel
+	service.setVerificationScanning(true)
 	go service.runScan(scanCtx, job, service.rootsSnapshot())
 	return job, nil
 }
@@ -90,11 +91,17 @@ func (service *Service) runScan(ctx context.Context, job ScanJob, roots []Root) 
 	}
 	job.FinishedAt = timestamp(time.Now())
 	persistCtx, cancel := context.WithTimeout(context.WithoutCancel(service.ctx), 10*time.Second)
-	_ = service.updateJob(persistCtx, job)
+	persistErr := service.updateJob(persistCtx, job)
 	cancel()
 	service.scanMu.Lock()
 	delete(service.cancels, job.ID)
 	service.scanMu.Unlock()
+	if job.Status == "complete" && persistErr == nil {
+		if err := service.scheduleVerification(job.ID); err != nil {
+			service.setVerificationSchedulingFailure()
+		}
+	}
+	service.setVerificationScanning(false)
 	service.notify("library")
 }
 

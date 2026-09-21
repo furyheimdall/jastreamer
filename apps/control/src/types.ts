@@ -91,6 +91,61 @@ export interface ScanJob {
   error: string;
 }
 
+export type HistoryKind = "renderer" | "integrity";
+export type HistoryOutcome = "failed" | "recovered" | "unknown";
+
+export interface HistoryEvent {
+  id: number;
+  received_at: string;
+  kind: HistoryKind;
+  renderer_id: string;
+  renderer_name: string;
+  protocol: string;
+  track_id: string;
+  track_title: string;
+  root_name: string;
+  relative_path: string;
+  stage: string;
+  code: string;
+  message: string;
+  outcome: HistoryOutcome;
+  play_id: string;
+  command_id: string;
+  position_ms: number | null;
+  details: unknown;
+}
+
+export interface HistoryRenderer {
+  id: string;
+  name: string;
+  protocol: string;
+}
+
+export interface HistoryPage {
+  items: HistoryEvent[];
+  total: number;
+  offset: number;
+  limit: number;
+  retention_limit: number;
+  renderers: HistoryRenderer[];
+}
+
+export type VerificationState = "idle" | "queued" | "running" | "paused" | "complete" | "unavailable";
+
+export interface VerificationStatus {
+  state: VerificationState;
+  reason: string;
+  total: number;
+  pending: number;
+  verified: number;
+  failed: number;
+  unverified: number;
+  current_track_id: string;
+  current_track_title: string;
+  engine: string;
+  error: string;
+}
+
 export interface Capabilities {
   play: boolean;
   pause: boolean;

@@ -15,6 +15,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/jastreamer/jastreamer-server/internal/errorhistory"
 	"github.com/jastreamer/jastreamer-server/internal/library"
 	"github.com/jastreamer/jastreamer-server/internal/output"
 )
@@ -71,9 +72,10 @@ type registration struct {
 }
 
 type Service struct {
-	media  output.Media
-	notify func(string)
-	now    func() time.Time
+	media   output.Media
+	notify  func(string)
+	history *errorhistory.Service
+	now     func() time.Time
 
 	mu      sync.Mutex
 	devices map[string]*registration
@@ -83,14 +85,14 @@ type Service struct {
 var _ output.Controller = (*Service)(nil)
 var _ output.Media = (*Service)(nil)
 
-func New(media output.Media, notify func(string)) (*Service, error) {
+func New(media output.Media, notify func(string), history *errorhistory.Service) (*Service, error) {
 	if media == nil {
 		return nil, errors.New("browser output: media service is required")
 	}
 	if notify == nil {
 		notify = func(string) {}
 	}
-	return &Service{media: media, notify: notify, now: time.Now, devices: make(map[string]*registration)}, nil
+	return &Service{media: media, notify: notify, history: history, now: time.Now, devices: make(map[string]*registration)}, nil
 }
 
 func (service *Service) Run(ctx context.Context) error {
@@ -258,9 +260,15 @@ func (service *Service) Disconnect(id, token, address string) error {
 	return err
 }
 
-func (service *Service) Report(id, token, address string, report Report) error {
+func (service *Service) Report(id, token, address string, report Report) (resultErr error) {
+	var historyEvent *errorhistory.Event
 	service.mu.Lock()
-	defer service.mu.Unlock()
+	defer func() {
+		service.mu.Unlock()
+		if resultErr == nil && historyEvent != nil {
+			service.recordHistory(*historyEvent)
+		}
+	}()
 	value, err := service.ownerLocked(id, token, address)
 	if err != nil {
 		return err
@@ -306,6 +314,7 @@ func (service *Service) Report(id, token, address string, report Report) error {
 		service.recordReportLocked(value)
 		service.logObservationTransitionLocked(value, previous, observation)
 		service.logNativePlaybackErrorsLocked(value, observation.PlayID, report.Sequence, playbackErrors)
+		historyEvent = service.reportHistoryEventLocked(value, report, playbackErrors, nil)
 		service.maybeLogHealthLocked(value, value.lastSeen)
 		return nil
 	}
@@ -339,6 +348,7 @@ func (service *Service) Report(id, token, address string, report Report) error {
 		service.recordReportLocked(value)
 		service.logCommandResultLocked(value, &pending.command, "failed", report.ErrorCode)
 		service.logNativePlaybackErrorsLocked(value, pending.command.PlayID, report.Sequence, playbackErrors)
+		historyEvent = service.reportHistoryEventLocked(value, report, playbackErrors, &pending.command)
 		service.maybeLogHealthLocked(value, value.lastSeen)
 		return nil
 	}

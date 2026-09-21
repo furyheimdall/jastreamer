@@ -10,7 +10,7 @@ import type { Session, SessionUser, StatusWarning } from "./types";
 import { isPhone } from "./device";
 
 type View = "library" | "playlists" | "queue" | "settings";
-type EventTopic = "player" | "queue" | "library" | "playlists" | "renderers" | "config";
+type EventTopic = "player" | "queue" | "library" | "playlists" | "renderers" | "config" | "history" | "verification";
 type Revisions = Record<EventTopic, number>;
 type ErrorNotice =
   | { source: "error"; message: string }
@@ -23,6 +23,8 @@ const initialRevisions: Revisions = {
   playlists: 0,
   renderers: 0,
   config: 0,
+  history: 0,
+  verification: 0,
 };
 
 const navigation: Array<{ id: View; labelKey: MessageKey; icon: "library" | "playlist" | "queue" | "settings" }> = [
@@ -279,6 +281,8 @@ export default function App() {
       playlists: current.playlists + 1,
       renderers: current.renderers + 1,
       config: current.config + 1,
+      history: current.history + 1,
+      verification: current.verification + 1,
     }));
   }, []);
 
@@ -538,6 +542,8 @@ export default function App() {
         <Settings
           configRevision={revisions.config}
           libraryRevision={revisions.library}
+          historyRevision={revisions.history}
+          verificationRevision={revisions.verification}
           onNotice={showNotice}
           onSignedOut={() => {
             setSession({ authenticated: false });

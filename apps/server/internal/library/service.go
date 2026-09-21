@@ -77,6 +77,41 @@ CREATE TABLE IF NOT EXISTS library_scan_jobs (
   error TEXT NOT NULL
 ) STRICT;
 CREATE INDEX IF NOT EXISTS library_scan_jobs_started ON library_scan_jobs(started_at DESC,id DESC);
+CREATE TABLE IF NOT EXISTS library_verification_state (
+  singleton INTEGER PRIMARY KEY CHECK(singleton=1),
+  run_id TEXT NOT NULL,
+  scan_id TEXT NOT NULL,
+  state TEXT NOT NULL CHECK(state IN ('idle','queued','running','paused','complete','unavailable')),
+  reason TEXT NOT NULL,
+  total INTEGER NOT NULL CHECK(total>=0),
+  pending INTEGER NOT NULL CHECK(pending>=0),
+  verified INTEGER NOT NULL CHECK(verified>=0),
+  failed INTEGER NOT NULL CHECK(failed>=0),
+  unverified INTEGER NOT NULL CHECK(unverified>=0),
+  current_track_id TEXT NOT NULL,
+  current_track_title TEXT NOT NULL,
+  engine TEXT NOT NULL,
+  error TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+) STRICT;
+CREATE TABLE IF NOT EXISTS library_verification_items (
+  run_id TEXT NOT NULL,
+  scan_id TEXT NOT NULL,
+  track_id TEXT NOT NULL,
+  root_id TEXT NOT NULL,
+  root_name TEXT NOT NULL,
+  relative_path TEXT NOT NULL,
+  title TEXT NOT NULL,
+  format TEXT NOT NULL,
+  duration_ms INTEGER NOT NULL CHECK(duration_ms>=0),
+  byte_size INTEGER NOT NULL CHECK(byte_size>=0),
+  modified_ns INTEGER NOT NULL,
+  status TEXT NOT NULL CHECK(status IN ('pending','running','verified','failed','unverified')),
+  PRIMARY KEY(run_id,track_id)
+) STRICT;
+CREATE INDEX IF NOT EXISTS library_verification_items_pending ON library_verification_items(run_id,status,track_id);
+INSERT OR IGNORE INTO library_verification_state(singleton,run_id,scan_id,state,reason,total,pending,verified,failed,unverified,current_track_id,current_track_title,engine,error,updated_at)
+VALUES(1,'','','idle','',0,0,0,0,0,'','','','',CURRENT_TIMESTAMP);
 CREATE TABLE IF NOT EXISTS library_playlists (
   id TEXT PRIMARY KEY,
   name TEXT NOT NULL,
@@ -103,6 +138,14 @@ type Service struct {
 
 	scanMu  sync.Mutex
 	cancels map[string]context.CancelFunc
+
+	verifyMu      sync.Mutex
+	verifyStarted bool
+	verifyOptions VerificationOptions
+	verifyWake    chan struct{}
+	verifyCancel  context.CancelCauseFunc
+	verifyDone    chan struct{}
+	scanActive    bool
 }
 
 func New(ctx context.Context, db *sql.DB, roots []Root, cacheDir string, notify func(string)) (*Service, error) {
@@ -124,11 +167,18 @@ func New(ctx context.Context, db *sql.DB, roots []Root, cacheDir string, notify 
 	if notify == nil {
 		notify = func(string) {}
 	}
-	service := &Service{db: db, cacheDir: cacheDir, notify: notify, ctx: ctx, roots: make(map[string]Root), cancels: make(map[string]context.CancelFunc)}
+	service := &Service{
+		db: db, cacheDir: cacheDir, notify: notify, ctx: ctx,
+		roots: make(map[string]Root), cancels: make(map[string]context.CancelFunc),
+		verifyWake: make(chan struct{}, 1),
+	}
 	if _, err := db.ExecContext(ctx, `UPDATE library_scan_jobs SET status='failed',finished_at=?,error='scan interrupted by server restart' WHERE status IN ('queued','running')`, timestamp(time.Now())); err != nil {
 		return nil, fmt.Errorf("recover library scan jobs: %w", err)
 	}
 	if err := service.SetRoots(roots); err != nil {
+		return nil, err
+	}
+	if err := service.recoverVerification(ctx); err != nil {
 		return nil, err
 	}
 	return service, nil
@@ -140,7 +190,22 @@ func (service *Service) SetRoots(roots []Root) error {
 		return err
 	}
 	service.scanMu.Lock()
-	err = service.setRootsLocked(validated)
+	unchanged, err := service.configuredRootsMatch(service.ctx, validated)
+	var active int
+	if err == nil {
+		if scanErr := service.db.QueryRowContext(service.ctx, `SELECT count(*) FROM library_scan_jobs WHERE status IN ('queued','running')`).Scan(&active); scanErr != nil {
+			err = fmt.Errorf("check active library scan: %w", scanErr)
+		}
+	}
+	if err == nil && active != 0 {
+		err = conflict("SCAN_IN_PROGRESS", "library roots cannot change while a scan is running")
+	}
+	if err == nil && !unchanged {
+		service.invalidateVerification()
+	}
+	if err == nil {
+		err = service.setRootsLocked(validated)
+	}
 	service.scanMu.Unlock()
 	if err != nil {
 		return err
@@ -150,13 +215,6 @@ func (service *Service) SetRoots(roots []Root) error {
 }
 
 func (service *Service) setRootsLocked(validated []Root) error {
-	var active int
-	if err := service.db.QueryRowContext(service.ctx, `SELECT count(*) FROM library_scan_jobs WHERE status IN ('queued','running')`).Scan(&active); err != nil {
-		return fmt.Errorf("check active library scan: %w", err)
-	}
-	if active != 0 {
-		return conflict("SCAN_IN_PROGRESS", "library roots cannot change while a scan is running")
-	}
 	now := timestamp(time.Now())
 	tx, err := service.db.BeginTx(service.ctx, nil)
 	if err != nil {

@@ -30,6 +30,7 @@ import (
 	"github.com/jastreamer/jastreamer-server/internal/database"
 	"github.com/jastreamer/jastreamer-server/internal/discovery"
 	"github.com/jastreamer/jastreamer-server/internal/dlna"
+	"github.com/jastreamer/jastreamer-server/internal/errorhistory"
 	"github.com/jastreamer/jastreamer-server/internal/events"
 	"github.com/jastreamer/jastreamer-server/internal/fault"
 	"github.com/jastreamer/jastreamer-server/internal/httpapi"
@@ -132,9 +133,17 @@ func runRuntime(parent context.Context, value config.Config, configPath, restart
 	}
 	ctx, cancel := context.WithCancel(context.WithoutCancel(parent))
 	var workers sync.WaitGroup
+	var catalog *library.Service
 	failures := make(chan error, len(runtimeEndpoints(value))+2)
 	defer func() {
 		cancel()
+		if catalog != nil {
+			waitCtx, stopWaiting := context.WithTimeout(context.Background(), runtimeWorkersTimeout)
+			if waitErr := catalog.WaitVerification(waitCtx); waitErr != nil {
+				result.err = errors.Join(result.err, fmt.Errorf("stop library verification: %w", waitErr))
+			}
+			stopWaiting()
+		}
 		if waitErr := waitRuntimeWorkers(&workers, failures, runtimeWorkersTimeout); waitErr != nil {
 			result.err = errors.Join(result.err, waitErr)
 		}
@@ -143,6 +152,11 @@ func runRuntime(parent context.Context, value config.Config, configPath, restart
 		}
 	}()
 	hub := events.New()
+	history, err := errorhistory.New(ctx, db, hub.Publish)
+	if err != nil {
+		result.err = err
+		return result
+	}
 	accounts, err := auth.New(db)
 	if err != nil {
 		result.err = err
@@ -157,10 +171,13 @@ func runRuntime(parent context.Context, value config.Config, configPath, restart
 	for _, root := range value.LibraryRoots {
 		roots = append(roots, library.Root{ID: root.ID, Name: root.Name, Path: root.Path})
 	}
-	catalog, err := library.New(ctx, db, roots, filepath.Join(value.DataDir, "artwork"), hub.Publish)
+	catalog, err = library.New(ctx, db, roots, filepath.Join(value.DataDir, "artwork"), hub.Publish)
 	if err != nil {
 		result.err = err
 		return result
+	}
+	if importErr := browseroutput.ImportErrorHistory(ctx, history, value.DataDir); importErr != nil {
+		log.Printf("diagnostic component=history event=log_import_incomplete error_type=%T", importErr)
 	}
 	upnp, err := dlna.New(dlna.Config{Interfaces: value.Network.Interfaces, DiscoveryInterval: time.Duration(value.Network.DiscoveryIntervalSeconds) * time.Second, Notify: hub.Publish})
 	if err != nil {
@@ -182,7 +199,7 @@ func runRuntime(parent context.Context, value config.Config, configPath, restart
 		result.err = err
 		return result
 	}
-	browser, err := browseroutput.New(media, hub.Publish)
+	browser, err := browseroutput.New(media, hub.Publish, history)
 	if err != nil {
 		result.err = err
 		return result
@@ -215,8 +232,21 @@ func runRuntime(parent context.Context, value config.Config, configPath, restart
 		backends = append(backends, output.Backend{Protocol: output.ProtocolAirPlay, Controller: airplayManager, Media: airplayManager, Pairer: airplayManager})
 	}
 	outputs := output.NewManager(backends...)
-	playback, err := player.New(ctx, db, catalog, outputs, time.Duration(value.Network.PollIntervalSeconds)*time.Second, hub.Publish)
+	playback, err := player.New(ctx, db, catalog, outputs, time.Duration(value.Network.PollIntervalSeconds)*time.Second, hub.Publish, history)
 	if err != nil {
+		result.err = err
+		return result
+	}
+	if err = catalog.StartVerification(library.VerificationOptions{
+		FFmpegPath: value.Media.FFmpegPath,
+		History:    history,
+		IsPlaybackActive: func() bool {
+			probeCtx, stop := context.WithTimeout(ctx, time.Second)
+			defer stop()
+			active, probeErr := playback.IsPlaybackActive(probeCtx)
+			return probeErr != nil || active
+		},
+	}); err != nil {
 		result.err = err
 		return result
 	}
@@ -267,7 +297,7 @@ func runRuntime(parent context.Context, value config.Config, configPath, restart
 		Context: ctx, ConfigPath: configPath, Config: value, RuntimeID: runtimeID,
 		RestartError: restartError, Restart: restartHooks, Auth: accounts,
 		Discovery: discoveryService, Library: catalog, Devices: outputs, Player: playback,
-		Browser: browser, Stream: media, Events: hub, UI: ui.Assets(), TrustedHosts: hosts,
+		Browser: browser, Stream: media, Events: hub, History: history, UI: ui.Assets(), TrustedHosts: hosts,
 	})
 	type binding struct {
 		listener net.Listener

@@ -31,6 +31,8 @@
     "observation_failure": "mark status uncertain without revoking an existing stream; status_warning appears after three consecutive failed observations, retains its id within the failure streak, and clears on the next successful observation; error remains for immediate command or confirmed playback failures; confirmed disconnection requires explicit resume",
     "natural_end": "correlated completion, or an owned terminal position repeatedly held for two seconds; the latter requires acknowledged Stop before advancement",
     "media_failure": "an explicit media_failed report is a terminal item/engine failure, not natural completion; the Server retains the failed queue entry as error and advances forward in stored order while playback is intended, without a blocking notice when a successor exists; queue end retains a visible error; stopped/paused/recovered sessions and generic transport/auth/permission/lease/unknown failures never auto-skip; failed entries remain available for explicit retry",
+    "history": "authenticated read-only shared history of accepted renderer errors and failed or unverified library checks; newest 5000 records persist across restarts; structured safe details and root-relative paths only; imported historical renderer IDs may lack a display name",
+    "library_verification": "each completed metadata scan schedules a separate resumable full-file decode pass, including unchanged indexed files; one file at a time, paused during playback or scanning; FLAC sample count and nonzero STREAMINFO MD5 are checked; original files and playback state are never changed; unavailable engines and inconclusive checks are not successful verification",
     "events": "invalidation only; clients refetch on open, gap, resync, and reconnect",
     "restart": "explicit authenticated request for the saved config revision; confirms playback stop before teardown, preserves persistent state without autoplay, and reinitializes services in-process; 202 is acceptance, not completion",
     "restart_confirmation": "same-origin clients refetch config until runtime_id changes and restart_required clears; restart_error reports recovery after failed startup; changed origins require explicit navigation without cross-origin authenticated API requests",
@@ -58,6 +60,8 @@
     {"method":"GET","path":"/api/v1/library/scans","auth":true,"response":{"items":"ScanJob[]"}},
     {"method":"POST","path":"/api/v1/library/scans","auth":true,"request":{},"status":202,"response":"ScanJob"},
     {"method":"DELETE","path":"/api/v1/library/scans/{id}","auth":true,"status":204},
+    {"method":"GET","path":"/api/v1/library/verification","auth":true,"response":"VerificationStatus"},
+    {"method":"GET","path":"/api/v1/history","auth":true,"query":["kind","renderer_id","offset","limit"],"response":"HistoryPage"},
     {"method":"GET","path":"/api/v1/playlists","auth":true,"response":{"items":"Playlist[]"}},
     {"method":"POST","path":"/api/v1/playlists","auth":true,"request":{"name":"string","track_ids":"string[]"},"status":201,"response":"Playlist"},
     {"method":"POST","path":"/api/v1/playlists/from-likes","auth":true,"request":{"name":"string"},"status":201,"response":"Playlist"},
@@ -100,7 +104,11 @@
     "Folder":{"root_id":"string","path":"string","name":"string","track_count":"integer"},
     "Page":{"items":"array","total":"integer","offset":"integer","limit":"integer"},
     "Playlist":{"id":"string","name":"string","revision":"integer","track_ids":"string[]","tracks":"Track[]","updated_at":"string"},
-    "ScanJob":{"id":"string","state":"queued|running|complete|failed|cancelled","started_at":"string","finished_at":"string","scanned":"integer","changed":"integer","error":"string"},
+    "ScanJob":{"id":"string","status":"queued|running|complete|failed|cancelled","started_at":"string","finished_at":"string","discovered":"integer","processed":"integer","added":"integer","updated":"integer","unavailable":"integer","errors":"integer","error":"string"},
+    "VerificationStatus":{"state":"idle|queued|running|paused|complete|unavailable","reason":"string; playback or scan when paused","total":"integer","pending":"integer","verified":"integer","failed":"integer","unverified":"integer","current_track_id":"string","current_track_title":"string","engine":"string","error":"safe string"},
+    "HistoryEvent":{"id":"integer","received_at":"timestamp","kind":"renderer|integrity","renderer_id":"string","renderer_name":"string","protocol":"string","track_id":"string","track_title":"string","root_name":"string","relative_path":"root-relative string","stage":"string","code":"string","message":"safe string","outcome":"failed|recovered|unknown","play_id":"string","command_id":"string","position_ms":"integer|null","details":"structured JSON|null"},
+    "HistoryRenderer":{"id":"string","name":"string","protocol":"string"},
+    "HistoryPage":{"items":"HistoryEvent[]","total":"integer","offset":"integer","limit":"integer","retention_limit":"integer","renderers":"HistoryRenderer[]"},
     "Capabilities":{"play":"boolean","pause":"boolean","stop":"boolean","seek":"boolean"},
     "Device":{"id":"string","name":"string","protocol":"upnp|airplay|cast|browser","manufacturer":"string","model":"string; browser protocol registrations use Local audio for either HTML or native Android execution","address":"string","online":"boolean","last_seen":"string","capabilities":"Capabilities","protocol_info":"string[]","pairing_required":"boolean","password_required":"boolean"},
     "BrowserRegistration":{"registration_id":"string","owner_token":"opaque secret; keep only in the owning local-audio transport memory and never expose through the Web UI or native bridge","lease_expires_at":"timestamp","lease_duration_ms":"integer; measure deadline from request start using a monotonic clock","poll_after_ms":"integer","device":"Device"},
@@ -117,6 +125,6 @@
     "StatusWarning":{"id":"integer; stable within one consecutive observation-failure streak","message":"string"},
     "PlayerState":{"revision":"integer","state":"stopped|starting|playing|paused|unavailable|error","renderer_id":"string","current_entry_id":"string","track":"Track|null","position_ms":"integer","duration_ms":"integer","observed_at":"string","pending_command":"string","error":"string","status_warning":"StatusWarning?","capabilities":"Capabilities"},
     "ServerConfig":{"version":1,"data_dir":"absolute path","server_name":"optional display name; empty uses hostname","http":{"enabled":"boolean","address":"string"},"https":{"enabled":"boolean","address":"string","certificate_file":"absolute path or empty when disabled","private_key_file":"absolute path or empty when disabled"},"library_roots":"Root[]","network":{"interfaces":"string[]","discovery_interval_seconds":"integer","poll_interval_seconds":"integer","allowed_cidrs":"string[]"},"media":{"base_url":"string","ffmpeg_path":"absolute path or empty","transcode":"boolean"},"airplay":{"enabled":"boolean","helper_path":"absolute path or empty when disabled"},"cast":{"enabled":"boolean; optional on input and defaults to false"}},
-    "ChangeEvent":{"event":"change","id":"monotonic integer","data":{"type":"player|queue|library|playlists|renderers|config|resync"}}
+    "ChangeEvent":{"event":"change","id":"monotonic integer","data":{"type":"player|queue|library|playlists|renderers|config|history|verification|resync"}}
   }
 }
