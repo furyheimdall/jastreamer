@@ -142,7 +142,7 @@ class NativePlaybackService : MediaSessionService(), Player.Listener {
                 .setChannelName(R.string.native_playback_notification_channel)
                 .build(),
         )
-        setShowNotificationForIdlePlayer(SHOW_NOTIFICATION_FOR_IDLE_PLAYER_NEVER)
+        setShowNotificationForIdlePlayer(SHOW_NOTIFICATION_FOR_IDLE_PLAYER_AFTER_STOP_OR_ERROR)
         ContextCompat.registerReceiver(
             this,
             noisyReceiver,
@@ -404,11 +404,13 @@ class NativePlaybackService : MediaSessionService(), Player.Listener {
         if (cancelBefore > 0) {
             sequenceFence.cancelBefore(cancelBefore)
             val active = activeExecution
+            // Revocation can precede the Server's replacement command. Stop the
+            // decoder now, retaining only its timeline until replacement or terminal loss.
             if (active != null && activeExecutionSequence <= cancelBefore) {
                 active.cancel(CancellationException("Server cancelled media command"))
-                cancelMediaWork(clearResource = true)
+                cancelMediaWork(clearMediaItems = false)
             } else if (currentResource?.sequence?.let { it <= cancelBefore } == true) {
-                cancelMediaWork(clearResource = true)
+                cancelMediaWork(clearMediaItems = false)
             }
         }
     }
@@ -458,7 +460,7 @@ class NativePlaybackService : MediaSessionService(), Player.Listener {
         } catch (error: CancellationException) {
             throw error
         } catch (error: Throwable) {
-            if (action == "set_uri") cancelMediaWork(clearResource = true)
+            if (action == "set_uri") cancelMediaWork()
             val code = when (error) {
                 is CommandFailure -> error.reportCode
                 is PlaybackFailure -> error.reportCode
@@ -497,8 +499,9 @@ class NativePlaybackService : MediaSessionService(), Player.Listener {
         pendingTerminal = null
         recovering = false
         publicError = null
+        // Keep the prior timeline while preparing the replacement. Clearing it here
+        // removes Media3's notification and foreground protection between tracks.
         player.stop()
-        player.clearMediaItems()
 
         val metadata = MediaMetadata.Builder()
             .setTitle(resource.optString("title").take(512))
@@ -571,7 +574,9 @@ class NativePlaybackService : MediaSessionService(), Player.Listener {
             throw CommandFailure("action_failed", "Media identity changed")
         }
         val result = observation("stopped", playId)
-        cancelMediaWork(clearResource = true)
+        // The Server also sends Stop between tracks. Keep only the stopped
+        // timeline; terminal registration loss still removes it and the notification.
+        cancelMediaWork(clearMediaItems = false)
         publicError = null
         notifyState()
         return result
@@ -579,7 +584,8 @@ class NativePlaybackService : MediaSessionService(), Player.Listener {
 
     private suspend fun executeSeek(expected: Registration, command: JSONObject, sequence: Long): JSONObject {
         val active = requireActive(command, sequence)
-        val requested = command.optLong("position_ms", -1L)
+        // The Server omits position_ms when its value is zero.
+        val requested = if (command.has("position_ms")) command.optLong("position_ms", -1L) else 0L
         if (requested < 0L) throw CommandFailure("action_failed", "Invalid seek position")
         val interruptedRecovery = cancelBackgroundRecovery()
         val shouldPlay = active.wantsPlayback
@@ -935,11 +941,11 @@ class NativePlaybackService : MediaSessionService(), Player.Listener {
         leaseWatchdogJob?.cancel()
         identityJob?.cancel()
         activeExecution?.cancel()
-        cancelMediaWork(clearResource = true)
+        cancelMediaWork()
         setError(code, message)
     }
 
-    private fun cancelMediaWork(clearResource: Boolean) {
+    private fun cancelMediaWork(clearMediaItems: Boolean = true) {
         recoveryJob?.cancel()
         recoveryJob = null
         preparing = false
@@ -948,8 +954,8 @@ class NativePlaybackService : MediaSessionService(), Player.Listener {
         acknowledgingCommand = false
         deferredPlaybackError = null
         player.stop()
-        player.clearMediaItems()
-        if (clearResource) currentResource = null
+        if (clearMediaItems) player.clearMediaItems()
+        currentResource = null
         notifyState()
     }
 
@@ -973,7 +979,7 @@ class NativePlaybackService : MediaSessionService(), Player.Listener {
             // The lease bounds stale registrations when a best-effort disconnect cannot arrive.
         }
         if (registration === existing) registration = null
-        cancelMediaWork(clearResource = true)
+        cancelMediaWork()
     }
 
     private fun setRecovering(value: Boolean) {
