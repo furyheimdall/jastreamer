@@ -637,6 +637,40 @@ class ActualWebUiSmokeTest {
             screenshot("native-recovery-stopped")
 
             resetProxyFault()
+            armMediaFault("not_found")
+            onMain { controller.play() }
+            waitForPlayer("a real Media3 preparation failure reaches Server") {
+                it.optString("state") == "error" &&
+                    it.optString("renderer_id") == deviceId &&
+                    it.optString("pending_command").isEmpty()
+            }
+            waitForNativeState("failed preparation preserves the native registration") {
+                it.optJSONObject("device")?.optString("id") == deviceId &&
+                    it.optJSONObject("error")?.optString("code") == "playback_failed"
+            }
+            resetProxyFault()
+            onMain { controller.play() }
+            waitForPlayer("the same output replays after failed preparation") {
+                it.optString("state") == "playing" &&
+                    it.optString("renderer_id") == deviceId &&
+                    it.optString("pending_command").isEmpty()
+            }
+            waitFor("Media3 is playing before a runtime read failure") {
+                onMain { controller.isPlaying && controller.currentPosition >= 250L }
+            }
+            armMediaFault("not_found")
+            onMain { controller.seekTo(570_000L) }
+            waitForPlayer("a runtime Media3 error stops only the current playback") {
+                it.optString("state") == "error" &&
+                    it.optString("renderer_id") == deviceId &&
+                    it.optString("pending_command").isEmpty()
+            }
+            waitForNativeState("runtime playback error retains a replayable registration") {
+                it.optJSONObject("device")?.optString("id") == deviceId &&
+                    it.optJSONObject("error")?.optString("code") == "media_error"
+            }
+            screenshot("native-playback-error")
+            resetProxyFault()
 
             onMain { controller.play() }
             waitForPlayer("long media restarts before the lease watchdog scenario") {

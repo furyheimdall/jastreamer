@@ -3,6 +3,7 @@
 
 import base64
 import json
+import shlex
 import signal
 import socket
 import subprocess
@@ -18,6 +19,51 @@ from pathlib import Path
 class Interrupted(Exception):
     def __init__(self, signum):
         self.signum = signum
+
+
+def verify_playback_diagnostics(path, evidence):
+    rows = []
+    for line in path.read_text(encoding="utf-8").splitlines():
+        if "diagnostic component=browseroutput " in line:
+            rows.append(dict(field.split("=", 1) for field in shlex.split(line) if "=" in field))
+    def identity(row):
+        return row.get("renderer_id"), row.get("play_id"), row.get("sequence")
+    command_failures = {
+        identity(row) for row in rows
+        if row.get("event") == "command_result" and row.get("status") == "failed"
+    }
+    runtime_failures = {
+        identity(row) for row in rows
+        if row.get("event") == "observation_transition" and row.get("transport_status") == "ERROR_OCCURRED"
+    } - command_failures
+    verified = []
+    for row in rows:
+        if row.get("event") != "native_playback_error":
+            continue
+        errors = json.loads(row["playback_errors"])
+        if not any(
+            error["error_code"] == 2004 and error["error_name"] == "ERROR_CODE_IO_BAD_HTTP_STATUS" and any(
+                cause.get("http_status") == 404 and
+                cause["type"].endswith("InvalidResponseCodeException") and cause["stack"]
+                for cause in error["causes"]
+            ) for error in errors
+        ):
+            continue
+        key = identity(row)
+        if not all(key) or row.get("command_id") != f"{key[0]}/{key[2]}":
+            raise RuntimeError("Server playback diagnostic lost its playback/command correlation")
+        serialized = row["playback_errors"]
+        if any(value in serialized for value in ("http://", "https://", "/media/", "owner_token", "Injected missing media")):
+            raise RuntimeError("Server playback diagnostic contains transport or free-text details")
+        verified.append({**row, "playback_errors": errors})
+    keys = {identity(row) for row in verified}
+    if not (keys & command_failures) or not (keys & runtime_failures):
+        raise RuntimeError("Missing Server-retained Media3 preparation/runtime error code, HTTP cause, or stack")
+    if len({row["renderer_id"] for row in verified}) != 1:
+        raise RuntimeError("Playback error unexpectedly replaced the native registration")
+    evidence.mkdir(parents=True, exist_ok=True)
+    (evidence / "native-playback-errors.json").write_text(json.dumps(verified, indent=2) + "\n", encoding="utf-8")
+    print("Verified Server-retained Media3 command and runtime failure causes on the same registration", flush=True)
 
 
 def main():
@@ -104,6 +150,11 @@ def main():
                     raise RuntimeError(f"Fixture Server exited during instrumentation: {server.returncode}")
                 if proxy.poll() is not None:
                     raise RuntimeError(f"Fixture proxy exited during instrumentation: {proxy.returncode}")
+                if result == 0:
+                    verify_playback_diagnostics(
+                        data / "logs" / "server.log",
+                        root / "apps/android/app/build/androidTest-evidence",
+                    )
             except Interrupted as failure:
                 result = 128 + failure.signum
             except (OSError, RuntimeError) as failure:
@@ -139,6 +190,11 @@ def main():
                             if result == 0:
                                 result = 65
                             print(f"Fixture {label} did not stop gracefully", file=sys.stderr)
+        persistent_log = data / "logs" / "server.log"
+        if persistent_log.is_file():
+            evidence = root / "apps/android/app/build/androidTest-evidence"
+            evidence.mkdir(parents=True, exist_ok=True)
+            (evidence / "server-diagnostics.log").write_bytes(persistent_log.read_bytes())
         if result:
             print(log_path.read_text(encoding="utf-8"), file=sys.stderr)
     return result

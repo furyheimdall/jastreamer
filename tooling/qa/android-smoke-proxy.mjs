@@ -59,7 +59,7 @@ async function configure(request, response, pathname) {
     if (typeof candidate.path !== "string" || !candidate.path.startsWith("/") ||
         candidate.path.startsWith("/__android_smoke/") || /[?#\r\n\0]/.test(candidate.path) ||
         !Number.isInteger(candidate.count) || candidate.count < 1 || candidate.count > 8 ||
-        !["disconnect", "delay"].includes(candidate.mode) ||
+        !["disconnect", "delay", "not_found"].includes(candidate.mode) ||
         (candidate.prefix !== undefined && typeof candidate.prefix !== "boolean") ||
         (candidate.mode === "delay" && (!Number.isInteger(candidate.delay_ms) || candidate.delay_ms < 1 || candidate.delay_ms > 15000))) {
       throw new Error("Invalid fault request");
@@ -82,6 +82,10 @@ const server = http.createServer((request, response) => {
     if (--active.count === 0) fault = null;
     if (active.mode === "disconnect") {
       request.socket.destroy();
+      return;
+    }
+    if (active.mode === "not_found") {
+      response.writeHead(404, { "Content-Type": "text/plain" }).end("Injected missing media");
       return;
     }
     const timer = setTimeout(() => {
