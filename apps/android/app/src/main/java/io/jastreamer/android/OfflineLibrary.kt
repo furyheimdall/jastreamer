@@ -307,6 +307,7 @@ class OfflineLibrary private constructor(context: Context) {
             if (stagedAudio.length() != parsed.byteSize || sha256(stagedAudio) != parsed.sha256) {
                 integrity("The durable copy failed checksum verification.")
             }
+            if (artwork != null && stagedArtwork != null) copyAndSync(artwork, stagedArtwork)
             val allowed = try {
                 runImportCommitGate(commitGate) {
                     authorizeImportCommitLocked(operationId, details)

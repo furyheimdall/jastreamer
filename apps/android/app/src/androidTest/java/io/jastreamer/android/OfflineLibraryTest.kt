@@ -1,6 +1,9 @@
 package io.jastreamer.android
 
 import android.content.ContentValues
+import android.content.Context
+import android.content.ContextWrapper
+import android.database.DatabaseErrorHandler
 import android.database.sqlite.SQLiteDatabase
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
@@ -12,6 +15,7 @@ import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import org.json.JSONObject
+import org.junit.After
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -19,13 +23,35 @@ import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
+import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 
 @RunWith(AndroidJUnit4::class)
 class OfflineLibraryTest {
-    private val context get() = InstrumentationRegistry.getInstrumentation().targetContext
-    private val library get() = OfflineLibrary.get(context)
+    private lateinit var context: Context
+    private lateinit var fixtureRoot: File
+    private lateinit var library: OfflineLibrary
+    private val openedLibraries = mutableListOf<OfflineLibrary>()
+
+    @Before
+    fun createIsolatedLibrary() {
+        val targetContext = InstrumentationRegistry.getInstrumentation().targetContext
+        fixtureRoot = File(
+            targetContext.filesDir,
+            "offline-library-test-fixtures/${UUID.randomUUID()}",
+        )
+        context = IsolatedStorageContext(targetContext, fixtureRoot)
+        library = openLibrary()
+    }
+
+    @After
+    fun removeIsolatedLibrary() {
+        openedLibraries.asReversed().forEach { opened ->
+            database(opened).let { if (it.isOpen) it.close() }
+        }
+        fixtureRoot.deleteRecursively()
+    }
 
     @Test
     fun verifiedImportDeduplicatesByBytesAndQualityAndEnforcesQuota() {
@@ -482,7 +508,7 @@ class OfflineLibraryTest {
             assertTrue(imported.relativePath.startsWith("$recoveredName/"))
             assertArrayEquals(bytes, musicFile(imported.relativePath).readBytes())
         } finally {
-            val active = OfflineLibrary.get(context)
+            val active = library
             database().delete("operations", "id=?", arrayOf(operationId))
             importedTrackId?.let { id -> if (active.track(id) != null) active.deleteTracks(listOf(id)) }
             val current = active.folder(OfflineLibrary.IMPORT_FOLDER_ID)
@@ -733,18 +759,62 @@ class OfflineLibraryTest {
     }
 
     private fun coldStartLibrary(): OfflineLibrary {
-        val current = library
-        database(current).close()
-        val instance = OfflineLibrary::class.java.getDeclaredField("instance")
-        instance.isAccessible = true
-        instance.set(null, null)
-        return OfflineLibrary.get(context)
+        database().close()
+        return openLibrary().also { library = it }
+    }
+
+    private fun openLibrary(): OfflineLibrary {
+        val constructor = OfflineLibrary::class.java.getDeclaredConstructor(Context::class.java)
+        constructor.isAccessible = true
+        return constructor.newInstance(context).also(openedLibraries::add)
     }
 
     private fun recoverNow() {
         val method = OfflineLibrary::class.java.getDeclaredMethod("recoverLocked")
         method.isAccessible = true
         method.invoke(library)
+    }
+
+    private class IsolatedStorageContext(
+        base: Context,
+        private val root: File,
+    ) : ContextWrapper(base) {
+        override fun getApplicationContext(): Context = this
+
+        override fun getFilesDir(): File = directory("files")
+
+        override fun getCacheDir(): File = directory("cache")
+
+        override fun getCodeCacheDir(): File = directory("code-cache")
+
+        override fun getDatabasePath(name: String): File =
+            File(directory("databases"), name)
+
+        override fun databaseList(): Array<String> =
+            directory("databases").list() ?: emptyArray()
+
+        override fun deleteDatabase(name: String): Boolean =
+            SQLiteDatabase.deleteDatabase(getDatabasePath(name))
+
+        override fun openOrCreateDatabase(
+            name: String,
+            mode: Int,
+            factory: SQLiteDatabase.CursorFactory?,
+        ): SQLiteDatabase = SQLiteDatabase.openOrCreateDatabase(getDatabasePath(name), factory)
+
+        override fun openOrCreateDatabase(
+            name: String,
+            mode: Int,
+            factory: SQLiteDatabase.CursorFactory?,
+            errorHandler: DatabaseErrorHandler?,
+        ): SQLiteDatabase = SQLiteDatabase.openOrCreateDatabase(
+            getDatabasePath(name).absolutePath,
+            factory,
+            errorHandler,
+        )
+
+        private fun directory(name: String): File =
+            File(root, name).apply { check(isDirectory || mkdirs()) }
     }
 
     private fun expectCode(code: String, action: () -> Unit) {
