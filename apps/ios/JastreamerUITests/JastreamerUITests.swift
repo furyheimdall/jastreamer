@@ -270,7 +270,14 @@ final class JastreamerUITests: XCTestCase {
         replaceText(in: address, with: origin)
         app.buttons["connect-server"].tap()
         allowLocalNetworkAccessIfRequested()
-        XCTAssertTrue(app.buttons["switch-server"].waitForExistence(timeout: 25), "Failed to select \(origin)")
+        // Query native readiness before traversing WebKit's still-launching accessibility process.
+        let connected = XCTWaiter.wait(for: [XCTNSPredicateExpectation(
+            predicate: NSPredicate { _, _ in
+                app.buttons["switch-server"].exists && !app.progressIndicators.firstMatch.exists
+            },
+            object: nil
+        )], timeout: 25)
+        XCTAssertEqual(connected, .completed, "Failed to finish loading \(origin)")
     }
 
     private func replaceText(in field: XCUIElement, with value: String) {
