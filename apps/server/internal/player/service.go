@@ -312,7 +312,7 @@ func (s *Service) Snapshot(ctx context.Context) (State, error) {
 			result.Track = &track
 		}
 	}
-	if err := s.db.QueryRowContext(ctx, `SELECT CASE action WHEN 'natural_next' THEN 'next' ELSE action END FROM player_commands WHERE service_epoch=? AND status IN ('pending','running') ORDER BY created_at LIMIT 1`, s.epoch).Scan(&result.PendingCommand); err != nil && !errors.Is(err, sql.ErrNoRows) {
+	if err := s.db.QueryRowContext(ctx, `SELECT CASE action WHEN 'natural_next' THEN 'next' WHEN 'error_next' THEN 'next' ELSE action END FROM player_commands WHERE service_epoch=? AND status IN ('pending','running') ORDER BY created_at LIMIT 1`, s.epoch).Scan(&result.PendingCommand); err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return State{}, fmt.Errorf("player: load pending command: %w", err)
 	}
 	return result, nil

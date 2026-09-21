@@ -315,6 +315,10 @@ func (s *Service) applyObservation(ctx context.Context, observation output.Obser
 		return result
 	}
 
+	if observation.PlayID != "" && observation.PlayID != st.playID {
+		return result
+	}
+
 	normalized := normalizeObservedState(observation.State)
 	if normalized == "unknown" && !observation.HasURI {
 		result.positionChanged = observation.HasPosition && position != st.positionMS
@@ -332,6 +336,9 @@ func (s *Service) applyObservation(ctx context.Context, observation output.Obser
 	uriCleared := observation.HasURI && st.currentURI != "" && observation.URI == ""
 	if observation.HasURI && st.currentURI != "" && observation.URI != "" && !ownedURI {
 		return s.commitExternalObservation(ctx, tx, st, observation, position, duration, observedAt, "external_playback", "Renderer playback changed outside JaStreamer. Press Play to resume.")
+	}
+	if correlatedMediaFailure(st, observation) {
+		return s.commitMediaFailureAdvance(ctx, tx, st, observation, position, duration, observedAt)
 	}
 	if terminalEnd {
 		return s.commitTerminalAdvance(ctx, tx, st, observation, observedAt)
@@ -475,6 +482,64 @@ func (s *Service) commitInterruptedObservation(ctx context.Context, tx *sql.Tx, 
 	s.logObservationInterrupted(st, observation, state, reason, position)
 	s.startup = startupObservationEvidence{}
 	result.queueChanged = queueChanged
+	return result
+}
+
+func correlatedMediaFailure(st storedState, observation output.Observation) bool {
+	return observation.MediaFailed &&
+		(st.state == StatePlaying || st.state == StateStarting) &&
+		!st.resumeRequired &&
+		st.playID != "" && st.currentEntryID != "" && st.currentURI != "" &&
+		observation.PlayID == st.playID &&
+		normalizeObservedState(observation.State) == "stopped" &&
+		observation.HasURI && observation.URI == st.currentURI &&
+		strings.EqualFold(strings.TrimSpace(observation.TransportStatus), "ERROR_OCCURRED")
+}
+
+func (s *Service) commitMediaFailureAdvance(ctx context.Context, tx *sql.Tx, st storedState, observation output.Observation, position, duration int64, observedAt string) observationResult {
+	const message = "The media engine reported a terminal playback failure for this track."
+	result := observationResult{playerChanged: true, revokePlayID: st.playID}
+	changed, err := setQueueStatus(ctx, tx, st.currentEntryID, EntryError)
+	if err != nil {
+		return observationResult{}
+	}
+	result.queueChanged = changed
+	var currentPosition int
+	if err := tx.QueryRowContext(ctx, "SELECT position FROM player_queue WHERE entry_id=?", st.currentEntryID).Scan(&currentPosition); err != nil {
+		return observationResult{}
+	}
+	var nextEntryID string
+	if err := tx.QueryRowContext(ctx, "SELECT entry_id FROM player_queue WHERE position>? ORDER BY position LIMIT 1", currentPosition).Scan(&nextEntryID); err != nil && err != sql.ErrNoRows {
+		return observationResult{}
+	}
+	state := StateError
+	controlAction := ""
+	playerMessage := message
+	var commandID string
+	if nextEntryID != "" {
+		commandID, err = randomID("command")
+		if err != nil {
+			return observationResult{}
+		}
+		if _, err := tx.ExecContext(ctx, `INSERT INTO player_commands(command_id,service_epoch,action,entry_id,position_ms,status,error,created_at,started_at,completed_at) VALUES(?,?, 'error_next',?,0,'pending','',?,'','')`, commandID, s.epoch, nextEntryID, observedAt); err != nil {
+			return observationResult{}
+		}
+		state = StateStarting
+		controlAction = "error_next"
+		playerMessage = ""
+		result.commandQueued = true
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE player_state SET revision=revision+1,queue_revision=queue_revision+?,current_entry_id=CASE WHEN ?<>'' THEN ? ELSE current_entry_id END,state=?,play_id='',current_uri='',current_seekable=0,position_ms=?,duration_ms=?,observed_at=?,last_observed_state=?,last_observed_uri=?,last_observed_position_ms=?,last_observed_duration_ms=?,last_observed_has_position=?,last_observed_at=?,resume_required=0,error=?,control_action=?,control_at=? WHERE singleton=1`, boolInt(result.queueChanged), nextEntryID, nextEntryID, state, position, duration, observedAt, observation.State, observation.URI, observation.PositionMS, observation.DurationMS, boolInt(observation.HasPosition), observedAt, playerMessage, controlAction, observedAt); err != nil {
+		return observationResult{}
+	}
+	if err := tx.Commit(); err != nil {
+		return observationResult{}
+	}
+	s.logMediaFailureTransition(st, observation, commandID, nextEntryID, state, position)
+	if commandID != "" {
+		s.logCommandAccepted(commandID, "error_next", st.rendererID, st.playID, st.currentEntryID, nextEntryID, "media_failure", state, st.revision+1, 0)
+	}
+	s.startup = startupObservationEvidence{}
 	return result
 }
 

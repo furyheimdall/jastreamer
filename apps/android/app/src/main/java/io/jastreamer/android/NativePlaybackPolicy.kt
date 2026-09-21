@@ -1,5 +1,8 @@
 package io.jastreamer.android
 
+import java.io.InterruptedIOException
+import java.net.SocketException
+import java.net.UnknownHostException
 import java.nio.charset.StandardCharsets
 import javax.net.ssl.SSLException
 import okhttp3.HttpUrl
@@ -62,6 +65,26 @@ internal object NativePlaybackPolicy {
         if (causeChain(cause).any { it is SSLException }) return false
         if (httpStatus != null) return httpStatus in 500..599 || httpStatus == 408 || httpStatus == 429
         return errorCode == 2000 || errorCode == 2001 || errorCode == 2002 || errorCode == 1003
+    }
+
+    fun isTerminalItemMediaError(
+        errorCode: Int,
+        httpStatus: Int? = null,
+        cause: Throwable? = null,
+        hasTransportCause: Boolean = false,
+    ): Boolean {
+        val isTerminalItemFailure =
+            errorCode == 1004 ||
+                errorCode in 3001..3004 ||
+                errorCode in 4003..4005
+        if (!isTerminalItemFailure || httpStatus != null || hasTransportCause) return false
+        return causeChain(cause).none {
+            it is SSLException ||
+                it is SecurityException ||
+                it is InterruptedIOException ||
+                it is SocketException ||
+                it is UnknownHostException
+        }
     }
 
     fun recoveryDelayMillis(retry: Int): Long? = when (retry) {

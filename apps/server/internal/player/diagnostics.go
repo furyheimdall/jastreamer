@@ -107,3 +107,7 @@ func (s *Service) logObservationInterrupted(st storedState, observation output.O
 func (s *Service) logNaturalTransition(st storedState, observation output.Observation, commandID, action, nextEntryID, resultState, reason string, positionMS int64) {
 	log.Printf("diagnostic component=player event=automatic_next_transition service_epoch=%q command_id=%q action=%q renderer_id=%q play_id=%q current_entry_id=%q target_entry_id=%q sequence=%d state=%q previous_state=%q observed_state=%q status=%q reason=%q position_ms=%d", s.epoch, commandID, action, st.rendererID, st.playID, st.currentEntryID, nextEntryID, observation.CommandSequence, resultState, st.state, normalizeObservedState(observation.State), diagnosticTransportStatus(observation.TransportStatus), reason, positionMS)
 }
+
+func (s *Service) logMediaFailureTransition(st storedState, observation output.Observation, commandID, nextEntryID, resultState string, positionMS int64) {
+	log.Printf("diagnostic component=player event=automatic_next_transition service_epoch=%q command_id=%q action=%q renderer_id=%q play_id=%q current_entry_id=%q target_entry_id=%q sequence=%d state=%q previous_state=%q observed_state=%q status=%q reason=%q position_ms=%d error_category=%q", s.epoch, commandID, "error_next", st.rendererID, st.playID, st.currentEntryID, nextEntryID, observation.CommandSequence, resultState, st.state, normalizeObservedState(observation.State), diagnosticTransportStatus(observation.TransportStatus), "media_failed", positionMS, "media")
+}

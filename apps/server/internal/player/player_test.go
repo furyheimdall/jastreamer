@@ -1822,6 +1822,267 @@ func TestNewPlaybackDoesNotReusePriorTrackEOFEvidence(t *testing.T) {
 	}
 }
 
+func TestTerminalMediaFailureAdvancesExactlyOnceAndRetainsFailedEntry(t *testing.T) {
+	service, db, devices := newPlayerTestService(t)
+	ctx := t.Context()
+	queue, err := service.MutateQueue(ctx, QueueMutation{Action: "append", TrackIDs: []string{"a", "b"}, Revision: 0})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.Command(ctx, Command{Action: "play", EntryID: queue.Entries[0].ID}); err != nil {
+		t.Fatal(err)
+	}
+	runAcceptedCommand(t, service)
+	binding, err := service.loadState(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	failed := output.Observation{
+		State: "stopped", URI: binding.currentURI, HasURI: true,
+		PositionMS: 41119, DurationMS: 100000, HasPosition: true,
+		ObservedAt: time.Now().UTC(), TransportStatus: "ERROR_OCCURRED",
+		MediaFailed: true, PlayID: binding.playID, CommandSequence: 2,
+	}
+	devices.observation = failed
+	service.observeSelected(ctx)
+	service.observeSelected(ctx)
+	var advances, naturalEnds int
+	if err := db.QueryRow("SELECT COUNT(*) FROM player_commands WHERE action='error_next'").Scan(&advances); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.QueryRow("SELECT COUNT(*) FROM player_natural_ends").Scan(&naturalEnds); err != nil {
+		t.Fatal(err)
+	}
+	if advances != 1 || naturalEnds != 0 {
+		t.Fatalf("media failure progression advances=%d natural_ends=%d", advances, naturalEnds)
+	}
+	pending, err := service.Queue(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pending.Entries[0].Status != EntryError || pending.Entries[1].Status != EntryPending {
+		t.Fatalf("media failure queue=%#v", pending.Entries)
+	}
+	media := service.media.(*fakeMedia)
+	media.mu.Lock()
+	revoked := append([]string(nil), media.revoked...)
+	media.mu.Unlock()
+	if len(revoked) != 1 || revoked[0] != binding.playID {
+		t.Fatalf("failed media revoke=%v", revoked)
+	}
+	runAcceptedCommand(t, service)
+	started := service.mustState(t)
+	finished, err := service.Queue(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if started.CurrentEntryID != queue.Entries[1].ID || started.State != StateStarting ||
+		finished.Entries[0].Status != EntryError || finished.Entries[1].Status != EntryPlaying {
+		t.Fatalf("media failure successor state=%#v queue=%#v", started, finished.Entries)
+	}
+}
+
+func TestConsecutiveStartupMediaFailuresContinueToSafeSuccessor(t *testing.T) {
+	service, db, devices := newPlayerTestService(t)
+	ctx := t.Context()
+	queue, err := service.MutateQueue(ctx, QueueMutation{Action: "append", TrackIDs: []string{"a", "b", "a"}, Revision: 0})
+	if err != nil {
+		t.Fatal(err)
+	}
+	devices.fail["set_uri"] = output.NewActionError(output.ErrorMedia, "SetURI", 0, errors.New("terminal media engine failure"))
+	if _, err := service.Command(ctx, Command{Action: "play", EntryID: queue.Entries[0].ID}); err != nil {
+		t.Fatal(err)
+	}
+	runAcceptedCommand(t, service)
+	runAcceptedCommand(t, service)
+	delete(devices.fail, "set_uri")
+	runAcceptedCommand(t, service)
+	state := service.mustState(t)
+	finished, err := service.Queue(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state.State != StateStarting || state.CurrentEntryID != queue.Entries[2].ID ||
+		finished.Entries[0].Status != EntryError || finished.Entries[1].Status != EntryError ||
+		finished.Entries[2].Status != EntryPlaying {
+		t.Fatalf("consecutive media failure state=%#v queue=%#v", state, finished.Entries)
+	}
+	var advances, naturalEnds int
+	if err := db.QueryRow("SELECT COUNT(*) FROM player_commands WHERE action='error_next'").Scan(&advances); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.QueryRow("SELECT COUNT(*) FROM player_natural_ends").Scan(&naturalEnds); err != nil {
+		t.Fatal(err)
+	}
+	if advances != 2 || naturalEnds != 0 {
+		t.Fatalf("startup media failure progression advances=%d natural_ends=%d", advances, naturalEnds)
+	}
+}
+
+func TestLastEntryMediaFailureStopsWithError(t *testing.T) {
+	service, db, devices := newPlayerTestService(t)
+	ctx := t.Context()
+	queue, err := service.MutateQueue(ctx, QueueMutation{Action: "append", TrackIDs: []string{"a"}, Revision: 0})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.Command(ctx, Command{Action: "play"}); err != nil {
+		t.Fatal(err)
+	}
+	runAcceptedCommand(t, service)
+	binding, err := service.loadState(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	devices.observation = output.Observation{
+		State: "stopped", URI: binding.currentURI, HasURI: true,
+		ObservedAt: time.Now().UTC(), TransportStatus: "ERROR_OCCURRED",
+		MediaFailed: true, PlayID: binding.playID,
+	}
+	service.observeSelected(ctx)
+	state := service.mustState(t)
+	finished, err := service.Queue(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var advances, naturalEnds int
+	if err := db.QueryRow("SELECT COUNT(*) FROM player_commands WHERE action='error_next'").Scan(&advances); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.QueryRow("SELECT COUNT(*) FROM player_natural_ends").Scan(&naturalEnds); err != nil {
+		t.Fatal(err)
+	}
+	if state.State != StateError || state.PendingCommand != "" || state.Error == "" ||
+		state.CurrentEntryID != queue.Entries[0].ID || finished.Entries[0].Status != EntryError ||
+		advances != 0 || naturalEnds != 0 {
+		t.Fatalf("last media failure state=%#v queue=%#v advances=%d natural_ends=%d", state, finished.Entries, advances, naturalEnds)
+	}
+}
+
+func TestExplicitStopSupersedesQueuedMediaFailureAdvance(t *testing.T) {
+	service, db, devices := newPlayerTestService(t)
+	ctx := t.Context()
+	_, err := service.MutateQueue(ctx, QueueMutation{Action: "append", TrackIDs: []string{"a", "b"}, Revision: 0})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.Command(ctx, Command{Action: "play"}); err != nil {
+		t.Fatal(err)
+	}
+	runAcceptedCommand(t, service)
+	binding, err := service.loadState(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	failed := output.Observation{
+		State: "stopped", URI: binding.currentURI, HasURI: true,
+		ObservedAt: time.Now().UTC(), TransportStatus: "ERROR_OCCURRED",
+		MediaFailed: true, PlayID: binding.playID,
+	}
+	devices.observation = failed
+	service.observeSelected(ctx)
+	if _, err := service.Command(ctx, Command{Action: "stop"}); err != nil {
+		t.Fatal(err)
+	}
+	runAcceptedCommand(t, service)
+	service.observeSelected(ctx)
+	state := service.mustState(t)
+	finished, err := service.Queue(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var advanceStatus string
+	if err := db.QueryRow("SELECT status FROM player_commands WHERE action='error_next'").Scan(&advanceStatus); err != nil {
+		t.Fatal(err)
+	}
+	if state.State != StateStopped || state.PendingCommand != "" ||
+		finished.Entries[0].Status != EntryError || finished.Entries[1].Status != EntryPending ||
+		advanceStatus != "failed" {
+		t.Fatalf("stop supersession state=%#v queue=%#v advance=%q", state, finished.Entries, advanceStatus)
+	}
+}
+
+func TestUnknownSuccessorStartDoesNotSkipAgain(t *testing.T) {
+	service, db, devices := newPlayerTestService(t)
+	ctx := t.Context()
+	queue, err := service.MutateQueue(ctx, QueueMutation{Action: "append", TrackIDs: []string{"a", "b", "a"}, Revision: 0})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.Command(ctx, Command{Action: "play"}); err != nil {
+		t.Fatal(err)
+	}
+	runAcceptedCommand(t, service)
+	binding, err := service.loadState(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	devices.observation = output.Observation{
+		State: "stopped", URI: binding.currentURI, HasURI: true,
+		ObservedAt: time.Now().UTC(), TransportStatus: "ERROR_OCCURRED",
+		MediaFailed: true, PlayID: binding.playID,
+	}
+	service.observeSelected(ctx)
+	devices.fail["set_uri"] = output.NewActionError(output.ErrorTransport, "SetURI", 0, errors.New("connection lost"))
+	runAcceptedCommand(t, service)
+	state := service.mustState(t)
+	finished, err := service.Queue(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var advances int
+	if err := db.QueryRow("SELECT COUNT(*) FROM player_commands WHERE action='error_next'").Scan(&advances); err != nil {
+		t.Fatal(err)
+	}
+	if state.State != StateUnavailable || !strings.Contains(strings.ToLower(state.Error), "unknown") ||
+		state.CurrentEntryID != queue.Entries[1].ID || advances != 1 ||
+		finished.Entries[0].Status != EntryError || finished.Entries[1].Status != EntryPending ||
+		finished.Entries[2].Status != EntryPending {
+		t.Fatalf("unknown successor start state=%#v queue=%#v advances=%d", state, finished.Entries, advances)
+	}
+}
+
+func TestPausedMediaFailureDoesNotAdvance(t *testing.T) {
+	service, db, devices := newPlayerTestService(t)
+	ctx := t.Context()
+	_, err := service.MutateQueue(ctx, QueueMutation{Action: "append", TrackIDs: []string{"a", "b"}, Revision: 0})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.Command(ctx, Command{Action: "play"}); err != nil {
+		t.Fatal(err)
+	}
+	runAcceptedCommand(t, service)
+	binding, err := service.loadState(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	devices.observation = output.Observation{
+		State: "paused", URI: binding.currentURI, HasURI: true,
+		ObservedAt: time.Now().UTC(), TransportStatus: "OK", PlayID: binding.playID,
+	}
+	service.observeSelected(ctx)
+	devices.observation = output.Observation{
+		State: "stopped", URI: binding.currentURI, HasURI: true,
+		ObservedAt: time.Now().UTC(), TransportStatus: "ERROR_OCCURRED",
+		MediaFailed: true, PlayID: binding.playID,
+	}
+	service.observeSelected(ctx)
+	state := service.mustState(t)
+	finished, err := service.Queue(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var advances int
+	if err := db.QueryRow("SELECT COUNT(*) FROM player_commands WHERE action='error_next'").Scan(&advances); err != nil {
+		t.Fatal(err)
+	}
+	if state.State != StateError || state.PendingCommand != "" || advances != 0 ||
+		finished.Entries[0].Status != EntryPending || finished.Entries[1].Status != EntryPending {
+		t.Fatalf("paused media failure state=%#v queue=%#v advances=%d", state, finished.Entries, advances)
+	}
+}
+
 func (s *Service) mustState(t *testing.T) State {
 	t.Helper()
 	state, err := s.Snapshot(context.Background())

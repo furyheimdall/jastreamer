@@ -177,7 +177,9 @@ const NativeAndroidOutput = forwardRef<NativeAndroidOutputHandle, NativeAndroidO
     const pending = new Map<string, PendingRequest>();
 
     const reportTerminalError = (error: NativeState["error"] | undefined) => {
-      const key = error ? `${error.code}\n${error.message}` : "";
+      // Item failures remain visible in the Server queue. A final Server error
+      // still opens a notice, but successful continuation must stay usable.
+      const key = error && error.code !== "media_failed" ? `${error.code}\n${error.message}` : "";
       if (!key) {
         terminalError = "";
         return;

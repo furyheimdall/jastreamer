@@ -286,6 +286,52 @@ test("browser natural completion advances once and owner reload preserves the qu
   await expect.poll(async () => (await control(page, "/player")).state).toBe("stopped");
 });
 
+test("a terminal decode failure retains the failed entry and advances duplicate tracks exactly once", async ({ page }) => {
+  const { audio, trackIDs } = await prepareBrowserPlayback(page, ["long.wav", "long.wav", "short.wav"]);
+  const queued = await control(page, "/queue");
+  await startBrowserPlayback(page, audio);
+  await audio.evaluate((element) => {
+    // Inject a terminal decoder fault, not a fabricated Server completion.
+    // Keep it observable through an in-flight acknowledgment until source replacement.
+    Object.defineProperty(element, "error", {
+      configurable: true,
+      get: () => ({ code: MediaError.MEDIA_ERR_DECODE }),
+    });
+    element.addEventListener("emptied", () => { delete element.error; }, { once: true });
+    element.pause();
+    element.dispatchEvent(new Event("error"));
+    element.dispatchEvent(new Event("error"));
+  });
+  await expect.poll(async () => (await control(page, "/player")).current_entry_id).toBe(queued.entries[1].id);
+  await expect.poll(async () => (await control(page, "/queue")).entries.map((entry) => entry.status))
+    .toEqual(["error", "playing", "pending"]);
+  await expect.poll(() => audio.evaluate((element) => !element.paused && element.currentTime > 0.25)).toBe(true);
+  expect((await control(page, "/queue")).entries.map((entry) => entry.track_id)).toEqual(trackIDs);
+  await page.getByRole("button", { name: "Queue", exact: true }).click();
+  await expect(page.locator(".queue-row").first().getByText("Playback failed", { exact: true })).toBeVisible();
+  await control(page, "/player", "POST", { action: "stop" });
+  await expect.poll(async () => (await control(page, "/player")).state).toBe("stopped");
+  expect((await control(page, "/queue")).entries.map((entry) => entry.status))
+    .toEqual(["error", "pending", "pending"]);
+});
+
+test("a rejected media request does not skip tracks as if it were a decode failure", async ({ page }) => {
+  const { trackIDs } = await prepareBrowserPlayback(page, ["long.wav", "short.wav"]);
+  const queued = await control(page, "/queue");
+  await page.route("**/media/**", (route) => route.fulfill({ status: 403, body: "Forbidden" }));
+  try {
+    await page.getByRole("button", { name: "Play", exact: true }).click();
+    await expect.poll(async () => (await control(page, "/player")).state).toBe("error");
+    expect((await control(page, "/player")).current_entry_id).toBe(queued.entries[0].id);
+    expect((await control(page, "/queue")).entries.map((entry) => entry.status)).toEqual(["error", "pending"]);
+    expect((await control(page, "/queue")).entries.map((entry) => entry.track_id)).toEqual(trackIDs);
+    await control(page, "/player", "POST", { action: "stop" });
+    await expect.poll(async () => (await control(page, "/player")).state).toBe("stopped");
+  } finally {
+    await page.unroute("**/media/**");
+  }
+});
+
 test("browser completion survives a delayed play acknowledgment response", async ({ page }) => {
   const { audio, trackIDs } = await prepareBrowserPlayback(page, ["short.wav", "long.wav"]);
   let release;

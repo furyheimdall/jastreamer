@@ -221,6 +221,7 @@ export default function Queue({ revision, onNotice, onQueueChange }: QueueProps)
                   <button className="queue-track-title" type="button" onClick={() => setInfoTrackID(entry.track.id)} aria-label={t("queue.viewTrackInfo", { title: trackTitle })}><strong>{trackTitle}</strong></button>
                   <span>{entry.track.artist || t("queue.unknownArtist")}</span>
                   {!entry.track.available && <em>{t("queue.fileUnavailable")}</em>}
+                  {entry.status === "error" && <em>{t("queue.playbackFailed")}</em>}
                 </div>
                 <span className="queue-duration">{durationLabel(entry.track.duration_ms)}</span>
                 <div className="queue-actions" aria-label={t("queue.trackActions", { title: trackTitle })}>

@@ -65,6 +65,9 @@ type Observation struct {
 	// Explicit completion evidence is meaningful only for the observed owned URI.
 	CompletionKnown bool `json:"-"`
 	Completed       bool `json:"-"`
+	// MediaFailed identifies a confirmed terminal failure of the active media
+	// engine. It is not completion evidence and says nothing about file integrity.
+	MediaFailed bool `json:"-"`
 	// PlayID and CommandSequence correlate event-driven outputs with the
 	// resource and command that produced the observation.
 	PlayID          string `json:"-"`
@@ -80,6 +83,7 @@ const (
 	ErrorTransport   ErrorKind = "transport"
 	ErrorResponse    ErrorKind = "response"
 	ErrorFault       ErrorKind = "fault"
+	ErrorMedia       ErrorKind = "media"
 )
 
 // ActionError classifies an output failure without exposing endpoint or media URLs.

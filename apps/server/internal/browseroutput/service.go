@@ -284,7 +284,8 @@ func (service *Service) Report(id, token, address string, report Report) error {
 		return nil
 	}
 	if report.Result == "" {
-		if report.ErrorCode != "" || report.Observation == nil {
+		if report.Observation == nil ||
+			(report.ErrorCode != "" && (report.ErrorCode != "media_failed" || report.Observation.Event != "error")) {
 			return service.rejectReportLocked(value, "invalid_observation_envelope", ErrInvalidRequest)
 		}
 		if value.observation.PlayID == report.Observation.PlayID &&
@@ -296,7 +297,7 @@ func (service *Service) Report(id, token, address string, report Report) error {
 			report.Sequence <= value.observation.CommandSequence {
 			return service.rejectReportLocked(value, "terminal_observation", ErrStaleReport)
 		}
-		observation, observationErr := service.observationLocked(value, report.Sequence, report.Observation, nil)
+		observation, observationErr := service.observationLocked(value, report.Sequence, report.Observation, nil, report.ErrorCode == "media_failed")
 		if observationErr != nil {
 			return service.rejectReportLocked(value, reportRejectionReason(observationErr), observationErr)
 		}
@@ -316,15 +317,20 @@ func (service *Service) Report(id, token, address string, report Report) error {
 		return service.rejectReportLocked(value, "no_matching_command", ErrStaleReport)
 	}
 	if report.Result == "failed" {
-		if !validReportError(report.ErrorCode) {
+		if !validReportError(pending.command.Action, report.ErrorCode) {
 			return service.rejectReportLocked(value, "invalid_error_code", ErrInvalidRequest)
 		}
 		previous := value.observation
 		if report.Observation != nil {
-			if observation, observationErr := service.observationLocked(value, report.Sequence, report.Observation, pending); observationErr == nil {
-				value.observation = observation
-				service.logObservationTransitionLocked(value, previous, observation)
+			if report.Observation.Event != "error" {
+				return service.rejectReportLocked(value, "invalid_failure_envelope", ErrInvalidRequest)
 			}
+			observation, observationErr := service.observationLocked(value, report.Sequence, report.Observation, pending, report.ErrorCode == "media_failed")
+			if observationErr != nil {
+				return service.rejectReportLocked(value, reportRejectionReason(observationErr), observationErr)
+			}
+			value.observation = observation
+			service.logObservationTransitionLocked(value, previous, observation)
 		}
 		actionErr := reportActionError(pending.command.Action, report.ErrorCode)
 		value.lastAccepted = copyAcceptedReport(report, playbackErrors)
@@ -339,7 +345,7 @@ func (service *Service) Report(id, token, address string, report Report) error {
 	if report.ErrorCode != "" || report.Observation == nil {
 		return service.rejectReportLocked(value, "invalid_success_envelope", ErrInvalidRequest)
 	}
-	observation, err := service.observationLocked(value, report.Sequence, report.Observation, pending)
+	observation, err := service.observationLocked(value, report.Sequence, report.Observation, pending, false)
 	if err != nil || !matchesSuccessfulAction(pending.command.Action, report.Observation.Event) {
 		if err != nil {
 			return service.rejectReportLocked(value, reportRejectionReason(err), err)
@@ -488,7 +494,7 @@ func (service *Service) dispatch(ctx context.Context, id string, command Command
 	}
 }
 
-func (service *Service) observationLocked(value *registration, sequence uint64, report *ObservationReport, pending *pendingCommand) (output.Observation, error) {
+func (service *Service) observationLocked(value *registration, sequence uint64, report *ObservationReport, pending *pendingCommand, mediaFailed bool) (output.Observation, error) {
 	if sequence <= value.cancelBefore {
 		return output.Observation{}, ErrStaleReport
 	}
@@ -539,7 +545,7 @@ func (service *Service) observationLocked(value *registration, sequence uint64, 
 		State: state, PositionMS: report.PositionMS, DurationMS: report.DurationMS,
 		URI: uri, HasURI: hasURI, HasPosition: report.HasPosition, ObservedAt: service.now().UTC(),
 		TransportStatus: transport, CompletionKnown: completionKnown, Completed: completed,
-		PlayID: resource.PlayID, CommandSequence: sequence,
+		MediaFailed: mediaFailed, PlayID: resource.PlayID, CommandSequence: sequence,
 	}, nil
 }
 
@@ -633,14 +639,20 @@ func validatePlaybackErrors(report Report) error {
 	return nil
 }
 
-func validReportError(code string) bool {
+func validReportError(action, code string) bool {
+	if code == "media_failed" {
+		return action == "set_uri" || action == "play"
+	}
 	return code == "media_unsupported" || code == "media_error" || code == "action_failed"
 }
 
 func reportActionError(action, code string) error {
 	kind := output.ErrorFault
-	if code == "media_unsupported" {
+	switch code {
+	case "media_unsupported":
 		kind = output.ErrorUnsupported
+	case "media_failed":
+		kind = output.ErrorMedia
 	}
 	return output.NewActionError(kind, action, 0, errors.New("browser output: "+code))
 }

@@ -183,7 +183,7 @@ const BrowserOutput = forwardRef<BrowserOutputHandle, BrowserOutputProps>(functi
     sequence: number,
     result: "succeeded" | "failed" | "",
     observation?: Observation,
-    errorCode?: "media_unsupported" | "media_error" | "action_failed",
+    errorCode?: "media_unsupported" | "media_error" | "media_failed" | "action_failed",
     signal?: AbortSignal,
   ): Promise<void> => {
     if (!aliveRef.current || registrationRef.current !== registration) {
@@ -224,11 +224,15 @@ const BrowserOutput = forwardRef<BrowserOutputHandle, BrowserOutputProps>(functi
       ...(event === "timeupdate" ? { state: audio.paused ? "paused" as const : "playing" as const } : {}),
     };
     const reportSignal = mediaEventsRef.current?.signal;
+    // SRC_NOT_SUPPORTED can also hide HTTP authorization/network failures.
+    // Only a confirmed decode failure is safe to skip automatically.
+    const errorCode = event === "error" && audio.error?.code === MediaError.MEDIA_ERR_DECODE
+      ? "media_failed" : undefined;
     reportChainRef.current = reportChainRef.current
       .then(() => {
         if (!aliveRef.current || registrationRef.current !== registration ||
           resourceRef.current !== expectedResource || completedSequenceRef.current !== expectedSequence) return;
-        return sendReport(registration, expectedSequence, "", observation, undefined, reportSignal);
+        return sendReport(registration, expectedSequence, "", observation, errorCode, reportSignal);
       })
       .catch((error: unknown) => {
         const registrationLost = error instanceof ApiError && error.code === "BROWSER_OUTPUT_NOT_FOUND"
@@ -268,13 +272,17 @@ const BrowserOutput = forwardRef<BrowserOutputHandle, BrowserOutputProps>(functi
     try {
       switch (command.action) {
         case "set_uri": {
-          if (!command.resource || !command.play_id || audio.canPlayType(command.resource.mime) === "") {
-            await sendReport(registration, command.sequence, "failed", undefined, "media_unsupported");
+          if (!command.resource || !command.play_id) {
+            await sendReport(registration, command.sequence, "failed", undefined, "action_failed");
             return;
           }
           const mediaURL = new URL(command.resource.url, window.location.origin);
           if (mediaURL.origin !== window.location.origin || !mediaURL.pathname.startsWith("/media/") || mediaURL.username || mediaURL.password || mediaURL.search || mediaURL.hash) {
             await sendReport(registration, command.sequence, "failed", undefined, "media_unsupported");
+            return;
+          }
+          if (audio.canPlayType(command.resource.mime) === "") {
+            await sendReport(registration, command.sequence, "failed", undefined, "media_failed");
             return;
           }
           audio.pause();
@@ -365,13 +373,15 @@ const BrowserOutput = forwardRef<BrowserOutputHandle, BrowserOutputProps>(functi
       }
     } catch (error) {
       if (abort.signal.aborted) return;
-      const errorCode = audio.error ? "media_error" : "action_failed";
+      const canSkipMedia = command.action === "set_uri" || command.action === "play";
+      const errorCode = canSkipMedia && audio.error?.code === MediaError.MEDIA_ERR_DECODE
+        ? "media_failed" : audio.error ? "media_error" : "action_failed";
       try {
         await sendReport(registration, command.sequence, "failed", undefined, errorCode);
       } catch {
         stopLocalMedia();
       }
-      onError(apiMessage(error, messagesRef.current.actionError));
+      if (errorCode !== "media_failed") onError(apiMessage(error, messagesRef.current.actionError));
     } finally {
       if (executionRef.current === execution) executionRef.current = null;
     }
