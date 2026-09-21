@@ -129,7 +129,7 @@ func (service *Service) recordHistory(event errorhistory.Event) {
 }
 
 // ImportErrorHistory imports only structured native_playback_error diagnostics
-// emitted by this package. Other log text is never copied into the database.
+// emitted by this package in dataDir/logs. Other log text is never copied into the database.
 func ImportErrorHistory(ctx context.Context, history *errorhistory.Service, dataDir string) error {
 	if history == nil {
 		return errors.New("browser output history import: history service is required")
@@ -139,7 +139,7 @@ func ImportErrorHistory(ctx context.Context, history *errorhistory.Service, data
 	}
 	var importErrors error
 	for _, name := range []string{"server.log.3", "server.log.2", "server.log.1", "server.log"} {
-		if err := importErrorHistoryFile(ctx, history, filepath.Join(dataDir, name)); err != nil {
+		if err := importErrorHistoryFile(ctx, history, filepath.Join(dataDir, "logs", name)); err != nil {
 			importErrors = errors.Join(importErrors, err)
 		}
 	}
