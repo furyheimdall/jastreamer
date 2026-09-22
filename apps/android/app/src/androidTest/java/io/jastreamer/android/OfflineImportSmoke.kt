@@ -155,7 +155,6 @@ internal class OfflineImportSmoke(
             }
             val localQueue = OfflinePlayback.state.value.queue.entries.map { it.trackId }
             assertEquals(playlist.trackIds, localQueue)
-            assertEquals("Folder move preserves the playing queue", localQueue, OfflinePlayback.state.value.queue.entries.map { it.trackId })
 
             scenario.onActivity { it.findViewById<View>(R.id.change_server_button).performClick() }
             await("independent music launcher entry") {
@@ -310,6 +309,11 @@ internal class OfflineImportSmoke(
             }
             assertNativeSurface(expectMiniPlayer = true)
             screenshot("offline-native-mini-player-phone")
+            val movedPlayback = OfflinePlayback.state.value
+            assertTrue("Browsing keeps the moved track playing", movedPlayback.playing)
+            assertEquals(original.id, movedPlayback.queue.entries.find { it.id == movedPlayback.queue.currentEntryId }?.trackId)
+            assertEquals("Browsing preserves queue order and duplicates", localQueue, movedPlayback.queue.entries.map { it.trackId })
+            screenshot("offline-playing-after-folder-move")
 
             main { OfflinePlayback.next() }
             await("converted AAC plays on the local engine") {
