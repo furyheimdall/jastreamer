@@ -33,9 +33,14 @@ import java.util.Locale
 import java.util.UUID
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
+import okhttp3.mockwebserver.Dispatcher
+import okhttp3.mockwebserver.MockResponse
+import okhttp3.mockwebserver.MockWebServer
+import okhttp3.mockwebserver.RecordedRequest
 import kotlinx.coroutines.runBlocking
 import org.json.JSONObject
 import org.junit.After
+import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
@@ -367,6 +372,160 @@ class OfflineNativeUiTest {
     }
 
     @Test
+    fun downloadHistoryConfirmationsKeepSavedMusicAndOnlyClearFinishedRecords() {
+        val context = instrumentation.targetContext
+        val marker = UUID.randomUUID().toString()
+        val savedBytes = "history-saved-$marker".toByteArray()
+        val completedFixture = DownloadHistoryFixture("completed-$marker", savedBytes, ready = true)
+        val preparingFixture = DownloadHistoryFixture("preparing-$marker", ByteArray(0), ready = false)
+        val jobIds = mutableListOf<String>()
+
+        try {
+            val completedJobId = runBlocking {
+                OfflineDownloads.enqueue(
+                    context,
+                    completedFixture.endpoint,
+                    JSONObject().put("kind", "track").put("id", "completed-$marker"),
+                    "original",
+                ).also(jobIds::add)
+            }
+            runBlocking { OfflineDownloads.process(context, {}) }
+            waitFor("completed download history fixture") {
+                OfflineDownloads.jobs.value.firstOrNull { it.id == completedJobId }?.status == "completed"
+            }
+            val savedTrack = requireNotNull(library.tracks().firstOrNull { it.title == completedFixture.title })
+            createdTrackIds += savedTrack.id
+
+            val activeJobId = runBlocking {
+                OfflineDownloads.enqueue(
+                    context,
+                    preparingFixture.endpoint,
+                    JSONObject().put("kind", "track").put("id", "active-$marker"),
+                    "original",
+                ).also(jobIds::add)
+            }
+            val cancelledJobId = runBlocking {
+                OfflineDownloads.enqueue(
+                    context,
+                    preparingFixture.endpoint,
+                    JSONObject().put("kind", "track").put("id", "cancelled-$marker"),
+                    "original",
+                ).also(jobIds::add)
+            }
+            OfflineDownloads.cancel(context, cancelledJobId)
+            waitFor("cancelled download history fixture") {
+                OfflineDownloads.jobs.value.firstOrNull { it.id == cancelledJobId }?.status == "cancelled"
+            }
+
+            scenario = ActivityScenario.launch(MainActivity::class.java)
+            openDownloads()
+            waitFor("terminal download history actions") {
+                var ready = false
+                scenario.onActivity { activity ->
+                    val remove = findJobActionOrNull(
+                        activity,
+                        completedFixture.title,
+                        activity.getStringForTest(R.string.offline_download_remove_history),
+                    )
+                    ready = remove?.contentDescription == activity.getStringForTest(
+                        R.string.offline_download_remove_history_accessibility,
+                        completedFixture.title,
+                    ) && activity.findViewById<View>(R.id.offline_clear_download_history)?.isShown == true
+                }
+                ready
+            }
+
+            var removeMessage = ""
+            var cancelLabel = ""
+            scenario.onActivity { activity ->
+                removeMessage = activity.getStringForTest(
+                    R.string.offline_download_remove_history_message,
+                    completedFixture.title,
+                )
+                cancelLabel = activity.getStringForTest(R.string.offline_cancel)
+                findJobAction(
+                    activity,
+                    completedFixture.title,
+                    activity.getStringForTest(R.string.offline_download_remove_history),
+                ).performClick()
+            }
+            waitFor("remove-history confirmation explains saved music retention") {
+                accessibilityTextVisible(removeMessage)
+            }
+            assertTrue("The remove-history confirmation must be cancellable", clickAccessibilityText(cancelLabel))
+            waitFor("cancelled remove-history confirmation closes") {
+                !accessibilityTextVisible(removeMessage)
+            }
+            assertTrue(
+                "Cancelling record removal must leave the download record",
+                OfflineDownloads.jobs.value.any { it.id == completedJobId },
+            )
+            assertNotNull("Cancelling record removal must keep saved music", library.track(savedTrack.id))
+
+            scenario.onActivity { activity ->
+                findJobAction(
+                    activity,
+                    completedFixture.title,
+                    activity.getStringForTest(R.string.offline_download_remove_history),
+                ).performClick()
+            }
+            waitFor("remove-history confirmation returns") { accessibilityTextVisible(removeMessage) }
+            var removeLabel = ""
+            scenario.onActivity {
+                removeLabel = it.getStringForTest(R.string.offline_download_remove_history)
+            }
+            assertTrue("The download record confirmation must be actionable", clickAccessibilityText(removeLabel))
+            waitFor("confirmed download record removal") {
+                var removedFromUi = false
+                scenario.onActivity { activity ->
+                    removedFromUi = findView(activity.findViewById(R.id.offline_download_list)) {
+                        it is TextView && it.text.toString() == completedFixture.title
+                    } == null
+                }
+                OfflineDownloads.jobs.value.none { it.id == completedJobId } && removedFromUi
+            }
+            assertNotNull("Removing history must not remove the imported track", library.track(savedTrack.id))
+            library.openAudio(savedTrack.id).use { audio ->
+                assertArrayEquals(savedBytes, audio.input.readBytes())
+            }
+
+            var clearMessage = ""
+            var clearLabel = ""
+            scenario.onActivity { activity ->
+                clearMessage = activity.getStringForTest(R.string.offline_download_clear_history_message)
+                clearLabel = activity.getStringForTest(R.string.offline_download_clear_history)
+                activity.findViewById<View>(R.id.offline_clear_download_history).performClick()
+            }
+            waitFor("bulk history confirmation explains active and saved content retention") {
+                accessibilityTextVisible(clearMessage)
+            }
+            assertTrue("The clear-finished confirmation must be actionable", clickAccessibilityText(clearLabel))
+            waitFor("bulk history removal keeps only the active fixture") {
+                var finishedControlRemoved = false
+                scenario.onActivity { activity ->
+                    finishedControlRemoved = activity.findViewById<View>(R.id.offline_clear_download_history) == null
+                }
+                OfflineDownloads.jobs.value.none { it.id == cancelledJobId } &&
+                    OfflineDownloads.jobs.value.any { it.id == activeJobId } &&
+                    finishedControlRemoved
+            }
+            assertNotNull("Bulk history removal must keep saved music", library.track(savedTrack.id))
+            screenshot("offline-download-history-active-retained")
+        } finally {
+            jobIds.forEach { jobId ->
+                runCatching { OfflineDownloads.cancel(context, jobId) }
+                runCatching { OfflineDownloads.removeHistory(context, jobId) }
+            }
+            library.tracks().filter { it.title == completedFixture.title }.forEach { track ->
+                runCatching { library.deleteTracks(listOf(track.id)) }
+                createdTrackIds.remove(track.id)
+            }
+            preparingFixture.close()
+            completedFixture.close()
+        }
+    }
+
+    @Test
     fun offlinePlayerUsesAccessibleIconControlsWithoutNarrowOrLandscapeOverflow() {
         val context = instrumentation.targetContext
         // Earlier playback tests may leave a system-bound service owning a stopped
@@ -629,6 +788,22 @@ class OfflineNativeUiTest {
         }
     }
 
+    private fun openDownloads() {
+        waitFor("download launcher") {
+            var ready = false
+            scenario.onActivity { ready = it.findViewById<View>(R.id.downloads_button) != null }
+            ready
+        }
+        scenario.onActivity { it.findViewById<View>(R.id.downloads_button).performClick() }
+        waitFor("native download manager") {
+            var ready = false
+            scenario.onActivity {
+                ready = it.findViewById<View>(R.id.offline_download_list)?.isShown == true
+            }
+            ready
+        }
+    }
+
     private fun openSavedMusic() {
         waitFor("saved music launcher") {
             var ready = false
@@ -778,6 +953,95 @@ class OfflineNativeUiTest {
         bitmap.recycle()
     }
 
+    private class DownloadHistoryFixture(
+        marker: String,
+        private val bytes: ByteArray,
+        private val ready: Boolean,
+    ) : AutoCloseable {
+        private val serverId = UUID.randomUUID().toString()
+        private val remoteId = "remote-$marker"
+        val title = "history-$marker"
+        private val digest = MessageDigest.getInstance("SHA-256")
+            .digest(bytes)
+            .joinToString("") { "%02x".format(it.toInt() and 0xff) }
+        private val server = MockWebServer()
+        val endpoint: ServerEndpoint
+
+        init {
+            server.dispatcher = object : Dispatcher() {
+                override fun dispatch(request: RecordedRequest): MockResponse = when {
+                    request.path == "/api/v1/discovery" -> json(
+                        JSONObject()
+                            .put("product", "jastreamer")
+                            .put("protocol", 1)
+                            .put("id", serverId)
+                            .put("name", "History fixture")
+                            .put("version", "test"),
+                    )
+                    request.path == "/api/v1/session" -> json(
+                        JSONObject()
+                            .put("authenticated", true)
+                            .put("user", JSONObject().put("id", "history-user")),
+                    )
+                    request.method == "POST" && request.path == "/api/v1/downloads" -> json(manifest())
+                    request.method == "GET" && request.path == "/api/v1/downloads/$remoteId" -> json(manifest())
+                    request.method == "DELETE" && request.path == "/api/v1/downloads/$remoteId" ->
+                        MockResponse().setResponseCode(204)
+                    ready && request.method == "GET" &&
+                        request.path == "/api/v1/downloads/$remoteId/files/0" ->
+                        MockResponse()
+                            .setResponseCode(200)
+                            .setHeader("Content-Type", "audio/flac")
+                            .setHeader("ETag", "\"$digest\"")
+                            .setBody(okio.Buffer().write(bytes))
+                    else -> MockResponse().setResponseCode(404)
+                }
+            }
+            server.start()
+            val url = server.url("/")
+            endpoint = ServerEndpoint(
+                id = serverId,
+                name = "History fixture",
+                version = "test",
+                origin = "${url.scheme}://${url.host}:${url.port}",
+            )
+        }
+
+        override fun close() {
+            server.shutdown()
+        }
+
+        private fun manifest(): JSONObject = JSONObject()
+            .put("id", remoteId)
+            .put("kind", "track")
+            .put("title", title)
+            .put("quality", "original")
+            .put("status", if (ready) "ready" else "preparing")
+            .put("tracks", org.json.JSONArray().put(JSONObject()
+                .put("index", 0)
+                .put("status", if (ready) "ready" else "preparing")
+                .put("title", title)
+                .put("artist", "History fixture")
+                .put("album", "History fixture")
+                .put("album_artist", "History fixture")
+                .put("disc", 1)
+                .put("track", 1)
+                .put("duration_ms", 1_000)
+                .put("source_version", if (ready) "version-$remoteId" else "")
+                .put("quality", "original")
+                .put("mime", if (ready) "audio/flac" else "")
+                .put("codec", if (ready) "flac" else "")
+                .put("byte_size", if (ready) bytes.size else 0)
+                .put("sha256", if (ready) digest else "")
+                .put("media_path", if (ready) "/api/v1/downloads/$remoteId/files/0" else "")
+                .put("artwork_path", "")))
+
+        private fun json(body: JSONObject): MockResponse = MockResponse()
+            .setResponseCode(200)
+            .setHeader("Content-Type", "application/json")
+            .setBody(body.toString())
+    }
+
     private fun sha256(bytes: ByteArray): String = MessageDigest.getInstance("SHA-256")
         .digest(bytes)
         .joinToString("") { "%02x".format(it) }
@@ -787,6 +1051,45 @@ class OfflineNativeUiTest {
             FileInputStream(descriptor.fileDescriptor).bufferedReader().use { it.readText() }
         }
 
+
+    private fun findJobAction(activity: MainActivity, title: String, action: String): Button =
+        requireNotNull(findJobActionOrNull(activity, title, action)) {
+            "Action '$action' for download '$title' was not found"
+        }
+
+    private fun findJobActionOrNull(activity: MainActivity, title: String, action: String): Button? {
+        val list = activity.findViewById<View>(R.id.offline_download_list)
+        val titleView = findView(list) { it is TextView && it.text.toString() == title } ?: return null
+        return findButtonOrNull(titleView.parent as View, action)
+    }
+
+    private fun accessibilityTextVisible(value: String): Boolean {
+        val root = instrumentation.uiAutomation.rootInActiveWindow ?: return false
+        val nodes = root.findAccessibilityNodeInfosByText(value)
+        return try {
+            nodes.any {
+                it.isVisibleToUser &&
+                    (it.text?.toString() == value || it.contentDescription?.toString() == value)
+            }
+        } finally {
+            nodes.forEach(AccessibilityNodeInfo::recycle)
+            root.recycle()
+        }
+    }
+
+    private fun clickAccessibilityText(value: String): Boolean {
+        val root = instrumentation.uiAutomation.rootInActiveWindow ?: return false
+        val nodes = root.findAccessibilityNodeInfosByText(value)
+        return try {
+            nodes.firstOrNull {
+                it.isVisibleToUser && it.isEnabled &&
+                    (it.text?.toString() == value || it.contentDescription?.toString() == value)
+            }?.performAction(AccessibilityNodeInfo.ACTION_CLICK) == true
+        } finally {
+            nodes.forEach(AccessibilityNodeInfo::recycle)
+            root.recycle()
+        }
+    }
 
     private fun findButton(root: View, text: String): Button =
         requireNotNull(findButtonOrNull(root, text)) { "Button '$text' was not found" }
@@ -813,11 +1116,11 @@ class OfflineNativeUiTest {
         throw AssertionError("Timed out waiting for $description")
     }
 
-    private fun MainActivity.getStringForTest(id: Int): String {
+    private fun MainActivity.getStringForTest(id: Int, vararg values: Any): String {
         val language = RecentServerStore(applicationContext).language()
         val config = android.content.res.Configuration(resources.configuration).apply {
             setLocale(java.util.Locale.forLanguageTag(language))
         }
-        return createConfigurationContext(config).getString(id)
+        return createConfigurationContext(config).getString(id, *values)
     }
 }

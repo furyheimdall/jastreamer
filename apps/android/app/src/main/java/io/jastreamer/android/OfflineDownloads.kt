@@ -16,6 +16,7 @@ import java.util.concurrent.ConcurrentHashMap
 import javax.net.ssl.SSLException
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.SupervisorJob
@@ -33,6 +34,7 @@ object OfflineDownloads {
     private const val ALLOW_METERED = "allow_metered"
     private const val UNIQUE_WORK = "offline-music-imports"
     private const val SAFETY_RESERVE_BYTES = 32L * 1024 * 1024
+    private const val PREPARATION_POLL_INTERVAL_MS = 1_500L
 
     private val lock = Any()
     private val commitGates = ConcurrentHashMap<String, CommitGate>()
@@ -247,6 +249,41 @@ object OfflineDownloads {
         if (finishLocal) scheduleLocal(context.applicationContext)
         if (finishLocal) finishCancelledAsync(context.applicationContext, jobId)
     }
+
+    fun removeHistory(context: Context, jobId: String) {
+        val application = context.applicationContext
+        initialize(application)
+        if (synchronized(lock) { findLocked(jobId)?.terminal() != true }) return
+        val finalizationLock = finalizationLocks.computeIfAbsent(jobId) { Any() }
+        synchronized(finalizationLock) {
+            val receipt = synchronized(lock) {
+                val job = findLocked(jobId) ?: return
+                if (!job.terminal()) return
+                job.playlistReceiptToken
+            }
+            if (receipt != null) {
+                OfflineLibrary.get(application).acknowledgePlaylistSnapshot(receipt)
+            }
+            synchronized(lock) {
+                val job = findLocked(jobId) ?: return
+                if (!job.terminal()) return
+                if (job.playlistReceiptToken != null && job.playlistReceiptToken != receipt) return
+                store!!.discardTemporary(job)
+                records.remove(job)
+                persistLocked()
+            }
+        }
+    }
+
+    fun clearFinishedHistory(context: Context) {
+        val application = context.applicationContext
+        initialize(application)
+        val finishedIds = synchronized(lock) {
+            records.filter(StoredDownloadJob::terminal).map(StoredDownloadJob::id)
+        }
+        finishedIds.forEach { removeHistory(application, it) }
+    }
+
     fun logout(context: Context, server: ServerEndpoint) {
         initialize(context)
         val key = serverKey(server)
@@ -346,27 +383,48 @@ object OfflineDownloads {
             var needsRetry = false
             var remoteHandoff = false
             var localHandoff = false
-            val attempted = LinkedHashSet<String>()
+            var waitForPreparation = false
+            // Preparation stays inside this foreground run. Jobs deferred after an
+            // actual failure return to WorkManager so its error backoff still applies.
+            val deferred = HashSet<String>()
             while (true) {
-                val jobId = synchronized(lock) {
-                    records.firstOrNull {
-                        it.id !in attempted &&
-                            if (localOnly) {
-                                needsLocalRecovery(it)
-                            } else {
-                                it.server != null &&
-                                    it.status in setOf("waiting", "preparing", "downloading", "importing") &&
-                                    !needsLocalRecovery(it)
-                            }
-                    }?.id
-                } ?: break
-                attempted.add(jobId)
-                val outcome = processOne(context.applicationContext, jobId, progress, localOnly)
-                if (outcome == ProcessOutcome.RETRY) needsRetry = true
-                if (outcome == ProcessOutcome.REMOTE_REQUIRED) remoteHandoff = true
-                if (!localOnly && synchronized(lock) { findLocked(jobId)?.let(::needsLocalRecovery) == true }) {
-                    localHandoff = true
+                if (waitForPreparation) delay(PREPARATION_POLL_INTERVAL_MS)
+                val jobIds = synchronized(lock) {
+                    records.asSequence()
+                        .filter { job ->
+                            job.id !in deferred &&
+                                if (localOnly) {
+                                    needsLocalRecovery(job)
+                                } else {
+                                    isRemotePending(job)
+                                }
+                        }
+                        .map(StoredDownloadJob::id)
+                        .toList()
                 }
+                if (jobIds.isEmpty()) break
+                var preparationRemains = false
+                jobIds.forEach { jobId ->
+                    when (processOne(context.applicationContext, jobId, progress, localOnly)) {
+                        ProcessOutcome.PREPARING -> preparationRemains = true
+                        ProcessOutcome.RETRY -> {
+                            needsRetry = true
+                            deferred += jobId
+                        }
+                        ProcessOutcome.NO_PROGRESS -> deferred += jobId
+                        ProcessOutcome.REMOTE_REQUIRED -> {
+                            remoteHandoff = true
+                            deferred += jobId
+                        }
+                        ProcessOutcome.DONE -> Unit
+                    }
+                    if (!localOnly && synchronized(lock) { findLocked(jobId)?.let(::needsLocalRecovery) == true }) {
+                        localHandoff = true
+                        deferred += jobId
+                    }
+                }
+                if (localOnly || !preparationRemains) break
+                waitForPreparation = true
             }
             if (remoteHandoff) schedule(context.applicationContext)
             if (localHandoff) scheduleLocal(context.applicationContext)
@@ -612,10 +670,10 @@ object OfflineDownloads {
             if (after.status == "cancelled" || after.server == null) return ProcessOutcome.DONE
             if (after.status == "paused") return ProcessOutcome.NO_PROGRESS
             val pending = after.tracks.any { it.importedTrackId == null && it.status in setOf("pending", "preparing", "ready") }
-            if (pending && manifest.status in setOf("preparing", "ready")) {
+            if (manifest.status == "preparing" || (pending && manifest.status == "ready")) {
                 update(jobId, "preparing", null, null)
                 progress(publicJob(jobId))
-                return ProcessOutcome.RETRY
+                return ProcessOutcome.PREPARING
             }
             finishImport(context, jobId)
             progress(publicJob(jobId))
@@ -915,19 +973,20 @@ object OfflineDownloads {
     }
 
     private fun isPermanentFailure(failure: OfflineDownloadException): Boolean =
-        failure.retryable == false ||
-            failure.code in setOf(
-                "principal_changed",
-                "identity_changed",
-                "invalid_server",
-                "invalid_manifest",
-                "expired",
-                "invalid_path",
-                "source_changed",
-                "range_mismatch",
-                "size_mismatch",
-                "redirect",
-            )
+        failure.code != "not_ready" &&
+            (failure.retryable == false ||
+                failure.code in setOf(
+                    "principal_changed",
+                    "identity_changed",
+                    "invalid_server",
+                    "invalid_manifest",
+                    "expired",
+                    "invalid_path",
+                    "source_changed",
+                    "range_mismatch",
+                    "size_mismatch",
+                    "redirect",
+                ))
 
     private fun failTrack(jobId: String, index: Int, code: String, message: String) {
         synchronized(lock) {
@@ -951,7 +1010,7 @@ object OfflineDownloads {
             }
             "not_ready" -> {
                 update(jobId, "preparing", failure.code, failure.message)
-                ProcessOutcome.RETRY
+                ProcessOutcome.PREPARING
             }
             "storage_full" -> {
                 update(jobId, "paused", failure.code, failure.message)
@@ -1044,6 +1103,7 @@ object OfflineDownloads {
         job.playlistReceiptToken != null ||
             (job.kind == "playlist" && job.tracks.isEmpty() && job.status != "preparing") ||
             (job.tracks.isNotEmpty() &&
+                job.status != "preparing" &&
                 job.tracks.all { it.importedTrackId != null || it.status == "failed" })
 
     private fun needsLocalRecovery(job: StoredDownloadJob): Boolean {
@@ -1244,7 +1304,7 @@ object OfflineDownloads {
         private enum class CommitGateState { OPEN, CLAIMED, CANCELLED }
     }
 
-    private enum class ProcessOutcome { DONE, RETRY, NO_PROGRESS, REMOTE_REQUIRED }
+    private enum class ProcessOutcome { DONE, PREPARING, RETRY, NO_PROGRESS, REMOTE_REQUIRED }
 }
 
 internal data class OfflineNetworkState(

@@ -304,7 +304,7 @@ export class JastreamerDownloadsClient {
     }
     const result = await this.request("status", { job_ids: jobIds }, parseStatusResult);
     const requested = new Set(jobIds);
-    if (result.jobs.length !== jobIds.length || result.jobs.some((job) => !requested.has(job.id))) {
+    if (result.jobs.some((job) => !requested.has(job.id))) {
       throw new JastreamerDownloadsError("invalid_bridge_response", "The native download service returned an invalid response.");
     }
     return result.jobs;
@@ -452,10 +452,10 @@ export function useJastreamerDownloads(authenticated: boolean): JastreamerDownlo
     };
   }, [authenticated]);
 
-  const refreshStatuses = useCallback(async () => {
+  const refreshStatuses = useCallback(async (includeFinished = false) => {
     const client = clientRef.current;
     if (!client || !enabledRef.current || refreshingRef.current) return;
-    const ids = [...jobIdsRef.current];
+    const ids = includeFinished ? Object.keys(jobsRef.current) : [...jobIdsRef.current];
     if (ids.length === 0) return;
     refreshingRef.current = true;
     const generation = trackingGenerationRef.current;
@@ -466,15 +466,34 @@ export function useJastreamerDownloads(authenticated: boolean): JastreamerDownlo
       }
       if (trackingGenerationRef.current !== generation) return;
       const next = pages.flat();
+      const returned = new Set(next.map((job) => job.id));
+      const removed = new Set(ids.filter((id) => !returned.has(id)));
       const updatedRef = { ...jobsRef.current };
+      for (const id of removed) delete updatedRef[id];
       for (const job of next) updatedRef[job.id] = job;
       jobsRef.current = updatedRef;
-      jobIdsRef.current = new Set([...jobIdsRef.current].filter((id) => !updatedRef[id] || !isTerminal(updatedRef[id].status)));
+      jobIdsRef.current = new Set([...jobIdsRef.current].filter((id) => !removed.has(id) && (!updatedRef[id] || !isTerminal(updatedRef[id].status))));
       setJobs((current) => {
         const updated = { ...current };
+        for (const id of removed) delete updated[id];
         for (const job of next) updated[job.id] = job;
         return updated;
       });
+      if (removed.size > 0) {
+        setJobOrder((current) => current.filter((id) => !removed.has(id)));
+        setJobTitles((current) => {
+          const updated = { ...current };
+          for (const id of removed) delete updated[id];
+          return updated;
+        });
+        setTargetJobs((current) => {
+          const updated = { ...current };
+          for (const [target, id] of Object.entries(current)) {
+            if (removed.has(id)) delete updated[target];
+          }
+          return updated;
+        });
+      }
       setStatusError("");
     } catch (error) {
       if (trackingGenerationRef.current === generation
@@ -487,15 +506,15 @@ export function useJastreamerDownloads(authenticated: boolean): JastreamerDownlo
   }, []);
 
   useEffect(() => {
-    if (!available || jobIdsRef.current.size === 0) return;
-    void refreshStatuses();
+    if (!available || (statusOpen ? Object.keys(jobsRef.current).length === 0 : jobIdsRef.current.size === 0)) return;
+    void refreshStatuses(statusOpen);
     const timer = window.setInterval(() => {
-      const hasActive = [...jobIdsRef.current].some((id) => !jobsRef.current[id] || !isTerminal(jobsRef.current[id].status));
-      if (!hasActive) window.clearInterval(timer);
-      else void refreshStatuses();
+      const hasTrackedJobs = statusOpen ? Object.keys(jobsRef.current).length > 0 : jobIdsRef.current.size > 0;
+      if (!hasTrackedJobs) window.clearInterval(timer);
+      else void refreshStatuses(statusOpen);
     }, POLL_INTERVAL_MS);
     return () => window.clearInterval(timer);
-  }, [available, pollGeneration, refreshStatuses]);
+  }, [available, pollGeneration, refreshStatuses, statusOpen]);
 
   const start = useCallback(async (target: DownloadTarget, quality: DownloadQuality, title: string): Promise<string> => {
     const client = clientRef.current;

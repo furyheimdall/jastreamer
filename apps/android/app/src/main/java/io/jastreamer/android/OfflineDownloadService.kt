@@ -21,7 +21,7 @@ class OfflineDownloadService(
         createChannel()
         setForeground(foregroundInfo(null))
         return try {
-            val retry = OfflineDownloads.process(
+            val retryAfterFailure = OfflineDownloads.process(
                 applicationContext,
                 progress = { job ->
                     setProgressAsync(androidx.work.workDataOf(
@@ -33,7 +33,7 @@ class OfflineDownloadService(
                 },
                 localOnly = inputData.getBoolean("local_only", false),
             )
-            if (retry) Result.retry() else Result.success()
+            if (retryAfterFailure) Result.retry() else Result.success()
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (_: Exception) {

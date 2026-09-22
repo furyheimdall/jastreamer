@@ -87,6 +87,19 @@ class OfflineDownloadProgressTest {
     }
 
     @Test
+    fun explicitServerNotReadyResponseContinuesPreparationWithoutErrorBackoff(): Unit = runBlocking {
+        val fixture = fixture(mixed = false, respondNotReady = true)
+        val jobId = enqueue(fixture)
+
+        val retry = withTimeout(20_000) { OfflineDownloads.process(context, {}) }
+
+        assertFalse("Server not-ready is preparation, not a transport retry", retry)
+        assertTrue(fixture.pollCount.get() >= 3)
+        assertEquals("completed", OfflineDownloads.jobs.value.single { it.id == jobId }.status)
+        assertImported(fixture)
+    }
+
+    @Test
     fun pausingDuringPreparationStopsTheContinuousPollLoop(): Unit = runBlocking {
         val fixture = fixture(mixed = false).apply { blockFirstPoll = true }
         val jobId = enqueue(fixture)
@@ -128,8 +141,8 @@ class OfflineDownloadProgressTest {
         }
     }
 
-    private fun fixture(mixed: Boolean): ProgressFixture =
-        ProgressFixture(UUID.randomUUID().toString(), mixed).also(fixtures::add)
+    private fun fixture(mixed: Boolean, respondNotReady: Boolean = false): ProgressFixture =
+        ProgressFixture(UUID.randomUUID().toString(), mixed, respondNotReady).also(fixtures::add)
 
     private suspend fun setCookie(endpoint: ServerEndpoint, value: String) {
         val completed = CountDownLatch(1)
@@ -161,6 +174,7 @@ class OfflineDownloadProgressTest {
     private class ProgressFixture(
         val marker: String,
         private val mixed: Boolean,
+        private val respondNotReady: Boolean,
     ) : AutoCloseable {
         val serverId: String = UUID.randomUUID().toString()
         val remoteId = "remote-$marker"
@@ -197,7 +211,14 @@ class OfflineDownloadProgressTest {
                             firstPollEntered.countDown()
                             if (blockFirstPoll) firstPollRelease.await(10, TimeUnit.SECONDS)
                         }
-                        json(manifest(poll))
+                        if (respondNotReady && poll < 3) {
+                            MockResponse()
+                                .setResponseCode(409)
+                                .setHeader("Content-Type", "application/json")
+                                .setBody(JSONObject().put("error", JSONObject().put("code", "not_ready")).toString())
+                        } else {
+                            json(manifest(poll))
+                        }
                     }
                     request.method == "DELETE" && request.path == "/api/v1/downloads/$remoteId" ->
                         MockResponse().setResponseCode(204)
