@@ -9,6 +9,7 @@ import android.content.res.Configuration
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
+import android.graphics.Rect
 import android.graphics.drawable.BitmapDrawable
 import android.os.SystemClock
 import android.provider.MediaStore
@@ -32,6 +33,7 @@ import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.runBlocking
 import org.json.JSONObject
 import org.junit.After
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -324,13 +326,31 @@ class OfflineNativeUiTest {
                 }
                 ready
             }
+            screenshot("offline-player-landscape")
             scenario.onActivity { activity ->
                 val content = activity.findViewById<ViewGroup>(R.id.offline_content)
                 val playerArtwork = activity.findViewById<View>(R.id.offline_player_artwork)
                 assertNoHorizontalOverflow(content)
                 assertTrue("landscape artwork width", playerArtwork.width <= content.width - dp(activity, 24))
+                val visible = Rect()
+                listOf(
+                    R.id.offline_player_seek,
+                    R.id.offline_player_previous,
+                    R.id.offline_player_play_pause,
+                    R.id.offline_player_next,
+                    R.id.offline_player_stop,
+                    R.id.offline_player_shuffle,
+                    R.id.offline_player_repeat,
+                    R.id.offline_player_queue,
+                    R.id.offline_player_information,
+                ).forEach { id ->
+                    val control = activity.findViewById<View>(id)
+                    val name = activity.resources.getResourceEntryName(id)
+                    assertTrue("$name must be visible without scrolling in landscape", control.getGlobalVisibleRect(visible))
+                    assertEquals("$name must not be clipped vertically", control.height, visible.height())
+                    assertEquals("$name must not be clipped horizontally", control.width, visible.width())
+                }
             }
-            screenshot("offline-player-landscape")
             scenario.onActivity {
                 it.findViewById<View>(R.id.offline_player_information).performClick()
             }

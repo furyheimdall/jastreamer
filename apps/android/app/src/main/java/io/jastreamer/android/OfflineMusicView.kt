@@ -231,16 +231,16 @@ class OfflineMusicView(
     fun updateForConfiguration() {
         wideLayout = null
         applyAdaptiveLayout(width.takeIf { it > 0 } ?: resources.displayMetrics.widthPixels)
-        if (fullPlayerOpen) {
-            post {
-                if (attached && fullPlayerOpen) renderFullPlayer()
-            }
-        }
     }
 
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
         super.onSizeChanged(w, h, oldw, oldh)
         applyAdaptiveLayout(w)
+        if (fullPlayerOpen) {
+            post {
+                if (attached && fullPlayerOpen) renderFullPlayer()
+            }
+        }
     }
 
     override fun onDetachedFromWindow() {
@@ -854,6 +854,8 @@ class OfflineMusicView(
         miniPlayer.visibility = GONE
         val track = currentTrack()
         val body = vertical(dp(12))
+        val viewportWidth = page.width.takeIf { it > 0 } ?: resources.displayMetrics.widthPixels
+        val sideBySide = viewportWidth >= dp(480)
 
         val header = row()
         val heading = vertical(0)
@@ -877,7 +879,7 @@ class OfflineMusicView(
             gravity = Gravity.CENTER_HORIZONTAL
             background = OfflinePlayerUi.cardBackground(activity)
         }
-        val artworkSize = fullArtworkSize()
+        val artworkSize = fullArtworkSize(viewportWidth, sideBySide)
         val playerArtwork = playerArtwork(track, artworkSize)
         playerArtwork.id = R.id.offline_player_artwork
         trackCard.addView(playerArtwork, LayoutParams(artworkSize, artworkSize).apply {
@@ -887,7 +889,7 @@ class OfflineMusicView(
         trackCard.addView(label(track?.title ?: text(R.string.offline_no_queue), 22f).apply {
             id = R.id.offline_full_player_title
             gravity = Gravity.CENTER
-            maxLines = 2
+            maxLines = if (sideBySide) 1 else 2
             ellipsize = TextUtils.TruncateAt.END
         }, LayoutParams(MATCH_PARENT, WRAP_CONTENT))
         trackCard.addView(label(track?.let(::displayArtist).orEmpty(), 14f).apply {
@@ -897,7 +899,6 @@ class OfflineMusicView(
             ellipsize = TextUtils.TruncateAt.END
             setTextColor(MUTED)
         }, LayoutParams(MATCH_PARENT, WRAP_CONTENT))
-        body.addView(trackCard, sectionParams())
 
         val transport = vertical(dp(12)).apply {
             background = OfflinePlayerUi.cardBackground(activity)
@@ -978,12 +979,11 @@ class OfflineMusicView(
         }
         addCenteredControl(controls, stop)
         transport.addView(controls, LayoutParams(MATCH_PARENT, dp(56)))
-        body.addView(transport, sectionParams())
 
         val options = vertical(dp(12)).apply {
             background = OfflinePlayerUi.cardBackground(activity)
         }
-        options.addView(label(text(R.string.offline_playback_options), 13f).apply {
+        if (!sideBySide) options.addView(label(text(R.string.offline_playback_options), 13f).apply {
             setTextColor(MUTED)
             setPadding(0, 0, 0, dp(4))
         })
@@ -1024,7 +1024,21 @@ class OfflineMusicView(
         }
         addCenteredControl(optionControls, information)
         options.addView(optionControls, LayoutParams(MATCH_PARENT, dp(56)))
-        body.addView(options, sectionParams())
+        if (sideBySide) {
+            val playerColumns = row().apply { gravity = Gravity.TOP }
+            playerColumns.addView(trackCard, LayoutParams(0, WRAP_CONTENT, 1f).apply {
+                marginEnd = dp(12)
+            })
+            val controlColumn = vertical(0)
+            controlColumn.addView(transport, sectionParams())
+            controlColumn.addView(options, sectionParams())
+            playerColumns.addView(controlColumn, LayoutParams(0, WRAP_CONTENT, 1f))
+            body.addView(playerColumns, sectionParams())
+        } else {
+            body.addView(trackCard, sectionParams())
+            body.addView(transport, sectionParams())
+            body.addView(options, sectionParams())
+        }
 
         playback.errorMessage?.takeIf { it.isNotBlank() }?.let {
             body.addView(label(it, 14f).apply {
@@ -1836,12 +1850,12 @@ class OfflineMusicView(
             .show()
     }
 
-    private fun fullArtworkSize(): Int {
-        val viewportWidth = page.width.takeIf { it > 0 } ?: resources.displayMetrics.widthPixels
+    private fun fullArtworkSize(viewportWidth: Int, sideBySide: Boolean): Int {
+        val cardWidth = if (sideBySide) (viewportWidth - dp(36)) / 2 else viewportWidth - dp(24)
         val viewportHeight = page.height.takeIf { it > 0 } ?: resources.displayMetrics.heightPixels
         return minOf(
             dp(240),
-            (viewportWidth - dp(48)).coerceAtLeast(dp(96)),
+            (cardWidth - dp(24)).coerceAtLeast(dp(96)),
             (viewportHeight * 2 / 5).coerceAtLeast(dp(112)),
         )
     }

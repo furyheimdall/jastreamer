@@ -56,6 +56,22 @@ internal class OfflineImportSmoke(
             await("all-track library selector") { evaluate("!!document.querySelector('button[data-library-kind=tracks]')") == "true" }
             evaluate("document.querySelector('button[data-library-kind=tracks]').click()")
             val original = download(source, "original")
+            val firstJobId = JSONObject(requireNotNull(evaluate("window.offlineSmokeAccepted")))
+                .getJSONObject("result").getString("job_id")
+            val previousMeteredConsent = OfflineDownloads.allowMetered(context)
+            try {
+                OfflineDownloads.setAllowMetered(context, false)
+                for (accept in listOf(false, true)) {
+                    bridge("configure_network", JSONObject().put("job_id", firstJobId)) {
+                        confirmNativeDialog(accept) {
+                            assertFalse("Opening network confirmation must not grant consent", OfflineDownloads.allowMetered(context))
+                        }
+                    }
+                    assertEquals("Only explicit native approval grants metered access", accept, OfflineDownloads.allowMetered(context))
+                }
+            } finally {
+                OfflineDownloads.setAllowMetered(context, previousMeteredConsent)
+            }
             val compact = download(source, "aac_256")
             val shortAAC = download(shortSource, "aac_256")
             val playlistsBeforeFolder = library.playlists().map { it.id }
@@ -255,7 +271,7 @@ internal class OfflineImportSmoke(
         """.trimIndent())
     }
 
-    private fun bridge(action: String, body: JSONObject) {
+    private fun bridge(action: String, body: JSONObject, confirm: (() -> Unit)? = null) {
         val id = "offline-smoke-$action"
         val message = JSONObject(body.toString()).put("id", id).put("action", action)
         evaluate("""
@@ -270,20 +286,24 @@ internal class OfflineImportSmoke(
             JastreamerDownloads.addEventListener('message', offlineSmokeReply);
             JastreamerDownloads.postMessage(${JSONObject.quote(message.toString())});
         """.trimIndent())
+        confirm?.invoke()
         await("native $action response") { evaluate("window.offlineSmokeBridgeResult !== null") == "true" }
         val result = JSONObject(requireNotNull(evaluate("window.offlineSmokeBridgeResult")))
         check(!result.has("error")) { result.optJSONObject("error")?.toString() ?: "Native bridge error" }
     }
 
-    private fun confirmNativeDialog() {
+    private fun confirmNativeDialog(accept: Boolean = true, beforeClick: (() -> Unit)? = null) {
         val automation = instrumentation.uiAutomation
         automation.serviceInfo = automation.serviceInfo.apply { flags = flags or AccessibilityServiceInfo.FLAG_REPORT_VIEW_IDS }
-        await("native import confirmation") {
+        await("native download confirmation") {
             val root = automation.rootInActiveWindow ?: return@await false
             try {
-                val button = root.findAccessibilityNodeInfosByViewId("android:id/button1")
+                val button = root.findAccessibilityNodeInfosByViewId(if (accept) "android:id/button1" else "android:id/button2")
                     .firstOrNull { it.isVisibleToUser && it.isEnabled }
-                button?.performAction(AccessibilityNodeInfo.ACTION_CLICK) == true
+                if (button == null) false else {
+                    beforeClick?.invoke()
+                    button.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+                }
             } finally {
                 root.recycle()
             }
