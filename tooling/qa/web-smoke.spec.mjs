@@ -624,6 +624,39 @@ test.describe("native download presentation", () => {
     expect((await control(page, "/queue")).entries).toEqual(queueBefore.entries);
     expect((await control(page, "/player")).state).toBe(playerBefore.state);
   });
+
+  test("native history removal before the final status arrives does not strand a download", async ({ page }) => {
+    await installNativeDownloads(page);
+    await openPhoneLibrary(page);
+    const download = page.locator(".library-album-tile .native-download-button").first();
+    await download.click();
+    await page.locator("[data-download-confirm=true]").click();
+    const panel = page.locator(".native-download-status-dialog");
+    await expect(panel.locator(".native-download-job")).toHaveCount(1);
+    await page.evaluate(() => { delete window.refinementDownloadJobs["fixture-download"]; });
+    await expect(panel.locator(".native-download-job")).toHaveCount(0);
+    await expect(panel.locator(".native-download-status-error")).toHaveCount(0);
+    await panel.getByRole("button", { name: "Close", exact: true }).click();
+    await download.click();
+    await expect(page.locator("[data-download-confirm=true]")).toBeVisible();
+  });
+
+  test("an open download panel reflects removal of already completed native history", async ({ page }) => {
+    await installNativeDownloads(page);
+    await openPhoneLibrary(page);
+    await page.locator(".library-album-tile .native-download-button").first().click();
+    await page.locator("[data-download-confirm=true]").click();
+    const panel = page.locator(".native-download-status-dialog");
+    await page.evaluate(() => {
+      Object.assign(window.refinementDownloadJobs["fixture-download"], {
+        status: "completed", completed_tracks: 2, received_bytes: 2_000_000,
+      });
+    });
+    await expect(panel).toContainText("Saved to device");
+    await page.evaluate(() => { delete window.refinementDownloadJobs["fixture-download"]; });
+    await expect(panel.locator(".native-download-job")).toHaveCount(0);
+    await expect(panel.locator(".native-download-status-error")).toHaveCount(0);
+  });
 });
 
 test("unliking the last item on the last liked page returns to remaining tracks", async ({ page }) => {
