@@ -10,6 +10,7 @@ import android.view.ViewGroup
 import android.view.accessibility.AccessibilityNodeInfo
 import android.widget.Button
 import android.widget.CheckBox
+import android.widget.HorizontalScrollView
 import android.widget.SeekBar
 import android.widget.TextView
 import androidx.test.core.app.ActivityScenario
@@ -499,10 +500,18 @@ internal class OfflineImportSmoke(
         val right = left + root.width
         visit(root) { view ->
             if (!view.isShown || view.width == 0) return@visit
-            val location = IntArray(2)
-            view.getLocationOnScreen(location)
-            assertTrue("${viewDescription(view)} starts inside native content", location[0] >= left - 1)
-            assertTrue("${viewDescription(view)} ends inside native content", location[0] + view.width <= right + 1)
+            var ancestor = view.parent
+            while (ancestor is View && ancestor !== root && ancestor !is HorizontalScrollView) ancestor = ancestor.parent
+            val bounds = Rect()
+            if (ancestor is HorizontalScrollView) {
+                if (!view.getGlobalVisibleRect(bounds)) return@visit
+            } else {
+                val location = IntArray(2)
+                view.getLocationOnScreen(location)
+                bounds.set(location[0], location[1], location[0] + view.width, location[1] + view.height)
+            }
+            assertTrue("${viewDescription(view)} $bounds starts inside native content [$left,$right]", bounds.left >= left - 1)
+            assertTrue("${viewDescription(view)} $bounds ends inside native content [$left,$right]", bounds.right <= right + 1)
         }
     }
 

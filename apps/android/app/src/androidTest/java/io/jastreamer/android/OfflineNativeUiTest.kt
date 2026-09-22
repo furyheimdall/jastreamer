@@ -77,6 +77,9 @@ class OfflineNativeUiTest {
                     .put("title", title)
                     .put("artist", "Native UX fixture")
                     .put("album", genre.ifBlank { "Native UX fixture" })
+                    .put("album_artist", "Native UX fixture")
+                    .put("disc", 1)
+                    .put("track", 1)
                     .put("genre", genre)
                     .put("duration_ms", 60_000)
                     .put("quality", "original")
@@ -193,7 +196,7 @@ class OfflineNativeUiTest {
                 expectedOrientation = if (activity.resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE) {
                     Configuration.ORIENTATION_PORTRAIT
                 } else Configuration.ORIENTATION_LANDSCAPE
-                (findView(activity.window.decorView) { it is EditText } as EditText).apply {
+                (findView(activity.findViewById(R.id.offline_content)) { it is EditText } as EditText).apply {
                     setText("12345")
                     setSelection(3)
                 }
@@ -204,7 +207,7 @@ class OfflineNativeUiTest {
             waitFor("rotation keeps the unapplied storage limit") {
                 var preserved = false
                 scenario.onActivity { activity ->
-                    val input = findView(activity.window.decorView) { it is EditText } as? EditText
+                    val input = findView(activity.findViewById(R.id.offline_content)) { it is EditText } as? EditText
                     preserved = activity.resources.configuration.orientation == expectedOrientation &&
                         input?.text?.toString() == "12345" && input.selectionStart == 3
                 }
@@ -215,7 +218,7 @@ class OfflineNativeUiTest {
             waitFor("activity recreation keeps the unapplied storage limit") {
                 var preserved = false
                 scenario.onActivity { activity ->
-                    preserved = (findView(activity.window.decorView) { it is EditText } as? EditText)?.text?.toString() == "12345"
+                    preserved = (findView(activity.findViewById(R.id.offline_content)) { it is EditText } as? EditText)?.text?.toString() == "12345"
                 }
                 preserved
             }
