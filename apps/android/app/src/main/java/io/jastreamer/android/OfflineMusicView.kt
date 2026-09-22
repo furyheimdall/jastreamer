@@ -916,7 +916,6 @@ class OfflineMusicView(
             max = (track?.durationMs ?: 0L).coerceIn(1L, Int.MAX_VALUE.toLong()).toInt()
             progress = playback.queue.positionMs.coerceIn(0L, max.toLong()).toInt()
             contentDescription = text(R.string.offline_seek)
-            minimumHeight = dp(48)
             setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
                 private var dragging = false
                 override fun onProgressChanged(seekBar: SeekBar?, value: Int, fromUser: Boolean) {
@@ -933,7 +932,7 @@ class OfflineMusicView(
             })
         }
         playerSeek = seek
-        seekRow.addView(seek, LayoutParams(0, WRAP_CONTENT, 1f))
+        seekRow.addView(seek, LayoutParams(0, dp(48), 1f))
         val total = label(durationValue(track?.durationMs ?: 0L), 11f).apply {
             id = R.id.offline_player_duration
             gravity = Gravity.CENTER

@@ -490,6 +490,10 @@ test.describe("native download presentation", () => {
     hasTouch: true,
   });
 
+  test.afterEach(async ({ page }) => {
+    await page.unrouteAll({ behavior: "wait" });
+  });
+
   async function installNativeDownloads(page) {
     await page.addInitScript(() => {
       const listeners = new Set();

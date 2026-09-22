@@ -635,10 +635,20 @@ function statusKey(status: string): MessageKey {
   }
 }
 
+function downloadErrorText(error: NonNullable<NativeDownloadJob["error"]>, t: (key: MessageKey) => string): string {
+  switch (error.code) {
+    case "network_unmetered_required": return t("downloads.network.metered");
+    case "network_roaming": return t("downloads.network.roaming");
+    case "network_unavailable": return t("downloads.network.unavailable");
+    default: return error.message;
+  }
+}
+
 function jobStatus(job: NativeDownloadJob, locale: string, t: (key: MessageKey, params?: Record<string, string | number>) => string): string {
+  const errorMessage = job.error ? downloadErrorText(job.error, t) : "";
   if (job.status === "partial") {
     const summary = t("downloads.status.partialCounts", { completed: job.completed_tracks, total: job.total_tracks, failed: job.failed_tracks });
-    return job.error?.message ? `${summary}: ${job.error.message}` : summary;
+    return errorMessage ? `${summary}: ${errorMessage}` : summary;
   }
   if (job.status === "completed" && job.total_tracks > 1) {
     return t("downloads.status.completedCounts", { completed: job.completed_tracks, total: job.total_tracks });
@@ -652,7 +662,7 @@ function jobStatus(job: NativeDownloadJob, locale: string, t: (key: MessageKey, 
     });
   }
   const label = t(statusKey(job.status));
-  return job.error?.message ? `${label}: ${job.error.message}` : label;
+  return errorMessage ? `${label}: ${errorMessage}` : label;
 }
 
 function compactStatus(job: NativeDownloadJob): string {
@@ -835,7 +845,7 @@ export function NativeDownloadsStatus({ downloads }: { downloads: JastreamerDown
                       ) : job.received_bytes > 0 ? (
                         <p>{t("downloads.panel.bytesReceived", { received: formatBytes(job.received_bytes, locale) })}</p>
                       ) : null}
-                      {job.error && <p className="native-download-job-error" role="status">{job.error.message}</p>}
+                      {job.error && <p className="native-download-job-error" role="status">{downloadErrorText(job.error, t)}</p>}
                       {networkKey && (
                         <button className="button button-ghost native-download-network-action" type="button" disabled={networkBusy === job.id} onClick={() => void configureNetwork(job.id)}>
                           {t(networkBusy === job.id ? "downloads.panel.configuringNetwork" : networkKey)}
@@ -975,7 +985,7 @@ export function NativeDownloadAction({
       if (error instanceof JastreamerDownloadsError && error.code === "cancelled") {
         setOpen(false);
       } else if (!(error instanceof DOMException && error.name === "AbortError")) {
-        setRequestError(error instanceof Error ? error.message : t("downloads.requestFailed"));
+        setRequestError(error instanceof JastreamerDownloadsError ? downloadErrorText(error, t) : error instanceof Error ? error.message : t("downloads.requestFailed"));
       }
     } finally {
       setSubmitting(false);
