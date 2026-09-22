@@ -392,6 +392,8 @@ object OfflineDownloads {
                 val jobIds = synchronized(lock) {
                     records.asSequence()
                         .filter { job ->
+                            // Resume and destination changes can unblock work during another job's preparation.
+                            if (job.status == "waiting" && job.errorCode == null) deferred.remove(job.id)
                             job.id !in deferred &&
                                 if (localOnly) {
                                     needsLocalRecovery(job)

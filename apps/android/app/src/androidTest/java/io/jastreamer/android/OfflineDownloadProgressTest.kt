@@ -12,6 +12,9 @@ import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicReference
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
@@ -115,6 +118,36 @@ class OfflineDownloadProgressTest {
         assertEquals(0, fixture.fileRequestCount.get())
     }
 
+    @Test
+    fun resumedDownloadFinishesWhileAnotherJobIsStillPreparing(): Unit = runBlocking {
+        val sibling = fixture(mixed = false).apply { holdPreparation = true }
+        val siblingId = enqueue(sibling)
+        val resumed = fixture(mixed = false).apply { blockFirstPoll = true }
+        val resumedId = enqueue(resumed)
+        val processing = async(Dispatchers.IO) { OfflineDownloads.process(context, {}) }
+        try {
+            assertTrue("Timed out waiting for the preparation poll", resumed.firstPollEntered.await(10, TimeUnit.SECONDS))
+            OfflineDownloads.pause(context, resumedId)
+            val siblingPolls = sibling.pollCount.get()
+            resumed.firstPollRelease.countDown()
+            withTimeout(10_000) {
+                while (sibling.pollCount.get() == siblingPolls) delay(10)
+            }
+
+            OfflineDownloads.resume(context, resumedId)
+            withTimeout(10_000) {
+                OfflineDownloads.jobs.first { jobs -> jobs.any { it.id == resumedId && it.status == "completed" } }
+            }
+            assertEquals("preparing", OfflineDownloads.jobs.value.single { it.id == siblingId }.status)
+            assertImported(resumed)
+        } finally {
+            resumed.firstPollRelease.countDown()
+            OfflineDownloads.cancel(context, resumedId)
+            OfflineDownloads.cancel(context, siblingId)
+            processing.cancelAndJoin()
+        }
+    }
+
     private suspend fun enqueue(fixture: ProgressFixture): String {
         val endpoint = ServerEndpoint(
             id = fixture.serverId,
@@ -183,6 +216,7 @@ class OfflineDownloadProgressTest {
         val firstPollRelease = CountDownLatch(1)
         val fileRequestCount = AtomicInteger()
         @Volatile var blockFirstPoll = false
+        @Volatile var holdPreparation = false
         val bytes = List(if (mixed) 2 else 1) { index -> "prepared-$marker-$index".toByteArray() }
         val titles = bytes.indices.map { index -> "prepared-title-$marker-$index" }
         private val server = MockWebServer()
@@ -247,7 +281,7 @@ class OfflineDownloadProgressTest {
         private fun manifest(poll: Int): JSONObject {
             val tracks = JSONArray()
             bytes.indices.forEach { index ->
-                val ready = poll >= 3 || (mixed && index == 0)
+                val ready = !holdPreparation && (poll >= 3 || (mixed && index == 0))
                 tracks.put(JSONObject()
                     .put("index", index)
                     .put("status", if (ready) "ready" else "preparing")
@@ -267,7 +301,7 @@ class OfflineDownloadProgressTest {
                     .put("media_path", "/api/v1/downloads/$remoteId/files/$index")
                     .put("artwork_path", ""))
             }
-            val allReady = bytes.indices.all { poll >= 3 || (mixed && it == 0) }
+            val allReady = !holdPreparation && bytes.indices.all { poll >= 3 || (mixed && it == 0) }
             return JSONObject()
                 .put("id", remoteId)
                 .put("kind", "album")
