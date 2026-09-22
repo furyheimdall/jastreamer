@@ -1121,6 +1121,7 @@ class OfflineNativeUiTest {
         val config = android.content.res.Configuration(resources.configuration).apply {
             setLocale(java.util.Locale.forLanguageTag(language))
         }
-        return createConfigurationContext(config).getString(id, *values)
+        val localized = createConfigurationContext(config)
+        return if (values.isEmpty()) localized.getString(id) else localized.getString(id, *values)
     }
 }
