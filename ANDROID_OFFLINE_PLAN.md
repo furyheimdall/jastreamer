@@ -10,7 +10,7 @@ The user's final correction on 2026-09-21 takes precedence over earlier choices.
 |---|---|
 | D1 | Default entry is the bundled server-selection screen, with a direct **Listen to saved music** entry. Server discovery/connection and offline playback are separate paths. |
 | D2 | Stored track/album/playlist screens and the playback engine are included in the app. Display, search, and playback require neither Server HTML, login, nor server responses. |
-| D3 | Download tracks/albums/playlists from a server, with original and space-saving quality choices. |
+| D3 | Download tracks/albums/playlists and recursive folder snapshots from a server, with original and space-saving quality choices. Folder imports flatten into the selected local destination without creating a playlist or mirroring directories. |
 | D4 | After verification and committed local import, music belongs to the device independently of server/account lifetimes. Server logout, account deletion, profile removal, or connection failure cannot lock or delete it. |
 | D5 | Downloading a server playlist is a one-time snapshot import. Completed music/lists are not automatically synchronized, deleted, or refreshed. Users manage them in the offline player. |
 | D6 | The device owns offline queue/playlists/position. Stored music from any source server can play together without updating shared Server queues, outputs, or playback. |
@@ -48,7 +48,7 @@ Launch → bundled server-selection screen
 - The header says **Saved music**, not a selected Server/account that appears to own playback, with **Servers** to return and an entry to **Downloads**.
 - The player has **Library / Playlists / Queue / Settings**. Its library contains all locally stored music without a Server filter or login prerequisite.
 - Visiting transfer status or a Server screen does not stop local playback. Navigation does not send Stop to other network outputs.
-- The native layout covers phone/tablet/folding, landscape, large-font, TalkBack, and keyboard paths, with an 80dp mini-player, 48dp minimum hit targets, and system insets applied once. These device/accessibility paths remain release-qualification targets rather than physical-test claims.
+- The native layout covers phone/tablet/folding, landscape, large-font, TalkBack, and keyboard paths, with a persistent mini-player, 48dp minimum player-control hit targets, and system insets applied once. Mini/expanded playback uses the Server player's dark/green icon styling; wide expanded layouts place artwork beside transport/options rather than pushing playback below the artwork. These device/accessibility paths remain release-qualification targets rather than physical-test claims.
 - Account/logout controls belong to the server-connection context. Listening to independently stored music does not require entering an account menu.
 
 ## 3. Committed download completion is the ownership boundary
@@ -78,11 +78,11 @@ Request from an authenticated server
 
 ## 4. Importing and listening workflows
 
-### Import tracks and albums from a server
+### Import tracks, albums, and folders from a server
 
 1. Select/verify a server and log in.
-2. Choose Download from a track row, album card, or details in the existing server library. Downloading does not start playback or alter the shared queue.
-3. Review original/space-saving quality, track count, destination, and whether the current network policy will wait for an unmetered connection. Actual transfer bytes appear in Downloads as the job runs.
+2. Choose Download from a track row, album card/details, or folder root/child/details in the existing server library. A folder snapshots up to 10,000 catalogued tracks recursively into one selected local destination, without creating a playlist or changing the Server's directories. Downloading does not start playback or alter the shared queue.
+3. Review original/space-saving quality, track count, destination, and network policy. Metered/mobile permission is an explicit native decision before authenticated preview on a restricted connection; declining does not change the stored allowance. Actual transfer bytes and waiting reasons appear in the Server status panel and native Downloads manager.
 4. Follow progress in the server surface and bundled download manager. Permitted transfers can continue while listening to already saved music elsewhere in the app.
 5. On completion, use **View in saved music**. Logging out of the server afterward leaves the music accessible and playable.
 
@@ -129,13 +129,13 @@ Request from an authenticated server
 |---|---|
 | Request available | Download action; explain server connectivity/authentication/format capability requirements |
 | Waiting | Network policy/connection/conversion/job reason; cancel |
-| Active | Progress ring, percentage or received size; pause/cancel |
+| Active | Progress bar, percentage or received size; pause/cancel |
 | Paused/failed | Distinguish user pause, storage, authentication, changed source, and transfer failure; permit appropriate retries |
 | Imported | Locally saved and **View in saved music**; no account-lock state |
 | Partial | Collection success/failure counts and access to saved tracks |
 
-- Track/album/playlist list and detail download buttons have independent hit targets from playback/navigation and English/Korean labels without announcing every byte.
-- The Server page reports only jobs requested by that live document; it does not infer a permanent global **Already saved** badge from a Server track ID or matching name.
+- Track/album/playlist/folder list and detail download buttons have independent hit targets from playback/navigation and English/Korean labels without announcing every byte.
+- Accepted jobs automatically open the Server status panel. Active target buttons reopen it; terminal targets offer explicit reimport. The Server page reports only jobs requested by that live document, while the native manager includes restored jobs. It does not infer a permanent global **Already saved** badge from a Server track ID or matching name.
 - During a requested import, manifest checksum and actual quality may identify an existing verified local file and avoid duplicate storage. Same names or Server track IDs never merge different files. Repeated playlist/queue entries remain distinct even when they reference one verified local file.
 - Server-hosted download controls invoke only a compatible Android's narrow import capability. This does not enable arbitrary file storage/native privileges for ordinary browsers or other shells.
 
@@ -150,7 +150,7 @@ Request from an authenticated server
 
 ### Incomplete transfers
 
-- Default to an unmetered network. The user must explicitly enable **Allow metered or mobile data**; a transfer waits when its current network does not meet that policy.
+- Default to an unmetered, non-mobile network. The user must explicitly enable **Allow metered or mobile data**, including through a native confirmation opened from Server status; cancellation never grants access. Check the process/default route rather than authorizing a cellular route merely because secondary Wi-Fi exists. A reachable local Server does not require Internet validation. Roaming, suspension, and unavailable routes keep work pending without sending transfer bytes; network waiting must not consume its durable worker.
 - Bound concurrent transfers/conversion jobs and prioritize existing playback resources. Downloading does not trigger another whole-library analysis.
 - Only active jobs validate source version, Range conditions, and authentication for resumption. Never append changed source bytes to an old partial file. Do not endlessly retry authentication/TLS/Server-identity errors.
 - Check temporary-file length/checksum before local registration. Transfer integrity does not prove every decoder can play the entire file. A known verification failure for the same source version blocks a new import with a reason, never retroactively changing an existing local copy.

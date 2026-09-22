@@ -198,6 +198,8 @@ The Kotlin app discovers `_jastreamer._tcp` Servers, checks `/api/v1/discovery`,
 
 New imports require a compatible Android APK and Server/Web UI that advertise the platform-neutral **v1 download capability**. Updating only the APK cannot add those controls or endpoints to an older served Web page and does not update the Server. An older or unavailable Server must not block the app or affect already completed saved music; its supported Server-control features remain usable. Use compatible source revisions, and treat a Server update as its own authorized installation/update procedure.
 
+Folder imports require both an Android build and a Server build that implement folder targets; updating the hosted Web interface alone cannot add that native support.
+
 Current Android distribution is **development/testing only**, not a published production release. The independent player and v1 imports exist in the current source, but physical-phone installation, networking, original/AAC audible playback, Bluetooth/headset behavior, and update preservation remain qualification work rather than release claims. A successful [Android CI run](https://github.com/furyheimdall/jastreamer/actions/workflows/android.yml) can provide `jastreamer-android-debug-test-signed-and-release-unsigned-<revision>` for its tested source revision. Verify `SHA256SUMS`, `provenance.json`, the revision, application ID, and signing certificate before any separately approved test installation. A pull-request artifact is not a protected-main release.
 
 - `*_debug-test-signed.apk` is installable only for development testing, has application ID `io.jastreamer.android.debug`, and uses a generated debug certificate. It is separate from the production application ID `io.jastreamer.android`.
@@ -263,6 +265,8 @@ See [Phone controls](INSTRUCTION.md#phone-controls) for the automatic phone layo
 ## Upgrade
 
 For the Linux container target, updating means replacing the Server container with a verified image, not running first-account setup again. The image includes the Web interface, FFmpeg, and the AirPlay runtime for its supported architecture. Do not mount the Docker socket into the Server or grant it host-management privileges to make it update itself. For native Windows, follow the [portable update procedure](#windows-server); do not apply the Compose steps below.
+
+Folder-download support extends the Server's `download_jobs.kind` constraint. Startup transactionally migrates the known legacy schema while preserving existing jobs, child rows, indexes, foreign keys, and artifact references; it does not move media or configuration. Review this schema change before an authorized update. Older builds do not implement folder jobs, so do not assume replacing only the executable/image is a compatible downgrade or drop jobs/data to force one.
 
 Use the **existing** Compose project name, project directory, Compose files, and environment file for every operation. Do not create a second installation with new default storage paths.
 

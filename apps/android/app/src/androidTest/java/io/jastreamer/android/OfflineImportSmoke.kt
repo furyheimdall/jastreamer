@@ -5,9 +5,7 @@ import android.content.Intent
 import android.os.SystemClock
 import android.os.Bundle
 import android.view.View
-import android.view.ViewGroup
 import androidx.webkit.ProfileStore
-import android.widget.Button
 import android.widget.SeekBar
 import android.view.accessibility.AccessibilityNodeInfo
 import androidx.test.core.app.ActivityScenario
@@ -275,16 +273,18 @@ internal class OfflineImportSmoke(
         val id = "offline-smoke-$action"
         val message = JSONObject(body.toString()).put("id", id).put("action", action)
         evaluate("""
-            window.offlineSmokeBridgeResult = null;
-            const offlineSmokeReply = event => {
-              const response = JSON.parse(event.data);
-              if (response.id === ${JSONObject.quote(id)}) {
-                window.offlineSmokeBridgeResult = response;
-                JastreamerDownloads.removeEventListener('message', offlineSmokeReply);
-              }
-            };
-            JastreamerDownloads.addEventListener('message', offlineSmokeReply);
-            JastreamerDownloads.postMessage(${JSONObject.quote(message.toString())});
+            (() => {
+              window.offlineSmokeBridgeResult = null;
+              const offlineSmokeReply = event => {
+                const response = JSON.parse(event.data);
+                if (response.id === ${JSONObject.quote(id)}) {
+                  window.offlineSmokeBridgeResult = response;
+                  JastreamerDownloads.removeEventListener('message', offlineSmokeReply);
+                }
+              };
+              JastreamerDownloads.addEventListener('message', offlineSmokeReply);
+              JastreamerDownloads.postMessage(${JSONObject.quote(message.toString())});
+            })();
         """.trimIndent())
         confirm?.invoke()
         await("native $action response") { evaluate("window.offlineSmokeBridgeResult !== null") == "true" }

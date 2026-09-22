@@ -198,6 +198,8 @@ Kotlin 앱은 `_jastreamer._tcp` Server를 검색하고 `/api/v1/discovery`로 �
 
 새 가져오기는 플랫폼 공용 **v1 다운로드 기능**을 광고하는 호환 Android APK와 Server/Web UI가 모두 필요합니다. APK만 업데이트해도 구형 Server가 제공하는 Web 페이지에 버튼이나 endpoint가 추가되거나 Server가 업데이트되지는 않습니다. 구형 또는 접속 불가 Server가 앱이나 이미 완료한 저장된 음악을 막아서는 안 되며, 해당 Server가 지원하는 기존 제어 기능은 계속 사용할 수 있습니다. 호환되는 소스 리비전을 사용하고 Server 업데이트는 별도로 승인된 설치·업데이트 절차로 다루세요.
 
+폴더 가져오기는 Android와 Server 양쪽 모두 폴더 대상을 구현한 빌드가 필요합니다. Server가 제공하는 Web 화면만 업데이트해도 앱의 네이티브 지원이 추가되지는 않습니다.
+
 현재 Android 배포는 게시된 production 릴리즈가 아닌 **개발·테스트 전용**입니다. 독립 플레이어와 v1 가져오기는 현재 소스에 구현되어 있지만 실물 휴대전화 설치·네트워크, 원본/AAC 가청 재생, Bluetooth·헤드셋 동작과 업데이트 보존은 릴리즈 완료 주장이 아니라 앞으로 확인할 항목입니다. 성공한 [Android CI 실행](https://github.com/furyheimdall/jastreamer/actions/workflows/android.yml)은 시험한 소스 리비전의 `jastreamer-android-debug-test-signed-and-release-unsigned-<revision>` artifact를 제공할 수 있습니다. 별도로 승인한 테스트 설치 전에 `SHA256SUMS`, `provenance.json`, 리비전, application ID와 서명 인증서를 검증하세요. PR 산출물은 보호된 main의 릴리즈가 아닙니다.
 
 - `*_debug-test-signed.apk`는 개발 테스트에만 설치할 수 있고 application ID가 `io.jastreamer.android.debug`이며 생성된 debug 인증서를 사용합니다. production application ID `io.jastreamer.android`와 분리되어 있습니다.
@@ -264,6 +266,8 @@ PWA 설치에는 해당 휴대전화와 브라우저가 신뢰하는 인증서�
 ## 10. 업데이트
 
 Linux 컨테이너 대상은 최초 계정 생성을 다시 하는 대신 검증된 Server 컨테이너 이미지를 교체해 업데이트합니다. 이미지에는 해당 아키텍처의 Web 화면, FFmpeg와 AirPlay 실행 환경이 포함됩니다. Server가 자신을 업데이트하도록 Docker 소켓을 연결하거나 호스트 관리 권한을 부여하지 마세요. 네이티브 Windows는 [별도 무설치 업데이트 절차](#windows-server)를 따르고 아래 Compose 절차를 적용하지 마세요.
+
+폴더 다운로드는 Server의 `download_jobs.kind` 제약을 확장합니다. 시작 시 알려진 이전 스키마를 트랜잭션으로 이행하면서 기존 작업·하위 행·인덱스·외래 키·아티팩트 참조를 보존하며 음원이나 설정을 이동하지 않습니다. 승인된 업데이트 전에 이 스키마 변경을 검토하세요. 구형 빌드는 폴더 작업을 구현하지 않으므로 실행 파일·이미지만 교체하면 호환되는 다운그레이드가 된다고 가정하거나, 이를 강행하려고 작업·데이터를 삭제하면 안 됩니다.
 
 ### 업데이트 절차
 

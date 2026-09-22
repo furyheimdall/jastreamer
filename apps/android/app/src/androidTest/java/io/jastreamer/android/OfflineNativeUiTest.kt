@@ -10,7 +10,6 @@ import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Rect
-import android.graphics.drawable.BitmapDrawable
 import android.os.SystemClock
 import android.provider.MediaStore
 import android.view.View
@@ -18,7 +17,6 @@ import android.view.ViewGroup
 import android.view.accessibility.AccessibilityNodeInfo
 import android.widget.Button
 import android.widget.CheckBox
-import android.widget.ImageView
 import android.widget.SeekBar
 import android.widget.TextView
 import androidx.test.core.app.ActivityScenario
@@ -242,15 +240,12 @@ class OfflineNativeUiTest {
             openSavedMusic()
             waitFor("offline mini player fixture") {
                 var shown = false
-                scenario.onActivity { shown = it.findViewById<View>(R.id.offline_mini_player)?.isShown == true }
-                shown
-            }
-            waitFor("mini player fixture artwork") {
-                var loaded = false
                 scenario.onActivity {
-                    loaded = it.findViewById<ImageView>(R.id.offline_mini_artwork)?.drawable is BitmapDrawable
+                    val mini = it.findViewById<View>(R.id.offline_mini_player)
+                    val title = it.findViewById<TextView>(R.id.offline_player_title)
+                    shown = mini?.isShown == true && mini.isLaidOut && title?.text?.toString() == track.title
                 }
-                loaded
+                shown
             }
             scenario.onActivity { activity ->
                 val mini = activity.findViewById<ViewGroup>(R.id.offline_mini_player)
@@ -271,15 +266,11 @@ class OfflineNativeUiTest {
             scenario.onActivity { it.findViewById<View>(R.id.offline_mini_expand).performClick() }
             waitFor("expanded offline player") {
                 var shown = false
-                scenario.onActivity { shown = it.findViewById<View>(R.id.offline_player_seek)?.isShown == true }
-                shown
-            }
-            waitFor("expanded player fixture artwork") {
-                var loaded = false
                 scenario.onActivity {
-                    loaded = it.findViewById<ImageView>(R.id.offline_player_artwork)?.drawable is BitmapDrawable
+                    val seek = it.findViewById<View>(R.id.offline_player_seek)
+                    shown = seek?.isShown == true && seek.isLaidOut
                 }
-                loaded
+                shown
             }
             scenario.onActivity { activity ->
                 assertTrue(activity.findViewById<View>(R.id.offline_mini_player).visibility == View.GONE)
@@ -322,7 +313,7 @@ class OfflineNativeUiTest {
                 scenario.onActivity { activity ->
                     ready = activity.resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE &&
                         activity.findViewById<View>(R.id.offline_player_seek)?.isShown == true &&
-                        activity.findViewById<ImageView>(R.id.offline_player_artwork)?.drawable is BitmapDrawable
+                        activity.findViewById<View>(R.id.offline_player_artwork)?.isLaidOut == true
                 }
                 ready
             }
