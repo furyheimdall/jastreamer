@@ -58,6 +58,18 @@ internal class OfflineImportSmoke(
             val original = download(source, "original")
             val compact = download(source, "aac_256")
             val shortAAC = download(shortSource, "aac_256")
+            val playlistsBeforeFolder = library.playlists().map { it.id }
+            val rootID = source.getString("root_id")
+            val folderPath = source.getString("path").substringBeforeLast('/')
+            evaluate("document.querySelector('button[data-library-kind=folders]').click()")
+            val rootSelector = "button[data-download-kind=folder][data-download-root-id='$rootID'][data-download-path='']"
+            await("source root folder") { evaluate("!!document.querySelector(${JSONObject.quote(rootSelector)})") == "true" }
+            evaluate("document.querySelector(${JSONObject.quote(rootSelector)}).closest('.library-folder-item').querySelector('.library-folder-row').click()")
+            val folderSelector = "button[data-download-kind=folder][data-download-root-id='$rootID'][data-download-path='$folderPath']:not(:disabled)"
+            val folderTrack = download(source, "original", folderSelector)
+            assertEquals("Folder reimport retains verified local audio", original.id, folderTrack.id)
+            assertEquals("A folder import must not create a playlist", playlistsBeforeFolder, library.playlists().map { it.id })
+            screenshot("offline-folder-import-complete")
             assertNotEquals("Different qualities remain distinct local artifacts", original.id, compact.id)
             assertEquals(source.getLong("size"), original.byteSize)
             assertEquals("audio/mp4", compact.mime)
@@ -157,20 +169,17 @@ internal class OfflineImportSmoke(
             }
             main { OfflinePlayback.pause() }
             await("local pause") { !OfflinePlayback.state.value.playing }
-            await("full-player action updates after pause") {
-                var updated = false
-                scenario.onActivity { activity ->
-                    val configuration = android.content.res.Configuration(activity.resources.configuration).apply {
-                        setLocale(java.util.Locale.forLanguageTag(RecentServerStore(context).language()))
-                    }
-                    val resume = activity.createConfigurationContext(configuration).getString(R.string.offline_resume)
-                    val body = activity.findViewById<SeekBar>(R.id.offline_player_seek).parent as ViewGroup
-                    val matches = ArrayList<View>()
-                    body.findViewsWithText(matches, resume, View.FIND_VIEWS_WITH_TEXT)
-                    updated = matches.any { it is Button && it.text.toString() == resume && it.isShown }
-                }
-                updated
+            val pausedPosition = OfflinePlayback.state.value.queue.positionMs
+            instrumentation.waitForIdleSync()
+            scenario.onActivity {
+                it.findViewById<View>(R.id.offline_player_play_pause).performClick()
             }
+            await("full-player resume advances the local engine") {
+                val state = OfflinePlayback.state.value
+                state.playing && state.queue.positionMs > pausedPosition
+            }
+            main { OfflinePlayback.pause() }
+            await("local pause before deferred deletion") { !OfflinePlayback.state.value.playing }
             val deletion = library.deleteTracks(listOf(compact.id))
             assertTrue("Current-track ownership must defer deletion even when AAC is buffered", compact.id in deletion.deferredIds)
             assertTrue(library.track(compact.id)?.pendingDelete == true)
@@ -201,8 +210,11 @@ internal class OfflineImportSmoke(
         }
     }
 
-    private fun download(source: JSONObject, quality: String): OfflineTrack {
-        val selector = "button[data-download-kind=track][data-download-id='${source.getString("id")}'][aria-disabled=false]:not(:disabled):not([data-download-confirm])"
+    private fun download(
+        source: JSONObject,
+        quality: String,
+        selector: String = "button[data-download-kind=track][data-download-id='${source.getString("id")}']:not(:disabled):not([data-download-confirm])",
+    ): OfflineTrack {
         await("track download control") { evaluate("!!document.querySelector(${JSONObject.quote(selector)})") == "true" }
         evaluate("document.querySelector(${JSONObject.quote(selector)}).click()")
         await("download quality confirmation") { evaluate("!!document.querySelector('button[data-download-confirm]')") == "true" }
@@ -222,8 +234,12 @@ internal class OfflineImportSmoke(
         await("verified $quality import", 90_000) {
             val job = OfflineDownloads.jobs.value.find { it.id == jobId }
             check(job?.errorCode == null) { "Import failed: ${job?.status} ${job?.errorCode}: ${job?.errorMessage}" }
-            library.tracks().any { it.title == source.getString("title") && it.quality == quality }
+            job?.status == "completed" && library.tracks().any { it.title == source.getString("title") && it.quality == quality }
         }
+        await("Server shows the completed native download result") {
+            evaluate("!!document.querySelector('.native-download-job-list > .native-download-job-completed:first-child')") == "true"
+        }
+        evaluate("document.querySelector('.native-download-status-dialog .library-dialog-heading button').click()")
         return library.tracks().single { it.title == source.getString("title") && it.quality == quality }
     }
 

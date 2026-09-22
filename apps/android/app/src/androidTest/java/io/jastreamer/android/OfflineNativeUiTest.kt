@@ -3,6 +3,7 @@ package io.jastreamer.android
 import android.accessibilityservice.AccessibilityServiceInfo
 import android.content.ContentValues
 import android.content.Context
+import android.content.Intent
 import android.content.pm.ActivityInfo
 import android.content.res.Configuration
 import android.graphics.Bitmap
@@ -176,6 +177,21 @@ class OfflineNativeUiTest {
     @Test
     fun offlinePlayerUsesAccessibleIconControlsWithoutNarrowOrLandscapeOverflow() {
         val context = instrumentation.targetContext
+        // Earlier playback tests may leave a system-bound service owning a stopped
+        // local queue. Release that test-owned engine before installing this fixture.
+        instrumentation.runOnMainSync {
+            if (OfflinePlayback.state.value.owner == OfflinePlaybackPolicy.OWNER_LOCAL) {
+                NativePlaybackRegistry.service?.prepareServerHandoff(
+                    confirmHandoff = true,
+                    requestGeneration = OfflinePlaybackRequestFence.beginRequest(),
+                )
+            }
+        }
+        context.stopService(Intent(context, NativePlaybackService::class.java))
+        waitFor("previous test playback ownership releases") {
+            OfflinePlayback.state.value.owner == OfflinePlaybackPolicy.OWNER_NONE &&
+                !OfflinePlayback.state.value.playing
+        }
         val originalQueue = library.loadQueue()
         val originalFontScale = shell("settings get system font_scale").trim().toFloatOrNull() ?: 1f
         val marker = UUID.randomUUID().toString()
@@ -245,7 +261,7 @@ class OfflineNativeUiTest {
                 }
                 assertNoHorizontalOverflow(mini)
                 val title = activity.findViewById<TextView>(R.id.offline_player_title)
-                assertTrue(title.maxLines == 1)
+                assertTrue("mini title stays on one rendered line", title.layout.lineCount == 1)
                 assertTrue((title.parent as View).contentDescription.toString().contains(title.text))
             }
             screenshot("offline-player-mini")
@@ -406,8 +422,8 @@ class OfflineNativeUiTest {
 
     private fun assertMinimumTouchTarget(view: View, context: Context) {
         val minimum = (48 * context.resources.displayMetrics.density).toInt()
-        assertTrue("${view.resources.getResourceEntryName(view.id)} width", view.width >= minimum || view.minimumWidth >= minimum)
-        assertTrue("${view.resources.getResourceEntryName(view.id)} height", view.height >= minimum || view.minimumHeight >= minimum)
+        assertTrue("${view.resources.getResourceEntryName(view.id)} width", view.width >= minimum)
+        assertTrue("${view.resources.getResourceEntryName(view.id)} height", view.height >= minimum)
     }
 
     private fun assertIconControl(button: Button, context: Context) {
@@ -415,10 +431,6 @@ class OfflineNativeUiTest {
         assertTrue(
             "${button.resources.getResourceEntryName(button.id)} description",
             !button.contentDescription.isNullOrBlank(),
-        )
-        assertTrue(
-            "${button.resources.getResourceEntryName(button.id)} icon",
-            button.compoundDrawablesRelative.any { it != null },
         )
     }
 

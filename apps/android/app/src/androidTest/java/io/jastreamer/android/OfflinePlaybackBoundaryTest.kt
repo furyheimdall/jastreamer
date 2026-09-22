@@ -170,9 +170,9 @@ class OfflinePlaybackBoundaryTest {
             try {
                 await("missing local audio fails without a retry loop", 8_000L) {
                     val state = OfflinePlayback.state.value
-                    state.owner == "local" && !state.playing && state.errorCode == "local_playback"
+                    state.owner == "local" && !state.playing && state.errorCode == "local_playback" &&
+                        onMain { !controller.isPlaying && controller.playbackState == Player.STATE_IDLE }
                 }
-                assertTrue(onMain { !controller.isPlaying && controller.playbackState == Player.STATE_IDLE })
                 assertEquals(track.id, currentTrackId())
             } finally {
                 releaseController()
@@ -192,9 +192,11 @@ class OfflinePlaybackBoundaryTest {
             try {
                 await("corrupt local audio exhausts its finite queue", 8_000L) {
                     val state = OfflinePlayback.state.value
-                    state.owner == "local" && !state.playing && state.errorCode == "local_decode"
+                    // MediaController receives session state asynchronously; observe its
+                    // stopped state within the same bound, not just the in-process facade.
+                    state.owner == "local" && !state.playing && state.errorCode == "local_decode" &&
+                        onMain { !controller.isPlaying && controller.playbackState == Player.STATE_IDLE }
                 }
-                assertTrue(onMain { !controller.isPlaying && controller.playbackState == Player.STATE_IDLE })
                 assertEquals(track.id, currentTrackId())
             } finally {
                 releaseController()

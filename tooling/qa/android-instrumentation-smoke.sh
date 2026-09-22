@@ -41,7 +41,7 @@ if (( capture_status != 0 )) || [[ ! -s "${screenshots[0]}" || ! -s "${evidence}
   exit 65
 fi
 for required in native-playing native-background native-recreated native-recovery-stopped \
-  offline-import-complete offline-library-after-logout offline-playing-after-folder-move \
+  offline-import-complete offline-folder-import-complete offline-library-after-logout offline-playing-after-folder-move \
   offline-current-delete-deferred offline-restored-without-server-login \
   offline-cold-process-airplane-playback \
   offline-player-mini offline-player-expanded offline-player-landscape; do

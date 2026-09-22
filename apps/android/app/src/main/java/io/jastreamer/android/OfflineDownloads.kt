@@ -415,7 +415,9 @@ object OfflineDownloads {
         if (!network.allowed) {
             update(jobId, "waiting", network.errorCode, network.errorMessage)
             progress(publicJob(jobId))
-            return ProcessOutcome.NO_PROGRESS
+            // A scheduler may match a secondary network; keep durable work until
+            // the default route used by HTTP is eligible instead of completing it.
+            return ProcessOutcome.RETRY
         }
         val principal = initial.principalId ?: return hardFailure(jobId, "auth_required", "Download authorization is unavailable")
         val remoteId = initial.remoteId ?: return hardFailure(jobId, "invalid_manifest", "Download job identity is unavailable")
@@ -627,7 +629,7 @@ object OfflineDownloads {
             val network = currentNetworkState(context, allowMetered(context))
             if (!network.allowed) {
                 update(jobId, "waiting", network.errorCode, network.errorMessage)
-                return ProcessOutcome.NO_PROGRESS
+                return ProcessOutcome.RETRY
             }
             if (isPermanentFailure(failure) && finishPartialIfAny(context, jobId)) {
                 return ProcessOutcome.DONE
@@ -638,7 +640,7 @@ object OfflineDownloads {
             val network = currentNetworkState(context, allowMetered(context))
             if (!network.allowed) {
                 update(jobId, "waiting", network.errorCode, network.errorMessage)
-                return ProcessOutcome.NO_PROGRESS
+                return ProcessOutcome.RETRY
             }
             if (finishPartialIfAny(context, jobId)) return ProcessOutcome.DONE
             return hardFailure(jobId, "tls", "The server TLS connection could not be verified")
@@ -647,7 +649,7 @@ object OfflineDownloads {
             val network = currentNetworkState(context, allowMetered(context))
             if (!network.allowed) {
                 update(jobId, "waiting", network.errorCode, network.errorMessage)
-                return ProcessOutcome.NO_PROGRESS
+                return ProcessOutcome.RETRY
             }
             if (library.usage().availableBytes < SAFETY_RESERVE_BYTES) {
                 update(jobId, "paused", "storage_full", "Not enough free space to continue the download")
@@ -660,7 +662,7 @@ object OfflineDownloads {
             val network = currentNetworkState(context, allowMetered(context))
             if (!network.allowed) {
                 update(jobId, "waiting", network.errorCode, network.errorMessage)
-                return ProcessOutcome.NO_PROGRESS
+                return ProcessOutcome.RETRY
             }
             update(jobId, "waiting", "transfer", failure.message?.take(240) ?: "Download could not continue")
             return ProcessOutcome.RETRY
