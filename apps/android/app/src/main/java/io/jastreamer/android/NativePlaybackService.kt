@@ -336,53 +336,35 @@ class NativePlaybackService : MediaSessionService(), Player.Listener {
         if (!committed) throw NativePlaybackException("superseded", "A newer playback action replaced this request.")
     }
 
-    internal suspend fun enqueueOffline(
-        savedQueue: OfflineQueue,
-        tracks: List<OfflineTrack>,
-        next: Boolean,
-        requestGeneration: Long,
-    ) {
-        require(tracks.isNotEmpty())
-        requireCurrentOfflineRequest(requestGeneration)
-        val available = tracks.none { it.pendingDelete } && withContext(Dispatchers.IO) {
-            tracks.all { track -> offlineLibrary.track(track.id)?.pendingDelete == false }
+    internal suspend fun enqueueOffline(trackIds: List<String>, next: Boolean) {
+        require(trackIds.isNotEmpty())
+        if (owner != PlaybackOwner.LOCAL) {
+            mutateInactiveOfflineQueue { queue -> OfflinePlaybackPolicy.enqueue(queue, trackIds, next) }
+            return
         }
-        requireCurrentOfflineRequest(requestGeneration)
-        if (!available) {
-            throw NativePlaybackException("track_unavailable", "Saved audio is pending deletion.")
+        val tracks = withContext(Dispatchers.IO) {
+            trackIds.map { id ->
+                offlineLibrary.track(id)?.takeUnless { it.pendingDelete }
+                    ?: throw NativePlaybackException("track_unavailable", "Saved audio is no longer available.")
+            }
         }
-        val commandGeneration = ++offlineCommandGeneration
-        val operationToken = OfflinePlaybackPolicy.OperationToken(ownershipGeneration, commandGeneration)
-        if (owner == PlaybackOwner.LOCAL) captureOfflinePosition()
-        val baseQueue = if (offlineQueue.entries.isNotEmpty() || owner == PlaybackOwner.LOCAL) {
-            offlineQueue
-        } else {
-            OfflinePlaybackPolicy.normalized(savedQueue)
+        if (owner != PlaybackOwner.LOCAL) {
+            mutateInactiveOfflineQueue { queue -> OfflinePlaybackPolicy.enqueue(queue, trackIds, next) }
+            return
         }
-        val updated = OfflinePlaybackPolicy.enqueue(baseQueue, tracks.map(OfflineTrack::id), next)
-        if (!OfflinePlaybackRequestFence.isCurrent(requestGeneration) ||
-            !OfflinePlaybackPolicy.operationIsCurrent(
-                operationToken,
-                ownershipGeneration,
-                offlineCommandGeneration,
-            )
-        ) {
-            throw NativePlaybackException("superseded", "A newer playback action replaced this request.")
-        }
-
-        offlineGeneration++
-        if (owner == PlaybackOwner.LOCAL) {
-            val existingIds = baseQueue.entries.mapTo(
-                HashSet<String>(baseQueue.entries.size),
-                OfflineQueueEntry::id,
-            )
-            val additions = updated.entries.filterNot { it.id in existingIds }
-            check(additions.size == tracks.size)
-            val insertionIndex = updated.entries.indexOfFirst { it.id == additions.first().id }
-            val mediaSources = additions.zip(tracks).map { (entry, track) -> offlineMediaSource(entry, track) }
-            player.addMediaSources(insertionIndex, mediaSources)
-        }
+        captureOfflinePosition()
+        val baseQueue = offlineQueue
+        val updated = OfflinePlaybackPolicy.enqueue(baseQueue, trackIds, next)
+        val existingIds = baseQueue.entries.mapTo(
+            HashSet<String>(baseQueue.entries.size),
+            OfflineQueueEntry::id,
+        )
+        val additions = updated.entries.filterNot { it.id in existingIds }
+        check(additions.size == tracks.size)
+        val insertionIndex = updated.entries.indexOfFirst { it.id == additions.first().id }
+        val mediaSources = additions.zip(tracks).map { (entry, track) -> offlineMediaSource(entry, track) }
         offlineQueue = updated
+        player.addMediaSources(insertionIndex, mediaSources)
         publishOfflineState()
         persistOfflineQueueNow()
     }
@@ -392,8 +374,10 @@ class NativePlaybackService : MediaSessionService(), Player.Listener {
         entryId: String,
         confirmHandoff: Boolean,
         requestGeneration: Long,
+        startPositionMs: Long,
     ) {
         requireCurrentOfflineRequest(requestGeneration)
+        val positionMs = startPositionMs.coerceAtLeast(0L)
         val initialQueue = if (offlineQueue.entries.any { it.id == entryId }) {
             offlineQueue
         } else {
@@ -440,7 +424,7 @@ class NativePlaybackService : MediaSessionService(), Player.Listener {
                 } else {
                     offlineError = null
                     offlineFailedEntryIds.clear()
-                    player.seekTo(currentIndex, 0L)
+                    player.seekTo(currentIndex, positionMs)
                     replaceOfflineRetention(entryId, retention)
                     if (player.playbackState == Player.STATE_IDLE) player.prepare()
                     player.play()
@@ -477,7 +461,7 @@ class NativePlaybackService : MediaSessionService(), Player.Listener {
             queue.copy(
                 entries = available.map { it.first },
                 currentEntryId = entryId,
-                positionMs = 0L,
+                positionMs = positionMs,
             ),
         )
         val mediaSources = available.map { (entry, track) ->
@@ -503,7 +487,7 @@ class NativePlaybackService : MediaSessionService(), Player.Listener {
                 offlineError = null
                 offlineFailedEntryIds.clear()
                 offlinePendingEntryId = null
-                player.setMediaSources(mediaSources, selectedIndex, 0L)
+                player.setMediaSources(mediaSources, selectedIndex, positionMs)
                 player.shuffleModeEnabled = restored.shuffle
                 player.repeatMode = restored.repeatMode
                 persistOfflineQueue()
@@ -606,14 +590,24 @@ class NativePlaybackService : MediaSessionService(), Player.Listener {
         return offlineMediaFactory.createMediaSource(item)
     }
 
-    internal fun replaceRestoredOfflineQueue(queue: OfflineQueue) {
-        beginOfflineCommand()
-        if (owner == PlaybackOwner.LOCAL) return
-        offlineGeneration++
+    internal fun adoptPersistedOfflineQueue(queue: OfflineQueue) {
+        if (owner == PlaybackOwner.LOCAL) {
+            throw NativePlaybackException("superseded", "Local playback replaced the saved queue update.")
+        }
         offlineQueue = OfflinePlaybackPolicy.normalized(queue)
         offlineError = null
-        persistOfflineQueue()
         publishOfflineState()
+    }
+
+    internal suspend fun mutateInactiveOfflineQueue(transform: (OfflineQueue) -> OfflineQueue) {
+        if (owner == PlaybackOwner.LOCAL) {
+            throw NativePlaybackException("superseded", "Local playback replaced the saved queue update.")
+        }
+        offlinePersistRevision++
+        val updated = withContext(Dispatchers.IO) {
+            offlinePersistMutex.withLock { offlineLibrary.updateQueue(transform) }
+        }
+        adoptPersistedOfflineQueue(updated)
     }
 
     internal fun pauseOffline() {
@@ -774,28 +768,16 @@ class NativePlaybackService : MediaSessionService(), Player.Listener {
     }
 
     private suspend fun persistOfflineQueueNow() {
-        while (true) {
-            val snapshot = OfflinePlaybackPolicy.normalized(offlineQueue)
-            offlineQueue = snapshot
-            val diskSnapshot = offlinePendingEntryId?.let {
-                OfflinePlaybackPolicy.remove(snapshot, it)
-            } ?: snapshot
-            val revision = ++offlinePersistRevision
-            val persisted = withContext(Dispatchers.IO) {
-                offlinePersistMutex.withLock {
-                    if (revision != offlinePersistRevision) {
-                        false
-                    } else {
-                        try {
-                            offlineLibrary.saveQueue(diskSnapshot)
-                        } catch (_: OfflineLibraryException) {
-                            // Reconciliation owns queue repair when deletion wins this race.
-                        }
-                        true
-                    }
+        withContext(Dispatchers.IO) {
+            offlinePersistMutex.withLock {
+                val diskSnapshot = withContext(Dispatchers.Main.immediate) {
+                    offlinePersistRevision++
+                    val snapshot = OfflinePlaybackPolicy.normalized(offlineQueue)
+                    offlineQueue = snapshot
+                    offlinePendingEntryId?.let { OfflinePlaybackPolicy.remove(snapshot, it) } ?: snapshot
                 }
+                offlineLibrary.saveQueue(diskSnapshot)
             }
-            if (persisted) return
         }
     }
 

@@ -9,6 +9,11 @@
     <item name="offline_downloads_button" type="id" />
     <item name="offline_navigation" type="id" />
     <item name="offline_content" type="id" />
+    <item name="offline_browse_content" type="id" />
+    <item name="offline_expanded_player" type="id" />
+    <item name="offline_page_scroll" type="id" />
+    <item name="offline_storage_limit" type="id" />
+    <item name="offline_library_tabs" type="id" />
     <item name="offline_library_button" type="id" />
     <item name="offline_playlists_button" type="id" />
     <item name="offline_queue_button" type="id" />

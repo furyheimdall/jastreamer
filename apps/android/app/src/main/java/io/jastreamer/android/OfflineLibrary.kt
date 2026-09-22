@@ -468,8 +468,18 @@ class OfflineLibrary private constructor(context: Context) {
 
     fun loadQueue(): OfflineQueue = synchronized(lock) { loadQueueLocked() }
 
-    fun saveQueue(queue: OfflineQueue) = synchronized(lock) {
+    fun updateQueue(transform: (OfflineQueue) -> OfflineQueue): OfflineQueue = synchronized(lock) {
         val before = loadQueueLocked()
+        val updated = transform(before)
+        saveQueueLocked(before, updated)
+        updated
+    }
+
+    fun saveQueue(queue: OfflineQueue) = synchronized(lock) {
+        saveQueueLocked(loadQueueLocked(), queue)
+    }
+
+    private fun saveQueueLocked(before: OfflineQueue, queue: OfflineQueue) {
         val entriesChanged = before.entries != queue.entries
         val entryIds = HashSet<String>()
         queue.entries.forEach { entry ->

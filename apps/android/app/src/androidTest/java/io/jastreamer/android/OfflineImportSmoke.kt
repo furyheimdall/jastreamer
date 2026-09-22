@@ -389,6 +389,12 @@ internal class OfflineImportSmoke(
             assertNoHorizontalOverflow(content)
             assertNoOverlappingVisibleButtons(root)
             assertTouchTargets(root)
+            val tabs = activity.findViewById<HorizontalScrollView>(R.id.offline_library_tabs)
+            if (tabs != null && tabs.getGlobalVisibleRect(Rect())) {
+                val selected = requireNotNull(findView(tabs) { it is Button && it.isSelected })
+                val selectedBounds = visibleRect(selected, "active library category")
+                assertEquals("The active category must stay horizontally visible", selected.width, selectedBounds.width())
+            }
 
             val rootRect = visibleRect(root, "saved-music root")
             val navigationRect = visibleRect(navigation, "saved-music navigation")

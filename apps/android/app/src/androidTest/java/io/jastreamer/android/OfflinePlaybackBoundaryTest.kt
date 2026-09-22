@@ -192,11 +192,11 @@ class OfflinePlaybackBoundaryTest {
             runBlocking { OfflinePlayback.play(context, listOf(first.id, tail.id)) }
             val (controller, releaseController) = connectController()
             try {
-                await("local playback advances before live insertion") {
-                    OfflinePlayback.state.value.playing && onMain { controller.currentPosition >= 300L }
+                onMain { controller.seekTo(5_000L) }
+                await("local playback passes its seek landmark before live insertion") {
+                    OfflinePlayback.state.value.playing && onMain { controller.currentPosition >= 5_500L }
                 }
                 val currentEntryId = OfflinePlayback.state.value.queue.currentEntryId
-                val beforePosition = onMain { controller.currentPosition }
 
                 runBlocking {
                     OfflinePlayback.enqueue(context, listOf(duplicate.id, duplicate.id), next = true)
@@ -214,8 +214,7 @@ class OfflinePlaybackBoundaryTest {
                 }
                 val inserted = OfflinePlayback.state.value.queue
                 assertEquals(inserted.entries.size, inserted.entries.map { entry -> entry.id }.toSet().size)
-                val afterPosition = onMain { controller.currentPosition }
-                assertTrue("Live playback moved backwards from $beforePosition to $afterPosition", afterPosition >= beforePosition)
+                assertTrue("Live insertion must retain the seek landmark", onMain { controller.currentPosition >= 5_000L })
                 val selectedEntryId = inserted.entries[2].id
                 val stableIds = inserted.entries.map { entry -> entry.id }
 
@@ -226,6 +225,17 @@ class OfflinePlaybackBoundaryTest {
                         onMain { controller.currentMediaItem?.mediaId == selectedEntryId }
                 }
                 assertEquals(stableIds, OfflinePlayback.state.value.queue.entries.map { entry -> entry.id })
+                onMain {
+                    controller.pause()
+                    controller.seekTo(2_000L)
+                }
+                await("paused playback settles at an exact seek position") {
+                    onMain { !controller.isPlaying && controller.currentPosition == 2_000L }
+                }
+                runBlocking { OfflinePlayback.enqueue(context, listOf(tail.id), next = false) }
+                assertFalse(onMain { controller.isPlaying })
+                assertEquals(2_000L, onMain { controller.currentPosition })
+                assertEquals(stableIds, OfflinePlayback.state.value.queue.entries.take(stableIds.size).map { it.id })
             } finally {
                 releaseController()
             }
@@ -270,11 +280,18 @@ class OfflinePlaybackBoundaryTest {
                     assertEquals(OfflinePlaybackPolicy.OWNER_SERVER, OfflinePlayback.state.value.owner)
                     assertFalse(OfflinePlayback.state.value.playing)
                     assertEquals(0, fixture.registrationDeletes())
+                    runBlocking {
+                        OfflinePlayback.playEntry(context, queued[1].id, confirmHandoff = true, startPositionMs = 1_000L)
+                    }
+                    await("confirmed handoff resumes the selected saved occurrence at its offset") {
+                        val state = OfflinePlayback.state.value
+                        state.owner == OfflinePlaybackPolicy.OWNER_LOCAL && state.playing &&
+                            state.queue.currentEntryId == queued[1].id && state.queue.positionMs >= 1_000L
+                    }
+                    assertEquals(queued, OfflinePlayback.state.value.queue.entries)
+                    assertEquals(1, fixture.registrationDeletes())
                 } finally {
                     fixture.removeRegistration()
-                    await("fixture registration releases Server ownership", 5_000L) {
-                        OfflinePlayback.state.value.owner == OfflinePlaybackPolicy.OWNER_NONE
-                    }
                     releasePlayback()
                 }
             }

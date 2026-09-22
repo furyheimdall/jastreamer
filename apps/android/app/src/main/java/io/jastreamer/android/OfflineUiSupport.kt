@@ -66,6 +66,7 @@ internal object OfflineUi {
             radiusDp = 999,
             primary = primary,
             selected = true,
+            ghost = !primary,
         )
     }
 
@@ -119,6 +120,7 @@ internal object OfflineUi {
             radiusDp = 999,
             primary = false,
             selected = true,
+            ghost = true,
         )
     }
 
@@ -160,6 +162,7 @@ internal object OfflineUi {
             radiusDp = 11,
             primary = false,
             selected = true,
+            ghost = true,
         )
     }
 
@@ -199,10 +202,18 @@ internal object OfflineUi {
         )
     }
 
-    fun rowBackground(context: Context, selected: Boolean = false): Drawable {
+    fun rowBackground(context: Context, selected: Boolean = false, plain: Boolean = false): Drawable {
         val density = context.resources.displayMetrics.density
-        val color = if (selected) withAlpha(OfflinePalette.accent, 0x17) else OfflinePalette.panel
-        val stroke = if (selected) withAlpha(OfflinePalette.accent, 0x33) else OfflinePalette.border
+        val color = when {
+            plain -> Color.TRANSPARENT
+            selected -> withAlpha(OfflinePalette.accent, 0x17)
+            else -> OfflinePalette.panel
+        }
+        val stroke = when {
+            plain -> Color.TRANSPARENT
+            selected -> withAlpha(OfflinePalette.accent, 0x33)
+            else -> OfflinePalette.border
+        }
         val content = StateListDrawable().apply {
             addState(
                 intArrayOf(-android.R.attr.state_enabled),
@@ -260,6 +271,7 @@ internal object OfflineUi {
         primary: Boolean,
         danger: Boolean = false,
         selected: Boolean,
+        ghost: Boolean = false,
     ): Drawable {
         val density = context.resources.displayMetrics.density
         fun shape(color: Int, stroke: Int = OfflinePalette.border) =
@@ -267,7 +279,10 @@ internal object OfflineUi {
         val normal = when {
             primary -> shape(OfflinePalette.accent, OfflinePalette.accent)
             danger -> shape(withAlpha(OfflinePalette.error, 0x0D), withAlpha(OfflinePalette.error, 0x66))
-            else -> shape(withAlpha(OfflinePalette.foreground, 0x0A))
+            else -> shape(
+                if (ghost) Color.TRANSPARENT else withAlpha(OfflinePalette.foreground, 0x0A),
+                if (ghost) Color.TRANSPARENT else OfflinePalette.border,
+            )
         }
         val selectedShape = when {
             primary -> shape(OfflinePalette.accent, OfflinePalette.accent)
@@ -283,8 +298,12 @@ internal object OfflineUi {
             addState(
                 intArrayOf(-android.R.attr.state_enabled),
                 shape(
-                    if (primary) withAlpha(OfflinePalette.accent, 0x55) else withAlpha(OfflinePalette.panelRaised, 0x66),
-                    withAlpha(OfflinePalette.border, 0x66),
+                    when {
+                        primary -> withAlpha(OfflinePalette.accent, 0x55)
+                        ghost -> Color.TRANSPARENT
+                        else -> withAlpha(OfflinePalette.panelRaised, 0x66)
+                    },
+                    if (ghost) Color.TRANSPARENT else withAlpha(OfflinePalette.border, 0x66),
                 ),
             )
             if (selected) {
@@ -446,10 +465,12 @@ internal object OfflineArtworkLoader {
     }
 
     fun load(scope: CoroutineScope, view: ImageView, path: String?, targetPixels: Int) {
-        showPlaceholder(view)
-        view.tag = path
+        showPlaceholder(view, targetPixels)
+        view.tag = null
         if (path.isNullOrBlank()) return
-        cache.get(path)?.let {
+        val cacheKey = "$path:$targetPixels"
+        view.tag = cacheKey
+        cache.get(cacheKey)?.let {
             showArtwork(view, it)
             return
         }
@@ -461,15 +482,16 @@ internal object OfflineArtworkLoader {
                     null
                 }
             }
-            if (bitmap != null) cache.put(path, bitmap)
-            if (view.tag == path && bitmap != null) showArtwork(view, bitmap)
+            if (bitmap != null) cache.put(cacheKey, bitmap)
+            if (view.tag == cacheKey && bitmap != null) showArtwork(view, bitmap)
         }
     }
 
-    private fun showPlaceholder(view: ImageView) {
-        val padding = (view.resources.displayMetrics.density * 12).toInt()
+    private fun showPlaceholder(view: ImageView, targetPixels: Int) {
+        val iconPixels = minOf(targetPixels / 2, (view.resources.displayMetrics.density * 64).toInt())
+        val padding = ((targetPixels - iconPixels) / 2).coerceAtLeast(0)
         view.setPadding(padding, padding, padding, padding)
-        view.scaleType = ImageView.ScaleType.CENTER_INSIDE
+        view.scaleType = ImageView.ScaleType.FIT_CENTER
         view.setImageResource(R.drawable.ic_offline_music)
     }
 

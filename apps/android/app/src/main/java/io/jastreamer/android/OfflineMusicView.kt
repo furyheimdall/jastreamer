@@ -4,7 +4,9 @@ import android.app.AlertDialog
 import android.content.Context
 import android.content.res.ColorStateList
 import android.graphics.Typeface
+import android.graphics.Rect
 import android.os.Bundle
+import android.os.Parcelable
 import android.text.Editable
 import android.text.InputType
 import android.text.SpannableString
@@ -14,6 +16,7 @@ import android.text.style.ForegroundColorSpan
 import android.text.style.StyleSpan
 import android.text.TextUtils
 import android.text.TextWatcher
+import android.util.SparseArray
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
@@ -48,6 +51,7 @@ import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
+import androidx.core.view.doOnNextLayout
 
 /** Entirely native, account-independent browser and manager for committed local music. */
 class OfflineMusicView(
@@ -65,6 +69,8 @@ class OfflineMusicView(
     private val workspace = LinearLayout(activity)
     private val navigation = LinearLayout(activity)
     private val page = FrameLayout(activity)
+    private val content = LinearLayout(activity)
+    private val expandedPlayer = FrameLayout(activity)
     private val miniPlayer = LinearLayout(activity)
     private val miniSummary = LinearLayout(activity)
     private val playerTitle = TextView(activity)
@@ -83,6 +89,7 @@ class OfflineMusicView(
     private var collectionKind = savedState?.getString(STATE_COLLECTION_KIND)
     private var collectionFirst = savedState?.getString(STATE_COLLECTION_FIRST)
     private var collectionSecond = savedState?.getString(STATE_COLLECTION_SECOND)
+    private var restoredPageState = savedState?.getSparseParcelableArray<Parcelable>(STATE_PAGE_STATE)
 
     private var tracks = emptyList<OfflineTrack>()
     private var trackIndex = emptyMap<String, OfflineTrack>()
@@ -117,6 +124,11 @@ class OfflineMusicView(
     private val selectedAlbums = linkedSetOf<AlbumKey>()
     private val selectedFolderIds = linkedSetOf<String>()
     private val listPages = linkedMapOf<List<String?>, Int>()
+    private val reflow = Runnable {
+        if (attached) {
+            renderPage(preserveState = true)
+        }
+    }
 
     init {
         id = R.id.offline_music_root
@@ -126,12 +138,17 @@ class OfflineMusicView(
         buildHeader()
         workspace.orientation = VERTICAL
         navigation.id = R.id.offline_navigation
-        page.id = R.id.offline_content
-        workspace.addView(page, LayoutParams(MATCH_PARENT, 0, 1f))
+        content.id = R.id.offline_content
+        content.orientation = VERTICAL
+        page.id = R.id.offline_browse_content
+        expandedPlayer.visibility = GONE
+        content.addView(page, LayoutParams(MATCH_PARENT, 0, 1f))
+        content.addView(expandedPlayer, LayoutParams(MATCH_PARENT, WRAP_CONTENT))
+        workspace.addView(content, LayoutParams(MATCH_PARENT, 0, 1f))
         addView(workspace, LayoutParams(MATCH_PARENT, 0, 1f))
         buildMiniPlayer()
         addView(navigation, LayoutParams(MATCH_PARENT, WRAP_CONTENT))
-        renderNavigation()
+        applyAdaptiveLayout(resources.displayMetrics.widthPixels)
         renderPage()
         scope.launch {
             try {
@@ -199,6 +216,7 @@ class OfflineMusicView(
         out.putString(STATE_COLLECTION_KIND, collectionKind)
         out.putString(STATE_COLLECTION_FIRST, collectionFirst)
         out.putString(STATE_COLLECTION_SECOND, collectionSecond)
+        out.putSparseParcelableArray(STATE_PAGE_STATE, SparseArray<Parcelable>().also(content::saveHierarchyState))
     }
 
     fun openDownloads() {
@@ -210,8 +228,7 @@ class OfflineMusicView(
 
     fun handleBack(): Boolean {
         if (fullPlayerOpen) {
-            fullPlayerOpen = false
-            renderPage()
+            setFullPlayerOpen(false)
             return true
         }
         if (screen == SCREEN_DOWNLOADS) {
@@ -241,16 +258,15 @@ class OfflineMusicView(
 
     fun updateForConfiguration() {
         wideLayout = null
-        applyAdaptiveLayout(width.takeIf { it > 0 } ?: resources.displayMetrics.widthPixels)
+        removeCallbacks(reflow)
+        post(reflow)
     }
 
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
         super.onSizeChanged(w, h, oldw, oldh)
-        applyAdaptiveLayout(w)
-        if (fullPlayerOpen || (w != oldw && !loading)) {
-            post {
-                if (attached) renderPage()
-            }
+        if (fullPlayerOpen || w != oldw) {
+            removeCallbacks(reflow)
+            post(reflow)
         }
     }
 
@@ -267,10 +283,7 @@ class OfflineMusicView(
         header.minimumHeight = dp(60)
         header.setBackgroundColor(PANEL)
         header.addView(ImageView(activity).apply {
-            setImageResource(R.drawable.ic_offline_logo)
-            imageTintList = ColorStateList.valueOf(OfflinePalette.accent)
-            background = OfflineUi.cardBackground(activity, 10)
-            setPadding(dp(6), dp(6), dp(6), dp(6))
+            setImageResource(R.mipmap.ic_launcher)
             importantForAccessibility = IMPORTANT_FOR_ACCESSIBILITY_NO
         }, LayoutParams(dp(36), dp(36)).apply { marginEnd = dp(10) })
         header.addView(label(text(R.string.offline_saved_music), 16f).apply {
@@ -342,7 +355,7 @@ class OfflineMusicView(
 
         miniExpand.id = R.id.offline_mini_expand
         configurePlayerAction(miniExpand, R.drawable.ic_offline_expand, text(R.string.offline_expand_player)) {
-            if (fullPlayerOpen) closeFullPlayer() else openFullPlayer()
+            setFullPlayerOpen(!fullPlayerOpen)
         }
         miniPlayer.addView(miniExpand, miniControlParams())
 
@@ -352,6 +365,7 @@ class OfflineMusicView(
 
     private fun renderNavigation() {
         navigation.removeAllViews()
+        navigation.orientation = if (wideLayout == true) VERTICAL else HORIZONTAL
         navigation.setPadding(dp(6), dp(6), dp(6), dp(6))
         navigation.setBackgroundColor(PANEL)
         val items = listOf(
@@ -393,13 +407,11 @@ class OfflineMusicView(
         workspace.removeAllViews()
         if (isWide) {
             workspace.orientation = HORIZONTAL
-            navigation.orientation = VERTICAL
             workspace.addView(navigation, LayoutParams(dp(224), MATCH_PARENT))
-            workspace.addView(page, LayoutParams(0, MATCH_PARENT, 1f))
+            workspace.addView(content, LayoutParams(0, MATCH_PARENT, 1f))
         } else {
             workspace.orientation = VERTICAL
-            navigation.orientation = HORIZONTAL
-            workspace.addView(page, LayoutParams(MATCH_PARENT, MATCH_PARENT))
+            workspace.addView(content, LayoutParams(MATCH_PARENT, MATCH_PARENT))
             addView(navigation, LayoutParams(MATCH_PARENT, WRAP_CONTENT))
         }
         renderNavigation()
@@ -431,7 +443,7 @@ class OfflineMusicView(
                 diagnostics = snapshot.errors
                 loading = false
                 pruneSelection()
-                renderPage()
+                renderPage(preserveState = true)
                 updatePlayerChrome()
             } catch (failure: Throwable) {
                 if (failure is CancellationException) throw failure
@@ -442,9 +454,13 @@ class OfflineMusicView(
         }
     }
 
-    private fun renderPage() {
+    private fun renderPage(preserveState: Boolean = false) {
+        val previousState = if (preserveState) SparseArray<Parcelable>().also(content::saveHierarchyState) else null
+        val focusedId = if (preserveState) content.findFocus()?.id else null
         miniPlayer.visibility = VISIBLE
-        header.visibility = if (fullPlayerOpen) GONE else VISIBLE
+        expandedPlayer.removeAllViews()
+        expandedPlayer.visibility = if (fullPlayerOpen) VISIBLE else GONE
+        if (preserveState) applyAdaptiveLayout(width)
         if (!fullPlayerOpen) {
             playerSeek = null
             fullPlayerPosition = null
@@ -452,7 +468,6 @@ class OfflineMusicView(
         }
         updatePlayerChrome()
         when {
-            fullPlayerOpen -> renderFullPlayer()
             loading -> setPage(scrollColumn().apply { addView(message(text(R.string.offline_loading))) })
             screen == SCREEN_LIBRARY -> renderLibrary()
             screen == SCREEN_PLAYLISTS -> renderPlaylists()
@@ -464,9 +479,16 @@ class OfflineMusicView(
                 renderLibrary()
             }
         }
+        if (fullPlayerOpen) renderFullPlayer()
+        if (!loading) {
+            (restoredPageState ?: previousState)?.let(content::restoreHierarchyState)
+            restoredPageState = null
+            if (focusedId != null && focusedId != View.NO_ID) content.findViewById<View>(focusedId)?.requestFocus()
+        }
     }
 
     private fun renderLibrary() {
+        val previousTabScroll = page.findViewById<HorizontalScrollView>(R.id.offline_library_tabs)?.scrollX
         val body = vertical(dp(12))
         body.addView(pageHeading(text(R.string.offline_library_heading)))
         searchField = EditText(activity).apply {
@@ -482,7 +504,9 @@ class OfflineMusicView(
             addTextChangedListener(object : TextWatcher {
                 override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
                 override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
-                    searchQuery = s?.toString().orEmpty()
+                    val query = s?.toString().orEmpty()
+                    if (query == searchQuery) return
+                    searchQuery = query
                     renderLibraryResults()
                 }
                 override fun afterTextChanged(s: Editable?) = Unit
@@ -490,6 +514,7 @@ class OfflineMusicView(
         }
         body.addView(searchField, sectionParams())
         val tabs = row()
+        var selectedTab: Button? = null
         listOf(
             TAB_ALBUMS to R.string.offline_albums,
             TAB_ARTISTS to R.string.offline_artists,
@@ -507,9 +532,16 @@ class OfflineMusicView(
                 renderLibrary()
             }.apply {
                 OfflineUi.configureTab(this, if (tab == TAB_LIKED) likedOnly else !likedOnly && libraryTab == tab)
+                if (isSelected) selectedTab = this
+                if (tab == TAB_LIKED) {
+                    setCompoundDrawablesRelativeWithIntrinsicBounds(R.drawable.ic_offline_heart, 0, 0, 0)
+                    compoundDrawableTintList = textColors
+                    compoundDrawablePadding = dp(8)
+                }
             }, LayoutParams(WRAP_CONTENT, WRAP_CONTENT).apply { marginEnd = dp(4) })
         }
-        body.addView(actionStrip(tabs), sectionParams())
+        val tabStrip = actionStrip(tabs).apply { id = R.id.offline_library_tabs }
+        body.addView(tabStrip, sectionParams())
         selectionBar = LinearLayout(activity).apply {
             id = R.id.offline_selection_bar
             orientation = VERTICAL
@@ -526,6 +558,16 @@ class OfflineMusicView(
             addView(body)
         })
         renderLibraryResults()
+        tabStrip.post {
+            if (tabStrip.parent != null) {
+                previousTabScroll?.let { tabStrip.scrollTo(it, 0) }
+                selectedTab?.let { selected ->
+                    val bounds = Rect()
+                    selected.getHitRect(bounds)
+                    tabStrip.requestChildRectangleOnScreen(tabs, bounds, true)
+                }
+            }
+        }
     }
 
     private fun renderLibraryResults() {
@@ -701,7 +743,7 @@ class OfflineMusicView(
         val orderedAlbums = albums.entries.sortedBy { it.key.album.lowercase(Locale.getDefault()) }
         val viewportWidth = page.width.takeIf { it > 0 } ?: resources.displayMetrics.widthPixels
         val columns = ((viewportWidth - dp(24)) / dp(160)).coerceIn(2, 4)
-        val artPixels = ((viewportWidth - dp(24) - dp(12) * (columns - 1)) / columns - dp(20)).coerceAtLeast(dp(48))
+        val artPixels = ((viewportWidth - dp(24) - dp(12) * (columns - 1)) / columns).coerceAtLeast(dp(48))
         var gridRow: LinearLayout? = null
         var cells = 0
         renderPaged(parent, pageKey("albums"), orderedAlbums.size) { index ->
@@ -720,8 +762,8 @@ class OfflineMusicView(
                     renderLibraryResults()
                 }
             }
-            val card = vertical(dp(10)).apply {
-                background = if (selected) OfflineUi.rowBackground(activity, true) else OfflineUi.cardBackground(activity)
+            val card = vertical(0).apply {
+                background = OfflineUi.rowBackground(activity, selected, plain = true)
             }
             val cover = ImageView(activity).apply {
                 OfflineUi.styleArtwork(this, 10)
@@ -731,7 +773,7 @@ class OfflineMusicView(
                 contentDescription = key.album
             }
             card.addView(cover, LayoutParams(MATCH_PARENT, artPixels))
-            card.addView(listLabel(key.album, key.artist + " · " + text(R.string.offline_count_tracks, ordered.size), open).apply {
+            card.addView(listLabel(key.album, key.artist.ifBlank { text(R.string.offline_unknown_artist) } + " · " + text(R.string.offline_count_tracks, ordered.size), open).apply {
                 isSelected = selected
                 setOnLongClickListener { toggleAlbum(key); true }
                 setPadding(0, dp(8), 0, 0)
@@ -802,13 +844,8 @@ class OfflineMusicView(
             }.apply { OfflineUi.configureButton(this, danger = true) })
         }
         parent.addView(actionStrip(actions), sectionParams())
-        val query = searchQuery.trim()
         val visibleTracks = filteredTracks()
-        val matchingIds = if (query.isEmpty()) emptySet() else visibleTracks.mapTo(hashSetOf()) { it.id }
-        val children = folders.filter { folder ->
-            folder.parentId == folderId && (query.isEmpty() || folder.name.contains(query, true) ||
-                recursiveTrackIds(setOf(folder.id)).any(matchingIds::contains))
-        }.sortedBy { it.name.lowercase(Locale.getDefault()) }
+        val children = visibleChildFolders(visibleTracks)
         renderPaged(parent, pageKey("folders"), children.size) { index ->
             val folder = children[index]
             val descendants = recursiveTrackIds(setOf(folder.id))
@@ -1004,16 +1041,16 @@ class OfflineMusicView(
         setPage(ScrollView(activity).apply { addView(body) })
     }
 
-    private fun playQueueEntry(entryId: String, confirmed: Boolean = false) {
+    private fun playQueueEntry(entryId: String, confirmed: Boolean = false, startPositionMs: Long = 0L) {
         scope.launch {
             try {
-                OfflinePlayback.playEntry(activity.applicationContext, entryId, confirmed)
+                OfflinePlayback.playEntry(activity.applicationContext, entryId, confirmed, startPositionMs)
             } catch (failure: NativePlaybackException) {
                 if (failure.code == "handoff_required" && !confirmed) {
                     AlertDialog.Builder(activity)
                         .setTitle(text(R.string.offline_handoff_title))
                         .setMessage(text(R.string.offline_handoff_message))
-                        .setPositiveButton(text(R.string.offline_confirm_switch)) { _, _ -> playQueueEntry(entryId, true) }
+                        .setPositiveButton(text(R.string.offline_confirm_switch)) { _, _ -> playQueueEntry(entryId, true, startPositionMs) }
                         .setNegativeButton(text(R.string.offline_cancel), null)
                         .show()
                 } else showFailure(failure)
@@ -1026,7 +1063,6 @@ class OfflineMusicView(
 
     private fun renderFullPlayer() {
         miniPlayer.visibility = VISIBLE
-        header.visibility = GONE
         val track = currentTrack()
         val body = vertical(dp(12)).apply { setBackgroundColor(PANEL) }
         val viewportWidth = page.width.takeIf { it > 0 } ?: resources.displayMetrics.widthPixels
@@ -1046,7 +1082,7 @@ class OfflineMusicView(
             })
         }, LayoutParams(0, WRAP_CONTENT, 1f))
         heading.addView(playerAction(R.id.offline_player_close, R.drawable.ic_offline_collapse, text(R.string.offline_close_player)) {
-            closeFullPlayer()
+            setFullPlayerOpen(false)
         }, LayoutParams(dp(48), dp(48)))
         information.addView(heading)
         information.addView(label(track?.title ?: text(R.string.offline_no_queue), 17f).apply {
@@ -1072,6 +1108,7 @@ class OfflineMusicView(
         val seekColumn = vertical(0)
         val seek = SeekBar(activity).apply {
             id = R.id.offline_player_seek
+            isSaveEnabled = false
             isEnabled = playback.owner == OfflinePlaybackPolicy.OWNER_LOCAL && track != null && track.durationMs > 0
             max = (track?.durationMs ?: 0L).coerceIn(1L, Int.MAX_VALUE.toLong()).toInt()
             progress = playback.queue.positionMs.coerceIn(0L, max.toLong()).toInt()
@@ -1145,12 +1182,14 @@ class OfflineMusicView(
             body.addView(label(it, 14f).apply { setTextColor(ERROR) })
         }
         val panel = ScrollView(activity).apply {
+            id = R.id.offline_expanded_player
             isHorizontalScrollBarEnabled = false
             addView(body)
         }
-        setPage(FrameLayout(activity).apply {
-            addView(panel, FrameLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT, Gravity.BOTTOM))
-        })
+        panel.setBackgroundColor(PANEL)
+        expandedPlayer.removeAllViews()
+        expandedPlayer.addView(panel, FrameLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT))
+        expandedPlayer.visibility = VISIBLE
         updatePlayerChrome()
     }
 
@@ -1179,7 +1218,7 @@ class OfflineMusicView(
         if (miniExpand.tag != expansionIcon) {
             configurePlayerAction(miniExpand, expansionIcon,
                 text(if (fullPlayerOpen) R.string.offline_close_player else R.string.offline_expand_player)) {
-                if (fullPlayerOpen) closeFullPlayer() else openFullPlayer()
+                setFullPlayerOpen(!fullPlayerOpen)
             }
         }
         miniStop.isEnabled = playback.owner == OfflinePlaybackPolicy.OWNER_LOCAL
@@ -1344,6 +1383,7 @@ class OfflineMusicView(
         }, sectionParams())
         storage.addView(label(text(R.string.offline_limit_mb), 13f))
         val limitInput = EditText(activity).apply {
+            id = R.id.offline_storage_limit
             hint = text(R.string.offline_limit_mb)
             OfflineUi.configureInput(this)
             inputType = InputType.TYPE_CLASS_NUMBER
@@ -1401,11 +1441,9 @@ class OfflineMusicView(
             OfflinePlayback.resume()
             return
         }
-        val ids = playback.queue.entries.map { it.trackId }
-        if (ids.isEmpty()) return
-        val currentIndex = playback.queue.entries.indexOfFirst { it.id == playback.queue.currentEntryId }
-            .coerceAtLeast(0)
-        startPlayback(ids, currentIndex, false)
+        playback.queue.currentEntryId?.let { entryId ->
+            playQueueEntry(entryId, startPositionMs = playback.queue.positionMs)
+        }
     }
 
     private fun startPlayback(ids: List<String>, index: Int, confirmed: Boolean) {
@@ -1868,6 +1906,15 @@ class OfflineMusicView(
         renderLibraryResults()
     }
 
+    private fun visibleChildFolders(matchingTracks: List<OfflineTrack>): List<OfflineFolder> {
+        val query = searchQuery.trim()
+        val matchingIds = if (query.isEmpty()) emptySet() else matchingTracks.mapTo(hashSetOf()) { it.id }
+        return folders.filter { folder ->
+            folder.parentId == folderId && (query.isEmpty() || folder.name.contains(query, true) ||
+                recursiveTrackIds(setOf(folder.id)).any(matchingIds::contains))
+        }.sortedBy { it.name.lowercase(Locale.getDefault()) }
+    }
+
     private fun selectAllCurrent() {
         val visibleCollection = collectionTracks(filteredTracks())
         if (visibleCollection != null) {
@@ -1878,10 +1925,11 @@ class OfflineMusicView(
                 TAB_ALBUMS -> selectedAlbums += filteredTracks().map {
                     AlbumKey(it.albumArtist.ifBlank { it.artist }, it.album.ifBlank { text(R.string.offline_unknown_album) })
                 }
-                TAB_ARTISTS -> selectedTrackIds += filteredTracks().map { it.id }
+                TAB_ARTISTS, TAB_GENRES -> selectedTrackIds += filteredTracks().map { it.id }
                 TAB_FOLDERS -> {
-                    selectedFolderIds += folders.filter { it.parentId == folderId }.map { it.id }
-                    selectedTrackIds += tracks.filter { it.folderId == folderId }.map { it.id }
+                    val visibleTracks = filteredTracks()
+                    selectedFolderIds += visibleChildFolders(visibleTracks).map { it.id }
+                    selectedTrackIds += visibleTracks.filter { it.folderId == folderId }.map { it.id }
                 }
             }
         }
@@ -1948,16 +1996,21 @@ class OfflineMusicView(
         return trackIndex[currentEntry?.trackId]
     }
 
-    private fun openFullPlayer() {
-        fullPlayerOpen = true
+    private fun setFullPlayerOpen(open: Boolean) {
+        val scroll = page.getChildAt(0) as? ScrollView
+        val position = scroll?.scrollY ?: 0
+        scroll?.doOnNextLayout { scroll.scrollTo(scroll.scrollX, position) }
+        fullPlayerOpen = open
+        if (open) {
+            renderFullPlayer()
+        } else {
+            expandedPlayer.visibility = GONE
+            expandedPlayer.removeAllViews()
+            playerSeek = null
+            fullPlayerPosition = null
+            fullPlayerDuration = null
+        }
         updatePlayerChrome()
-        renderPage()
-    }
-
-    private fun closeFullPlayer() {
-        fullPlayerOpen = false
-        updatePlayerChrome()
-        renderPage()
     }
 
     private fun openQueueFromPlayer() {
@@ -2172,6 +2225,7 @@ class OfflineMusicView(
     }
 
     private fun setPage(view: View) {
+        if (view is ScrollView) view.id = R.id.offline_page_scroll
         page.removeAllViews()
         page.addView(view, FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT))
         view.sendAccessibilityEvent(AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED)
@@ -2235,7 +2289,7 @@ class OfflineMusicView(
             textSize = 14f
             setTypeface(Typeface.DEFAULT, Typeface.NORMAL)
             gravity = Gravity.START or Gravity.CENTER_VERTICAL
-            background = OfflineUi.rowBackground(activity)
+            background = OfflineUi.rowBackground(activity, plain = true)
             maxLines = 3
             ellipsize = TextUtils.TruncateAt.END
             setPadding(dp(8), dp(8), dp(8), dp(8))
@@ -2307,6 +2361,7 @@ class OfflineMusicView(
         private const val STATE_COLLECTION_KIND = "offline_collection_kind"
         private const val STATE_COLLECTION_FIRST = "offline_collection_first"
         private const val STATE_COLLECTION_SECOND = "offline_collection_second"
+        private const val STATE_PAGE_STATE = "offline_page_state"
 
         private val BACKGROUND = OfflinePalette.background
         private val PANEL = OfflinePalette.panel

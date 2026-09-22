@@ -123,6 +123,17 @@ class OfflineColdStartSmokeTest {
                 runBlocking { OfflinePlayback.restore(context) }
                 assertFalse(OfflinePlayback.state.value.playing)
                 assertEquals(4500, OfflinePlayback.state.value.queue.positionMs)
+                val coldProcess = InstrumentationRegistry.getArguments().getString("offlinePhase") == "verify"
+                if (coldProcess) assertTrue("Cold queue editing starts without a playback service", NativePlaybackRegistry.service == null)
+                runBlocking { OfflinePlayback.enqueue(context, listOf(id), next = false) }
+                val appended = library.loadQueue()
+                assertEquals(listOf(id, id, id), appended.entries.map { it.trackId })
+                assertEquals(queue.entries, appended.entries.take(queue.entries.size))
+                assertEquals(queue.currentEntryId, appended.currentEntryId)
+                assertEquals(4500, appended.positionMs)
+                assertEquals(appended, OfflinePlayback.state.value.queue)
+                assertFalse("Adding to a cold saved queue must not autoplay", OfflinePlayback.state.value.playing)
+                if (coldProcess) assertTrue("Queue editing must not start a playback service", NativePlaybackRegistry.service == null)
                 runBlocking {
                     withContext(Dispatchers.Main) { OfflinePlayback.resume() }
                 }

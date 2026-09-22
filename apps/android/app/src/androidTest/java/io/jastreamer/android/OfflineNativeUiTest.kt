@@ -18,6 +18,7 @@ import android.view.accessibility.AccessibilityNodeInfo
 import android.widget.Button
 import android.widget.CheckBox
 import android.widget.EditText
+import android.widget.HorizontalScrollView
 import android.widget.ScrollView
 import android.widget.SeekBar
 import android.widget.TextView
@@ -311,6 +312,30 @@ class OfflineNativeUiTest {
             stable
         }
         assertEquals(true, library.track(last.id)?.liked)
+        scenario.onActivity { it.findViewById<View>(R.id.offline_mini_expand).performClick() }
+        waitFor("expanded controls retain the filtered library viewport") {
+            var retained = false
+            scenario.onActivity { activity ->
+                val scroll = findView(activity.findViewById(R.id.offline_content)) { it is ScrollView } as? ScrollView
+                retained = activity.findViewById<View>(R.id.offline_player_seek)?.isShown == true &&
+                    scroll?.scrollY == beforeScroll &&
+                    activity.findViewById<EditText>(R.id.offline_search)?.text?.toString() == marker
+            }
+            retained
+        }
+        screenshot("offline-native-preserved-browse-player")
+        scenario.onActivity { it.findViewById<View>(R.id.offline_mini_expand).performClick() }
+        waitFor("collapsing playback returns to the same liked row") {
+            var retained = false
+            scenario.onActivity { activity ->
+                val scroll = findView(activity.findViewById(R.id.offline_content)) { it is ScrollView } as? ScrollView
+                val row = findButtonOrNull(activity.window.decorView, last.title)?.parent as? View
+                retained = activity.findViewById<View>(R.id.offline_player_seek) == null &&
+                    scroll?.scrollY == beforeScroll && row != null &&
+                    findButtonOrNull(row, activity.getStringForTest(R.string.offline_unlike))?.getGlobalVisibleRect(Rect()) == true
+            }
+            retained
+        }
     }
 
     @Test
@@ -437,10 +462,6 @@ class OfflineNativeUiTest {
             }
             scenario.onActivity { activity ->
                 assertTrue(activity.findViewById<View>(R.id.offline_mini_player).isShown)
-                assertTrue(
-                    "Full player hides duplicate global heading",
-                    activity.findViewById<View>(R.id.offline_header_title)?.isShown != true,
-                )
                 listOf(
                     R.id.offline_mini_play_pause,
                     R.id.offline_mini_stop,
@@ -663,15 +684,23 @@ class OfflineNativeUiTest {
         val right = left + root.width
         fun visit(view: View) {
             if (view.visibility != View.VISIBLE || view.width == 0) return
-            val location = IntArray(2)
-            view.getLocationOnScreen(location)
+            var ancestor = view.parent
+            while (ancestor is View && ancestor !== root && ancestor !is HorizontalScrollView) ancestor = ancestor.parent
+            val bounds = Rect()
+            if (ancestor is HorizontalScrollView) {
+                if (!view.getGlobalVisibleRect(bounds)) return
+            } else {
+                val location = IntArray(2)
+                view.getLocationOnScreen(location)
+                bounds.set(location[0], location[1], location[0] + view.width, location[1] + view.height)
+            }
             assertTrue(
-                "${view.javaClass.simpleName} starts outside ${root.resources.getResourceEntryName(root.id)}",
-                location[0] >= left - 1,
+                "${view.javaClass.simpleName} $bounds starts outside ${root.resources.getResourceEntryName(root.id)}",
+                bounds.left >= left - 1,
             )
             assertTrue(
-                "${view.javaClass.simpleName} ends outside ${root.resources.getResourceEntryName(root.id)}",
-                location[0] + view.width <= right + 1,
+                "${view.javaClass.simpleName} $bounds ends outside ${root.resources.getResourceEntryName(root.id)}",
+                bounds.right <= right + 1,
             )
             if (view is ViewGroup) {
                 for (index in 0 until view.childCount) visit(view.getChildAt(index))
