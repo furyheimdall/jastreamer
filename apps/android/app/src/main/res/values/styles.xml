@@ -2,10 +2,115 @@
 <resources>
     <style name="Theme.Jastreamer" parent="android:style/Theme.Material.NoActionBar">
         <item name="android:fontFamily">sans</item>
-        <item name="android:colorAccent">#AADF9D</item>
-        <item name="android:windowBackground">#0C1713</item>
+        <item name="android:windowBackground">#111315</item>
+        <item name="android:statusBarColor">#111315</item>
+        <item name="android:navigationBarColor">#111315</item>
         <item name="android:windowLightStatusBar">false</item>
         <item name="android:windowLightNavigationBar">false</item>
         <item name="android:windowActionModeOverlay">true</item>
+        <item name="android:colorAccent">#C8EDB2</item>
+        <item name="android:colorControlNormal">#9AA3A6</item>
+        <item name="android:colorControlActivated">#C8EDB2</item>
+        <item name="android:colorControlHighlight">#24F4F4EC</item>
+        <item name="android:textColorPrimary">#F4F4EC</item>
+        <item name="android:textColorSecondary">#9AA3A6</item>
+        <item name="android:textColorHint">#788084</item>
+        <item name="android:disabledAlpha">0.50</item>
+        <item name="android:buttonStyle">@style/Widget.Jastreamer.Button</item>
+        <item name="android:editTextStyle">@style/Widget.Jastreamer.EditText</item>
+        <item name="android:checkboxStyle">@style/Widget.Jastreamer.CheckBox</item>
+        <item name="android:radioButtonStyle">@style/Widget.Jastreamer.RadioButton</item>
+        <item name="android:alertDialogTheme">@style/Theme.Jastreamer.Dialog</item>
+        <item name="android:dialogTheme">@style/Theme.Jastreamer.Dialog</item>
+        <item name="android:listChoiceBackgroundIndicator">@drawable/jastreamer_choice_row_background</item>
+        <item name="android:selectableItemBackground">@drawable/jastreamer_choice_row_background</item>
+    </style>
+
+    <style name="Theme.Jastreamer.Dialog" parent="android:style/Theme.Material.Dialog.Alert">
+        <item name="android:fontFamily">sans</item>
+        <item name="android:windowBackground">@drawable/jastreamer_dialog_background</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:windowLightNavigationBar">false</item>
+        <item name="android:colorAccent">#C8EDB2</item>
+        <item name="android:colorControlNormal">#9AA3A6</item>
+        <item name="android:colorControlActivated">#C8EDB2</item>
+        <item name="android:colorControlHighlight">#24F4F4EC</item>
+        <item name="android:textColorPrimary">#F4F4EC</item>
+        <item name="android:textColorSecondary">#9AA3A6</item>
+        <item name="android:textColorHint">#788084</item>
+        <item name="android:disabledAlpha">0.50</item>
+        <item name="android:buttonStyle">@style/Widget.Jastreamer.Button</item>
+        <item name="android:editTextStyle">@style/Widget.Jastreamer.EditText</item>
+        <item name="android:checkboxStyle">@style/Widget.Jastreamer.CheckBox</item>
+        <item name="android:radioButtonStyle">@style/Widget.Jastreamer.RadioButton</item>
+        <item name="android:buttonBarPositiveButtonStyle">@style/Widget.Jastreamer.DialogButton.Primary</item>
+        <item name="android:buttonBarNegativeButtonStyle">@style/Widget.Jastreamer.DialogButton</item>
+        <item name="android:buttonBarNeutralButtonStyle">@style/Widget.Jastreamer.DialogButton</item>
+        <item name="android:listChoiceBackgroundIndicator">@drawable/jastreamer_choice_row_background</item>
+        <item name="android:selectableItemBackground">@drawable/jastreamer_choice_row_background</item>
+    </style>
+
+    <style name="Widget.Jastreamer.Button" parent="android:style/Widget.Material.Button">
+        <item name="android:background">@drawable/jastreamer_button_background</item>
+        <item name="android:backgroundTint">@null</item>
+        <item name="android:textColor">#F4F4EC</item>
+        <item name="android:textAllCaps">false</item>
+        <item name="android:fontFamily">sans-serif-medium</item>
+        <item name="android:gravity">center</item>
+        <item name="android:minWidth">48dp</item>
+        <item name="android:minHeight">48dp</item>
+        <item name="android:paddingLeft">16dp</item>
+        <item name="android:paddingRight">16dp</item>
+        <item name="android:paddingTop">10dp</item>
+        <item name="android:paddingBottom">10dp</item>
+        <item name="android:elevation">0dp</item>
+        <item name="android:stateListAnimator">@null</item>
+    </style>
+
+    <style name="Widget.Jastreamer.EditText" parent="android:style/Widget.Material.EditText">
+        <item name="android:background">@drawable/jastreamer_input_background</item>
+        <item name="android:backgroundTint">@null</item>
+        <item name="android:textColor">#F4F4EC</item>
+        <item name="android:textColorHint">#788084</item>
+        <item name="android:textColorHighlight">#55C8EDB2</item>
+        <item name="android:minHeight">48dp</item>
+        <item name="android:paddingLeft">13dp</item>
+        <item name="android:paddingRight">13dp</item>
+        <item name="android:paddingTop">10dp</item>
+        <item name="android:paddingBottom">10dp</item>
+    </style>
+
+    <style name="Widget.Jastreamer.CheckBox" parent="android:style/Widget.Material.CompoundButton.CheckBox">
+        <item name="android:background">@drawable/jastreamer_control_background</item>
+        <item name="android:backgroundTint">@null</item>
+        <item name="android:textColor">#F4F4EC</item>
+        <item name="android:minHeight">48dp</item>
+        <item name="android:gravity">center_vertical</item>
+        <item name="android:paddingRight">8dp</item>
+    </style>
+
+    <style name="Widget.Jastreamer.RadioButton" parent="android:style/Widget.Material.CompoundButton.RadioButton">
+        <item name="android:background">@drawable/jastreamer_control_background</item>
+        <item name="android:backgroundTint">@null</item>
+        <item name="android:textColor">#F4F4EC</item>
+        <item name="android:minHeight">48dp</item>
+        <item name="android:gravity">center_vertical</item>
+        <item name="android:paddingRight">8dp</item>
+    </style>
+
+    <style name="Widget.Jastreamer.DialogButton" parent="android:style/Widget.Material.Button.Borderless">
+        <item name="android:background">@drawable/jastreamer_dialog_button_background</item>
+        <item name="android:backgroundTint">@null</item>
+        <item name="android:textColor">#9AA3A6</item>
+        <item name="android:textAllCaps">false</item>
+        <item name="android:fontFamily">sans-serif-medium</item>
+        <item name="android:minWidth">48dp</item>
+        <item name="android:minHeight">48dp</item>
+        <item name="android:elevation">0dp</item>
+        <item name="android:stateListAnimator">@null</item>
+    </style>
+
+    <style name="Widget.Jastreamer.DialogButton.Primary" parent="Widget.Jastreamer.DialogButton">
+        <item name="android:textColor">#C8EDB2</item>
     </style>
 </resources>

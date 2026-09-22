@@ -110,6 +110,10 @@ jobs:
           node-version: 22.20.0
           cache: npm
           cache-dependency-path: apps/control/package-lock.json
+      - name: Install audio conversion support for real offline imports
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends ffmpeg
       - name: Build the actual Server with embedded Web UI
         run: make build
       - name: Enable KVM

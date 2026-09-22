@@ -2,7 +2,7 @@
 
 [프로젝트 소개](README.ko.md) · [한국어 사용자 안내서](INSTRUCTION.ko.md) · [English installation guide](INSTALL.md)
 
-실제로 사용할 패키지와 플랫폼에 맞는 아래 분기를 선택하세요. Server가 Web 화면을 제공하며 선택 사항인 Desktop·네이티브 모바일·휴대전화 PWA는 기존 Server에 접속합니다. 로컬 재생은 브라우저 오디오를 사용하지만 네이티브 Android 앱은 Media3 서비스를 사용합니다. 두 방식 모두 Server 대기열의 출력입니다. [사용자 안내서](INSTRUCTION.ko.md#browser-output)를 참고하세요.
+실제로 사용할 패키지와 플랫폼에 맞는 아래 분기를 선택하세요. Server가 Web 화면을 제공하며 선택 사항인 Desktop·네이티브 모바일·휴대전화 PWA는 기존 Server에 접속할 수 있습니다. Server 모드의 로컬 재생은 네이티브 Android를 제외하면 브라우저 오디오를 사용하며 Android Media3 서비스도 Server 대기열의 출력입니다. Android **저장된 음악**은 같은 서비스를 별도 로컬 소유권으로 사용하고 독립 기기 대기열을 가지며 Server가 필요 없습니다. [사용자 안내서](INSTRUCTION.ko.md#android-controls)를 참고하세요.
 
 공개 프리뷰는 미서명이며 production 검증을 마친 릴리즈가 아닙니다. 선택한 릴리즈의 제한을 읽고 내려받은 모든 파일을 검증한 뒤 실제 네트워크와 수신기에서 동작을 확인하세요. 설치 후 화면 사용법과 문제 해결은 [한국어 사용자 안내서](INSTRUCTION.ko.md)를 참고하세요.
 
@@ -23,7 +23,7 @@
 - 네이티브 무설치 Server: Windows x64와 현재 사용자가 쓸 수 있는 로컬 설치 폴더. Windows 서비스로 설치되지 않습니다.
 - Windows 데스크톱 앱: Windows 10/11 x64. Windows ARM64 데스크톱 패키지는 없습니다.
 - Linux 데스크톱 앱: 그래픽 환경이 있는 Linux `amd64`. Ubuntu 24.04 amd64가 네이티브 설치·sandbox 검증 대상이며 Linux ARM64 데스크톱 패키지는 없습니다.
-- Android 클라이언트: Android 10/API 29 이상과 `MULTI_PROFILE`을 지원하는 Android System WebView. OS 버전만으로 지원이 보장되지는 않으며 앱이 실행 중 기능을 확인하고 공용 세션으로 대신 연결하지 않습니다.
+- Android 클라이언트: Android 10/API 29 이상. Server 프로필, Server가 제어하는 휴대전화 출력과 새 가져오기에는 `MULTI_PROFILE`을 지원하는 Android System WebView가 필요합니다. OS 버전만으로 지원이 보장되지는 않으며 앱은 공용 세션으로 대신 연결하지 않습니다. 네이티브 저장된 음악 보관함 자체에는 Server 프로필이 필요 없습니다.
 - iOS 소스·CI: iOS/iPadOS 18.4 이상이며, 고정된 CI 시나리오는 macOS의 Xcode 16.4와 iOS 18.5 시뮬레이터 런타임을 사용합니다. 현재 범위에는 설치 가능한 기기용 패키지가 없습니다.
 - 전체 [GitHub Releases 목록](https://github.com/furyheimdall/jastreamer/releases)에서 올바르게 프리뷰로 표시된 항목까지 포함해 고른, 대상과 호환되는 가장 최근의 게시된 non-draft Server 릴리즈 또는 별도로 전달받아 검증한 오프라인 패키지. 프리뷰 및 실장비 검증 한계는 그대로 적용됩니다.
 - Server, 브라우저·앱과 출력이 연결된 신뢰할 수 있는 사설 LAN. 자동 검색에는 멀티캐스트가 필요합니다.
@@ -194,15 +194,17 @@ sudo apt install ./jastreamer-desktop_0.2.0_linux-amd64.deb
 <a id="android"></a>
 ## 7. 선택 사항인 네이티브 Android 클라이언트
 
-Kotlin 앱은 `_jastreamer._tcp` Server를 검색하고 `/api/v1/discovery`로 확인한 뒤 선택한 Server의 Web 화면을 엽니다. **이 기기** 출력은 WebView 오디오 대신 Media3 포그라운드 서비스와 Android 시스템 미디어 제어를 사용하며 대기열은 계속 Server가 관리합니다. PWA 추가 설치, 로컬 음악 접근 권한이나 위치 권한은 필요하지 않습니다.
+Kotlin 앱은 `_jastreamer._tcp` Server를 검색하고 `/api/v1/discovery`로 확인한 뒤 선택한 Server의 Web 화면을 엽니다. 또한 앱 소유 파일을 위한 독립 **저장된 음악** 보관함, 다운로드 관리, 로컬 재생목록·폴더·대기열과 Media3 재생을 포함합니다. Server 모드의 **이 기기**는 같은 Media3 서비스를 사용하되 대기열은 Server가 소유하고 Android 시스템 미디어 제어의 명령도 Server로 보고합니다. 저장된 음악 모드는 별도 기기 대기열을 소유하며 Server 접속이나 로그인이 필요 없습니다. PWA 추가 설치, 광범위한 로컬 음악 권한이나 위치 권한은 필요하지 않습니다.
 
-네이티브 재생에는 호환되는 Android APK와 대응하는 Server/Web UI가 모두 필요합니다. APK만 업데이트해도 이전 Server가 제공하는 Web 페이지에 네이티브 지원이 추가되거나 Server가 업데이트되지는 않습니다. 호환되는 소스 리비전을 사용하고 Server 업데이트는 별도로 승인된 설치·업데이트 절차를 따르세요.
+새 가져오기는 플랫폼 공용 **v1 다운로드 기능**을 광고하는 호환 Android APK와 Server/Web UI가 모두 필요합니다. APK만 업데이트해도 구형 Server가 제공하는 Web 페이지에 버튼이나 endpoint가 추가되거나 Server가 업데이트되지는 않습니다. 구형 또는 접속 불가 Server가 앱이나 이미 완료한 저장된 음악을 막아서는 안 되며, 해당 Server가 지원하는 기존 제어 기능은 계속 사용할 수 있습니다. 호환되는 소스 리비전을 사용하고 Server 업데이트는 별도로 승인된 설치·업데이트 절차로 다루세요.
 
-현재 배포는 성공한 [Android CI 실행](https://github.com/furyheimdall/jastreamer/actions/workflows/android.yml)의 **개발·테스트 산출물**입니다. 의도한 소스 리비전을 고르고 `jastreamer-android-debug-test-signed-and-release-unsigned-<revision>` artifact를 받으세요. 설치 전에 `SHA256SUMS`, `provenance.json`, 소스 리비전, application ID와 서명 인증서를 검증합니다. PR 산출물은 보호된 main의 릴리즈가 아닙니다.
+폴더 가져오기는 Android와 Server 양쪽 모두 폴더 대상을 구현한 빌드가 필요합니다. Server가 제공하는 Web 화면만 업데이트해도 앱의 네이티브 지원이 추가되지는 않습니다.
 
-- `*_debug-test-signed.apk`는 설치 가능한 테스트 APK이며 application ID가 `io.jastreamer.android.debug`이고 생성된 debug 인증서를 사용합니다. production application ID `io.jastreamer.android`와 분리되어 있습니다.
+현재 Android 배포는 게시된 production 릴리즈가 아닌 **개발·테스트 전용**입니다. 독립 플레이어와 v1 가져오기는 현재 소스에 구현되어 있지만 실물 휴대전화 설치·네트워크, 원본/AAC 가청 재생, Bluetooth·헤드셋 동작과 업데이트 보존은 릴리즈 완료 주장이 아니라 앞으로 확인할 항목입니다. 성공한 [Android CI 실행](https://github.com/furyheimdall/jastreamer/actions/workflows/android.yml)은 시험한 소스 리비전의 `jastreamer-android-debug-test-signed-and-release-unsigned-<revision>` artifact를 제공할 수 있습니다. 별도로 승인한 테스트 설치 전에 `SHA256SUMS`, `provenance.json`, 리비전, application ID와 서명 인증서를 검증하세요. PR 산출물은 보호된 main의 릴리즈가 아닙니다.
+
+- `*_debug-test-signed.apk`는 개발 테스트에만 설치할 수 있고 application ID가 `io.jastreamer.android.debug`이며 생성된 debug 인증서를 사용합니다. production application ID `io.jastreamer.android`와 분리되어 있습니다.
 - `*_release-unsigned.apk`는 서명 전에는 설치할 수 없습니다. Production 서명 키 보관, 승인된 배포와 안정적인 업데이트 인증서는 별도 전제이며 개인 키를 포함하지 않습니다.
-- CI 실행마다 debug 인증서가 달라질 수 있습니다. 설치된 APK와 인증서가 다르면 앱 제거·데이터 초기화로 강행하지 말고 중단하세요. 그렇게 하면 로컬 세션과 설정이 사라집니다. 일반적인 덮어쓰기 업데이트에는 같은 application ID·인증서와 호환되는 같거나 높은 version code가 필요합니다.
+- CI 실행마다 debug 인증서가 달라질 수 있습니다. 설치된 APK와 인증서가 다르면 중단하세요. 업데이트를 강행하려고 앱을 제거하거나 데이터를 초기화하면 아래의 앱 소유 음악과 상태가 사라지므로 절대 사용하지 않습니다. 일반적인 덮어쓰기 업데이트에는 같은 application ID·인증서와 호환되는 같거나 높은 version code가 필요합니다.
 
 명시적으로 승인한 테스트 설치에서는 검증한 debug APK를 Android 기기로 옮겨 열고, 필요할 때만 파일을 여는 앱에 **알 수 없는 앱 설치**를 허용하세요. 설치 후 해당 설치 출처 권한을 해제합니다. Play Protect, 인증서 검사나 기기 보안을 끄지 마세요. 이미 승인한 ADB 연결이 있으면 `adb install -r <검증한-debug-apk>`를 사용할 수도 있습니다. 디버깅을 임의로 허용하거나 호스트 SDK 도구를 승인 없이 설치하지 마세요.
 
@@ -210,11 +212,15 @@ HTTP는 신뢰할 수 있는 사설 LAN에서만 사용하며 암호화되지 �
 
 자동 검색은 광고된 LAN IP 주소로 확인합니다. 유효한 HTTPS 인증서가 호스트 이름만 포함하면 그 이름을 수동으로 입력하세요. IP 주소와 인증서의 불일치를 무시하지 마세요.
 
-호환 APK를 덮어쓰면 앱 전용 설정과 Server UUID·origin별 프로필을 보존합니다. **최근 서버 목록에서 제거**는 목록만 지우며 로그아웃이나 WebView 프로필 삭제가 아닙니다. 필요하면 Server 화면 안에서 로그아웃하세요. Android 앱 제거·저장 공간 초기화는 모든 앱 프로필을 지우며 앱 데이터는 Android 클라우드·기기 이전 백업에서 제외됩니다. 프로필이나 세션 쿠키를 보고서에 복사하지 마세요.
+같은 application ID와 같은 서명의 APK를 덮어쓰면 앱 전용 저장 음원, 복사한 앨범 아트, 로컬 플레이리스트, 저장된 장르 메타데이터와 기기 좋아요, 기기 대기열·위치, 폴더, 다운로드·언어 환경설정, 최근 Server와 격리 Server 프로필을 보존합니다. **최근 서버 목록에서 제거**는 바로가기만 지우며 로그아웃, 프로필 제거 또는 저장된 음악 삭제가 아닙니다. 세션을 끝내고 해당 Server의 미완료 가져오기를 중지하려면 Server 화면에서 로그아웃하세요. 세션/프로필을 제거해도 완료된 기기 소유 음악을 회수하거나 삭제하지 않습니다.
 
-소스 개발은 필요한 호스트 도구 설치 승인을 받은 뒤 JDK 17, SDK platform 36, Build Tools 35.0.0과 `apps/android`의 고정된 Gradle Wrapper를 사용합니다. `./gradlew :app:testDebugUnitTest :app:lint :app:assembleDebug :app:assembleRelease`를 실행하세요. 전체 계측 검증은 `.github/workflows/android.yml`의 격리된 API 36 에뮬레이터와 실제 Server/Web fixture를 사용하며 사용자가 설치한 Server를 테스트하지 않습니다. 에뮬레이터 성공은 실물 휴대전화 네트워크나 수신기의 실제 소리를 입증하지 않습니다.
+장르와 좋아요를 저장하는 로컬 메타데이터 DB의 스키마 버전은 2입니다. 버전 1 보관함을 열면 테이블을 다시 만들지 않고 해당 열을 추가합니다. 이전 APK를 위한 DB 다운그레이드는 지원하지 않습니다.
 
-서버 선택, 뒤로 가기, 언어와 수명주기 동작은 [Android 화면](INSTRUCTION.ko.md#android-controls)을 참고하세요.
+앱을 제거하거나 Android의 **저장 공간/데이터 지우기**를 사용하면 앱 소유 음악·앨범 아트·로컬 재생목록·대기열·폴더·환경설정·Server 프로필을 포함한 앱 컨테이너 전체가 삭제됩니다. 이 비공개 데이터는 Android 클라우드·기기 이전 백업에서 제외됩니다. 앱 제거 또는 데이터 초기화를 업데이트나 서명 불일치 우회 방법으로 사용하지 말고 프로필·세션 cookie를 보고서에 복사하지 마세요.
+
+소스 개발은 필요한 호스트 도구 설치 승인을 받은 뒤 JDK 17, SDK platform 36, Build Tools 35.0.0과 `apps/android`의 고정된 Gradle Wrapper를 사용합니다. `./gradlew :app:testDebugUnitTest :app:lint :app:assembleDebug :app:assembleRelease`를 실행하세요. 전체 계측 검증은 `.github/workflows/android.yml`의 격리된 API 36 에뮬레이터와 실제 Server/Web fixture를 사용하며 사용자가 설치한 Server를 테스트하지 않습니다. 에뮬레이터 성공은 실물 휴대전화 설치·네트워크, 업데이트 보존, Bluetooth·헤드셋 동작이나 원본/AAC 가청 재생을 입증하지 않습니다.
+
+Server 모드, 저장된 음악, 다운로드, 로컬 관리, 재생 소유권 전환, 언어와 수명주기 동작은 [Android 화면](INSTRUCTION.ko.md#android-controls)을 참고하세요.
 
 <a id="ios"></a>
 ## 8. 네이티브 iOS 소스와 CI
@@ -262,6 +268,8 @@ PWA 설치에는 해당 휴대전화와 브라우저가 신뢰하는 인증서�
 ## 10. 업데이트
 
 Linux 컨테이너 대상은 최초 계정 생성을 다시 하는 대신 검증된 Server 컨테이너 이미지를 교체해 업데이트합니다. 이미지에는 해당 아키텍처의 Web 화면, FFmpeg와 AirPlay 실행 환경이 포함됩니다. Server가 자신을 업데이트하도록 Docker 소켓을 연결하거나 호스트 관리 권한을 부여하지 마세요. 네이티브 Windows는 [별도 무설치 업데이트 절차](#windows-server)를 따르고 아래 Compose 절차를 적용하지 마세요.
+
+폴더 다운로드는 Server의 `download_jobs.kind` 제약을 확장합니다. 시작 시 알려진 이전 스키마를 트랜잭션으로 이행하면서 기존 작업·하위 행·인덱스·외래 키·아티팩트 참조를 보존하며 음원이나 설정을 이동하지 않습니다. 승인된 업데이트 전에 이 스키마 변경을 검토하세요. 구형 빌드는 폴더 작업을 구현하지 않으므로 실행 파일·이미지만 교체하면 호환되는 다운그레이드가 된다고 가정하거나, 이를 강행하려고 작업·데이터를 삭제하면 안 됩니다.
 
 ### 업데이트 절차
 

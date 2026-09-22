@@ -177,7 +177,7 @@ class WebViewBoundaryTest {
     }
 
     @Test
-    fun nativePlaybackBridgeIsMainFrameOnlyTypedAndCredentialFree() {
+    fun nativeBridgesAreMainFrameOnlyTypedAndCredentialFree() {
         val fixture = fixture()
         mount(endpoint(fixture.origin, UUID.randomUUID().toString()))
 
@@ -207,6 +207,22 @@ class WebViewBoundaryTest {
                 """.trimIndent(),
             ),
         )
+        assertEquals("object", evaluate("typeof window.JastreamerDownloads"))
+        assertEquals(
+            true,
+            evaluate(
+                """
+                (() => {
+                  const bridge = window.JastreamerDownloads;
+                  return typeof bridge.postMessage === 'function' &&
+                    typeof bridge.addEventListener === 'function' &&
+                    !('getCookie' in bridge) && !('fetch' in bridge) &&
+                    !('evaluateJavascript' in bridge) && !('openFile' in bridge) &&
+                    !('listFiles' in bridge) && !('deleteFile' in bridge);
+                })()
+                """.trimIndent(),
+            ),
+        )
 
         evaluate(
             """
@@ -232,6 +248,56 @@ class WebViewBoundaryTest {
                 """.trimIndent(),
             ),
         )
+        evaluate(
+            """
+            window.nativeDownloadReplies = [];
+            JastreamerDownloads.addEventListener('message', event => nativeDownloadReplies.push(event.data));
+            JastreamerDownloads.postMessage(JSON.stringify({id:'capabilities-1', action:'capabilities'}));
+            'sent';
+            """.trimIndent(),
+        )
+        waitFor("top-frame native download capability response") {
+            evaluate("String(window.nativeDownloadReplies && window.nativeDownloadReplies.length)") == "1"
+        }
+        assertEquals(
+            true,
+            evaluate(
+                """
+                (() => {
+                  const response = JSON.parse(nativeDownloadReplies[0]);
+                  return response.id === 'capabilities-1' &&
+                    response.result.version === 1 &&
+                    !JSON.stringify(response).includes('cookie') &&
+                    !JSON.stringify(response).includes('path');
+                })()
+                """.trimIndent(),
+            ),
+        )
+        evaluate(
+            """
+            JastreamerDownloads.postMessage(JSON.stringify({
+              id:'network-unknown', action:'configure_network', job_id:'not-issued-to-this-document'
+            }));
+            'sent';
+            """.trimIndent(),
+        )
+        waitFor("document job allowlist rejection") {
+            evaluate("String(window.nativeDownloadReplies.length)") == "2"
+        }
+        assertEquals(
+            true,
+            evaluate(
+                """
+                (() => {
+                  const response = JSON.parse(nativeDownloadReplies[1]);
+                  return response.id === 'network-unknown' &&
+                    response.error.code === 'invalid_request' &&
+                    !JSON.stringify(response).includes('cookie');
+                })()
+                """.trimIndent(),
+            ),
+        )
+
 
         evaluate(
             """
@@ -245,6 +311,11 @@ class WebViewBoundaryTest {
               window.frameBridgeReplies = 0;
               bridge.addEventListener('message', () => window.frameBridgeReplies++);
               bridge.postMessage(JSON.stringify({id:'frame-status', action:'status'}));
+              const downloadBridge = frame.contentWindow.JastreamerDownloads;
+              window.frameDownloadBridgeAttempted = typeof downloadBridge === 'object';
+              window.frameDownloadBridgeReplies = 0;
+              downloadBridge.addEventListener('message', () => window.frameDownloadBridgeReplies++);
+              downloadBridge.postMessage(JSON.stringify({id:'frame-capabilities', action:'capabilities'}));
             };
             frame.src = '/';
             document.body.appendChild(frame);
@@ -253,11 +324,12 @@ class WebViewBoundaryTest {
         )
         waitFor("typed rejection and frame bridge attempt") {
             evaluate(
-                "String(nativeBridgeReplies.length >= 2 && window.frameBridgeAttempted === true)",
+                "String(nativeBridgeReplies.length >= 2 && window.frameBridgeAttempted === true && window.frameDownloadBridgeAttempted === true)",
             ) == "true"
         }
         SystemClock.sleep(500)
         assertEquals("0", evaluate("String(window.frameBridgeReplies)"))
+        assertEquals("0", evaluate("String(window.frameDownloadBridgeReplies)"))
         assertEquals(
             true,
             evaluate(
@@ -445,6 +517,8 @@ class WebViewBoundaryTest {
                     completed.countDown()
                 },
                 onLanguageChanged = {},
+                onOpenLibrary = {},
+                onOpenDownloads = {},
             )
             val container = activity.findViewById<FrameLayout>(R.id.remote_container)
             container.addView(view, FrameLayout.LayoutParams(-1, -1))

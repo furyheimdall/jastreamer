@@ -35,6 +35,7 @@ import androidx.webkit.ProfileStore
 import androidx.webkit.WebViewFeature
 import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
+import java.io.Closeable
 import java.io.IOException
 import java.util.concurrent.TimeUnit
 import javax.net.ssl.SSLException
@@ -50,6 +51,8 @@ import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.isActive
+import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withTimeoutOrNull
@@ -76,8 +79,26 @@ class NativePlaybackService : MediaSessionService(), Player.Listener {
     private val scope = CoroutineScope(serviceJob + Dispatchers.Main.immediate)
     private lateinit var player: ExoPlayer
     private lateinit var session: MediaSession
-    private lateinit var routedPlayer: ServerRoutedPlayer
+    private lateinit var routedPlayer: OwnerRoutedPlayer
+    private lateinit var offlineLibrary: OfflineLibrary
+    private lateinit var offlineMediaFactory: DefaultMediaSourceFactory
+    private var owner = PlaybackOwner.NONE
+    private var ownershipGeneration = 0L
+    private var offlineQueue = OfflineQueue()
+    private var offlineError: PublicError? = null
+    private var offlineGeneration = 0L
+    private var offlineCommandGeneration = 0L
+    private var offlinePersistRevision = 0L
+    private val offlinePersistMutex = Mutex()
+    private var offlineTickerJob: Job? = null
+    private var offlineLibraryJob: Job? = null
+    private val offlineFailedEntryIds = LinkedHashSet<String>()
+    private var offlinePendingEntryId: String? = null
+    private var offlineRetainedEntryId: String? = null
+    private var offlineRetention: Closeable? = null
     private var registration: Registration? = null
+    private var handoffRegistration: Registration? = null
+    private var handoffPollRemoval: Registration? = null
     private var stateKey: String? = null
     private var currentResource: ActiveResource? = null
     private var activeExecution: Job? = null
@@ -87,6 +108,7 @@ class NativePlaybackService : MediaSessionService(), Player.Listener {
     private var leaseJob: Job? = null
     private var leaseWatchdogJob: Job? = null
     private var identityJob: Job? = null
+    private val serverSideJobs = LinkedHashSet<Job>()
     private var preparing = false
     private var recovering = false
     private var publicError: PublicError? = null
@@ -100,15 +122,27 @@ class NativePlaybackService : MediaSessionService(), Player.Listener {
 
     private val noisyReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
-            if (intent?.action != AudioManager.ACTION_AUDIO_BECOMING_NOISY || currentResource == null) return
-            currentResource?.wantsPlayback = false
-            player.pause()
-            sendPlayerControl("pause")
+            if (intent?.action != AudioManager.ACTION_AUDIO_BECOMING_NOISY) return
+            when (owner) {
+                PlaybackOwner.LOCAL -> pauseOffline()
+                PlaybackOwner.SERVER -> {
+                    if (currentResource == null) return
+                    currentResource?.wantsPlayback = false
+                    player.pause()
+                    sendPlayerControl("pause")
+                }
+                PlaybackOwner.NONE -> Unit
+            }
         }
     }
 
     override fun onCreate() {
         super.onCreate()
+        offlineLibrary = OfflineLibrary.get(applicationContext)
+        offlineMediaFactory = DefaultMediaSourceFactory(OfflineAudioDataSource.Factory(offlineLibrary))
+            .setLoadErrorHandlingPolicy(object : DefaultLoadErrorHandlingPolicy(0) {
+                override fun getRetryDelayMsFor(loadErrorInfo: LoadErrorHandlingPolicy.LoadErrorInfo): Long = C.TIME_UNSET
+            })
         player = ExoPlayer.Builder(this)
             .setWakeMode(C.WAKE_MODE_NETWORK)
             .build()
@@ -124,7 +158,7 @@ class NativePlaybackService : MediaSessionService(), Player.Listener {
                 it.repeatMode = Player.REPEAT_MODE_OFF
                 it.addListener(this)
             }
-        routedPlayer = ServerRoutedPlayer(player)
+        routedPlayer = OwnerRoutedPlayer(player)
         session = MediaSession.Builder(this, routedPlayer)
             .setCallback(SessionCallback())
             .build()
@@ -151,6 +185,19 @@ class NativePlaybackService : MediaSessionService(), Player.Listener {
         )
         addSession(session)
         NativePlaybackRegistry.attach(this)
+        offlineLibraryJob = scope.launch {
+            offlineLibrary.changes.collect { reconcileOfflineLibrary() }
+        }
+        val restoreGeneration = offlineGeneration
+        scope.launch {
+            val restored = withContext(Dispatchers.IO) {
+                OfflinePlaybackPolicy.normalized(offlineLibrary.loadQueue())
+            }
+            if (restoreGeneration == offlineGeneration && offlineQueue.entries.isEmpty()) {
+                offlineQueue = restored
+                publishOfflineState()
+            }
+        }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -159,7 +206,7 @@ class NativePlaybackService : MediaSessionService(), Player.Listener {
     }
 
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? {
-        if (registration == null) return null
+        if (owner == PlaybackOwner.NONE) return null
         return if (controllerInfo.isTrusted || controllerInfo.uid == Process.myUid()) session else null
     }
 
@@ -170,22 +217,816 @@ class NativePlaybackService : MediaSessionService(), Player.Listener {
         } catch (_: IllegalArgumentException) {
             // Receiver was already removed by the framework.
         }
-        pollJob?.cancel()
-        leaseJob?.cancel()
-        leaseWatchdogJob?.cancel()
-        identityJob?.cancel()
-        activeExecution?.cancel()
-        recoveryJob?.cancel()
+        cancelServerTransport()
+        offlineTickerJob?.cancel()
+        offlineLibraryJob?.cancel()
+        player.stop()
+        releaseOfflineRetention()
         serviceJob.cancel()
         session.release()
         player.removeListener(this)
         routedPlayer.release()
+        setOwner(PlaybackOwner.NONE)
         registration = null
         currentResource = null
+        publishOfflineState()
         super.onDestroy()
     }
 
-    internal suspend fun connect(server: ServerEndpoint, name: String): JSONObject {
+    internal fun prepareServerHandoff(
+        confirmHandoff: Boolean,
+        requestGeneration: Long,
+    ): OfflinePlaybackPolicy.OwnershipRequestToken {
+        requireCurrentOfflineRequest(requestGeneration)
+        if (!OfflinePlaybackPolicy.requiresHandoff(ownerName(), OfflinePlaybackPolicy.OWNER_SERVER)) {
+            return OfflinePlaybackPolicy.OwnershipRequestToken(ownershipGeneration, requestGeneration)
+        }
+        if (!confirmHandoff) {
+            throw NativePlaybackException(
+                "handoff_required",
+                "Stop saved music and switch this phone to Server playback?",
+            )
+        }
+        offlineCommandGeneration++
+        captureOfflinePosition()
+        persistOfflineQueue()
+        offlineGeneration++
+        offlineTickerJob?.cancel()
+        offlineTickerJob = null
+        offlineFailedEntryIds.clear()
+        setOwner(PlaybackOwner.NONE)
+        player.stop()
+        player.clearMediaItems()
+        player.repeatMode = Player.REPEAT_MODE_OFF
+        player.shuffleModeEnabled = false
+        releaseOfflineRetention()
+        offlinePendingEntryId?.let { offlineQueue = OfflinePlaybackPolicy.remove(offlineQueue, it) }
+        offlinePendingEntryId = null
+        player.setWakeMode(C.WAKE_MODE_NETWORK)
+        offlineError = null
+        publishOfflineState()
+        return OfflinePlaybackPolicy.OwnershipRequestToken(ownershipGeneration, requestGeneration)
+    }
+
+    internal suspend fun playOffline(
+        tracks: List<OfflineTrack>,
+        startIndex: Int,
+        confirmHandoff: Boolean,
+        requestGeneration: Long,
+    ) {
+        require(tracks.isNotEmpty() && startIndex in tracks.indices)
+        requireCurrentOfflineRequest(requestGeneration)
+        if (tracks.any { it.pendingDelete }) {
+            throw NativePlaybackException("track_unavailable", "Saved audio is pending deletion.")
+        }
+        val commandGeneration = ++offlineCommandGeneration
+        if (OfflinePlaybackPolicy.requiresHandoff(ownerName(), OfflinePlaybackPolicy.OWNER_LOCAL)) {
+            val existing = registration
+                ?: throw NativePlaybackException("handoff_failed", "Server playback ownership is unavailable.")
+            if (!confirmHandoff) {
+                throw NativePlaybackException(
+                    "handoff_required",
+                    "Disconnect Server playback and switch this phone to saved music?",
+                )
+            }
+            disconnectRegistrationForHandoff(existing)
+        }
+        if (owner == PlaybackOwner.SERVER) {
+            throw NativePlaybackException("handoff_failed", "Server playback could not be disconnected.")
+        }
+
+        val expectedOwnership = ownershipGeneration
+        val operationToken = OfflinePlaybackPolicy.OperationToken(expectedOwnership, commandGeneration)
+        val newQueue = OfflinePlaybackPolicy.newQueue(tracks.map(OfflineTrack::id), startIndex)
+        val initialEntry = newQueue.entries[startIndex]
+        val mediaSources = newQueue.entries.zip(tracks).map { (entry, track) ->
+            offlineMediaSource(entry, track)
+        }
+        val committed = acquireOfflineRetention(initialEntry.trackId) { retention ->
+            if (!OfflinePlaybackRequestFence.isCurrent(requestGeneration) ||
+                !OfflinePlaybackPolicy.operationIsCurrent(
+                    operationToken,
+                    ownershipGeneration,
+                    offlineCommandGeneration,
+                ) || owner == PlaybackOwner.SERVER
+            ) {
+                false
+            } else {
+                cancelServerTransport()
+                cancelMediaWork()
+                offlineGeneration++
+                setOwner(PlaybackOwner.LOCAL)
+                player.setWakeMode(C.WAKE_MODE_LOCAL)
+                offlineQueue = newQueue
+                replaceOfflineRetention(initialEntry.id, retention)
+                offlineError = null
+                offlineFailedEntryIds.clear()
+                offlinePendingEntryId = null
+                player.setMediaSources(mediaSources, startIndex, 0L)
+                player.shuffleModeEnabled = false
+                player.repeatMode = Player.REPEAT_MODE_OFF
+                persistOfflineQueue()
+                publishOfflineState()
+                startOfflineTicker()
+                player.prepare()
+                player.play()
+                true
+            }
+        }
+        if (!committed) throw NativePlaybackException("superseded", "A newer playback action replaced this request.")
+    }
+
+    internal suspend fun enqueueOffline(trackIds: List<String>, next: Boolean) {
+        require(trackIds.isNotEmpty())
+        if (owner != PlaybackOwner.LOCAL) {
+            mutateInactiveOfflineQueue { queue -> OfflinePlaybackPolicy.enqueue(queue, trackIds, next) }
+            return
+        }
+        val tracks = withContext(Dispatchers.IO) {
+            trackIds.map { id ->
+                offlineLibrary.track(id)?.takeUnless { it.pendingDelete }
+                    ?: throw NativePlaybackException("track_unavailable", "Saved audio is no longer available.")
+            }
+        }
+        if (owner != PlaybackOwner.LOCAL) {
+            mutateInactiveOfflineQueue { queue -> OfflinePlaybackPolicy.enqueue(queue, trackIds, next) }
+            return
+        }
+        captureOfflinePosition()
+        val baseQueue = offlineQueue
+        val updated = OfflinePlaybackPolicy.enqueue(baseQueue, trackIds, next)
+        val existingIds = baseQueue.entries.mapTo(
+            HashSet<String>(baseQueue.entries.size),
+            OfflineQueueEntry::id,
+        )
+        val additions = updated.entries.filterNot { it.id in existingIds }
+        check(additions.size == tracks.size)
+        val insertionIndex = updated.entries.indexOfFirst { it.id == additions.first().id }
+        val mediaSources = additions.zip(tracks).map { (entry, track) -> offlineMediaSource(entry, track) }
+        offlineQueue = updated
+        player.addMediaSources(insertionIndex, mediaSources)
+        publishOfflineState()
+        persistOfflineQueueNow()
+    }
+
+    internal suspend fun playOfflineEntry(
+        savedQueue: OfflineQueue,
+        entryId: String,
+        confirmHandoff: Boolean,
+        requestGeneration: Long,
+        startPositionMs: Long,
+    ) {
+        requireCurrentOfflineRequest(requestGeneration)
+        val positionMs = startPositionMs.coerceAtLeast(0L)
+        val initialQueue = if (offlineQueue.entries.any { it.id == entryId }) {
+            offlineQueue
+        } else {
+            OfflinePlaybackPolicy.normalized(savedQueue)
+        }
+        val initialEntry = initialQueue.entries.firstOrNull { it.id == entryId }
+            ?: throw NativePlaybackException(
+                "queue_entry_unavailable",
+                "The saved queue entry is no longer available.",
+            )
+        val initialTrack = withContext(Dispatchers.IO) {
+            offlineLibrary.track(initialEntry.trackId)?.takeUnless { it.pendingDelete }
+        } ?: throw NativePlaybackException("track_unavailable", "Saved audio is no longer available.")
+        requireCurrentOfflineRequest(requestGeneration)
+
+        val commandGeneration = ++offlineCommandGeneration
+        if (OfflinePlaybackPolicy.requiresHandoff(ownerName(), OfflinePlaybackPolicy.OWNER_LOCAL)) {
+            val existing = registration
+                ?: throw NativePlaybackException("handoff_failed", "Server playback ownership is unavailable.")
+            if (!confirmHandoff) {
+                throw NativePlaybackException(
+                    "handoff_required",
+                    "Disconnect Server playback and switch this phone to saved music?",
+                )
+            }
+            disconnectRegistrationForHandoff(existing)
+        }
+        if (owner == PlaybackOwner.SERVER) {
+            throw NativePlaybackException("handoff_failed", "Server playback could not be disconnected.")
+        }
+
+        val operationToken = OfflinePlaybackPolicy.OperationToken(ownershipGeneration, commandGeneration)
+        if (owner == PlaybackOwner.LOCAL) {
+            val committed = acquireOfflineRetention(initialTrack.id) { retention ->
+                val currentIndex = offlineQueue.entries.indexOfFirst { it.id == entryId }
+                if (!OfflinePlaybackRequestFence.isCurrent(requestGeneration) ||
+                    !OfflinePlaybackPolicy.operationIsCurrent(
+                        operationToken,
+                        ownershipGeneration,
+                        offlineCommandGeneration,
+                    ) || owner != PlaybackOwner.LOCAL || currentIndex < 0
+                ) {
+                    false
+                } else {
+                    offlineError = null
+                    offlineFailedEntryIds.clear()
+                    player.seekTo(currentIndex, positionMs)
+                    replaceOfflineRetention(entryId, retention)
+                    if (player.playbackState == Player.STATE_IDLE) player.prepare()
+                    player.play()
+                    captureOfflinePosition()
+                    persistOfflineQueue()
+                    publishOfflineState()
+                    true
+                }
+            }
+            if (!committed) {
+                throw NativePlaybackException("superseded", "A newer playback action replaced this request.")
+            }
+            return
+        }
+
+        val queue = if (offlineQueue.entries.any { it.id == entryId }) offlineQueue else initialQueue
+        val available = withContext(Dispatchers.IO) {
+            queue.entries.map { entry -> entry to offlineLibrary.track(entry.trackId) }
+        }.filter { (_, track) -> track != null && !track.pendingDelete }
+        if (!OfflinePlaybackRequestFence.isCurrent(requestGeneration) ||
+            !OfflinePlaybackPolicy.operationIsCurrent(
+                operationToken,
+                ownershipGeneration,
+                offlineCommandGeneration,
+            ) || owner == PlaybackOwner.SERVER
+        ) {
+            throw NativePlaybackException("superseded", "A newer playback action replaced this request.")
+        }
+        val selectedIndex = available.indexOfFirst { (entry, _) -> entry.id == entryId }
+        if (selectedIndex < 0) {
+            throw NativePlaybackException("track_unavailable", "Saved audio is no longer available.")
+        }
+        val restored = OfflinePlaybackPolicy.normalized(
+            queue.copy(
+                entries = available.map { it.first },
+                currentEntryId = entryId,
+                positionMs = positionMs,
+            ),
+        )
+        val mediaSources = available.map { (entry, track) ->
+            offlineMediaSource(entry, requireNotNull(track))
+        }
+        val committed = acquireOfflineRetention(initialTrack.id) { retention ->
+            if (!OfflinePlaybackRequestFence.isCurrent(requestGeneration) ||
+                !OfflinePlaybackPolicy.operationIsCurrent(
+                    operationToken,
+                    ownershipGeneration,
+                    offlineCommandGeneration,
+                ) || owner == PlaybackOwner.SERVER
+            ) {
+                false
+            } else {
+                cancelServerTransport()
+                cancelMediaWork()
+                offlineGeneration++
+                setOwner(PlaybackOwner.LOCAL)
+                player.setWakeMode(C.WAKE_MODE_LOCAL)
+                offlineQueue = restored
+                replaceOfflineRetention(entryId, retention)
+                offlineError = null
+                offlineFailedEntryIds.clear()
+                offlinePendingEntryId = null
+                player.setMediaSources(mediaSources, selectedIndex, positionMs)
+                player.shuffleModeEnabled = restored.shuffle
+                player.repeatMode = restored.repeatMode
+                persistOfflineQueue()
+                publishOfflineState()
+                startOfflineTicker()
+                player.prepare()
+                player.play()
+                true
+            }
+        }
+        if (!committed) throw NativePlaybackException("superseded", "A newer playback action replaced this request.")
+    }
+
+    internal suspend fun resumeRestoredOffline(savedQueue: OfflineQueue, requestGeneration: Long) {
+        requireCurrentOfflineRequest(requestGeneration)
+        val commandGeneration = ++offlineCommandGeneration
+        val expectedOwnership = ownershipGeneration
+        val operationToken = OfflinePlaybackPolicy.OperationToken(expectedOwnership, commandGeneration)
+        if (owner == PlaybackOwner.SERVER) {
+            throw NativePlaybackException(
+                "handoff_required",
+                "Disconnect Server playback before resuming saved music.",
+            )
+        }
+        val normalized = OfflinePlaybackPolicy.normalized(savedQueue)
+        val available = withContext(Dispatchers.IO) {
+            normalized.entries.map { entry -> entry to offlineLibrary.track(entry.trackId) }
+        }.filter { (_, track) -> track != null && !track.pendingDelete }
+        if (!OfflinePlaybackRequestFence.isCurrent(requestGeneration) ||
+            !OfflinePlaybackPolicy.operationIsCurrent(
+                operationToken,
+                ownershipGeneration,
+                offlineCommandGeneration,
+            ) || owner == PlaybackOwner.SERVER
+        ) {
+            throw NativePlaybackException("superseded", "A newer playback action replaced this request.")
+        }
+        if (available.isEmpty()) {
+            throw NativePlaybackException("track_unavailable", "No saved queue audio is available.")
+        }
+        val entries = available.map { it.first }
+        val currentId = normalized.currentEntryId?.takeIf { id -> entries.any { it.id == id } }
+            ?: entries.first().id
+        val restored = normalized.copy(
+            entries = entries,
+            currentEntryId = currentId,
+            positionMs = normalized.positionMs.takeIf { currentId == normalized.currentEntryId } ?: 0L,
+        )
+        val currentIndex = restored.entries.indexOfFirst { it.id == currentId }
+        val mediaSources = available.map { (entry, track) ->
+            offlineMediaSource(entry, requireNotNull(track))
+        }
+        val committed = acquireOfflineRetention(restored.entries[currentIndex].trackId) { retention ->
+            if (!OfflinePlaybackRequestFence.isCurrent(requestGeneration) ||
+                !OfflinePlaybackPolicy.operationIsCurrent(
+                    operationToken,
+                    ownershipGeneration,
+                    offlineCommandGeneration,
+                ) || owner == PlaybackOwner.SERVER
+            ) {
+                false
+            } else {
+                cancelServerTransport()
+                cancelMediaWork()
+                offlineGeneration++
+                setOwner(PlaybackOwner.LOCAL)
+                player.setWakeMode(C.WAKE_MODE_LOCAL)
+                offlineQueue = restored
+                replaceOfflineRetention(currentId, retention)
+                offlineError = null
+                offlineFailedEntryIds.clear()
+                offlinePendingEntryId = null
+                player.setMediaSources(mediaSources, currentIndex, restored.positionMs)
+                player.shuffleModeEnabled = restored.shuffle
+                player.repeatMode = restored.repeatMode
+                persistOfflineQueue()
+                publishOfflineState()
+                startOfflineTicker()
+                player.prepare()
+                player.play()
+                true
+            }
+        }
+        if (!committed) throw NativePlaybackException("superseded", "A newer playback action replaced this request.")
+    }
+
+    private fun offlineMediaSource(entry: OfflineQueueEntry, track: OfflineTrack): MediaSource {
+        val metadata = MediaMetadata.Builder()
+            .setTitle(track.title)
+            .setArtist(track.artist)
+            .setAlbumTitle(track.album)
+            .setDurationMs(track.durationMs.coerceAtLeast(0L))
+            .build()
+        val item = MediaItem.Builder()
+            .setMediaId(entry.id)
+            .setUri(OfflineAudioDataSource.uri(track.id))
+            .setMimeType(track.mime)
+            .setMediaMetadata(metadata)
+            .build()
+        return offlineMediaFactory.createMediaSource(item)
+    }
+
+    internal fun adoptPersistedOfflineQueue(queue: OfflineQueue) {
+        if (owner == PlaybackOwner.LOCAL) {
+            throw NativePlaybackException("superseded", "Local playback replaced the saved queue update.")
+        }
+        offlineQueue = OfflinePlaybackPolicy.normalized(queue)
+        offlineError = null
+        publishOfflineState()
+    }
+
+    internal suspend fun mutateInactiveOfflineQueue(transform: (OfflineQueue) -> OfflineQueue) {
+        if (owner == PlaybackOwner.LOCAL) {
+            throw NativePlaybackException("superseded", "Local playback replaced the saved queue update.")
+        }
+        offlinePersistRevision++
+        val updated = withContext(Dispatchers.IO) {
+            offlinePersistMutex.withLock { offlineLibrary.updateQueue(transform) }
+        }
+        adoptPersistedOfflineQueue(updated)
+    }
+
+    internal fun pauseOffline() {
+        beginOfflineCommand()
+        if (owner != PlaybackOwner.LOCAL) return
+        player.pause()
+        captureOfflinePosition()
+        persistOfflineQueue()
+        publishOfflineState()
+    }
+
+    internal fun resumeOffline() {
+        beginOfflineCommand()
+        if (owner == PlaybackOwner.SERVER) {
+            offlineError = PublicError("handoff_required", "Confirm switching this phone to saved music.")
+            publishOfflineState()
+            return
+        }
+        if (owner != PlaybackOwner.LOCAL || player.mediaItemCount == 0) return
+        offlineError = null
+        offlineFailedEntryIds.clear()
+        val entryId = player.currentMediaItem?.mediaId ?: return
+        prepareOfflineEntry(entryId, playWhenReady = true)
+    }
+
+    internal fun stopOffline() {
+        beginOfflineCommand()
+        if (owner != PlaybackOwner.LOCAL) return
+        captureOfflinePosition()
+        player.stop()
+        val pending = offlinePendingEntryId
+        offlinePendingEntryId = null
+        if (pending != null) removeOfflineEntryInternal(pending)
+        releaseOfflineRetention()
+        persistOfflineQueue()
+        publishOfflineState()
+    }
+
+    internal fun seekOffline(positionMillis: Long) {
+        beginOfflineCommand()
+        if (owner != PlaybackOwner.LOCAL || player.mediaItemCount == 0) return
+        player.seekTo(positionMillis.coerceAtLeast(0L))
+        captureOfflinePosition()
+        persistOfflineQueue()
+        publishOfflineState()
+    }
+
+    internal fun nextOffline() {
+        beginOfflineCommand()
+        if (owner != PlaybackOwner.LOCAL || player.mediaItemCount == 0) return
+        offlineFailedEntryIds.clear()
+        offlineError = null
+        val index = when {
+            player.hasNextMediaItem() -> player.nextMediaItemIndex
+            offlineQueue.repeatMode == Player.REPEAT_MODE_ALL -> 0
+            else -> C.INDEX_UNSET
+        }
+        if (index != C.INDEX_UNSET) switchOfflineEntry(index, 0L, true)
+    }
+
+    internal fun previousOffline() {
+        beginOfflineCommand()
+        if (owner != PlaybackOwner.LOCAL || player.mediaItemCount == 0) return
+        offlineFailedEntryIds.clear()
+        offlineError = null
+        val index = when {
+            player.currentPosition > PREVIOUS_RESTART_THRESHOLD_MILLIS -> player.currentMediaItemIndex
+            player.hasPreviousMediaItem() -> player.previousMediaItemIndex
+            else -> 0
+        }
+        switchOfflineEntry(index, 0L, true)
+    }
+
+    internal fun setOfflineShuffle(enabled: Boolean) {
+        beginOfflineCommand()
+        if (owner != PlaybackOwner.LOCAL) return
+        offlineQueue = offlineQueue.copy(shuffle = enabled)
+        player.shuffleModeEnabled = enabled
+        persistOfflineQueue()
+        publishOfflineState()
+    }
+
+    internal fun setOfflineRepeat(mode: Int) {
+        beginOfflineCommand()
+        if (owner != PlaybackOwner.LOCAL || mode !in Player.REPEAT_MODE_OFF..Player.REPEAT_MODE_ALL) return
+        offlineQueue = offlineQueue.copy(repeatMode = mode)
+        player.repeatMode = if (offlinePendingEntryId == offlineQueue.currentEntryId) {
+            Player.REPEAT_MODE_OFF
+        } else {
+            mode
+        }
+        persistOfflineQueue()
+        publishOfflineState()
+    }
+
+    internal fun moveOfflineEntry(entryId: String, offset: Int) {
+        beginOfflineCommand()
+        if (owner != PlaybackOwner.LOCAL || offset == 0) return
+        val from = offlineQueue.entries.indexOfFirst { it.id == entryId }
+        val updated = OfflinePlaybackPolicy.move(offlineQueue, entryId, offset)
+        val to = updated.entries.indexOfFirst { it.id == entryId }
+        if (from < 0 || from == to) return
+        offlineQueue = updated
+        player.moveMediaItem(from, to)
+        captureOfflinePosition()
+        persistOfflineQueue()
+        publishOfflineState()
+    }
+
+    internal fun removeOfflineEntry(entryId: String) {
+        beginOfflineCommand()
+        if (owner != PlaybackOwner.LOCAL) return
+        removeOfflineEntryInternal(entryId)
+        persistOfflineQueue()
+        publishOfflineState()
+    }
+
+    private fun removeOfflineEntryInternal(entryId: String) {
+        val index = offlineQueue.entries.indexOfFirst { it.id == entryId }
+        if (index < 0) return
+        val wasCurrent = player.currentMediaItem?.mediaId == entryId
+        val wasActive = player.playbackState != Player.STATE_IDLE
+        offlineQueue = OfflinePlaybackPolicy.remove(offlineQueue, entryId)
+        offlineFailedEntryIds.remove(entryId)
+        if (index < player.mediaItemCount) player.removeMediaItem(index)
+        if (player.mediaItemCount == 0) player.stop()
+        if (wasCurrent && (!wasActive || player.mediaItemCount == 0)) releaseOfflineRetention()
+        captureOfflinePosition()
+    }
+
+    private fun captureOfflinePosition() {
+        if (owner != PlaybackOwner.LOCAL) return
+        val currentId = player.currentMediaItem?.mediaId
+            ?.takeIf { id -> offlineQueue.entries.any { it.id == id } }
+            ?: offlineQueue.currentEntryId
+        offlineQueue = offlineQueue.copy(
+            currentEntryId = currentId,
+            positionMs = player.currentPosition.coerceAtLeast(0L),
+        )
+    }
+
+    private fun persistOfflineQueue() {
+        val snapshot = OfflinePlaybackPolicy.normalized(offlineQueue)
+        offlineQueue = snapshot
+        val diskSnapshot = offlinePendingEntryId?.let { OfflinePlaybackPolicy.remove(snapshot, it) } ?: snapshot
+        val revision = ++offlinePersistRevision
+        scope.launch(Dispatchers.IO) {
+            offlinePersistMutex.withLock {
+                if (revision != offlinePersistRevision) return@withLock
+                try {
+                    offlineLibrary.saveQueue(diskSnapshot)
+                } catch (_: OfflineLibraryException) {
+                    // A concurrent explicit deletion owns reference removal. Reconciliation
+                    // publishes and persists the surviving queue on the next library change.
+                }
+            }
+        }
+    }
+
+    private suspend fun persistOfflineQueueNow() {
+        withContext(Dispatchers.IO) {
+            offlinePersistMutex.withLock {
+                val diskSnapshot = withContext(Dispatchers.Main.immediate) {
+                    offlinePersistRevision++
+                    val snapshot = OfflinePlaybackPolicy.normalized(offlineQueue)
+                    offlineQueue = snapshot
+                    offlinePendingEntryId?.let { OfflinePlaybackPolicy.remove(snapshot, it) } ?: snapshot
+                }
+                offlineLibrary.saveQueue(diskSnapshot)
+            }
+        }
+    }
+
+    private fun prepareOfflineEntry(entryId: String, playWhenReady: Boolean) {
+        val commandGeneration = offlineCommandGeneration
+        val generation = offlineGeneration
+        val entry = offlineQueue.entries.firstOrNull { it.id == entryId } ?: return
+        if (offlineRetainedEntryId == entryId && offlineRetention != null) {
+            if (player.playbackState == Player.STATE_IDLE) player.prepare()
+            if (playWhenReady) player.play() else player.pause()
+            publishOfflineState()
+            return
+        }
+        scope.launch {
+            try {
+                acquireOfflineRetention(entry.trackId) { retention ->
+                    if (owner != PlaybackOwner.LOCAL || generation != offlineGeneration ||
+                        commandGeneration != offlineCommandGeneration ||
+                        player.currentMediaItem?.mediaId != entryId
+                    ) {
+                        false
+                    } else {
+                        replaceOfflineRetention(entryId, retention)
+                        if (player.playbackState == Player.STATE_IDLE) player.prepare()
+                        if (playWhenReady) player.play() else player.pause()
+                        publishOfflineState()
+                        true
+                    }
+                }
+            } catch (error: OfflineLibraryException) {
+                if (owner == PlaybackOwner.LOCAL && generation == offlineGeneration) {
+                    offlineError = PublicError(error.code, getString(R.string.offline_playback_missing))
+                    publishOfflineState()
+                }
+            }
+        }
+    }
+
+    private fun switchOfflineEntry(index: Int, positionMillis: Long, playWhenReady: Boolean) {
+        val entry = offlineQueue.entries.getOrNull(index) ?: return
+        if (offlineRetainedEntryId == entry.id && offlineRetention != null) {
+            player.seekTo(index, positionMillis.coerceAtLeast(0L))
+            if (player.playbackState == Player.STATE_IDLE) player.prepare()
+            if (playWhenReady) player.play() else player.pause()
+            captureOfflinePosition()
+            persistOfflineQueue()
+            publishOfflineState()
+            return
+        }
+        val generation = offlineGeneration
+        val commandGeneration = offlineCommandGeneration
+        scope.launch {
+            try {
+                acquireOfflineRetention(entry.trackId) { retention ->
+                    val currentIndex = offlineQueue.entries.indexOfFirst { it.id == entry.id }
+                    if (owner != PlaybackOwner.LOCAL || generation != offlineGeneration ||
+                        commandGeneration != offlineCommandGeneration || currentIndex < 0
+                    ) {
+                        false
+                    } else {
+                        player.seekTo(currentIndex, positionMillis.coerceAtLeast(0L))
+                        replaceOfflineRetention(entry.id, retention)
+                        if (player.playbackState == Player.STATE_IDLE) player.prepare()
+                        if (playWhenReady) player.play() else player.pause()
+                        captureOfflinePosition()
+                        persistOfflineQueue()
+                        publishOfflineState()
+                        true
+                    }
+                }
+            } catch (error: OfflineLibraryException) {
+                if (owner == PlaybackOwner.LOCAL && generation == offlineGeneration) {
+                    offlineError = PublicError(error.code, getString(R.string.offline_playback_missing))
+                    publishOfflineState()
+                }
+            }
+        }
+    }
+
+    private fun replaceOfflineRetention(entryId: String, retention: Closeable) {
+        if (offlineRetainedEntryId == entryId) {
+            retention.close()
+            return
+        }
+        val previous = offlineRetention
+        offlineRetention = retention
+        offlineRetainedEntryId = entryId
+        previous?.close()
+    }
+
+    private fun releaseOfflineRetention() {
+        val retention = offlineRetention
+        offlineRetention = null
+        offlineRetainedEntryId = null
+        retention?.close()
+    }
+
+    private suspend fun acquireOfflineRetention(
+        trackId: String,
+        commit: (Closeable) -> Boolean,
+    ): Boolean {
+        var acquired: Closeable? = null
+        return try {
+            withContext(Dispatchers.IO) {
+                offlineLibrary.retainTrack(trackId).also { acquired = it }
+            }
+            val retention = requireNotNull(acquired)
+            if (!commit(retention)) {
+                false
+            } else {
+                acquired = null
+                true
+            }
+        } finally {
+            acquired?.close()
+        }
+    }
+
+    private fun handleOfflineTransition(entryId: String) {
+        val generation = offlineGeneration
+        val commandGeneration = offlineCommandGeneration
+        val entry = offlineQueue.entries.firstOrNull { it.id == entryId } ?: return
+        val pendingPrevious = offlinePendingEntryId?.takeIf { it != entryId }
+        scope.launch {
+            try {
+                acquireOfflineRetention(entry.trackId) { retention ->
+                    if (owner != PlaybackOwner.LOCAL || generation != offlineGeneration ||
+                        commandGeneration != offlineCommandGeneration ||
+                        player.currentMediaItem?.mediaId != entryId ||
+                        player.playbackState == Player.STATE_IDLE ||
+                        player.playbackState == Player.STATE_ENDED
+                    ) {
+                        false
+                    } else {
+                        replaceOfflineRetention(entryId, retention)
+                        if (pendingPrevious != null) {
+                            offlinePendingEntryId = null
+                            removeOfflineEntryInternal(pendingPrevious)
+                            player.repeatMode = offlineQueue.repeatMode
+                        }
+                        captureOfflinePosition()
+                        persistOfflineQueue()
+                        publishOfflineState()
+                        true
+                    }
+                }
+            } catch (error: OfflineLibraryException) {
+                if (owner == PlaybackOwner.LOCAL && generation == offlineGeneration &&
+                    commandGeneration == offlineCommandGeneration
+                ) {
+                    offlineError = PublicError(error.code, getString(R.string.offline_playback_missing))
+                    player.pause()
+                    publishOfflineState()
+                }
+            }
+        }
+    }
+
+    private fun beginOfflineCommand() {
+        OfflinePlaybackRequestFence.beginRequest()
+        offlineCommandGeneration++
+    }
+
+    private fun requireCurrentOfflineRequest(requestGeneration: Long) {
+        if (!OfflinePlaybackRequestFence.isCurrent(requestGeneration)) {
+            throw NativePlaybackException("superseded", "A newer playback action replaced this request.")
+        }
+    }
+
+    private fun setOwner(value: PlaybackOwner) {
+        if (owner == value) return
+        owner = value
+        ownershipGeneration++
+    }
+
+    private fun ownerName(): String = when (owner) {
+        PlaybackOwner.NONE -> OfflinePlaybackPolicy.OWNER_NONE
+        PlaybackOwner.SERVER -> OfflinePlaybackPolicy.OWNER_SERVER
+        PlaybackOwner.LOCAL -> OfflinePlaybackPolicy.OWNER_LOCAL
+    }
+
+    private fun publishOfflineState() {
+        if (owner == PlaybackOwner.LOCAL) captureOfflinePosition()
+        OfflinePlayback.publish(
+            OfflinePlaybackState(
+                owner = ownerName(),
+                playing = owner == PlaybackOwner.LOCAL && player.isPlaying,
+                queue = offlineQueue,
+                errorCode = offlineError?.code,
+                errorMessage = offlineError?.message,
+            ),
+        )
+    }
+
+    private fun startOfflineTicker() {
+        offlineTickerJob?.cancel()
+        offlineTickerJob = scope.launch {
+            var ticks = 0
+            while (owner == PlaybackOwner.LOCAL) {
+                delay(1_000L)
+                if (owner != PlaybackOwner.LOCAL) return@launch
+                publishOfflineState()
+                if (++ticks % 5 == 0) persistOfflineQueue()
+            }
+        }
+    }
+
+    private suspend fun reconcileOfflineLibrary() {
+        if (owner != PlaybackOwner.LOCAL || offlineQueue.entries.isEmpty()) return
+        val generation = offlineGeneration
+        val entries = offlineQueue.entries
+        val availability = withContext(Dispatchers.IO) {
+            entries.associate { entry -> entry.id to offlineLibrary.track(entry.trackId) }
+        }
+        if (owner != PlaybackOwner.LOCAL || generation != offlineGeneration) return
+        val currentId = player.currentMediaItem?.mediaId
+        var changed = false
+        entries.asReversed().forEach { entry ->
+            val track = availability[entry.id]
+            when {
+                track?.pendingDelete == true && entry.id == currentId -> {
+                    offlinePendingEntryId = entry.id
+                    player.repeatMode = Player.REPEAT_MODE_OFF
+                }
+                track == null && entry.id == currentId -> {
+                    offlineError = PublicError("local_missing", getString(R.string.offline_playback_missing))
+                    player.pause()
+                }
+                track == null || track.pendingDelete -> {
+                    removeOfflineEntryInternal(entry.id)
+                    changed = true
+                }
+            }
+        }
+        if (changed) persistOfflineQueue()
+        publishOfflineState()
+    }
+
+    internal suspend fun connect(
+        server: ServerEndpoint,
+        name: String,
+        operationToken: OfflinePlaybackPolicy.OwnershipRequestToken,
+    ): JSONObject {
+        if (!OfflinePlaybackRequestFence.isCurrent(operationToken.requestGeneration) ||
+            operationToken.ownershipGeneration != ownershipGeneration || owner == PlaybackOwner.LOCAL
+        ) {
+            throw NativePlaybackException("handoff_required", "Saved music ownership changed.")
+        }
+        var commitGeneration = operationToken.ownershipGeneration
         val key = NativePlaybackPolicy.serverKey(server)
         stateKey = key
         registration?.let { existing ->
@@ -194,6 +1035,12 @@ class NativePlaybackService : MediaSessionService(), Player.Listener {
                 throw NativePlaybackException("stop_required", "Stop phone playback before changing servers.")
             }
             disconnectRegistration(existing)
+            commitGeneration = ownershipGeneration
+        }
+        if (!OfflinePlaybackRequestFence.isCurrent(operationToken.requestGeneration) ||
+            commitGeneration != ownershipGeneration || owner == PlaybackOwner.LOCAL
+        ) {
+            throw NativePlaybackException("handoff_required", "Saved music ownership changed.")
         }
 
         val client = try {
@@ -241,7 +1088,26 @@ class NativePlaybackService : MediaSessionService(), Player.Listener {
             setError(failure.code, failure.message.orEmpty())
             throw failure
         }
+        if (!OfflinePlaybackRequestFence.isCurrent(operationToken.requestGeneration) ||
+            commitGeneration != ownershipGeneration || owner == PlaybackOwner.LOCAL
+        ) {
+            try {
+                parsed.client.json(
+                    method = "DELETE",
+                    path = registrationPath(parsed.id),
+                    ownerToken = parsed.ownerToken,
+                    allowEmpty = true,
+                )
+            } catch (_: Throwable) {
+                // The unclaimed short lease bounds a failed stale-registration release.
+            }
+            throw NativePlaybackException("handoff_required", "Saved music ownership changed.")
+        }
         registration = parsed
+        setOwner(PlaybackOwner.SERVER)
+        player.setWakeMode(C.WAKE_MODE_NETWORK)
+        player.repeatMode = Player.REPEAT_MODE_OFF
+        player.shuffleModeEnabled = false
         leaseExpiryElapsed = parsed.leaseDeadlineElapsed
         sequenceFence = SequenceFence()
         publicError = null
@@ -337,7 +1203,7 @@ class NativePlaybackService : MediaSessionService(), Player.Listener {
             } catch (error: CancellationException) {
                 throw error
             } catch (error: Throwable) {
-                if (handleTransportFailure(expected, error)) return
+                if (handleTransportFailure(expected, error, registrationPoll = true)) return
                 delayMillis = 1_000L
             }
             if (registration === expected) delay(delayMillis)
@@ -788,6 +1654,10 @@ class NativePlaybackService : MediaSessionService(), Player.Listener {
     }
 
     override fun onPlayerError(error: PlaybackException) {
+        if (owner == PlaybackOwner.LOCAL) {
+            handleOfflinePlayerError(error)
+            return
+        }
         val stage = when {
             preparing -> NativePlaybackErrorStage.PREPARE
             activeExecution != null -> NativePlaybackErrorStage.COMMAND
@@ -807,6 +1677,90 @@ class NativePlaybackService : MediaSessionService(), Player.Listener {
         val expected = registration ?: return
         val active = currentResource ?: return
         recoverAfterCommand(expected, active, failure)
+    }
+
+    private fun handleOfflinePlayerError(error: PlaybackException) {
+        val currentId = player.currentMediaItem?.mediaId
+        val currentIndex = player.currentMediaItemIndex
+        val entry = offlineQueue.entries.firstOrNull { it.id == currentId }
+        val decodeFailure = OfflinePlaybackPolicy.isConfirmedLocalDecodeError(
+            error.errorCode,
+            hasCause<SecurityException>(error) || hasCause<SSLException>(error),
+        )
+        scope.launch(Dispatchers.IO) {
+            offlineLibrary.recordError(
+                entry?.trackId,
+                if (decodeFailure) "decode" else "playback",
+                "Media3 playback error ${error.errorCode}",
+            )
+        }
+        if (!decodeFailure || entry == null || currentIndex == C.INDEX_UNSET) {
+            captureOfflinePosition()
+            player.stop()
+            val pending = offlinePendingEntryId
+            offlinePendingEntryId = null
+            if (pending != null) removeOfflineEntryInternal(pending)
+            releaseOfflineRetention()
+            offlineError = PublicError("local_playback", getString(R.string.offline_playback_error))
+            persistOfflineQueue()
+            publishOfflineState()
+            return
+        }
+
+        offlineFailedEntryIds += entry.id
+        offlineError = PublicError("local_decode", getString(R.string.offline_playback_decode_error))
+        val failedIndices = offlineQueue.entries.mapIndexedNotNull { index, value ->
+            index.takeIf { value.id in offlineFailedEntryIds }
+        }.toSet()
+        val candidateIds = OfflinePlaybackPolicy.failoverIndices(
+            offlineQueue.entries.size,
+            currentIndex,
+            failedIndices,
+            offlineQueue.repeatMode,
+        ).mapNotNull { index -> offlineQueue.entries.getOrNull(index)?.id }
+        val generation = offlineGeneration
+        val commandGeneration = offlineCommandGeneration
+        player.stop()
+        scope.launch {
+            for (candidateId in candidateIds) {
+                val candidate = offlineQueue.entries.firstOrNull { it.id == candidateId } ?: continue
+                val committed = try {
+                    acquireOfflineRetention(candidate.trackId) { retention ->
+                        val candidateIndex = offlineQueue.entries.indexOfFirst { it.id == candidate.id }
+                        if (owner != PlaybackOwner.LOCAL || generation != offlineGeneration ||
+                            commandGeneration != offlineCommandGeneration || candidateIndex < 0
+                        ) {
+                            false
+                        } else {
+                            player.seekTo(candidateIndex, 0L)
+                            replaceOfflineRetention(candidate.id, retention)
+                            player.prepare()
+                            player.play()
+                            captureOfflinePosition()
+                            persistOfflineQueue()
+                            publishOfflineState()
+                            true
+                        }
+                    }
+                } catch (_: OfflineLibraryException) {
+                    false
+                }
+                if (committed) return@launch
+                if (owner != PlaybackOwner.LOCAL || generation != offlineGeneration ||
+                    commandGeneration != offlineCommandGeneration
+                ) {
+                    return@launch
+                }
+            }
+            val pending = offlinePendingEntryId
+            offlinePendingEntryId = null
+            if (pending != null) removeOfflineEntryInternal(pending)
+            releaseOfflineRetention()
+            offlineError = PublicError("local_decode", getString(R.string.offline_playback_all_failed))
+            captureOfflinePosition()
+            persistOfflineQueue()
+            publishOfflineState()
+        }
     }
 
     private fun recoverAfterCommand(
@@ -876,6 +1830,30 @@ class NativePlaybackService : MediaSessionService(), Player.Listener {
     }
 
     override fun onPlaybackStateChanged(playbackState: Int) {
+        if (owner == PlaybackOwner.LOCAL) {
+            if (playbackState == Player.STATE_READY) {
+                offlineError = null
+            } else if (playbackState == Player.STATE_ENDED) {
+                offlineFailedEntryIds.clear()
+                captureOfflinePosition()
+                val pending = offlinePendingEntryId
+                if (pending != null) {
+                    player.pause()
+                    offlinePendingEntryId = null
+                    removeOfflineEntryInternal(pending)
+                    releaseOfflineRetention()
+                    player.repeatMode = offlineQueue.repeatMode
+                    if (offlineQueue.repeatMode == Player.REPEAT_MODE_ALL && offlineQueue.entries.isNotEmpty()) {
+                        switchOfflineEntry(0, 0L, true)
+                    }
+                } else {
+                    releaseOfflineRetention()
+                }
+                persistOfflineQueue()
+            }
+            publishOfflineState()
+            return
+        }
         if (playbackState != Player.STATE_ENDED || currentResource == null || preparing || recovering) return
         val expected = registration ?: return
         val active = currentResource ?: return
@@ -885,11 +1863,47 @@ class NativePlaybackService : MediaSessionService(), Player.Listener {
         if (activeExecution != null) {
             pendingTerminal = event
         } else {
-            scope.launch { sendTerminalObservation(expected, event) }
+            launchServerJob { sendTerminalObservation(expected, event) }
         }
     }
 
+    override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+        if (owner != PlaybackOwner.LOCAL || mediaItem == null) return
+        if (reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO) offlineFailedEntryIds.clear()
+        offlineQueue = offlineQueue.copy(currentEntryId = mediaItem.mediaId, positionMs = 0L)
+        if (player.playWhenReady || player.playbackState == Player.STATE_BUFFERING ||
+            player.playbackState == Player.STATE_READY
+        ) {
+            handleOfflineTransition(mediaItem.mediaId)
+        }
+        publishOfflineState()
+    }
+
+    override fun onPositionDiscontinuity(
+        oldPosition: Player.PositionInfo,
+        newPosition: Player.PositionInfo,
+        reason: Int,
+    ) {
+        if (owner != PlaybackOwner.LOCAL) return
+        captureOfflinePosition()
+        persistOfflineQueue()
+        publishOfflineState()
+    }
+
+    override fun onIsPlayingChanged(isPlaying: Boolean) {
+        if (owner == PlaybackOwner.LOCAL) publishOfflineState()
+    }
+
     override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
+        if (owner == PlaybackOwner.LOCAL) {
+            if (!playWhenReady && reason == Player.PLAY_WHEN_READY_CHANGE_REASON_AUDIO_FOCUS_LOSS) {
+                beginOfflineCommand()
+            }
+            captureOfflinePosition()
+            persistOfflineQueue()
+            publishOfflineState()
+            return
+        }
         if (!playWhenReady && reason == Player.PLAY_WHEN_READY_CHANGE_REASON_AUDIO_FOCUS_LOSS && currentResource != null) {
             currentResource?.wantsPlayback = false
             sendPlayerControl("pause")
@@ -915,7 +1929,11 @@ class NativePlaybackService : MediaSessionService(), Player.Listener {
             errorCode.takeIf { it == "media_failed" },
             active.playbackErrors.snapshot(),
         )
-        if (activeExecution != null) pendingTerminal = event else scope.launch { sendTerminalObservation(expected, event) }
+        if (activeExecution != null) {
+            pendingTerminal = event
+        } else {
+            launchServerJob { sendTerminalObservation(expected, event) }
+        }
     }
 
     private suspend fun flushPendingTerminal(expected: Registration, sequence: Long) {
@@ -944,7 +1962,7 @@ class NativePlaybackService : MediaSessionService(), Player.Listener {
         val active = currentResource ?: return
         if (active.sequence <= 0L || active.terminalReported) return
         val body = reportBody(active.sequence, observation = observation(event, active.playId, includeState = true))
-        scope.launch {
+        launchServerJob {
             try {
                 expected.client.json(
                     method = "POST",
@@ -1057,7 +2075,7 @@ class NativePlaybackService : MediaSessionService(), Player.Listener {
 
     private fun sendPlayerControl(action: String, positionMillis: Long? = null) {
         val expected = registration ?: return
-        scope.launch {
+        launchServerJob {
             controlMutex.withLock {
                 if (registration !== expected) return@withLock
                 try {
@@ -1080,11 +2098,18 @@ class NativePlaybackService : MediaSessionService(), Player.Listener {
         }
     }
 
-    private fun handleTransportFailure(expected: Registration, error: Throwable): Boolean {
+    private fun handleTransportFailure(
+        expected: Registration,
+        error: Throwable,
+        registrationPoll: Boolean = false,
+    ): Boolean {
         if (registration !== expected) return true
         val http = error as? ServerHttpException
         val fatal = http?.status in listOf(401, 403, 404) || hasCause<SSLException>(error)
         if (fatal) {
+            if (registrationPoll && http?.status == 404 && handoffRegistration === expected) {
+                handoffPollRemoval = expected
+            }
             val code = if (hasCause<SSLException>(error)) "server_tls" else "authentication_required"
             val message = if (code == "server_tls") "The server certificate could not be verified." else "Sign in again to use phone playback."
             loseRegistration(expected, code, message)
@@ -1095,12 +2120,14 @@ class NativePlaybackService : MediaSessionService(), Player.Listener {
     private fun loseRegistration(expected: Registration, code: String, message: String) {
         if (registration !== expected) return
         registration = null
-        pollJob?.cancel()
-        leaseJob?.cancel()
-        leaseWatchdogJob?.cancel()
-        identityJob?.cancel()
-        activeExecution?.cancel()
+        cancelServerTransport()
         cancelMediaWork()
+        if (owner == PlaybackOwner.SERVER) setOwner(PlaybackOwner.NONE)
+        if (handoffRegistration === expected) {
+            publicError = null
+            notifyState()
+            return
+        }
         setError(code, message)
     }
 
@@ -1119,15 +2146,90 @@ class NativePlaybackService : MediaSessionService(), Player.Listener {
         notifyState()
     }
 
-    private suspend fun disconnectRegistration(existing: Registration) {
+    private fun launchServerJob(block: suspend CoroutineScope.() -> Unit): Job {
+        lateinit var job: Job
+        job = scope.launch(start = CoroutineStart.LAZY) {
+            try {
+                block()
+            } finally {
+                serverSideJobs.remove(job)
+            }
+        }
+        serverSideJobs += job
+        job.start()
+        return job
+    }
+
+    private fun cancelServerTransport() {
         pollJob?.cancel()
         leaseJob?.cancel()
         leaseWatchdogJob?.cancel()
         identityJob?.cancel()
         activeExecution?.cancel()
         recoveryJob?.cancel()
-        acknowledgingCommand = false
-        deferredPlaybackError = null
+        serverSideJobs.toList().forEach(Job::cancel)
+        serverSideJobs.clear()
+        pollJob = null
+        leaseJob = null
+        leaseWatchdogJob = null
+        identityJob = null
+        activeExecution = null
+        recoveryJob = null
+    }
+
+    private suspend fun disconnectRegistrationForHandoff(existing: Registration) {
+        handoffRegistration = existing
+        handoffPollRemoval = null
+        var removalObserved = false
+        try {
+            try {
+                existing.client.json(
+                    method = "DELETE",
+                    path = registrationPath(existing.id),
+                    ownerToken = existing.ownerToken,
+                    allowEmpty = true,
+                )
+                removalObserved = true
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Throwable) {
+                val removedByPoll = handoffPollRemoval === existing
+                val deleteObservedMissing = (error as? ServerHttpException)?.status == 404
+                if (removedByPoll || deleteObservedMissing) {
+                    removalObserved = true
+                } else if (registration === existing) {
+                    val failure = error.toPublicFailure(
+                        "handoff_failed",
+                        "Server playback could not be disconnected.",
+                    )
+                    setError(failure.code, failure.message.orEmpty())
+                    throw failure
+                } else {
+                    throw NativePlaybackException("handoff_failed", "Server playback ownership changed.", error)
+                }
+            }
+            if (!OfflinePlaybackPolicy.confirmedDisconnectCanComplete(
+                    removalObserved = removalObserved,
+                    currentOwner = ownerName(),
+                    registrationIsMissingOrExpected = registration == null || registration === existing,
+                )
+            ) {
+                throw NativePlaybackException("handoff_failed", "Server playback ownership changed.")
+            }
+            cancelServerTransport()
+            registration = null
+            cancelMediaWork()
+            setOwner(PlaybackOwner.NONE)
+            publicError = null
+            notifyState()
+        } finally {
+            if (handoffRegistration === existing) handoffRegistration = null
+            if (handoffPollRemoval === existing) handoffPollRemoval = null
+        }
+    }
+
+    private suspend fun disconnectRegistration(existing: Registration) {
+        cancelServerTransport()
         try {
             existing.client.json(
                 method = "DELETE",
@@ -1136,10 +2238,13 @@ class NativePlaybackService : MediaSessionService(), Player.Listener {
                 allowEmpty = true,
             )
         } catch (_: Throwable) {
-            // The lease bounds stale registrations when a best-effort disconnect cannot arrive.
+            // The lease bounds stale registrations when a best-effort server-to-server disconnect cannot arrive.
         }
         if (registration === existing) registration = null
-        cancelMediaWork()
+        if (owner == PlaybackOwner.SERVER) {
+            setOwner(PlaybackOwner.NONE)
+            cancelMediaWork()
+        }
     }
 
     private fun setRecovering(value: Boolean) {
@@ -1157,6 +2262,7 @@ class NativePlaybackService : MediaSessionService(), Player.Listener {
 
     private fun notifyState() {
         NativePlaybackRegistry.notifyObservers()
+        publishOfflineState()
     }
 
     private fun parseRegistration(
@@ -1253,8 +2359,8 @@ class NativePlaybackService : MediaSessionService(), Player.Listener {
         )
     }
 
-    private inner class ServerRoutedPlayer(player: Player) : ForwardingSimpleBasePlayer(player) {
-        private val commands = Player.Commands.Builder()
+    private inner class OwnerRoutedPlayer(player: Player) : ForwardingSimpleBasePlayer(player) {
+        private val serverCommands = Player.Commands.Builder()
             .addAllReadOnlyCommands()
             .addAll(
                 Player.COMMAND_PLAY_PAUSE,
@@ -1267,27 +2373,77 @@ class NativePlaybackService : MediaSessionService(), Player.Listener {
                 Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM,
             )
             .build()
+        private val localCommands = Player.Commands.Builder()
+            .addAllReadOnlyCommands()
+            .addAll(
+                Player.COMMAND_PLAY_PAUSE,
+                Player.COMMAND_STOP,
+                Player.COMMAND_RELEASE,
+                Player.COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM,
+                Player.COMMAND_SEEK_TO_PREVIOUS,
+                Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM,
+                Player.COMMAND_SEEK_TO_NEXT,
+                Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM,
+                Player.COMMAND_SET_REPEAT_MODE,
+                Player.COMMAND_SET_SHUFFLE_MODE,
+            )
+            .build()
 
-        // The decoder has one item; queue navigation belongs to the Server. Let Media3
-        // derive consistent listener events from this state instead of decoder commands.
-        override fun getState() = super.getState().buildUpon().setAvailableCommands(commands).build()
+        override fun getState() = super.getState().buildUpon()
+            .setAvailableCommands(if (owner == PlaybackOwner.LOCAL) localCommands else serverCommands)
+            .build()
 
         override fun handleSetPlayWhenReady(playWhenReady: Boolean): ListenableFuture<*> {
-            sendPlayerControl(if (playWhenReady) "play" else "pause")
+            beginOfflineCommand()
+            when (owner) {
+                PlaybackOwner.LOCAL -> if (playWhenReady) resumeOffline() else pauseOffline()
+                PlaybackOwner.SERVER -> sendPlayerControl(if (playWhenReady) "play" else "pause")
+                PlaybackOwner.NONE -> Unit
+            }
             return Futures.immediateVoidFuture()
         }
 
         override fun handleStop(): ListenableFuture<*> {
-            sendPlayerControl("stop")
+            beginOfflineCommand()
+            when (owner) {
+                PlaybackOwner.LOCAL -> stopOffline()
+                PlaybackOwner.SERVER -> sendPlayerControl("stop")
+                PlaybackOwner.NONE -> Unit
+            }
             return Futures.immediateVoidFuture()
         }
 
         override fun handleSeek(mediaItemIndex: Int, positionMs: Long, seekCommand: Int): ListenableFuture<*> {
-            when (seekCommand) {
-                Player.COMMAND_SEEK_TO_NEXT, Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM -> sendPlayerControl("next")
-                Player.COMMAND_SEEK_TO_PREVIOUS, Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM -> sendPlayerControl("previous")
-                else -> sendPlayerControl("seek", positionMs.coerceAtLeast(0L))
+            beginOfflineCommand()
+            if (owner == PlaybackOwner.LOCAL) {
+                when (seekCommand) {
+                    Player.COMMAND_SEEK_TO_NEXT, Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM -> nextOffline()
+                    Player.COMMAND_SEEK_TO_PREVIOUS, Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM -> previousOffline()
+                    else -> if (mediaItemIndex != player.currentMediaItemIndex) {
+                        switchOfflineEntry(mediaItemIndex, positionMs, player.playWhenReady)
+                    } else {
+                        seekOffline(positionMs)
+                    }
+                }
+            } else if (owner == PlaybackOwner.SERVER) {
+                when (seekCommand) {
+                    Player.COMMAND_SEEK_TO_NEXT, Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM -> sendPlayerControl("next")
+                    Player.COMMAND_SEEK_TO_PREVIOUS, Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM -> sendPlayerControl("previous")
+                    else -> sendPlayerControl("seek", positionMs.coerceAtLeast(0L))
+                }
             }
+            return Futures.immediateVoidFuture()
+        }
+
+        override fun handleSetRepeatMode(repeatMode: Int): ListenableFuture<*> {
+            beginOfflineCommand()
+            if (owner == PlaybackOwner.LOCAL) setOfflineRepeat(repeatMode)
+            return Futures.immediateVoidFuture()
+        }
+
+        override fun handleSetShuffleModeEnabled(shuffleModeEnabled: Boolean): ListenableFuture<*> {
+            beginOfflineCommand()
+            if (owner == PlaybackOwner.LOCAL) setOfflineShuffle(shuffleModeEnabled)
             return Futures.immediateVoidFuture()
         }
     }
@@ -1302,10 +2458,12 @@ class NativePlaybackService : MediaSessionService(), Player.Listener {
             if (!allowed) return MediaSession.ConnectionResult.reject()
             return MediaSession.ConnectionResult.AcceptedResultBuilder()
                 .setAvailableSessionCommands(SessionCommands.EMPTY)
-                .setAvailablePlayerCommands(SYSTEM_PLAYER_COMMANDS)
+                .setAvailablePlayerCommands(LOCAL_SYSTEM_PLAYER_COMMANDS)
                 .build()
         }
     }
+
+    private enum class PlaybackOwner { NONE, SERVER, LOCAL }
 
     private data class Registration(
         val server: ServerEndpoint,
@@ -1356,7 +2514,7 @@ class NativePlaybackService : MediaSessionService(), Player.Listener {
     ) : Exception(message, cause)
 
     companion object {
-        private val SYSTEM_PLAYER_COMMANDS = Player.Commands.Builder()
+        private val LOCAL_SYSTEM_PLAYER_COMMANDS = Player.Commands.Builder()
             .addAllReadOnlyCommands()
             .addAll(
                 Player.COMMAND_PLAY_PAUSE,
@@ -1366,6 +2524,8 @@ class NativePlaybackService : MediaSessionService(), Player.Listener {
                 Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM,
                 Player.COMMAND_SEEK_TO_NEXT,
                 Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM,
+                Player.COMMAND_SET_REPEAT_MODE,
+                Player.COMMAND_SET_SHUFFLE_MODE,
             )
             .build()
         private const val REGISTRATIONS_PATH = "/api/v1/browser-output/registrations"
@@ -1379,6 +2539,7 @@ class NativePlaybackService : MediaSessionService(), Player.Listener {
         private const val EFFECT_TIMEOUT_MILLIS = 4_000L
         private const val ARTWORK_TIMEOUT_MILLIS = 1_500L
         private const val SEEK_TOLERANCE_MILLIS = 250L
+        private const val PREVIOUS_RESTART_THRESHOLD_MILLIS = 3_000L
 
         private fun registrationPath(id: String): String = "$REGISTRATIONS_PATH/${java.net.URLEncoder.encode(id, Charsets.UTF_8.name())}"
         private fun copyJson(value: JSONObject): JSONObject = JSONObject(value.toString())

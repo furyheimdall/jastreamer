@@ -5,6 +5,7 @@ import argparse
 import base64
 import json
 import shlex
+import shutil
 import signal
 import socket
 import subprocess
@@ -70,6 +71,7 @@ def verify_playback_diagnostics(path, evidence):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--verify-native-playback-errors", action="store_true")
+    parser.add_argument("--require-download-codecs", action="store_true")
     parser.add_argument("command", nargs=argparse.REMAINDER)
     options = parser.parse_args()
     if not options.command:
@@ -79,6 +81,10 @@ def main():
     binary = root / "apps/server/dist/jastreamer-server"
     if not binary.is_file():
         print("Build the actual Server and embedded Web first: make build", file=sys.stderr)
+        return 65
+    ffmpeg = shutil.which("ffmpeg") if options.require_download_codecs else ""
+    if options.require_download_codecs and not ffmpeg:
+        print("Offline download verification requires FFmpeg with AAC/M4A support", file=sys.stderr)
         return 65
     with socket.socket() as reservation:
         reservation.bind(("127.0.0.1", 18080))
@@ -121,7 +127,7 @@ def main():
             "https": {"enabled": False, "address": ":8443", "certificate_file": "", "private_key_file": ""},
             "library_roots": [{"id": "android-smoke", "name": "Android smoke", "path": str(music)}],
             "network": {"interfaces": [], "discovery_interval_seconds": 30, "poll_interval_seconds": 1, "allowed_cidrs": []},
-            "media": {"base_url": "", "ffmpeg_path": "", "transcode": False},
+            "media": {"base_url": "", "ffmpeg_path": ffmpeg, "transcode": False},
         }), encoding="utf-8")
         log_path = work / "server.log"
         with log_path.open("w", encoding="utf-8") as log:

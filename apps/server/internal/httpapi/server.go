@@ -17,6 +17,7 @@ import (
 	"github.com/jastreamer/jastreamer-server/internal/browseroutput"
 	"github.com/jastreamer/jastreamer-server/internal/config"
 	"github.com/jastreamer/jastreamer-server/internal/discovery"
+	"github.com/jastreamer/jastreamer-server/internal/downloads"
 	"github.com/jastreamer/jastreamer-server/internal/errorhistory"
 	"github.com/jastreamer/jastreamer-server/internal/events"
 	"github.com/jastreamer/jastreamer-server/internal/fault"
@@ -36,6 +37,7 @@ type Options struct {
 	Auth         *auth.Service
 	Discovery    *discovery.Service
 	Library      *library.Service
+	Downloads    *downloads.Service
 	History      *errorhistory.Service
 	Devices      *output.Manager
 	Player       *player.Service
@@ -97,6 +99,9 @@ func New(options Options) http.Handler {
 	service.registerLikesRoutes(mux)
 	service.registerBrowserRoutes(mux)
 	service.registerHistoryRoutes(mux)
+	if options.Downloads != nil {
+		service.registerDownloadRoutes(mux)
+	}
 	mux.HandleFunc("GET /api/v1/renderers", service.require(service.renderers))
 	mux.HandleFunc("POST /api/v1/renderers/refresh", service.require(service.refreshRenderers))
 	mux.HandleFunc("POST /api/v1/renderers/{id}/pairing", service.require(service.mutating(service.pairRenderer)))

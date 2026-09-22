@@ -143,12 +143,27 @@
   line-height: 1.45;
 }
 
+.track-info-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.55rem;
+  margin-top: 0.75rem;
+}
+
+.track-info-actions .native-download-button span {
+  display: inline;
+  margin: 0;
+  color: inherit;
+  line-height: inherit;
+}
+
 .track-info-like {
   display: inline-flex;
   align-items: center;
   gap: 0.5rem;
   min-height: 44px;
-  margin-top: 0.75rem;
+  margin: 0;
 }
 
 .track-info-artwork {

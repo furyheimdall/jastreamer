@@ -22,6 +22,7 @@ import (
 	"github.com/jastreamer/jastreamer-server/internal/database"
 	"github.com/jastreamer/jastreamer-server/internal/discovery"
 	"github.com/jastreamer/jastreamer-server/internal/dlna"
+	"github.com/jastreamer/jastreamer-server/internal/downloads"
 	"github.com/jastreamer/jastreamer-server/internal/errorhistory"
 	"github.com/jastreamer/jastreamer-server/internal/events"
 	"github.com/jastreamer/jastreamer-server/internal/fault"
@@ -38,6 +39,7 @@ type apiFixture struct {
 	config     config.Config
 	configPath string
 	history    *errorhistory.Service
+	catalog    *library.Service
 }
 
 func startAPI(t *testing.T, secure bool) apiFixture {
@@ -71,6 +73,11 @@ func startAPIWithRestart(t *testing.T, secure bool, restart *RestartHooks) apiFi
 	if err != nil {
 		t.Fatal(err)
 	}
+	downloadService, err := downloads.New(ctx, db, catalog, filepath.Join(dir, "downloads"), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(downloadService.Close)
 	devices, err := dlna.New(dlna.Config{DiscoveryInterval: 30 * time.Second, Notify: hub.Publish})
 	if err != nil {
 		t.Fatal(err)
@@ -90,7 +97,7 @@ func startAPIWithRestart(t *testing.T, secure bool, restart *RestartHooks) apiFi
 	if err = config.Save(path, cfg); err != nil {
 		t.Fatal(err)
 	}
-	handler := New(Options{Context: ctx, ConfigPath: path, Config: cfg, RuntimeID: "runtime_test", Restart: restart, Auth: accounts, Discovery: discoveryService, Library: catalog, History: history, Devices: outputs, Player: playback, Stream: media, Events: hub, UI: fstest.MapFS{"index.html": &fstest.MapFile{Data: []byte("<!doctype html><title>Sign in</title>")}}})
+	handler := New(Options{Context: ctx, ConfigPath: path, Config: cfg, RuntimeID: "runtime_test", Restart: restart, Auth: accounts, Discovery: discoveryService, Library: catalog, Downloads: downloadService, History: history, Devices: outputs, Player: playback, Stream: media, Events: hub, UI: fstest.MapFS{"index.html": &fstest.MapFile{Data: []byte("<!doctype html><title>Sign in</title>")}}})
 	var server *httptest.Server
 	if secure {
 		server = httptest.NewTLSServer(handler)
@@ -101,7 +108,7 @@ func startAPIWithRestart(t *testing.T, secure bool, restart *RestartHooks) apiFi
 	client := server.Client()
 	client.Timeout = 5 * time.Second
 	client.Jar, _ = cookiejar.New(nil)
-	return apiFixture{server: server, client: client, metadata: discoveryService.Metadata(), config: cfg, configPath: path, history: history}
+	return apiFixture{server: server, client: client, metadata: discoveryService.Metadata(), config: cfg, configPath: path, history: history, catalog: catalog}
 }
 
 func (fixture apiFixture) request(t *testing.T, method, path, body string, change func(*http.Request)) *http.Response {

@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="offline_download_notification_channel">음악 다운로드</string>
+    <string name="offline_download_notification_description">저장된 음악으로 음악 가져오기</string>
+    <string name="offline_download_notification_title">음악 저장 중</string>
+    <string name="offline_download_status_waiting">계속할 수 있을 때까지 기다리는 중</string>
+    <string name="offline_download_status_preparing">서버에서 준비 중</string>
+    <string name="offline_download_status_downloading">다운로드 및 확인 중</string>
+    <string name="offline_download_status_importing">확인된 음악 저장 중</string>
+    <string name="offline_download_confirm_title">이 기기에 음악을 저장할까요?</string>
+    <string name="offline_download_confirm_summary">%1$s\n%2$s\n음질: %3$s</string>
+    <string name="offline_download_choose_folder">저장할 폴더</string>
+    <string name="offline_download_imported_folder">가져온 음악</string>
+    <string name="offline_download_root_folder">음악 루트</string>
+    <string name="offline_download_confirm">다운로드</string>
+    <string name="offline_download_quality_original">원본</string>
+    <string name="offline_download_quality_aac">공간 절약(AAC 256kbps)</string>
+    <string name="offline_download_network_unmetered_available">네트워크: 데이터 제한 없는 네트워크를 사용할 수 있습니다</string>
+    <string name="offline_download_network_metered_allowed">네트워크: 데이터 제한 또는 모바일 다운로드 허용됨</string>
+    <string name="offline_download_network_metered_blocked">네트워크: 데이터 제한 또는 모바일 데이터를 사용하려면 권한이 필요합니다</string>
+    <string name="offline_download_network_roaming">네트워크: 로밍 중에는 다운로드가 일시 중지됩니다</string>
+    <string name="offline_download_network_unavailable">네트워크: 계속하려면 선택한 서버의 네트워크에 연결하세요</string>
+    <string name="offline_download_allow_metered">데이터 제한 또는 모바일 다운로드 허용</string>
+    <string name="offline_download_network_confirm_title">데이터 제한 또는 모바일 다운로드를 허용할까요?</string>
+    <string name="offline_download_network_confirm_summary">%1$s\n\n%2$s</string>
+    <string name="offline_download_network_roaming_guard">로밍 중에는 다운로드가 항상 일시 중지됩니다. 이 권한은 로밍이 아닌 네트워크에서만 적용되며 모바일 데이터 요금제를 사용할 수 있습니다.</string>
+    <plurals name="offline_download_track_count">
+        <item quantity="other">%d곡</item>
+    </plurals>
+</resources>

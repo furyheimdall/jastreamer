@@ -18,6 +18,7 @@ jastreamer 0.2.0은 신뢰하는 사설 LAN에서 사용하는 자체 호스팅 
 - [English README](README.md)
 - [English installation guide](INSTALL.md)
 - [English user guide](INSTRUCTION.md)
+- [Android 독립 오프라인 플레이어 구현·검증 계획](ANDROID_OFFLINE_PLAN.ko.md)
 
 ## 주요 기능
 

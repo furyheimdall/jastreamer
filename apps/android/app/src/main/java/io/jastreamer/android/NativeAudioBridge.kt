@@ -1,5 +1,6 @@
 package io.jastreamer.android
 
+import android.app.AlertDialog
 import android.net.Uri
 import android.os.Looper
 import android.webkit.WebView
@@ -17,6 +18,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.cancelChildren
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.suspendCancellableCoroutine
 import org.json.JSONArray
 import org.json.JSONException
 import org.json.JSONObject
@@ -148,7 +150,7 @@ internal class NativeAudioBridge(
                 lateinit var job: Job
                 job = scope.launch(start = CoroutineStart.LAZY) {
                     try {
-                        val device = NativePlayback.connect(webView.context, server, requireNotNull(request.name))
+                        val device = connectWithHandoffConfirmation(generation, requireNotNull(request.name))
                         if (hostInteractive && canConnect()) {
                             reply(replyProxy, generation, deviceResponse(request.id, device))
                         }
@@ -187,6 +189,44 @@ internal class NativeAudioBridge(
             }
         }
     }
+
+    private suspend fun connectWithHandoffConfirmation(generation: Long, name: String): JSONObject {
+        try {
+            return NativePlayback.connect(webView.context, server, name)
+        } catch (failure: NativePlaybackException) {
+            if (failure.code != "handoff_required") throw failure
+        }
+        if (!confirmServerHandoff(generation)) {
+            throw NativePlaybackException("handoff_cancelled", "Saved music continues playing.")
+        }
+        if (!isCurrent(generation) || !hostInteractive || !canConnect()) {
+            throw CancellationException("Native playback document is no longer interactive")
+        }
+        return NativePlayback.connect(webView.context, server, name, confirmHandoff = true)
+    }
+
+    private suspend fun confirmServerHandoff(generation: Long): Boolean =
+        suspendCancellableCoroutine { continuation ->
+            if (!isCurrent(generation) || !hostInteractive || !canConnect()) {
+                continuation.resumeWith(Result.success(false))
+                return@suspendCancellableCoroutine
+            }
+            val dialog = AlertDialog.Builder(webView.context)
+                .setTitle(R.string.offline_playback_handoff_server_title)
+                .setMessage(R.string.offline_playback_handoff_server_message)
+                .setPositiveButton(R.string.offline_playback_handoff_confirm) { _, _ ->
+                    if (continuation.isActive) continuation.resumeWith(Result.success(true))
+                }
+                .setNegativeButton(R.string.offline_playback_handoff_cancel) { _, _ ->
+                    if (continuation.isActive) continuation.resumeWith(Result.success(false))
+                }
+                .setOnCancelListener {
+                    if (continuation.isActive) continuation.resumeWith(Result.success(false))
+                }
+                .create()
+            continuation.invokeOnCancellation { dialog.dismiss() }
+            dialog.show()
+        }
 
     private fun observeState(generation: Long, replyProxy: JavaScriptReplyProxy) {
         unsubscribeState?.invoke()

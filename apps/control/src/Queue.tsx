@@ -3,11 +3,13 @@ import { api, ApiError } from "./api";
 import { useI18n } from "./i18n";
 import TrackInfoDialog from "./TrackInfoDialog";
 import type { Playlist, PlayerState, QueueEntry, QueueState, Track } from "./types";
+import type { JastreamerDownloads } from "./JastreamerDownloads";
 
 interface QueueProps {
   revision: number;
   onNotice: (message: string, error?: boolean) => void;
   onQueueChange: () => void;
+  downloads: JastreamerDownloads;
 }
 
 function durationLabel(milliseconds: number): string {
@@ -36,7 +38,7 @@ function QueueIcon({ name }: { name: "up" | "down" | "remove" | "play" | "info" 
   );
 }
 
-export default function Queue({ revision, onNotice, onQueueChange }: QueueProps) {
+export default function Queue({ revision, onNotice, onQueueChange, downloads }: QueueProps) {
   const { locale, t } = useI18n();
   const numberFormatter = useMemo(() => new Intl.NumberFormat(locale), [locale]);
   const [queue, setQueue] = useState<QueueState | null>(null);
@@ -301,7 +303,7 @@ export default function Queue({ revision, onNotice, onQueueChange }: QueueProps)
           {t(saving ? "common.saving" : "common.save")}
         </button>
       </form>
-      <TrackInfoDialog trackId={infoTrackID} revision={revision} onNotice={onNotice} onClose={() => setInfoTrackID(null)} />
+      <TrackInfoDialog trackId={infoTrackID} revision={revision} onNotice={onNotice} onClose={() => setInfoTrackID(null)} downloads={downloads} />
     </section>
   );
 }

@@ -6,6 +6,7 @@ import PlayerBar from "./PlayerBar";
 import Queue from "./Queue";
 import Settings from "./Settings";
 import { useI18n, type MessageKey } from "./i18n";
+import { NativeDownloadsStatus, useJastreamerDownloads } from "./JastreamerDownloads";
 import type { Session, SessionUser, StatusWarning } from "./types";
 import { isPhone } from "./device";
 
@@ -225,6 +226,7 @@ export default function App() {
   const noticeTimer = useRef<number | null>(null);
   const errorDialogClose = useRef<HTMLButtonElement | null>(null);
   const errorDialogPreviousFocus = useRef<HTMLElement | null>(null);
+  const downloads = useJastreamerDownloads(session.authenticated);
 
   const dismissNotice = useCallback(() => {
     if (noticeTimer.current !== null) {
@@ -405,6 +407,12 @@ export default function App() {
   }, []);
 
   async function logout() {
+    let nativeLogoutFailed = false;
+    try {
+      await downloads.logout();
+    } catch {
+      nativeLogoutFailed = true;
+    }
     try {
       await api<void>("/logout", { method: "POST", body: JSON.stringify({}) });
     } catch (requestError) {
@@ -412,6 +420,7 @@ export default function App() {
       return;
     }
     setSession({ authenticated: false });
+    if (nativeLogoutFailed) showNotice(t("downloads.logoutWarning"), true);
   }
 
   const noticeView = notice ? (
@@ -525,6 +534,7 @@ export default function App() {
           revision={revisions.playlists + revisions.library}
           onNotice={showNotice}
           onQueueChange={() => setRevisions((current) => ({ ...current, queue: current.queue + 1 }))}
+          downloads={downloads}
         />
       );
       break;
@@ -534,6 +544,7 @@ export default function App() {
           revision={revisions.queue + revisions.library}
           onNotice={showNotice}
           onQueueChange={() => setRevisions((current) => ({ ...current, queue: current.queue + 1, player: current.player + 1 }))}
+          downloads={downloads}
         />
       );
       break;
@@ -558,6 +569,7 @@ export default function App() {
           revision={revisions.library}
           onNotice={showNotice}
           onQueueChange={() => setRevisions((current) => ({ ...current, queue: current.queue + 1 }))}
+          downloads={downloads}
         />
       );
   }
@@ -613,7 +625,10 @@ export default function App() {
         </div>
       </header>
 
-      <main className="main-content" id="main-content" inert={isPhone && phonePlayerExpanded}>{page}</main>
+      <main className="main-content" id="main-content" inert={isPhone && phonePlayerExpanded}>
+        <NativeDownloadsStatus downloads={downloads} />
+        {page}
+      </main>
 
       <nav className="mobile-nav" aria-label={t("app.nav.main")}>
         {navigation.map((item) => (

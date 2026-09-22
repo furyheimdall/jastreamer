@@ -2,12 +2,14 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { addTracks, api, playTracks } from "./api";
 import type { Playlist, Track } from "./types";
 import { useI18n } from "./i18n";
+import { NativeDownloadAction, type JastreamerDownloads } from "./JastreamerDownloads";
 import "./library.css";
 
 type Props = {
   revision: number;
   onNotice: (message: string, error?: boolean) => void;
   onQueueChange: () => void;
+  downloads: JastreamerDownloads;
 };
 
 type DraftEntry = {
@@ -69,7 +71,7 @@ function sameTrackOrder(entries: DraftEntry[], playlist: Playlist): boolean {
   return entries.length === playlist.track_ids.length && entries.every((entry, index) => entry.trackID === playlist.track_ids[index]);
 }
 
-export default function Playlists({ revision, onNotice, onQueueChange }: Props) {
+export default function Playlists({ revision, onNotice, onQueueChange, downloads }: Props) {
   const { locale, t } = useI18n();
   const numberFormatter = useMemo(() => new Intl.NumberFormat(locale), [locale]);
   const [playlists, setPlaylists] = useState<Playlist[]>([]);
@@ -391,11 +393,17 @@ export default function Playlists({ revision, onNotice, onQueueChange }: Props) 
           <div className="playlist-list">
             {playlists.map((playlist) => {
               const trackCount = playlist.track_ids?.length ?? playlist.tracks?.length ?? 0;
-              return (
+              const item = (
                 <button className={`playlist-list-item${selectedID === playlist.id ? " playlist-list-item-active" : ""}`} type="button" key={playlist.id} onClick={() => selectPlaylist(playlist.id)} aria-current={selectedID === playlist.id ? "page" : undefined}>
                   <span className="playlist-list-icon"><Icon name="playlist" /></span><span><strong>{playlist.name}</strong><small>{t(trackCount === 1 ? "library.oneTrack" : "library.manyTracks", { count: numberFormatter.format(trackCount) })}</small></span>
                 </button>
               );
+              return downloads.available ? (
+                <div className={`playlist-list-row${selectedID === playlist.id ? " playlist-list-row-active" : ""}`} key={playlist.id}>
+                  {item}
+                  <NativeDownloadAction downloads={downloads} target={{ kind: "playlist", id: playlist.id }} title={playlist.name} disabled={playlist.id === selectedID && (dirty || Boolean(pendingRemote))} variant="icon" />
+                </div>
+              ) : item;
             })}
           </div>
         </aside>
@@ -412,6 +420,7 @@ export default function Playlists({ revision, onNotice, onQueueChange }: Props) 
                 <div className="playlist-primary-actions">
                   <button className="button button-primary" type="button" disabled={busy || !availableCount} onClick={() => queuePlaylist("play")}><Icon name="play" /> {t("playlists.play")}</button>
                   <button className="button button-ghost" type="button" disabled={busy || !availableCount} onClick={() => queuePlaylist("append")}><Icon name="append" /> {t("playlists.append")}</button>
+                  <NativeDownloadAction downloads={downloads} target={{ kind: "playlist", id: baseline.id }} title={baseline.name} disabled={dirty || Boolean(pendingRemote)} />
                   <button className="button button-ghost" type="button" disabled={busy || !dirty || Boolean(pendingRemote) || !draftName.trim()} onClick={savePlaylist}><Icon name="save" /> {t("playlists.saveChanges")}</button>
                   <button className="button button-ghost" type="button" disabled={busy || (!dirty && !pendingRemote)} onClick={discardDraft}>{t("playlists.cancelChanges")}</button>
                 </div>
@@ -441,6 +450,7 @@ export default function Playlists({ revision, onNotice, onQueueChange }: Props) 
                         <time className="playlist-entry-duration">{formatDuration(track?.duration_ms ?? 0)}</time>
                         <div className="playlist-entry-actions" aria-label={t("playlists.entryActions", { title: trackTitle })}>
                           {track && <button className="library-like-button" type="button" disabled={busy || likeBusy.has(track.id)} onClick={() => toggleLiked(track)} aria-pressed={track.liked} aria-label={t(track.liked ? "library.unlikeTrack" : "library.likeTrack", { title: trackTitle })} title={t(track.liked ? "library.unlikeTitle" : "library.likeTitle")}><Icon name="heart" /></button>}
+                          {track && <NativeDownloadAction downloads={downloads} target={{ kind: "track", id: track.id }} title={trackTitle} disabled={!track.available} variant="icon" />}
                           <button type="button" disabled={busy || index === 0} onClick={() => moveEntry(index, -1)} aria-label={t("playlists.moveUp", { title: trackTitle })} title={t("playlists.moveUpTitle")}><Icon name="up" /></button>
                           <button type="button" disabled={busy || index === entries.length - 1} onClick={() => moveEntry(index, 1)} aria-label={t("playlists.moveDown", { title: trackTitle })} title={t("playlists.moveDownTitle")}><Icon name="down" /></button>
                           <button className="playlist-remove-button" type="button" disabled={busy} onClick={() => setEntries((current) => current.filter((_, currentIndex) => currentIndex !== index))} aria-label={t("playlists.removeTrack", { title: trackTitle })} title={t("playlists.removeTrackTitle")}><Icon name="remove" /></button>

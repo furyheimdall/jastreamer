@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="offline_genres">Genres</string>
+    <string name="offline_unknown_genre">Unknown genre</string>
+    <string name="offline_liked">Liked</string>
+    <string name="offline_like">Like</string>
+    <string name="offline_unlike">Unlike</string>
+    <string name="offline_play_next">Play next</string>
+    <string name="offline_add_end">Add to end</string>
+    <string name="offline_save_queue">Save as playlist</string>
+    <string name="offline_more_actions">More actions</string>
+    <string name="offline_select">Select</string>
+    <string name="offline_back_to_list">Back to list</string>
+    <string name="offline_add_selected">Add to selected playlist</string>
+    <string name="offline_create_and_add">Create and add</string>
+    <string name="offline_library_heading">Music library</string>
+    <string name="offline_new_playlist_name">New playlist name</string>
+</resources>

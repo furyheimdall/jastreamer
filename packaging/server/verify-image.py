@@ -131,6 +131,28 @@ def verify_ffmpeg() -> None:
     for option in ("--enable-gpl", "--enable-version3", "--enable-nonfree"):
         require(option not in result, f"FFmpeg unexpectedly enables {option}")
 
+    encoders = subprocess.run(
+        ["/usr/local/bin/ffmpeg", "-hide_banner", "-encoders"],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout
+    muxers = subprocess.run(
+        ["/usr/local/bin/ffmpeg", "-hide_banner", "-muxers"],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout
+    filters = subprocess.run(
+        ["/usr/local/bin/ffmpeg", "-hide_banner", "-filters"],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout
+    require(re.search(r"(?m)^\s*A\S*\s+aac\s", encoders) is not None, "native AAC encoder is missing")
+    require(re.search(r"(?m)^\s*E\S*\s+ipod\s", muxers) is not None, "M4A/iPod muxer is missing")
+    require(re.search(r"(?m)^\s*\S+\s+aformat\s", filters) is not None, "audio format/channel-layout filter is missing")
+
 
 def verify_samples() -> None:
     expected_entries = {*SAMPLE_FILES, "manifest.json", "THIRD-PARTY-NOTICES.txt"}

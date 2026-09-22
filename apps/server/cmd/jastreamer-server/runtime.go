@@ -30,6 +30,7 @@ import (
 	"github.com/jastreamer/jastreamer-server/internal/database"
 	"github.com/jastreamer/jastreamer-server/internal/discovery"
 	"github.com/jastreamer/jastreamer-server/internal/dlna"
+	"github.com/jastreamer/jastreamer-server/internal/downloads"
 	"github.com/jastreamer/jastreamer-server/internal/errorhistory"
 	"github.com/jastreamer/jastreamer-server/internal/events"
 	"github.com/jastreamer/jastreamer-server/internal/fault"
@@ -134,9 +135,13 @@ func runRuntime(parent context.Context, value config.Config, configPath, restart
 	ctx, cancel := context.WithCancel(context.WithoutCancel(parent))
 	var workers sync.WaitGroup
 	var catalog *library.Service
+	var downloadService *downloads.Service
 	failures := make(chan error, len(runtimeEndpoints(value))+2)
 	defer func() {
 		cancel()
+		if downloadService != nil {
+			downloadService.Close()
+		}
 		if catalog != nil {
 			waitCtx, stopWaiting := context.WithTimeout(context.Background(), runtimeWorkersTimeout)
 			if waitErr := catalog.WaitVerification(waitCtx); waitErr != nil {
@@ -172,6 +177,11 @@ func runRuntime(parent context.Context, value config.Config, configPath, restart
 		roots = append(roots, library.Root{ID: root.ID, Name: root.Name, Path: root.Path})
 	}
 	catalog, err = library.New(ctx, db, roots, filepath.Join(value.DataDir, "artwork"), hub.Publish)
+	if err != nil {
+		result.err = err
+		return result
+	}
+	downloadService, err = downloads.New(ctx, db, catalog, filepath.Join(value.DataDir, "downloads"), value.Media.FFmpegPath)
 	if err != nil {
 		result.err = err
 		return result
@@ -296,7 +306,7 @@ func runRuntime(parent context.Context, value config.Config, configPath, restart
 	handler := httpapi.New(httpapi.Options{
 		Context: ctx, ConfigPath: configPath, Config: value, RuntimeID: runtimeID,
 		RestartError: restartError, Restart: restartHooks, Auth: accounts,
-		Discovery: discoveryService, Library: catalog, Devices: outputs, Player: playback,
+		Discovery: discoveryService, Library: catalog, Downloads: downloadService, Devices: outputs, Player: playback,
 		Browser: browser, Stream: media, Events: hub, History: history, UI: ui.Assets(), TrustedHosts: hosts,
 	})
 	type binding struct {

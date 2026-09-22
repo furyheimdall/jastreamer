@@ -27,7 +27,6 @@ import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
-import androidx.lifecycle.repeatOnLifecycle
 import java.util.Locale
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -37,6 +36,7 @@ import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.supervisorScope
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.Mutex
@@ -56,6 +56,7 @@ class MainActivity : ComponentActivity() {
     private lateinit var discoveredRows: LinearLayout
     private lateinit var recentRows: LinearLayout
     private lateinit var progress: ProgressBar
+    private lateinit var savedMusicSummary: TextView
     private var language = "en"
     private lateinit var stringsContext: Context
     private val languageWrites = Mutex()
@@ -67,10 +68,13 @@ class MainActivity : ComponentActivity() {
     private var availability = emptyMap<String, Boolean>()
     private var selected: ServerEndpoint? = null
     private var remote: RemoteServerView? = null
+    private var offline: OfflineMusicView? = null
     private var connecting = false
     private var generation = 0L
     private var remoteEpoch = 0L
     private var connectionJob: Job? = null
+    private var chooserJobs: Job? = null
+    private var savedSummaryJob: Job? = null
     private var restoreTarget: Pair<String, String?>? = null
     private var retryTarget: Pair<String, String?>? = null
     private var foreground = false
@@ -123,6 +127,8 @@ class MainActivity : ComponentActivity() {
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
                 when {
+                    offline?.handleBack() == true -> Unit
+                    offline != null -> showChooser()
                     remote?.canGoBack() == true -> remote?.goBack()
                     remote != null || connecting -> showChooser()
                     else -> {
@@ -134,21 +140,18 @@ class MainActivity : ComponentActivity() {
             }
         })
         lifecycleScope.launch {
-            repeatOnLifecycle(Lifecycle.State.STARTED) {
-                launch {
-                    ServerDiscovery(applicationContext, probe).observe().collect { state ->
-                        discovered = state.servers
-                        discoveryError = state.error
-                        renderServerLists()
-                    }
-                }
-                launch {
-                    while (isActive) {
-                        refreshRecents()
-                        delay(60_000)
-                    }
-                }
+            try {
+                val localLibrary = withContext(Dispatchers.IO) { OfflineLibrary.get(applicationContext) }
+                localLibrary.changes.collectLatest { refreshSavedMusicSummary() }
+            } catch (_: RuntimeException) {
+                refreshSavedMusicSummary()
             }
+        }
+        if (savedInstanceState?.getBoolean("offline_visible") == true) {
+            showOffline(
+                savedInstanceState.getString("offline_screen") ?: OfflineMusicView.SCREEN_LIBRARY,
+                savedInstanceState,
+            )
         }
     }
 
@@ -157,16 +160,20 @@ class MainActivity : ComponentActivity() {
         foreground = true
         val target = restoreTarget
         restoreTarget = null
-        if (target != null) {
+        if (offline != null) {
+            // The native library is process-local and needs no network revalidation.
+        } else if (target != null) {
             connect(target.first, target.second)
         } else if (remote != null) {
             revalidateConnection()
+        } else {
+            startChooserJobs()
         }
     }
 
     override fun onResume() {
         super.onResume()
-        remote?.resume()
+        if (offline == null) remote?.resume()
     }
 
     override fun onPause() {
@@ -176,6 +183,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onStop() {
         foreground = false
+        stopChooserJobs()
         generation++
         connectionJob?.cancel()
         connectionJob = null
@@ -195,6 +203,10 @@ class MainActivity : ComponentActivity() {
             outState.putString("selected_origin", it.origin)
             outState.putString("selected_id", it.id)
         }
+        offline?.let {
+            outState.putBoolean("offline_visible", true)
+            it.saveState(outState)
+        }
         super.onSaveInstanceState(outState)
     }
 
@@ -202,6 +214,7 @@ class MainActivity : ComponentActivity() {
         super.onConfigurationChanged(newConfig)
         // Keep the live WebView and its unsaved form/tab state through rotation.
         renderHeader()
+        offline?.updateForConfiguration()
         ViewCompat.requestApplyInsets(root)
     }
 
@@ -209,6 +222,7 @@ class MainActivity : ComponentActivity() {
         destroyed = true
         generation++
         disposeRemote()
+        disposeOffline()
         super.onDestroy()
     }
 
@@ -216,6 +230,8 @@ class MainActivity : ComponentActivity() {
         generation++
         val attempt = generation
         connectionJob?.cancel()
+        disposeOffline()
+        stopChooserJobs()
         resetRecovery()
         disposeRemote()
         selected = null
@@ -266,6 +282,16 @@ class MainActivity : ComponentActivity() {
                     },
                     onLanguageChanged = { next ->
                         if (epoch == remoteEpoch && !destroyed) updateLanguage(next, false)
+                    },
+                    onOpenLibrary = {
+                        if (epoch == remoteEpoch && foreground && !destroyed) {
+                            showOffline(OfflineMusicView.SCREEN_LIBRARY)
+                        }
+                    },
+                    onOpenDownloads = {
+                        if (epoch == remoteEpoch && foreground && !destroyed) {
+                            showOffline(OfflineMusicView.SCREEN_DOWNLOADS)
+                        }
                     },
                 )
                 remote = view
@@ -385,6 +411,80 @@ class MainActivity : ComponentActivity() {
         previous.dispose()
     }
 
+    private fun disposeOffline() {
+        val previous = offline ?: return
+        offline = null
+        content.removeView(previous)
+    }
+
+    private fun showOffline(screen: String, savedState: Bundle? = null) {
+        generation++
+        connectionJob?.cancel()
+        connectionJob = null
+        stopChooserJobs()
+        disposeRemote()
+        disposeOffline()
+        selected = null
+        connecting = false
+        selector.visibility = View.GONE
+        progress.visibility = View.GONE
+        header.visibility = View.GONE
+        val view = OfflineMusicView(
+            activity = this,
+            strings = stringsContext,
+            onServers = { showChooser() },
+            language = language,
+            onLanguage = { next -> updateLanguage(next, false) },
+            initialScreen = screen,
+            savedState = savedState,
+        )
+        offline = view
+        content.addView(view, FrameLayout.LayoutParams(-1, -1))
+    }
+
+    private fun startChooserJobs() {
+        if (!foreground || chooserJobs?.isActive == true) return
+        chooserJobs = lifecycleScope.launch {
+            launch {
+                ServerDiscovery(applicationContext, probe).observe().collect { state ->
+                    discovered = state.servers
+                    discoveryError = state.error
+                    renderServerLists()
+                }
+            }
+            launch {
+                while (isActive) {
+                    refreshRecents()
+                    delay(60_000)
+                }
+            }
+        }
+    }
+
+    private fun stopChooserJobs() {
+        chooserJobs?.cancel()
+        chooserJobs = null
+    }
+
+    private fun refreshSavedMusicSummary() {
+        savedSummaryJob?.cancel()
+        savedSummaryJob = lifecycleScope.launch {
+            val counts = try {
+                withContext(Dispatchers.IO) {
+                    val local = OfflineLibrary.get(applicationContext).tracks()
+                    local.size to local.map { it.albumArtist to it.album }.distinct().size
+                }
+            } catch (_: RuntimeException) {
+                null
+            }
+            if (::savedMusicSummary.isInitialized) {
+                savedMusicSummary.text = counts?.let {
+                    text(R.string.offline_saved_counts, it.first, it.second)
+                } ?: text(R.string.offline_saved_counts_unavailable)
+            }
+        }
+    }
+
     private fun showChooser(failure: ClientException? = null) {
         generation++
         connectionJob?.cancel()
@@ -394,12 +494,14 @@ class MainActivity : ComponentActivity() {
         connecting = false
         error = failure
         selector.visibility = View.VISIBLE
+        disposeOffline()
+        header.visibility = View.VISIBLE
+        startChooserJobs()
         progress.visibility = View.GONE
         errorView.text = failure?.let(::errorText).orEmpty()
         errorView.visibility = if (failure == null) View.GONE else View.VISIBLE
         renderHeader()
         renderServerLists()
-        lifecycleScope.launch { refreshRecents() }
     }
 
     private suspend fun refreshRecents() {
@@ -450,11 +552,20 @@ class MainActivity : ComponentActivity() {
                     if (next != language) {
                         withContext(Dispatchers.IO) { store.setLanguage(next) }
                         if (destroyed) return@withLock
+                        val offlineState = offline?.let { view ->
+                            Bundle().also(view::saveState)
+                        }
                         language = next
                         updateStringsContext()
                         val draft = address.text.toString()
                         renderSelector(draft)
                         renderHeader()
+                        if (offlineState != null) {
+                            showOffline(
+                                offlineState.getString("offline_screen") ?: OfflineMusicView.SCREEN_LIBRARY,
+                                offlineState,
+                            )
+                        }
                     }
                     if (updateRemote) remote?.setLanguage(next)
                 }
@@ -512,6 +623,36 @@ class MainActivity : ComponentActivity() {
             setTextColor(MUTED)
             setPadding(0, dp(8), 0, dp(24))
         })
+        body.addView(LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(12), dp(12), dp(12), dp(12))
+            setBackgroundColor(Color.rgb(24, 45, 37))
+            addView(button(text(R.string.offline_listen_saved_music)) {
+                showOffline(OfflineMusicView.SCREEN_LIBRARY)
+            }.apply {
+                id = R.id.saved_music_button
+                textSize = 18f
+            }, LinearLayout.LayoutParams(-1, -2))
+            savedMusicSummary = label(text(R.string.offline_saved_counts_unavailable), 15f).apply {
+                id = R.id.saved_music_summary
+                gravity = Gravity.CENTER_HORIZONTAL
+            }
+            addView(savedMusicSummary)
+            addView(label(text(R.string.offline_saved_entry_detail), 13f).apply {
+                setTextColor(MUTED)
+                gravity = Gravity.CENTER_HORIZONTAL
+            })
+            addView(button(text(R.string.offline_downloads)) {
+                showOffline(OfflineMusicView.SCREEN_DOWNLOADS)
+            }.apply {
+                id = R.id.downloads_button
+            }, LinearLayout.LayoutParams(-1, -2))
+            addView(label(text(R.string.offline_downloads_entry_detail), 13f).apply {
+                setTextColor(MUTED)
+                gravity = Gravity.CENTER_HORIZONTAL
+            })
+        }, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(20) })
+        refreshSavedMusicSummary()
         body.addView(label(text(R.string.server_address), 16f).apply { labelFor = R.id.server_address })
         address = EditText(this).apply {
             id = R.id.server_address
@@ -615,7 +756,7 @@ class MainActivity : ComponentActivity() {
         minWidth = dp(48)
         setOnClickListener { action() }
     }
-    private fun text(id: Int): String = stringsContext.getString(id)
+    private fun text(id: Int, vararg values: Any): String = stringsContext.getString(id, *values)
     private fun updateStringsContext() {
         val config = Configuration(resources.configuration)
         config.setLocale(Locale.forLanguageTag(language))
