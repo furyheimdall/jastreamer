@@ -219,6 +219,7 @@ internal class OfflineImportSmoke(
             }
             assertNativeSurface(expectMiniPlayer = true)
             screenshot("offline-native-tracks-phone")
+            screenshot("offline-library-after-logout")
 
             scenario.onActivity { activity ->
                 findButton(activity.window.decorView, localized(R.string.offline_albums)).performClick()

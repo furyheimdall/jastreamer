@@ -212,7 +212,9 @@ Use HTTP only on a trusted private LAN; it remains unencrypted. HTTPS must valid
 
 Discovery probes the advertised LAN IP addresses. If a valid HTTPS certificate covers only a hostname, enter that hostname manually; do not bypass the certificate mismatch.
 
-A same-application-ID, same-signer in-place APK update preserves app-private saved audio, copied artwork, local playlists, the device queue and position, folders, download and language preferences, recent Servers, and isolated Server profiles. **Remove from recent servers** removes only that shortcut; it neither signs out nor removes the profile or saved music. Sign out inside the Server UI to end that session and stop its incomplete imports. Removing a session/profile does not revoke or delete completed device-owned music.
+A same-application-ID, same-signer in-place APK update preserves app-private saved audio, copied artwork, local playlists, saved genre metadata and device likes, the device queue and position, folders, download and language preferences, recent Servers, and isolated Server profiles. **Remove from recent servers** removes only that shortcut; it neither signs out nor removes the profile or saved music. Sign out inside the Server UI to end that session and stop its incomplete imports. Removing a session/profile does not revoke or delete completed device-owned music.
+
+The local metadata database uses schema version 2 for genres and likes. Opening a version-1 library adds those columns without recreating its tables. Downgrading the database for an older APK is not supported.
 
 Uninstalling the app or using Android **Clear storage/data** erases the entire app container, including owned music, artwork, local playlists, queue, folders, preferences, and Server profiles. This private data is excluded from Android cloud/device-transfer backup. Do not use uninstall or data clearing as an update or signer-mismatch workaround, and never copy profiles or session cookies into reports.
 
