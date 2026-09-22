@@ -1383,11 +1383,16 @@ class OfflineMusicView(
             R.string.offline_download_progress,
             job.completedTracks,
             job.totalTracks,
-            bytes(job.receivedBytes),
-            bytes(job.totalBytes),
+            bytes(job.receivedBytes, fractional = true),
+            bytes(job.totalBytes, fractional = true),
         )
-        progress.contentDescription = description
-        label.text = description
+        val message = if (job.status == "downloading") {
+            text(R.string.offline_download_progress_speed, description, bytes(job.bytesPerSecond))
+        } else {
+            description
+        }
+        progress.contentDescription = message
+        label.text = message
     }
 
     private fun renderSettings() {
@@ -2372,7 +2377,7 @@ class OfflineMusicView(
     }
     private fun text(id: Int, vararg values: Any): String = strings.getString(id, *values)
     private fun dp(value: Int) = (value * resources.displayMetrics.density).toInt()
-    private fun bytes(value: Long): String {
+    private fun bytes(value: Long, fractional: Boolean = false): String {
         val safe = value.coerceAtLeast(0)
         if (safe < 1_000) return "$safe B"
         val units = arrayOf("KB", "MB", "GB", "TB")
@@ -2382,7 +2387,7 @@ class OfflineMusicView(
             amount /= 1_000
             index++
         }
-        return String.format(Locale.getDefault(), if (amount >= 10) "%.0f %s" else "%.1f %s", amount, units[index])
+        return String.format(Locale.getDefault(), if (!fractional && amount >= 10) "%.0f %s" else "%.1f %s", amount, units[index])
     }
     private fun durationValue(milliseconds: Long): String {
         val total = milliseconds.coerceAtLeast(0) / 1_000

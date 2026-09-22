@@ -116,10 +116,9 @@ class OfflineDownloadWorkerStreamTest {
         assertEquals("$diagnostic; declared byte count", StreamingFixture.FILE_SIZE, completed.totalBytes)
         assertTrue("$diagnostic; production WorkManager never reached RUNNING", observation.sawRunningWork)
         assertTrue(
-            "$diagnostic; observable job progress did not publish multiple intermediate byte counts: ${observation.jobProgressBytes}",
-            observation.jobProgressBytes.size >= 2,
+            "$diagnostic; native progress did not continue advancing: ${observation.uiProgressValues}",
+            observation.uiProgressValues.size >= 2,
         )
-        assertTrue("$diagnostic; the native Downloads view never displayed intermediate progress", observation.sawUiProgress)
         assertTrue("$diagnostic; no associated production worker succeeded", observation.sawSuccessfulWork)
 
         val transferMillis = TimeUnit.NANOSECONDS.toMillis(observation.completedAtNanos - stream.mediaStartedNanos.get())
@@ -176,6 +175,105 @@ class OfflineDownloadWorkerStreamTest {
         assertImportedBytes(imported, stream)
     }
 
+    @Test
+    fun nativeRateClearsWhileNoResponseBytesArrive(): Unit = runBlocking {
+        val marker = UUID.randomUUID().toString()
+        val stream = StreamingFixture(
+            marker = marker,
+            fileSize = 256L * 1024,
+            throttleBytesPerPeriod = 64L * 1024,
+            throttlePeriodMillis = 3_000L,
+        ).also { fixture = it }
+        val server = ServerEndpoint(
+            id = stream.serverId,
+            name = "Worker stream fixture",
+            version = "test",
+            origin = stream.origin,
+        ).also { endpoint = it }
+        setCookie(server, "worker_session=$marker; Path=/")
+        ownedTitle = stream.title
+        val activity = ActivityScenario.launch(MainActivity::class.java).also { scenario = it }
+        openDownloads(activity)
+        val id = OfflineDownloads.enqueue(
+            context,
+            server,
+            JSONObject().put("kind", "track").put("id", "target-$marker"),
+            "original",
+        ).also { jobId = it }
+
+        awaitUi("measured download speed") {
+            (displayedRate(activity, stream.title) ?: 0.0) > 0
+        }
+        val received = requireNotNull(OfflineDownloads.jobValues(context, setOf(id)).firstOrNull()).receivedBytes
+        screenshot(activity, "offline-download-rate-active")
+        awaitUi("zero speed during a response gap without changing consent") {
+            val live = OfflineDownloads.jobValues(context, setOf(id)).firstOrNull()
+            live?.status == "downloading" && live.receivedBytes == received &&
+                displayedRate(activity, stream.title) == 0.0
+        }
+        screenshot(activity, "offline-download-rate-idle")
+        awaitProductionWorker(id, stream, activity)
+        val imported = library.tracks().single { it.title == stream.title }
+        assertImportedBytes(imported, stream)
+    }
+
+    @Test
+    fun interruptedWorkerResumesWithoutCountingCachedBytesAsSpeed(): Unit = runBlocking {
+        val marker = UUID.randomUUID().toString()
+        val stream = StreamingFixture(
+            marker = marker,
+            fileSize = 1024L * 1024,
+            throttleBytesPerPeriod = 64L * 1024,
+            throttlePeriodMillis = 500L,
+        ).also { fixture = it }
+        val server = ServerEndpoint(
+            id = stream.serverId,
+            name = "Worker stream fixture",
+            version = "test",
+            origin = stream.origin,
+        ).also { endpoint = it }
+        setCookie(server, "worker_session=$marker; Path=/")
+        ownedTitle = stream.title
+        val activity = ActivityScenario.launch(MainActivity::class.java).also { scenario = it }
+        openDownloads(activity)
+        val id = OfflineDownloads.enqueue(
+            context,
+            server,
+            JSONObject().put("kind", "track").put("id", "target-$marker"),
+            "original",
+        ).also { jobId = it }
+
+        awaitUi("a resumable partial transfer") {
+            val live = OfflineDownloads.jobValues(context, setOf(id)).firstOrNull()
+            live?.status == "downloading" && live.receivedBytes >= 512L * 1024
+        }
+        WorkManager.getInstance(context).cancelUniqueWork(REMOTE_WORK_NAME)
+            .result.get(CLEANUP_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+        awaitUi("interrupted transfer reported as waiting rather than downloading") {
+            val live = OfflineDownloads.jobValues(context, setOf(id)).firstOrNull()
+            live?.status == "waiting" && live.errorCode == "interrupted" &&
+                displayedRate(activity, stream.title) == null
+        }
+        val retainedBytes = requireNotNull(OfflineDownloads.jobValues(context, setOf(id)).firstOrNull()).receivedBytes
+        screenshot(activity, "offline-download-interrupted-waiting")
+        OfflineDownloads.resume(context, id)
+        var resumedRate = 0.0
+        awaitUi("measured speed from newly received resume bytes") {
+            val live = OfflineDownloads.jobValues(context, setOf(id)).firstOrNull()
+            resumedRate = displayedRate(activity, stream.title) ?: 0.0
+            live?.status == "downloading" && live.receivedBytes > retainedBytes && resumedRate > 0
+        }
+        assertTrue(
+            "Cached bytes inflated the resumed rate ($resumedRate B/s); ${diagnostics(id, stream)}",
+            resumedRate <= 512L * 1024,
+        )
+        screenshot(activity, "offline-download-resumed-rate")
+        awaitProductionWorker(id, stream, activity)
+        assertTrue("The interrupted original did not resume with a range", stream.requestedRanges().any { it.startsWith("bytes=") })
+        val imported = library.tracks().single { it.title == stream.title }
+        assertImportedBytes(imported, stream)
+    }
+
     private suspend fun awaitVisibleProgressBeforeCompletion(
         id: String,
         stream: StreamingFixture,
@@ -196,7 +294,7 @@ class OfflineDownloadWorkerStreamTest {
                     screenshot(activity, "offline-download-sub-mib-raw-active")
                     capturedRawProgress = true
                 }
-                if (displayedIntermediateProgress(activity, stream.title)) {
+                if (displayedIntermediateProgress(activity, stream.title) != null) {
                     screenshot(activity, "offline-download-sub-mib-progress")
                     return live.receivedBytes
                 }
@@ -229,9 +327,6 @@ class OfflineDownloadWorkerStreamTest {
         while (System.nanoTime() < deadline) {
             val now = System.nanoTime()
             val job = OfflineDownloads.jobs.value.firstOrNull { it.id == id }
-            if (job != null && job.receivedBytes in 1 until job.totalBytes) {
-                observation.jobProgressBytes += job.receivedBytes
-            }
 
             val work = workInfos()
             work.forEach { info ->
@@ -247,7 +342,7 @@ class OfflineDownloadWorkerStreamTest {
             }
 
             if (now >= nextUiObservation) {
-                observation.sawUiProgress = observation.sawUiProgress || displayedIntermediateProgress(activity, stream.title)
+                displayedIntermediateProgress(activity, stream.title)?.let(observation.uiProgressValues::add)
                 nextUiObservation = now + TimeUnit.MILLISECONDS.toNanos(UI_OBSERVATION_INTERVAL_MILLIS)
             }
 
@@ -285,7 +380,8 @@ class OfflineDownloadWorkerStreamTest {
         }
         val workValue = knownWork.joinToString(prefix = "[", postfix = "]") { info ->
             val progress = info.progress
-            "${info.id}:${info.state}:job=${progress.getString("job_id")}:bytes=${progress.getLong("received_bytes", 0L)}/${progress.getLong("total_bytes", 0L)}"
+            "${info.id}:${info.state}:stop=${info.stopReason}:job=${progress.getString("job_id")}:" +
+                "bytes=${progress.getLong("received_bytes", 0L)}/${progress.getLong("total_bytes", 0L)}"
         }
         return "published={${describe(published)}}, live={${describe(live)}}, work=$workValue, " +
             "mediaRequests=${stream.mediaRequestCount.get()}, ranges=${stream.requestedRanges()}"
@@ -319,8 +415,8 @@ class OfflineDownloadWorkerStreamTest {
     private fun displayedIntermediateProgress(
         activity: ActivityScenario<MainActivity>,
         title: String,
-    ): Boolean {
-        var displayed = false
+    ): Int? {
+        var displayed: Int? = null
         activity.onActivity { current ->
             val list = current.findViewById<ViewGroup>(R.id.offline_download_list) ?: return@onActivity
             val titleView = findText(list, title) ?: return@onActivity
@@ -328,9 +424,35 @@ class OfflineDownloadWorkerStreamTest {
             val progress = findView(card) { view ->
                 view is ProgressBar && view.progress in 1 until view.max
             }
-            displayed = titleView.isShown && progress?.isShown == true
+            if (titleView.isShown && progress?.isShown == true) {
+                displayed = (progress as ProgressBar).progress
+            }
         }
         return displayed
+    }
+
+    private fun displayedRate(activity: ActivityScenario<MainActivity>, title: String): Double? {
+        var rate: Double? = null
+        activity.onActivity { current ->
+            val list = current.findViewById<ViewGroup>(R.id.offline_download_list) ?: return@onActivity
+            val titleView = findText(list, title) ?: return@onActivity
+            val card = titleView.parent as? ViewGroup ?: return@onActivity
+            val label = findView(card) { it is TextView && RATE_VALUE.containsMatchIn(it.text) } as? TextView
+                ?: return@onActivity
+            if (label.isShown) {
+                val match = RATE_VALUE.find(label.text) ?: return@onActivity
+                val value = match.groupValues[1].replace(',', '.').toDoubleOrNull() ?: return@onActivity
+                val unit = when (match.groupValues[2]) {
+                    "KB" -> 1_000.0
+                    "MB" -> 1_000_000.0
+                    "GB" -> 1_000_000_000.0
+                    "TB" -> 1_000_000_000_000.0
+                    else -> 1.0
+                }
+                rate = value * unit
+            }
+        }
+        return rate
     }
 
     private fun screenshot(activity: ActivityScenario<MainActivity>, name: String) {
@@ -427,10 +549,9 @@ class OfflineDownloadWorkerStreamTest {
 
     private data class WorkerObservation(
         val workIds: MutableSet<UUID> = linkedSetOf(),
-        val jobProgressBytes: MutableSet<Long> = linkedSetOf(),
+        val uiProgressValues: MutableSet<Int> = linkedSetOf(),
         var sawRunningWork: Boolean = false,
         var sawSuccessfulWork: Boolean = false,
-        var sawUiProgress: Boolean = false,
         var completedAtNanos: Long = 0L,
     )
 
@@ -617,6 +738,7 @@ class OfflineDownloadWorkerStreamTest {
         // while still failing promptly if only the final completion publication reaches UI.
         private const val SUB_MIB_UI_TIMEOUT_MILLIS = 15_000L
         private const val SUB_MIB_SCREENSHOT_BYTES = 128L * 1024
+        private val RATE_VALUE = Regex("""(\d+(?:[.,]\d+)?)\s+([KMGT]?B)/s\b""")
 
         private fun ByteArray.hex(): String = joinToString("") { "%02x".format(it.toInt() and 0xff) }
     }

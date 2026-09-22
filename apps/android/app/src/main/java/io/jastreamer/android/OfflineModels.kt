@@ -73,4 +73,5 @@ data class OfflineDownloadJob(
     val totalBytes: Long,
     val errorCode: String? = null,
     val errorMessage: String? = null,
+    val bytesPerSecond: Long = 0,
 )

@@ -94,6 +94,7 @@
     <string name="offline_confirm_switch">저장된 음악으로 전환</string>
     <string name="offline_download_empty">활성 또는 최근 다운로드가 없습니다.</string>
     <string name="offline_download_progress">%1$d/%2$d곡 · %3$s/%4$s</string>
+    <string name="offline_download_progress_speed">%1$s · %2$s/s</string>
     <string name="offline_download_failed_count">실패 %1$d개</string>
     <string name="offline_download_pause">다운로드 일시 정지</string>
     <string name="offline_download_resume">다운로드 계속</string>

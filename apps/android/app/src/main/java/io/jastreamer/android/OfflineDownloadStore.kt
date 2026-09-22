@@ -50,10 +50,14 @@ internal data class StoredDownloadJob(
     var errorCode: String? = null,
     var errorMessage: String? = null,
 ) {
+    // Throughput belongs to the current transfer, not persisted download history.
+    var bytesPerSecond: Long = 0
+
     fun publicValue(): OfflineDownloadJob {
         val completed = tracks.count { it.importedTrackId != null }
         val failed = tracks.count { it.status == "failed" && it.importedTrackId == null }
         val totalBytes = tracks.filter { it.byteSize > 0 }.sumOf { it.byteSize }
+        val transferring = status == "downloading"
         return OfflineDownloadJob(
             id = id,
             title = title,
@@ -68,6 +72,7 @@ internal data class StoredDownloadJob(
             totalBytes = totalBytes,
             errorCode = errorCode,
             errorMessage = errorMessage,
+            bytesPerSecond = if (transferring) bytesPerSecond else 0,
         )
     }
 

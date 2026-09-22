@@ -5,6 +5,7 @@ import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
 import android.net.NetworkRequest
+import android.os.SystemClock
 import androidx.work.Constraints
 import androidx.work.ExistingWorkPolicy
 import androidx.work.NetworkType
@@ -16,6 +17,9 @@ import java.util.concurrent.ConcurrentHashMap
 import javax.net.ssl.SSLException
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.sync.Mutex
@@ -47,7 +51,8 @@ object OfflineDownloads {
     private var lastNetworkState: OfflineNetworkState? = null
     private var lastObservedNetworkState: OfflineNetworkState? = null
     private var networkCallback: ConnectivityManager.NetworkCallback? = null
-    private const val NOTIFICATION_STEP_BYTES = 1024L * 1024
+    private const val PROGRESS_INTERVAL_MS = 250L
+    private const val RATE_IDLE_MS = 2_000L
     private val mutableJobs = MutableStateFlow<List<OfflineDownloadJob>>(emptyList())
     private var appContext: Context? = null
     private var store: OfflineDownloadStore? = null
@@ -522,23 +527,61 @@ object OfflineDownloads {
                 progress(publicJob(jobId))
                 val partial = store!!.partialFile(jobId, index)
                 val previousHash = item.sha256
-                var lastNotifiedBytes = partial.length()
                 val completedBytes = current.tracks
                     .filter { it.importedTrackId != null && it.index != index }
                     .sumOf { it.byteSize }
-                client.download(remoteId, item, partial, principal, { transferMayContinue(jobId) }) { received ->
-                    var notification: OfflineDownloadJob? = null
-                    synchronized(lock) {
-                        val active = findLocked(jobId) ?: return@synchronized
-                        if (active.status == "cancelled") return@synchronized
-                        active.receivedBytes = maxOf(active.receivedBytes, received + completedBytes)
-                        if (received == item.byteSize || received - lastNotifiedBytes >= NOTIFICATION_STEP_BYTES) {
-                            lastNotifiedBytes = received
+                coroutineScope {
+                    var receivedBytes = partial.length()
+                    var lastReportedBytes = receivedBytes
+                    var lastReportedAt = SystemClock.elapsedRealtime()
+
+                    fun publishProgress(stopped: Boolean = false) {
+                        var notification: OfflineDownloadJob? = null
+                        synchronized(lock) {
+                            val active = findLocked(jobId) ?: return@synchronized
+                            if (active.status == "cancelled") return@synchronized
+                            val now = SystemClock.elapsedRealtime()
+                            val elapsed = now - lastReportedAt
+                            val delta = (receivedBytes - lastReportedBytes).coerceAtLeast(0)
+                            val rate = when {
+                                stopped -> 0L
+                                delta > 0 -> (delta.toDouble() * 1_000 / elapsed.coerceAtLeast(1)).toLong()
+                                elapsed >= RATE_IDLE_MS -> 0L
+                                else -> active.bytesPerSecond
+                            }
+                            if (delta == 0L && rate == active.bytesPerSecond) return@synchronized
+                            active.bytesPerSecond = rate
+                            if (delta > 0) {
+                                lastReportedBytes = receivedBytes
+                                lastReportedAt = now
+                            }
                             notification = active.publicValue()
                             publishLocked()
                         }
+                        notification?.let(progress)
                     }
-                    notification?.let(progress)
+
+                    val progressUpdates = launch {
+                        while (true) {
+                            delay(PROGRESS_INTERVAL_MS)
+                            publishProgress()
+                        }
+                    }
+                    try {
+                        client.download(remoteId, item, partial, principal, { transferMayContinue(jobId) }) { received ->
+                            synchronized(lock) {
+                                val active = findLocked(jobId) ?: return@synchronized
+                                if (active.status == "cancelled") return@synchronized
+                                receivedBytes = received
+                                active.receivedBytes = maxOf(active.receivedBytes, received + completedBytes)
+                            }
+                        }
+                    } finally {
+                        withContext(NonCancellable) {
+                            progressUpdates.cancelAndJoin()
+                            publishProgress(stopped = true)
+                        }
+                    }
                 }
                 val afterDownload = synchronized(lock) { findLocked(jobId) }
                 if (afterDownload == null || afterDownload.status == "cancelled" || afterDownload.server == null) {
@@ -682,7 +725,11 @@ object OfflineDownloads {
             return ProcessOutcome.DONE
         } catch (cancelled: CancellationException) {
             val network = currentNetworkState(context, allowMetered(context))
-            if (!network.allowed) update(jobId, "waiting", network.errorCode, network.errorMessage)
+            if (!network.allowed) {
+                update(jobId, "waiting", network.errorCode, network.errorMessage)
+            } else if (synchronized(lock) { findLocked(jobId)?.status == "downloading" }) {
+                update(jobId, "waiting", "interrupted", "The interrupted download is ready to resume")
+            }
             throw cancelled
         } catch (failure: OfflineDownloadException) {
             if (finishCancelledIfNeeded(context, jobId)) return ProcessOutcome.DONE
@@ -1075,6 +1122,7 @@ object OfflineDownloads {
                 (job.status == "importing" && job.errorCode in setOf("cancelled", "logout"))
             ) return
             job.status = status
+            job.bytesPerSecond = 0
             job.errorCode = code
             job.errorMessage = message?.take(240)
             persistLocked()

@@ -94,6 +94,7 @@
     <string name="offline_confirm_switch">Switch to saved music</string>
     <string name="offline_download_empty">No active or recent downloads.</string>
     <string name="offline_download_progress">%1$d of %2$d tracks · %3$s of %4$s</string>
+    <string name="offline_download_progress_speed">%1$s · %2$s/s</string>
     <string name="offline_download_failed_count">%1$d failed</string>
     <string name="offline_download_pause">Pause download</string>
     <string name="offline_download_resume">Resume download</string>
