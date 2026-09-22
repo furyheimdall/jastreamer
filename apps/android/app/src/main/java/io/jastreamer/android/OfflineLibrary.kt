@@ -5,6 +5,7 @@ import android.content.Context
 import android.database.Cursor
 import android.database.sqlite.SQLiteDatabase
 import android.database.sqlite.SQLiteOpenHelper
+import android.media.MediaMetadataRetriever
 import android.os.StatFs
 import java.io.Closeable
 import java.io.File
@@ -94,6 +95,17 @@ class OfflineLibrary private constructor(context: Context) {
     }
 
     fun track(id: String): OfflineTrack? = synchronized(lock) { trackLocked(id) }
+
+    fun setLiked(trackId: String, liked: Boolean) = synchronized(lock) {
+        val current = trackLocked(trackId) ?: missing("Track '$trackId' does not exist.")
+        if (current.pendingDelete) missing("Track '$trackId' is pending deletion.")
+        if (current.liked == liked) return@synchronized
+        val updated = database.update("tracks", ContentValues().apply {
+            put("liked", if (liked) 1 else 0)
+        }, "id=? AND pending_delete=0", arrayOf(trackId))
+        if (updated != 1) missing("Track '$trackId' is unavailable.")
+        changedLocked()
+    }
 
     fun trackByDigest(sha256: String, quality: String): OfflineTrack? = synchronized(lock) {
         if (!SHA256.matches(sha256)) invalid("Checksum must be lowercase SHA-256.")
@@ -243,13 +255,14 @@ class OfflineLibrary private constructor(context: Context) {
         commitGate: (authorize: () -> Unit) -> Boolean = { authorize -> authorize(); true },
     ): OfflineTrack = synchronized(lock) {
         ensureFilesystemJournalsReconciledLocked()
-        val parsed = parseImport(metadata)
+        var parsed = parseImport(metadata)
         val folder = requireFolderLocked(folderId)
         requireRegularUnlinkedFile(source)
         rejectManagedImportSource(source)
         if (source.length() != parsed.byteSize) integrity("The downloaded file length does not match its manifest.")
         val actualHash = sha256(source)
         if (actualHash != parsed.sha256) integrity("The downloaded file checksum does not match its manifest.")
+        if (parsed.genre.isBlank()) parsed = parsed.copy(genre = extractGenre(source))
         if (artwork != null) {
             requireRegularUnlinkedFile(artwork)
             rejectManagedImportSource(artwork)
@@ -267,9 +280,18 @@ class OfflineLibrary private constructor(context: Context) {
             if (!runImportCommitGate(commitGate) {}) {
                 throw OfflineLibraryException("cancelled", "The import was cancelled before local commit.")
             }
+            val result = if (existing.genre.isBlank() && parsed.genre.isNotBlank()) {
+                database.update("tracks", ContentValues().apply {
+                    put("genre", parsed.genre)
+                }, "id=?", arrayOf(existing.id))
+                changedLocked()
+                existing.copy(genre = parsed.genre)
+            } else {
+                existing
+            }
             consumeImportedSource(source)
             artwork?.let(::consumeImportedSource)
-            return@synchronized existing
+            return@synchronized result
         }
 
         val artworkBytes = artwork?.length() ?: 0L
@@ -1245,6 +1267,7 @@ class OfflineLibrary private constructor(context: Context) {
             put("artist", track.artist)
             put("album", track.album)
             put("album_artist", track.albumArtist)
+            put("genre", track.genre)
             put("disc_number", track.disc)
             put("track_number", track.track)
             put("duration_ms", track.durationMs)
@@ -1258,6 +1281,7 @@ class OfflineLibrary private constructor(context: Context) {
             if (track.artworkPath == null) putNull("artwork_path") else put("artwork_path", track.artworkPath)
             put("artwork_size", track.artworkPath?.let { File(it).length() } ?: 0L)
             put("pending_delete", if (track.pendingDelete) 1 else 0)
+            put("liked", if (track.liked) 1 else 0)
         })
     }
 
@@ -1315,6 +1339,7 @@ class OfflineLibrary private constructor(context: Context) {
             artist = cleanOptionalText(metadata.optString("artist"), 500),
             album = cleanOptionalText(metadata.optString("album"), 500),
             albumArtist = cleanOptionalText(metadata.optString("album_artist"), 500),
+            genre = manifestGenre(metadata),
             disc = requireInt(metadata, "disc", 0),
             track = requireInt(metadata, "track", 0),
             durationMs = requireLong(metadata, "duration_ms", 0),
@@ -1373,6 +1398,38 @@ class OfflineLibrary private constructor(context: Context) {
             invalid("Manifest metadata is invalid.")
         }
         return result
+    }
+
+    private fun manifestGenre(metadata: JSONObject): String {
+        val direct = metadata.opt("genre")
+        if (direct is String && direct.isNotBlank()) return cleanOptionalText(direct, 500)
+        val genres = metadata.optJSONArray("genres") ?: return ""
+        for (index in 0 until genres.length()) {
+            val value = genres.opt(index)
+            if (value is String && value.isNotBlank()) return cleanOptionalText(value, 500)
+        }
+        return ""
+    }
+
+    private fun extractGenre(file: File): String {
+        val retriever = MediaMetadataRetriever()
+        return try {
+            retriever.setDataSource(file.absolutePath)
+            cleanEmbeddedMetadata(retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_GENRE))
+        } catch (_: RuntimeException) {
+            ""
+        } finally {
+            runCatching { retriever.release() }
+        }
+    }
+
+    private fun cleanEmbeddedMetadata(value: String?): String {
+        val result = value?.trim().orEmpty()
+        return result.takeIf {
+            it.length <= 500 && it.none { character ->
+                character == '\u0000' || (character.code < 32 && character != '\n' && character != '\t')
+            }
+        }.orEmpty()
     }
 
     private fun safeMusicPath(relative: String, mustExist: Boolean): File {
@@ -1577,6 +1634,7 @@ class OfflineLibrary private constructor(context: Context) {
         val artist: String,
         val album: String,
         val albumArtist: String,
+        val genre: String,
         val disc: Int,
         val track: Int,
         val durationMs: Long,
@@ -1587,8 +1645,10 @@ class OfflineLibrary private constructor(context: Context) {
         val sha256: String,
     ) {
         fun toTrack(id: String, folderId: String, relativePath: String, artworkPath: String?) = OfflineTrack(
-            id, title, artist, album, albumArtist, disc, track, durationMs, mime, codec, quality,
-            byteSize, sha256, folderId, relativePath, artworkPath,
+            id = id, title = title, artist = artist, album = album, albumArtist = albumArtist,
+            disc = disc, track = track, durationMs = durationMs, mime = mime, codec = codec,
+            quality = quality, byteSize = byteSize, sha256 = sha256, folderId = folderId,
+            relativePath = relativePath, artworkPath = artworkPath, genre = genre,
         )
     }
 
@@ -1598,6 +1658,7 @@ class OfflineLibrary private constructor(context: Context) {
         artist = getString(getColumnIndexOrThrow("artist")),
         album = getString(getColumnIndexOrThrow("album")),
         albumArtist = getString(getColumnIndexOrThrow("album_artist")),
+        genre = getString(getColumnIndexOrThrow("genre")),
         disc = getInt(getColumnIndexOrThrow("disc_number")),
         track = getInt(getColumnIndexOrThrow("track_number")),
         durationMs = getLong(getColumnIndexOrThrow("duration_ms")),
@@ -1610,6 +1671,7 @@ class OfflineLibrary private constructor(context: Context) {
         relativePath = getString(getColumnIndexOrThrow("relative_path")),
         artworkPath = nullableString(getColumnIndexOrThrow("artwork_path")),
         pendingDelete = getInt(getColumnIndexOrThrow("pending_delete")) != 0,
+        liked = getInt(getColumnIndexOrThrow("liked")) != 0,
     )
 
     private fun Cursor.offlineFolder() = OfflineFolder(
@@ -1629,6 +1691,7 @@ class OfflineLibrary private constructor(context: Context) {
     private fun trackToJson(track: OfflineTrack) = JSONObject()
         .put("id", track.id).put("title", track.title).put("artist", track.artist)
         .put("album", track.album).put("album_artist", track.albumArtist)
+        .put("genre", track.genre).put("liked", track.liked)
         .put("disc", track.disc).put("track", track.track).put("duration_ms", track.durationMs)
         .put("mime", track.mime).put("codec", track.codec).put("quality", track.quality)
         .put("byte_size", track.byteSize).put("sha256", track.sha256)
@@ -1636,11 +1699,14 @@ class OfflineLibrary private constructor(context: Context) {
         .put("artwork_path", track.artworkPath ?: JSONObject.NULL)
 
     private fun jsonToTrack(value: JSONObject) = OfflineTrack(
-        value.getString("id"), value.getString("title"), value.getString("artist"), value.getString("album"),
-        value.getString("album_artist"), value.getInt("disc"), value.getInt("track"), value.getLong("duration_ms"),
-        value.getString("mime"), value.getString("codec"), value.getString("quality"), value.getLong("byte_size"),
-        value.getString("sha256"), value.getString("folder_id"), value.getString("relative_path"),
-        if (value.isNull("artwork_path")) null else value.getString("artwork_path"),
+        id = value.getString("id"), title = value.getString("title"), artist = value.getString("artist"),
+        album = value.getString("album"), albumArtist = value.getString("album_artist"),
+        disc = value.getInt("disc"), track = value.getInt("track"), durationMs = value.getLong("duration_ms"),
+        mime = value.getString("mime"), codec = value.getString("codec"), quality = value.getString("quality"),
+        byteSize = value.getLong("byte_size"), sha256 = value.getString("sha256"),
+        folderId = value.getString("folder_id"), relativePath = value.getString("relative_path"),
+        artworkPath = if (value.isNull("artwork_path")) null else value.getString("artwork_path"),
+        genre = value.optString("genre"), liked = value.optBoolean("liked", false),
     )
 
     companion object {
@@ -1654,8 +1720,9 @@ class OfflineLibrary private constructor(context: Context) {
         }
 
         private val TRACK_COLUMNS = arrayOf(
-            "id", "title", "artist", "album", "album_artist", "disc_number", "track_number", "duration_ms",
-            "mime", "codec", "quality", "byte_size", "sha256", "folder_id", "relative_path", "artwork_path", "pending_delete",
+            "id", "title", "artist", "album", "album_artist", "genre", "disc_number", "track_number", "duration_ms",
+            "mime", "codec", "quality", "byte_size", "sha256", "folder_id", "relative_path", "artwork_path",
+            "pending_delete", "liked",
         )
         private val FOLDER_COLUMNS = arrayOf("id", "parent_id", "name", "relative_path", "pending_delete")
         private val SHA256 = Regex("[0-9a-f]{64}")
@@ -1685,7 +1752,7 @@ class OfflineLibrary private constructor(context: Context) {
     }
 }
 
-private class LibraryDatabase(context: Context) : SQLiteOpenHelper(context, "offline_library.db", null, 1) {
+private class LibraryDatabase(context: Context) : SQLiteOpenHelper(context, "offline_library.db", null, 2) {
     override fun onConfigure(db: SQLiteDatabase) {
         super.onConfigure(db)
         db.setForeignKeyConstraintsEnabled(true)
@@ -1694,7 +1761,7 @@ private class LibraryDatabase(context: Context) : SQLiteOpenHelper(context, "off
 
     override fun onCreate(db: SQLiteDatabase) {
         db.execSQL("CREATE TABLE folders (id TEXT PRIMARY KEY, parent_id TEXT REFERENCES folders(id), name TEXT NOT NULL, relative_path TEXT NOT NULL UNIQUE, pending_delete INTEGER NOT NULL DEFAULT 0 CHECK(pending_delete IN (0,1)), UNIQUE(parent_id,name))")
-        db.execSQL("CREATE TABLE tracks (id TEXT PRIMARY KEY, title TEXT NOT NULL, artist TEXT NOT NULL, album TEXT NOT NULL, album_artist TEXT NOT NULL, disc_number INTEGER NOT NULL, track_number INTEGER NOT NULL, duration_ms INTEGER NOT NULL, mime TEXT NOT NULL, codec TEXT NOT NULL, quality TEXT NOT NULL, byte_size INTEGER NOT NULL, sha256 TEXT NOT NULL, folder_id TEXT NOT NULL REFERENCES folders(id), relative_path TEXT NOT NULL UNIQUE, artwork_path TEXT, artwork_size INTEGER NOT NULL DEFAULT 0, pending_delete INTEGER NOT NULL DEFAULT 0 CHECK(pending_delete IN (0,1)), UNIQUE(sha256,quality))")
+        db.execSQL("CREATE TABLE tracks (id TEXT PRIMARY KEY, title TEXT NOT NULL, artist TEXT NOT NULL, album TEXT NOT NULL, album_artist TEXT NOT NULL, genre TEXT NOT NULL DEFAULT '', disc_number INTEGER NOT NULL, track_number INTEGER NOT NULL, duration_ms INTEGER NOT NULL, mime TEXT NOT NULL, codec TEXT NOT NULL, quality TEXT NOT NULL, byte_size INTEGER NOT NULL, sha256 TEXT NOT NULL, folder_id TEXT NOT NULL REFERENCES folders(id), relative_path TEXT NOT NULL UNIQUE, artwork_path TEXT, artwork_size INTEGER NOT NULL DEFAULT 0, pending_delete INTEGER NOT NULL DEFAULT 0 CHECK(pending_delete IN (0,1)), liked INTEGER NOT NULL DEFAULT 0 CHECK(liked IN (0,1)), UNIQUE(sha256,quality))")
         db.execSQL("CREATE TABLE playlists (id TEXT PRIMARY KEY, name TEXT NOT NULL)")
         db.execSQL("CREATE TABLE playlist_snapshot_receipts (id TEXT PRIMARY KEY, playlist_id TEXT NOT NULL)")
         db.execSQL("CREATE TABLE playlist_entries (playlist_id TEXT NOT NULL REFERENCES playlists(id) ON DELETE CASCADE, position INTEGER NOT NULL, track_id TEXT NOT NULL REFERENCES tracks(id) ON DELETE CASCADE, PRIMARY KEY(playlist_id,position))")
@@ -1711,6 +1778,14 @@ private class LibraryDatabase(context: Context) : SQLiteOpenHelper(context, "off
     }
 
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
-        throw IllegalStateException("Unsupported offline library schema upgrade from $oldVersion to $newVersion")
+        var version = oldVersion
+        if (version == 1) {
+            db.execSQL("ALTER TABLE tracks ADD COLUMN genre TEXT NOT NULL DEFAULT ''")
+            db.execSQL("ALTER TABLE tracks ADD COLUMN liked INTEGER NOT NULL DEFAULT 0 CHECK(liked IN (0,1))")
+            version = 2
+        }
+        if (version != newVersion) {
+            throw IllegalStateException("Unsupported offline library schema upgrade from $oldVersion to $newVersion")
+        }
     }
 }

@@ -213,6 +213,119 @@ class OfflineLibraryTest {
     }
 
     @Test
+    fun localGenreAndLikePersistAcrossDeduplicationMoveAndColdStart() {
+        val marker = UUID.randomUUID().toString()
+        val bytes = "local-like-$marker".toByteArray()
+        val destination = library.createFolder(OfflineLibrary.ROOT_FOLDER_ID, "liked-$marker")
+        val imported = library.importTrack(
+            temporary("liked.flac", bytes),
+            manifest(bytes, "Liked track").put("genre", "Jazz"),
+        )
+        try {
+            assertEquals("Jazz", imported.genre)
+            assertFalse(imported.liked)
+
+            val beforeLike = library.changes.value
+            library.setLiked(imported.id, true)
+            assertTrue(library.track(imported.id)!!.liked)
+            assertEquals(beforeLike + 1, library.changes.value)
+            library.setLiked(imported.id, true)
+            assertEquals(beforeLike + 1, library.changes.value)
+
+            library.moveTrack(imported.id, destination.id)
+            val moved = library.track(imported.id)!!
+            assertEquals("Jazz", moved.genre)
+            assertTrue(moved.liked)
+
+            val duplicate = library.importTrack(
+                temporary("duplicate-liked.flac", bytes),
+                manifest(bytes, "Duplicate metadata").put("genre", "Rock"),
+            )
+            assertEquals(imported.id, duplicate.id)
+            assertEquals("Jazz", duplicate.genre)
+            assertTrue(duplicate.liked)
+
+            val restarted = coldStartLibrary()
+            val restored = restarted.track(imported.id)!!
+            assertEquals("Jazz", restored.genre)
+            assertTrue(restored.liked)
+            val beforeMissing = restarted.changes.value
+            expectCode("missing") { restarted.setLiked(UUID.randomUUID().toString(), true) }
+            assertEquals(beforeMissing, restarted.changes.value)
+        } finally {
+            if (library.track(imported.id) != null) library.deleteTracks(listOf(imported.id))
+            if (library.folder(destination.id) != null) library.deleteFolder(destination.id)
+        }
+    }
+
+    @Test
+    fun schemaOneUpgradePreservesExistingTrackAndAddsLocalDefaults() {
+        database().close()
+        assertTrue(context.deleteDatabase("offline_library.db"))
+        val trackId = UUID.randomUUID().toString()
+        val bytes = "schema-one-$trackId".toByteArray()
+        val relativePath = "Imported music/$trackId.flac"
+        val audio = musicFile(relativePath).apply {
+            parentFile!!.mkdirs()
+            writeBytes(bytes)
+        }
+        val oldDatabase = context.openOrCreateDatabase("offline_library.db", Context.MODE_PRIVATE, null)
+        try {
+            oldDatabase.execSQL("CREATE TABLE folders (id TEXT PRIMARY KEY, parent_id TEXT REFERENCES folders(id), name TEXT NOT NULL, relative_path TEXT NOT NULL UNIQUE, pending_delete INTEGER NOT NULL DEFAULT 0 CHECK(pending_delete IN (0,1)), UNIQUE(parent_id,name))")
+            oldDatabase.execSQL("CREATE TABLE tracks (id TEXT PRIMARY KEY, title TEXT NOT NULL, artist TEXT NOT NULL, album TEXT NOT NULL, album_artist TEXT NOT NULL, disc_number INTEGER NOT NULL, track_number INTEGER NOT NULL, duration_ms INTEGER NOT NULL, mime TEXT NOT NULL, codec TEXT NOT NULL, quality TEXT NOT NULL, byte_size INTEGER NOT NULL, sha256 TEXT NOT NULL, folder_id TEXT NOT NULL REFERENCES folders(id), relative_path TEXT NOT NULL UNIQUE, artwork_path TEXT, artwork_size INTEGER NOT NULL DEFAULT 0, pending_delete INTEGER NOT NULL DEFAULT 0 CHECK(pending_delete IN (0,1)), UNIQUE(sha256,quality))")
+            oldDatabase.execSQL("CREATE TABLE operations (id TEXT PRIMARY KEY, kind TEXT NOT NULL, details TEXT NOT NULL, created_at INTEGER NOT NULL)")
+            oldDatabase.insertOrThrow("folders", null, ContentValues().apply {
+                put("id", OfflineLibrary.ROOT_FOLDER_ID)
+                putNull("parent_id")
+                put("name", "Music")
+                put("relative_path", "")
+                put("pending_delete", 0)
+            })
+            oldDatabase.insertOrThrow("folders", null, ContentValues().apply {
+                put("id", OfflineLibrary.IMPORT_FOLDER_ID)
+                put("parent_id", OfflineLibrary.ROOT_FOLDER_ID)
+                put("name", "Imported music")
+                put("relative_path", "Imported music")
+                put("pending_delete", 0)
+            })
+            oldDatabase.insertOrThrow("tracks", null, ContentValues().apply {
+                put("id", trackId)
+                put("title", "Preserved title")
+                put("artist", "Preserved artist")
+                put("album", "Preserved album")
+                put("album_artist", "Preserved album artist")
+                put("disc_number", 2)
+                put("track_number", 3)
+                put("duration_ms", 4_000)
+                put("mime", "audio/flac")
+                put("codec", "flac")
+                put("quality", "original")
+                put("byte_size", bytes.size)
+                put("sha256", sha256(bytes))
+                put("folder_id", OfflineLibrary.IMPORT_FOLDER_ID)
+                put("relative_path", relativePath)
+                putNull("artwork_path")
+                put("artwork_size", 0)
+                put("pending_delete", 0)
+            })
+            oldDatabase.version = 1
+        } finally {
+            oldDatabase.close()
+        }
+
+        library = openLibrary()
+        val restored = library.track(trackId)!!
+        assertEquals(trackId, restored.id)
+        assertEquals("Preserved title", restored.title)
+        assertEquals(relativePath, restored.relativePath)
+        assertEquals("", restored.genre)
+        assertFalse(restored.liked)
+        assertArrayEquals(bytes, audio.readBytes())
+        library.setLiked(trackId, true)
+        assertTrue(coldStartLibrary().track(trackId)!!.liked)
+    }
+
+    @Test
     fun movesPreserveIdentityChecksumPlaylistQueueAndActualPlacement() {
         val marker = UUID.randomUUID().toString()
         val parent = library.createFolder(OfflineLibrary.ROOT_FOLDER_ID, "parent-$marker")

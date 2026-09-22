@@ -159,6 +159,118 @@ class OfflinePlaybackBoundaryTest {
     }
 
     @Test
+    fun enqueuePersistsWithoutStartingAServiceOrPlayback() {
+        val track = importWav("Inactive enqueue", 369.99)
+        assertTrue(NativePlaybackRegistry.service == null)
+
+        runBlocking { OfflinePlayback.enqueue(context, listOf(track.id, track.id), next = false) }
+
+        val queued = OfflinePlayback.state.value.queue.entries.filter { entry -> entry.trackId == track.id }
+        assertEquals(2, queued.size)
+        assertEquals(queued.map { entry -> entry.id }, library.loadQueue().entries
+            .filter { entry -> entry.trackId == track.id }
+            .map { entry -> entry.id })
+        assertTrue(NativePlaybackRegistry.service == null)
+        assertEquals(OfflinePlaybackPolicy.OWNER_NONE, OfflinePlayback.state.value.owner)
+        assertFalse(OfflinePlayback.state.value.playing)
+    }
+
+    @Test
+    fun enqueueUpdatesTheLiveMedia3QueueAndPlayEntryKeepsOccurrenceIdentity() {
+        val first = importWav("Enqueue current", 392.0)
+        val duplicate = importWav("Enqueue duplicate", 493.88)
+        val tail = importWav("Enqueue tail", 587.33)
+
+        ActivityScenario.launch(MainActivity::class.java).use {
+            runBlocking { OfflinePlayback.play(context, listOf(first.id, tail.id)) }
+            val (controller, releaseController) = connectController()
+            try {
+                await("local playback advances before live insertion") {
+                    OfflinePlayback.state.value.playing && onMain { controller.currentPosition >= 300L }
+                }
+                val currentEntryId = OfflinePlayback.state.value.queue.currentEntryId
+                val beforePosition = onMain { controller.currentPosition }
+
+                runBlocking {
+                    OfflinePlayback.enqueue(context, listOf(duplicate.id, duplicate.id), next = true)
+                }
+                await("duplicate next entries reach Media3 without replacing current playback") {
+                    val state = OfflinePlayback.state.value
+                    state.playing &&
+                        state.queue.currentEntryId == currentEntryId &&
+                        state.queue.entries.map { entry -> entry.trackId } ==
+                        listOf(first.id, duplicate.id, duplicate.id, tail.id) &&
+                        onMain {
+                            controller.mediaItemCount == 4 &&
+                                controller.currentMediaItem?.mediaId == currentEntryId
+                        }
+                }
+                val inserted = OfflinePlayback.state.value.queue
+                assertEquals(inserted.entries.size, inserted.entries.map { entry -> entry.id }.toSet().size)
+                assertTrue(OfflinePlayback.state.value.queue.positionMs >= beforePosition)
+                val selectedEntryId = inserted.entries[2].id
+                val stableIds = inserted.entries.map { entry -> entry.id }
+
+                runBlocking { OfflinePlayback.playEntry(context, selectedEntryId) }
+                await("selected duplicate occurrence plays by its stable queue ID") {
+                    val state = OfflinePlayback.state.value
+                    state.playing && state.queue.currentEntryId == selectedEntryId &&
+                        onMain { controller.currentMediaItem?.mediaId == selectedEntryId }
+                }
+                assertEquals(stableIds, OfflinePlayback.state.value.queue.entries.map { entry -> entry.id })
+            } finally {
+                releaseController()
+            }
+        }
+    }
+
+    @Test
+    fun serverOwnedEnqueuePersistsWithoutAutoplayAndPlayEntryRequiresHandoff() {
+        RegistrationFixture().use { fixture ->
+            val track = importWav("Server-owned enqueue", 698.46)
+            addedServers += fixture.endpoint
+            ActivityScenario.launch(MainActivity::class.java).use {
+                try {
+                    onMainSuspend { NativePlayback.connect(context, fixture.endpoint, "Boundary phone") }
+                    await("Server registration owns playback") {
+                        OfflinePlayback.state.value.owner == OfflinePlaybackPolicy.OWNER_SERVER
+                    }
+
+                    runBlocking {
+                        OfflinePlayback.enqueue(context, listOf(track.id, track.id), next = false)
+                    }
+                    val queued = OfflinePlayback.state.value.queue.entries.filter { entry -> entry.trackId == track.id }
+                    assertEquals(2, queued.size)
+                    assertEquals(2, queued.map { entry -> entry.id }.toSet().size)
+                    assertEquals(queued.map { entry -> entry.id }, library.loadQueue().entries
+                        .filter { entry -> entry.trackId == track.id }
+                        .map { entry -> entry.id })
+                    assertEquals(OfflinePlaybackPolicy.OWNER_SERVER, OfflinePlayback.state.value.owner)
+                    assertFalse(OfflinePlayback.state.value.playing)
+                    assertEquals(0, fixture.registrationDeletes())
+
+                    val failure = try {
+                        runBlocking { OfflinePlayback.playEntry(context, queued[1].id) }
+                        null
+                    } catch (error: NativePlaybackException) {
+                        error
+                    }
+                    assertEquals("handoff_required", failure?.code)
+                    assertEquals(OfflinePlaybackPolicy.OWNER_SERVER, OfflinePlayback.state.value.owner)
+                    assertFalse(OfflinePlayback.state.value.playing)
+                    assertEquals(0, fixture.registrationDeletes())
+                } finally {
+                    fixture.removeRegistration()
+                    await("fixture registration releases Server ownership", 5_000L) {
+                        OfflinePlayback.state.value.owner == OfflinePlaybackPolicy.OWNER_NONE
+                    }
+                    releasePlayback()
+                }
+            }
+        }
+    }
+
+    @Test
     fun missingOwnedAudioStopsWithABoundedLocalFailure() {
         val track = importWav("Missing local", 440.0)
         val managed = managedAudio(track)

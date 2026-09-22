@@ -51,6 +51,39 @@ internal object OfflinePlaybackPolicy {
         return OfflineQueue(entries = entries, currentEntryId = entries[startIndex].id)
     }
 
+    fun enqueue(
+        queue: OfflineQueue,
+        trackIds: List<String>,
+        next: Boolean,
+        entryId: () -> String = { UUID.randomUUID().toString() },
+    ): OfflineQueue {
+        require(trackIds.isNotEmpty()) { "At least one track is required" }
+        require(trackIds.none(String::isBlank)) { "Track IDs must not be blank" }
+        val additions = trackIds.map { OfflineQueueEntry(entryId(), it) }
+        val entryIds = queue.entries.mapTo(
+            HashSet<String>(queue.entries.size + additions.size),
+            OfflineQueueEntry::id,
+        )
+        require(additions.all { it.id.isNotBlank() && entryIds.add(it.id) }) {
+            "Queue entry IDs must be non-empty and unique"
+        }
+        val insertionIndex = if (!next) {
+            queue.entries.size
+        } else if (queue.currentEntryId == null) {
+            0
+        } else {
+            val currentIndex = queue.entries.indexOfFirst { it.id == queue.currentEntryId }
+            require(currentIndex >= 0) { "The current queue entry is not in the queue" }
+            currentIndex + 1
+        }
+        val entries = ArrayList<OfflineQueueEntry>(queue.entries.size + additions.size).apply {
+            addAll(queue.entries.subList(0, insertionIndex))
+            addAll(additions)
+            addAll(queue.entries.subList(insertionIndex, queue.entries.size))
+        }
+        return normalized(queue.copy(entries = entries))
+    }
+
     fun normalized(queue: OfflineQueue): OfflineQueue {
         val entries = queue.entries.filter { it.id.isNotBlank() && it.trackId.isNotBlank() }
         val unique = HashSet<String>(entries.size)

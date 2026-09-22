@@ -108,11 +108,28 @@ class ActualWebUiSmokeTest {
                     document.querySelector('.auth-form button[type=submit]').click();
                 })()
             """.trimIndent())
-            waitFor("authenticated phone library") { evaluate("!!document.querySelector('.phone-player-bar') && document.querySelectorAll('.mobile-nav button').length === 4") == "true" }
+            waitFor("authenticated populated phone library") {
+                evaluate(
+                    """
+                    (() => {
+                        const album = document.querySelector('.library-album-card');
+                        const artwork = album?.querySelector('.library-artwork');
+                        const artworkReady = !!artwork
+                            && (artwork.tagName !== 'IMG' || (artwork.complete && artwork.naturalWidth > 0));
+                        return !!document.querySelector('.phone-player-bar')
+                            && document.querySelectorAll('.mobile-nav button').length === 4
+                            && !document.querySelector('.library-loading')
+                            && !!album
+                            && album.checkVisibility()
+                            && artworkReady;
+                    })()
+                    """.trimIndent(),
+                ) == "true"
+            }
             assertEquals("Four phone tabs must fit the visible viewport", "true", evaluate("""
                 Array.from(document.querySelectorAll('.mobile-nav button')).every(button => {
                     const box = button.getBoundingClientRect();
-                    return box.width >= 44 && box.height >= 44 && box.top >= 0 && box.bottom <= innerHeight + 1;
+                    return box.width >= 48 && box.height >= 48 && box.top >= 0 && box.bottom <= innerHeight + 1;
                 })
             """.trimIndent()))
             assertEquals("Embedded chrome must hide only duplicate branding, not the signed-in account controls", "true", evaluate("""
@@ -191,7 +208,25 @@ class ActualWebUiSmokeTest {
             screenshot("native-recent-korean")
             connect(origin)
             waitFor("Korean session after selecting the server again") {
-                evaluate("!!document.querySelector('.phone-player-bar') && document.documentElement.lang === 'ko'") == "true"
+                evaluate(
+                    "!!document.querySelector('.phone-player-bar') && document.documentElement.lang === 'ko' && document.querySelectorAll('.mobile-nav button').length === 4",
+                ) == "true"
+            }
+            evaluate("document.querySelectorAll('.mobile-nav button')[0].click()")
+            waitFor("populated Korean Server library") {
+                evaluate(
+                    """
+                    (() => {
+                        const album = document.querySelector('.library-album-card');
+                        const artwork = album?.querySelector('.library-artwork');
+                        return !document.querySelector('.library-loading')
+                            && !!album
+                            && album.checkVisibility()
+                            && !!artwork
+                            && (artwork.tagName !== 'IMG' || (artwork.complete && artwork.naturalWidth > 0));
+                    })()
+                    """.trimIndent(),
+                ) == "true"
             }
             assertStopped()
             screenshot("real-web-phone-korean")

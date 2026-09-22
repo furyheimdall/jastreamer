@@ -51,13 +51,7 @@ object OfflinePlayback {
         val requestGeneration = OfflinePlaybackRequestFence.beginRequest()
         val appContext = context.applicationContext
         applicationContext = appContext
-        val tracks = withContext(Dispatchers.IO) {
-            val library = OfflineLibrary.get(appContext)
-            trackIds.map { id ->
-                library.track(id)?.takeUnless { it.pendingDelete }
-                    ?: throw NativePlaybackException("track_unavailable", "Saved audio is no longer available.")
-            }
-        }
+        val tracks = loadAvailableTracks(appContext, trackIds)
         requireCurrentRequest(requestGeneration)
         val service = withContext(Dispatchers.Main.immediate) {
             try {
@@ -74,6 +68,102 @@ object OfflinePlayback {
         requireCurrentRequest(requestGeneration)
         withContext(Dispatchers.Main.immediate) {
             service.playOffline(tracks, startIndex, confirmHandoff, requestGeneration)
+        }
+    }
+
+    suspend fun enqueue(context: Context, trackIds: List<String>, next: Boolean) {
+        if (trackIds.isEmpty()) {
+            throw NativePlaybackException("invalid_queue", "At least one saved track is required.")
+        }
+        val requestGeneration = OfflinePlaybackRequestFence.beginRequest()
+        val appContext = context.applicationContext
+        applicationContext = appContext
+        val tracks = loadAvailableTracks(appContext, trackIds)
+        requireCurrentRequest(requestGeneration)
+        val handledByService = withContext(Dispatchers.Main.immediate) {
+            val service = NativePlaybackRegistry.service ?: return@withContext false
+            service.enqueueOffline(
+                savedQueue = mutableState.value.queue,
+                tracks = tracks,
+                next = next,
+                requestGeneration = requestGeneration,
+            )
+            true
+        }
+        if (handledByService) return
+
+        val (revision, baseQueue) = withContext(Dispatchers.Main.immediate) {
+            requireCurrentRequest(requestGeneration)
+            ++queuePersistRevision to mutableState.value.queue
+        }
+        val updated = withContext(Dispatchers.IO) {
+            queuePersistMutex.withLock {
+                requireCurrentRequest(requestGeneration)
+                if (revision != queuePersistRevision) {
+                    throw NativePlaybackException("superseded", "A newer playback action replaced this request.")
+                }
+                val updated = OfflinePlaybackPolicy.enqueue(
+                    OfflinePlaybackPolicy.normalized(baseQueue),
+                    trackIds,
+                    next,
+                )
+                OfflineLibrary.get(appContext).saveQueue(updated)
+                updated
+            }
+        }
+        requireCurrentRequest(requestGeneration)
+        withContext(Dispatchers.Main.immediate) {
+            requireCurrentRequest(requestGeneration)
+            val service = NativePlaybackRegistry.service
+            if (service == null) {
+                mutableState.value = mutableState.value.copy(queue = updated)
+            } else {
+                service.replaceRestoredOfflineQueue(updated)
+            }
+        }
+    }
+
+    suspend fun playEntry(
+        context: Context,
+        entryId: String,
+        confirmHandoff: Boolean = false,
+    ) {
+        if (entryId.isBlank()) {
+            throw NativePlaybackException("queue_entry_unavailable", "The saved queue entry is no longer available.")
+        }
+        val requestGeneration = OfflinePlaybackRequestFence.beginRequest()
+        val appContext = context.applicationContext
+        applicationContext = appContext
+        val stateQueue = withContext(Dispatchers.Main.immediate) { mutableState.value.queue }
+        val queue = withContext(Dispatchers.IO) {
+            val library = OfflineLibrary.get(appContext)
+            val candidate = stateQueue.takeIf { saved -> saved.entries.any { it.id == entryId } }
+                ?: OfflinePlaybackPolicy.normalized(library.loadQueue())
+            val entry = candidate.entries.firstOrNull { it.id == entryId }
+                ?: throw NativePlaybackException(
+                    "queue_entry_unavailable",
+                    "The saved queue entry is no longer available.",
+                )
+            library.track(entry.trackId)?.takeUnless { it.pendingDelete }
+                ?: throw NativePlaybackException("track_unavailable", "Saved audio is no longer available.")
+            candidate
+        }
+        requireCurrentRequest(requestGeneration)
+        val service = withContext(Dispatchers.Main.immediate) {
+            try {
+                appContext.startService(Intent(appContext, NativePlaybackService::class.java))
+            } catch (error: RuntimeException) {
+                throw NativePlaybackException("service_unavailable", "Saved music playback is unavailable.", error)
+            }
+            try {
+                withTimeout(SERVICE_START_TIMEOUT_MILLIS) { NativePlaybackRegistry.awaitService() }
+            } catch (error: TimeoutCancellationException) {
+                throw NativePlaybackException("service_unavailable", "Saved music playback is unavailable.", error)
+            }
+        }
+        requireCurrentRequest(requestGeneration)
+        withContext(Dispatchers.Main.immediate) {
+            service.playOfflineEntry(queue, entryId, confirmHandoff, requestGeneration)
         }
     }
 
@@ -205,6 +295,15 @@ object OfflinePlayback {
         }
         if (Looper.myLooper() == Looper.getMainLooper()) run() else Handler(Looper.getMainLooper()).post(run)
     }
+
+    private suspend fun loadAvailableTracks(context: Context, trackIds: List<String>): List<OfflineTrack> =
+        withContext(Dispatchers.IO) {
+            val library = OfflineLibrary.get(context)
+            trackIds.map { id ->
+                library.track(id)?.takeUnless { it.pendingDelete }
+                    ?: throw NativePlaybackException("track_unavailable", "Saved audio is no longer available.")
+            }
+        }
 
     private fun requireCurrentRequest(requestGeneration: Long) {
         if (!OfflinePlaybackRequestFence.isCurrent(requestGeneration)) {

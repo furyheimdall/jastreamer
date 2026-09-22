@@ -21,6 +21,46 @@ class OfflinePlaybackPolicyTest {
     }
 
     @Test
+    fun `enqueue keeps duplicate occurrences ordered after current and preserves playback state`() {
+        val original = OfflineQueue(
+            entries = listOf(
+                OfflineQueueEntry("a", "track-1"),
+                OfflineQueueEntry("b", "track-2"),
+                OfflineQueueEntry("c", "track-3"),
+            ),
+            currentEntryId = "b",
+            positionMs = 42_000,
+            shuffle = true,
+            repeatMode = 2,
+        )
+        val ids = ArrayDeque(listOf("next-a", "next-b", "end"))
+
+        val withNext = OfflinePlaybackPolicy.enqueue(
+            original,
+            listOf("duplicate", "duplicate"),
+            next = true,
+            entryId = { ids.removeFirst() },
+        )
+        val appended = OfflinePlaybackPolicy.enqueue(
+            withNext,
+            listOf("track-4"),
+            next = false,
+            entryId = { ids.removeFirst() },
+        )
+
+        assertEquals(listOf("a", "b", "next-a", "next-b", "c", "end"), appended.entries.map { it.id })
+        assertEquals(
+            listOf("track-1", "track-2", "duplicate", "duplicate", "track-3", "track-4"),
+            appended.entries.map { it.trackId },
+        )
+        assertEquals(appended.entries.size, appended.entries.map { it.id }.toSet().size)
+        assertEquals("b", appended.currentEntryId)
+        assertEquals(42_000L, appended.positionMs)
+        assertTrue(appended.shuffle)
+        assertEquals(2, appended.repeatMode)
+    }
+
+    @Test
     fun `moving entries retains current identity and playback position`() {
         val original = OfflineQueue(
             entries = listOf(

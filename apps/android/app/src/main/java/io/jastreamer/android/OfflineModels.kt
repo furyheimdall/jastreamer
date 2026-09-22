@@ -19,6 +19,8 @@ data class OfflineTrack(
     val relativePath: String,
     val artworkPath: String?,
     val pendingDelete: Boolean = false,
+    val genre: String = "",
+    val liked: Boolean = false,
 )
 
 data class OfflineFolder(val id: String, val parentId: String?, val name: String)

@@ -257,6 +257,7 @@ class OfflineNativeUiTest {
                     assertIconControl(control, activity)
                 }
                 assertNoHorizontalOverflow(mini)
+                assertAdaptiveNavigation(activity)
                 val title = activity.findViewById<TextView>(R.id.offline_player_title)
                 assertTrue("mini title stays on one rendered line", title.layout.lineCount == 1)
                 assertTrue((title.parent as View).contentDescription.toString().contains(title.text))
@@ -273,13 +274,17 @@ class OfflineNativeUiTest {
                 shown
             }
             scenario.onActivity { activity ->
-                assertTrue(activity.findViewById<View>(R.id.offline_mini_player).visibility == View.GONE)
+                assertTrue(activity.findViewById<View>(R.id.offline_mini_player).isShown)
+                assertTrue(
+                    "Full player hides duplicate global heading",
+                    activity.findViewById<View>(R.id.offline_header_title)?.isShown != true,
+                )
                 listOf(
-                    R.id.offline_player_close,
+                    R.id.offline_mini_play_pause,
+                    R.id.offline_mini_stop,
+                    R.id.offline_mini_expand,
                     R.id.offline_player_previous,
-                    R.id.offline_player_play_pause,
                     R.id.offline_player_next,
-                    R.id.offline_player_stop,
                     R.id.offline_player_shuffle,
                     R.id.offline_player_repeat,
                     R.id.offline_player_queue,
@@ -289,6 +294,7 @@ class OfflineNativeUiTest {
                 }
                 assertMinimumTouchTarget(activity.findViewById<SeekBar>(R.id.offline_player_seek), activity)
                 assertNoHorizontalOverflow(activity.findViewById(R.id.offline_content))
+                assertAdaptiveNavigation(activity)
             }
 
             scenario.onActivity {
@@ -313,23 +319,22 @@ class OfflineNativeUiTest {
                 scenario.onActivity { activity ->
                     ready = activity.resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE &&
                         activity.findViewById<View>(R.id.offline_player_seek)?.isShown == true &&
-                        activity.findViewById<View>(R.id.offline_player_artwork)?.isLaidOut == true
+                        activity.findViewById<View>(R.id.offline_mini_player)?.isShown == true
                 }
                 ready
             }
             screenshot("offline-player-landscape")
             scenario.onActivity { activity ->
                 val content = activity.findViewById<ViewGroup>(R.id.offline_content)
-                val playerArtwork = activity.findViewById<View>(R.id.offline_player_artwork)
                 assertNoHorizontalOverflow(content)
-                assertTrue("landscape artwork width", playerArtwork.width <= content.width - dp(activity, 24))
                 val visible = Rect()
                 listOf(
                     R.id.offline_player_seek,
+                    R.id.offline_mini_play_pause,
+                    R.id.offline_mini_stop,
+                    R.id.offline_mini_expand,
                     R.id.offline_player_previous,
-                    R.id.offline_player_play_pause,
                     R.id.offline_player_next,
-                    R.id.offline_player_stop,
                     R.id.offline_player_shuffle,
                     R.id.offline_player_repeat,
                     R.id.offline_player_queue,
@@ -341,6 +346,7 @@ class OfflineNativeUiTest {
                     assertEquals("$name must not be clipped vertically", control.height, visible.height())
                     assertEquals("$name must not be clipped horizontally", control.width, visible.width())
                 }
+                assertAdaptiveNavigation(activity)
             }
             scenario.onActivity {
                 it.findViewById<View>(R.id.offline_player_information).performClick()
@@ -376,6 +382,7 @@ class OfflineNativeUiTest {
             }
             scenario.onActivity {
                 assertNoHorizontalOverflow(it.findViewById(R.id.offline_content))
+                assertAdaptiveNavigation(it)
             }
         } finally {
             if (::scenario.isInitialized) {
@@ -443,6 +450,48 @@ class OfflineNativeUiTest {
             "${button.resources.getResourceEntryName(button.id)} description",
             !button.contentDescription.isNullOrBlank(),
         )
+    }
+
+    private fun assertAdaptiveNavigation(activity: MainActivity) {
+        val root = activity.findViewById<View>(R.id.offline_music_root)
+        val navigation = activity.findViewById<ViewGroup>(R.id.offline_navigation)
+        val content = activity.findViewById<View>(R.id.offline_content)
+        val miniPlayer = activity.findViewById<View>(R.id.offline_mini_player)
+        val rootBounds = Rect()
+        val navigationBounds = Rect()
+        val contentBounds = Rect()
+        val miniBounds = Rect()
+        assertTrue("saved-music root is visible", root.getGlobalVisibleRect(rootBounds))
+        assertTrue("saved-music navigation is visible", navigation.getGlobalVisibleRect(navigationBounds))
+        assertTrue("saved-music content is visible", content.getGlobalVisibleRect(contentBounds))
+        assertTrue("mini player is visible", miniPlayer.getGlobalVisibleRect(miniBounds))
+        assertTrue(
+            "navigation remains inside the saved-music window",
+            navigationBounds.left >= rootBounds.left && navigationBounds.right <= rootBounds.right &&
+                navigationBounds.top >= rootBounds.top && navigationBounds.bottom <= rootBounds.bottom,
+        )
+        listOf(
+            R.id.offline_library_button,
+            R.id.offline_playlists_button,
+            R.id.offline_queue_button,
+            R.id.offline_settings_button,
+        ).forEach { id ->
+            val button = activity.findViewById<Button>(id)
+            assertMinimumTouchTarget(button, activity)
+            val bounds = Rect()
+            assertTrue(
+                "${activity.resources.getResourceEntryName(id)} is completely visible",
+                button.getGlobalVisibleRect(bounds) &&
+                    bounds.width() == button.width && bounds.height() == button.height,
+            )
+        }
+        if (navigationBounds.right <= contentBounds.left + 1) {
+            assertTrue("Wide navigation stays left of content", !Rect.intersects(navigationBounds, contentBounds))
+        } else {
+            assertTrue("Narrow navigation stays below the mini player", navigationBounds.top >= miniBounds.bottom - 1)
+            assertTrue("Narrow content stays above the mini player", contentBounds.bottom <= miniBounds.top + 1)
+            assertTrue("Narrow navigation and mini player do not overlap", !Rect.intersects(navigationBounds, miniBounds))
+        }
     }
 
     private fun assertNoHorizontalOverflow(root: ViewGroup) {
@@ -522,8 +571,6 @@ class OfflineNativeUiTest {
             FileInputStream(descriptor.fileDescriptor).bufferedReader().use { it.readText() }
         }
 
-    private fun dp(context: Context, value: Int) =
-        (value * context.resources.displayMetrics.density).toInt()
 
     private fun findButton(root: View, text: String): Button =
         requireNotNull(findButtonOrNull(root, text)) { "Button '$text' was not found" }
