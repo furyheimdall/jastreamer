@@ -17,6 +17,8 @@ import android.view.ViewGroup
 import android.view.accessibility.AccessibilityNodeInfo
 import android.widget.Button
 import android.widget.CheckBox
+import android.widget.EditText
+import android.widget.ScrollView
 import android.widget.SeekBar
 import android.widget.TextView
 import androidx.test.core.app.ActivityScenario
@@ -25,6 +27,7 @@ import androidx.test.platform.app.InstrumentationRegistry
 import java.io.File
 import java.io.FileInputStream
 import java.security.MessageDigest
+import java.util.Locale
 import java.util.UUID
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
@@ -61,6 +64,38 @@ class OfflineNativeUiTest {
         createdTrackIds.asReversed().forEach { id ->
             runCatching { if (library.track(id) != null) library.deleteTracks(listOf(id)) }
         }
+    }
+
+    private fun importUiTrack(title: String, folderId: String = OfflineLibrary.ROOT_FOLDER_ID, genre: String = ""): OfflineTrack {
+        val bytes = UUID.randomUUID().toString().toByteArray()
+        val source = File(instrumentation.targetContext.cacheDir, "ui-${UUID.randomUUID()}.wav").apply { writeBytes(bytes) }
+        try {
+            return library.importTrack(
+                source,
+                JSONObject()
+                    .put("status", "ready")
+                    .put("title", title)
+                    .put("artist", "Native UX fixture")
+                    .put("album", genre.ifBlank { "Native UX fixture" })
+                    .put("genre", genre)
+                    .put("duration_ms", 60_000)
+                    .put("quality", "original")
+                    .put("mime", "audio/wav")
+                    .put("codec", "pcm")
+                    .put("byte_size", bytes.size)
+                    .put("sha256", sha256(bytes)),
+                folderId = folderId,
+            ).also { createdTrackIds += it.id }
+        } finally {
+            source.delete()
+        }
+    }
+
+    private fun assertSelectedCount(activity: MainActivity, count: Int) {
+        val prefix = String.format(Locale.ENGLISH, activity.getStringForTest(R.string.offline_selected), count, "")
+        val bar = activity.findViewById<View>(R.id.offline_selection_bar)
+        assertTrue("Selection must contain $count matching tracks",
+            findView(bar) { it is TextView && it.text.toString().startsWith(prefix) } != null)
     }
 
     @Test
@@ -149,6 +184,130 @@ class OfflineNativeUiTest {
         scenario.onActivity { activity ->
             assertNotNull(activity.findViewById<View>(R.id.offline_diagnostics))
         }
+        val originalLimit = library.usage().limitBytes
+        var originalOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+        var expectedOrientation = Configuration.ORIENTATION_LANDSCAPE
+        try {
+            scenario.onActivity { activity ->
+                originalOrientation = activity.requestedOrientation
+                expectedOrientation = if (activity.resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE) {
+                    Configuration.ORIENTATION_PORTRAIT
+                } else Configuration.ORIENTATION_LANDSCAPE
+                (findView(activity.window.decorView) { it is EditText } as EditText).apply {
+                    setText("12345")
+                    setSelection(3)
+                }
+                activity.requestedOrientation = if (expectedOrientation == Configuration.ORIENTATION_LANDSCAPE) {
+                    ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+                } else ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+            }
+            waitFor("rotation keeps the unapplied storage limit") {
+                var preserved = false
+                scenario.onActivity { activity ->
+                    val input = findView(activity.window.decorView) { it is EditText } as? EditText
+                    preserved = activity.resources.configuration.orientation == expectedOrientation &&
+                        input?.text?.toString() == "12345" && input.selectionStart == 3
+                }
+                preserved
+            }
+            assertEquals(originalLimit, library.usage().limitBytes)
+            scenario.recreate()
+            waitFor("activity recreation keeps the unapplied storage limit") {
+                var preserved = false
+                scenario.onActivity { activity ->
+                    preserved = (findView(activity.window.decorView) { it is EditText } as? EditText)?.text?.toString() == "12345"
+                }
+                preserved
+            }
+            assertEquals(originalLimit, library.usage().limitBytes)
+        } finally {
+            scenario.onActivity { it.requestedOrientation = originalOrientation }
+        }
+    }
+
+    @Test
+    fun filteredFolderSelectAllExcludesHiddenTracksAndFolders() {
+        val marker = UUID.randomUUID().toString()
+        val parent = library.createFolder(OfflineLibrary.ROOT_FOLDER_ID, "Scope $marker").also { createdFolderIds += it.id }
+        val visible = library.createFolder(parent.id, "match-$marker folder").also { createdFolderIds += it.id }
+        val hidden = library.createFolder(parent.id, "Hidden folder").also { createdFolderIds += it.id }
+        val matching = importUiTrack("match-$marker track", parent.id)
+        importUiTrack("Hidden direct track", parent.id)
+        importUiTrack("Visible folder contents", visible.id)
+        importUiTrack("Hidden folder contents", hidden.id)
+        scenario = ActivityScenario.launch(MainActivity::class.java)
+        openSavedMusic()
+        scenario.onActivity { activity ->
+            findButton(activity.window.decorView, activity.getStringForTest(R.string.offline_folders)).performClick()
+            findButton(activity.window.decorView, parent.name).performClick()
+            activity.findViewById<EditText>(R.id.offline_search).setText("match-$marker")
+            findButton(activity.window.decorView, matching.title).performLongClick()
+            findButton(activity.window.decorView, activity.getStringForTest(R.string.offline_select_all)).performClick()
+            assertSelectedCount(activity, 2)
+        }
+    }
+
+    @Test
+    fun genreSelectAllWorksAfterReturningFromASelectedTrack() {
+        val genre = "Genre ${UUID.randomUUID()}"
+        val first = importUiTrack("First genre track", genre = genre)
+        importUiTrack("Second genre track", genre = genre)
+        scenario = ActivityScenario.launch(MainActivity::class.java)
+        openSavedMusic()
+        scenario.onActivity { activity ->
+            findButton(activity.window.decorView, activity.getStringForTest(R.string.offline_genres)).performClick()
+            activity.findViewById<EditText>(R.id.offline_search).setText(genre)
+            findButton(activity.window.decorView, genre).performClick()
+            findButton(activity.window.decorView, first.title).performLongClick()
+            findButton(activity.window.decorView, activity.getStringForTest(R.string.offline_back_to_list)).performClick()
+            findButton(activity.window.decorView, activity.getStringForTest(R.string.offline_select_all)).performClick()
+            assertSelectedCount(activity, 2)
+        }
+    }
+
+    @Test
+    fun likingATrackKeepsTheCurrentLibraryViewport() {
+        val marker = "Viewport ${UUID.randomUUID()}"
+        val values = (0 until 12).map { index -> importUiTrack("$marker ${index.toString().padStart(2, '0')}") }
+        val last = values.last()
+        scenario = ActivityScenario.launch(MainActivity::class.java)
+        openSavedMusic()
+        scenario.onActivity { activity ->
+            findButton(activity.window.decorView, activity.getStringForTest(R.string.offline_tracks)).performClick()
+            activity.findViewById<EditText>(R.id.offline_search).setText(marker)
+        }
+        instrumentation.waitForIdleSync()
+        scenario.onActivity { activity ->
+            (findView(activity.findViewById(R.id.offline_content)) { it is ScrollView } as ScrollView).fullScroll(View.FOCUS_DOWN)
+        }
+        var beforeScroll = 0
+        waitFor("last filtered track is visible below the first screen") {
+            var visible = false
+            scenario.onActivity { activity ->
+                val scroll = findView(activity.findViewById(R.id.offline_content)) { it is ScrollView } as ScrollView
+                beforeScroll = scroll.scrollY
+                val label = findButtonOrNull(activity.window.decorView, last.title)
+                visible = beforeScroll > 0 && label?.getGlobalVisibleRect(Rect()) == true
+            }
+            visible
+        }
+        scenario.onActivity { activity ->
+            val row = findButton(activity.window.decorView, last.title).parent as View
+            findButton(row, activity.getStringForTest(R.string.offline_like)).performClick()
+        }
+        waitFor("the liked row refreshes without resetting the viewport") {
+            var stable = false
+            scenario.onActivity { activity ->
+                val scroll = findView(activity.findViewById(R.id.offline_content)) { it is ScrollView } as ScrollView
+                val label = findButtonOrNull(activity.window.decorView, last.title)
+                val row = label?.parent as? View
+                stable = scroll.isLaidOut && !scroll.isLayoutRequested &&
+                    scroll.scrollY == beforeScroll && row != null &&
+                    findButtonOrNull(row, activity.getStringForTest(R.string.offline_unlike)) != null
+            }
+            stable
+        }
+        assertEquals(true, library.track(last.id)?.liked)
     }
 
     @Test

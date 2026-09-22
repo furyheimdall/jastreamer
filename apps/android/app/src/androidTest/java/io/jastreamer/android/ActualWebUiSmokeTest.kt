@@ -198,23 +198,11 @@ class ActualWebUiSmokeTest {
                 ) == "true"
             }
             evaluate("document.querySelectorAll('.mobile-nav button')[0].click()")
-            waitFor("populated Korean Server library") {
-                evaluate(
-                    """
-                    (() => {
-                        const album = document.querySelector('.library-album-card');
-                        const artwork = album?.querySelector('.library-artwork');
-                        return !document.querySelector('.library-loading')
-                            && !!album
-                            && album.checkVisibility()
-                            && !!artwork
-                            && (artwork.tagName !== 'IMG' || (artwork.complete && artwork.naturalWidth > 0));
-                    })()
-                    """.trimIndent(),
-                ) == "true"
+            waitFor("Korean library finishes initial load") {
+                evaluate("!document.querySelector('.library-loading')") == "true"
             }
             assertStopped()
-            screenshot("real-web-phone-korean")
+            screenshot("real-web-phone-empty-korean")
             exerciseNativePlayback()
             evaluate("document.querySelector('.error-dialog-close')?.click(); 'dismissed';")
             evaluate("document.querySelector('.mobile-nav button').click(); 'library';")
@@ -228,6 +216,7 @@ class ActualWebUiSmokeTest {
                         const artworkReady = !!artwork
                             && (artwork.tagName !== 'IMG' || (artwork.complete && artwork.naturalWidth > 0));
                         return !!document.querySelector('.phone-player-bar')
+                            && document.documentElement.lang === 'ko'
                             && document.querySelectorAll('.mobile-nav button').length === 4
                             && !document.querySelector('.library-loading')
                             && !!album
@@ -238,6 +227,7 @@ class ActualWebUiSmokeTest {
                 ) == "true"
             }
             screenshot("real-web-phone-library")
+            screenshot("real-web-phone-korean")
             OfflineImportSmoke(scenario, ::evaluate, ::screenshot).run()
         }
     }
