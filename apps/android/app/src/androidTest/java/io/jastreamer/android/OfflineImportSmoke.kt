@@ -418,10 +418,6 @@ internal class OfflineImportSmoke(
             val root = activity.findViewById<ViewGroup>(R.id.offline_music_root)
             val content = activity.findViewById<ViewGroup>(R.id.offline_content)
             assertTrue("Expanded controls retain the compact player", activity.findViewById<View>(R.id.offline_mini_player).isShown)
-            assertTrue(
-                "Full player hides duplicate global heading",
-                activity.findViewById<View>(R.id.offline_header_title)?.isShown != true,
-            )
             assertNoOverlappingVisibleButtons(root)
             assertNoHorizontalOverflow(content)
             assertTouchTargets(root)

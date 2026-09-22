@@ -12,6 +12,7 @@ import android.graphics.Color
 import android.graphics.Rect
 import android.os.SystemClock
 import android.provider.MediaStore
+import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
 import android.view.accessibility.AccessibilityNodeInfo
@@ -299,17 +300,21 @@ class OfflineNativeUiTest {
             val row = findButton(activity.window.decorView, last.title).parent as View
             findButton(row, activity.getStringForTest(R.string.offline_like)).performClick()
         }
-        waitFor("the liked row refreshes without resetting the viewport") {
+        waitFor("the liked row finishes refreshing") {
             var stable = false
             scenario.onActivity { activity ->
                 val scroll = findView(activity.findViewById(R.id.offline_content)) { it is ScrollView } as ScrollView
                 val label = findButtonOrNull(activity.window.decorView, last.title)
                 val row = label?.parent as? View
                 stable = scroll.isLaidOut && !scroll.isLayoutRequested &&
-                    scroll.scrollY == beforeScroll && row != null &&
+                    row != null &&
                     findButtonOrNull(row, activity.getStringForTest(R.string.offline_unlike)) != null
             }
             stable
+        }
+        scenario.onActivity { activity ->
+            val scroll = findView(activity.findViewById(R.id.offline_content)) { it is ScrollView } as ScrollView
+            assertEquals("Liking a track must retain the library viewport", beforeScroll, scroll.scrollY)
         }
         assertEquals(true, library.track(last.id)?.liked)
         scenario.onActivity { it.findViewById<View>(R.id.offline_mini_expand).performClick() }
@@ -478,6 +483,26 @@ class OfflineNativeUiTest {
                 assertMinimumTouchTarget(activity.findViewById<SeekBar>(R.id.offline_player_seek), activity)
                 assertNoHorizontalOverflow(activity.findViewById(R.id.offline_content))
                 assertAdaptiveNavigation(activity)
+            }
+            val coveredSearch = Rect()
+            scenario.onActivity { activity ->
+                assertTrue(activity.findViewById<EditText>(R.id.offline_search).getGlobalVisibleRect(coveredSearch))
+            }
+            val touchStarted = SystemClock.uptimeMillis()
+            for (action in intArrayOf(MotionEvent.ACTION_DOWN, MotionEvent.ACTION_UP)) {
+                val event = MotionEvent.obtain(
+                    touchStarted, SystemClock.uptimeMillis(), action,
+                    coveredSearch.exactCenterX(), coveredSearch.exactCenterY(), 0,
+                )
+                try {
+                    instrumentation.sendPointerSync(event)
+                } finally {
+                    event.recycle()
+                }
+            }
+            instrumentation.waitForIdleSync()
+            scenario.onActivity { activity ->
+                assertTrue("Covered browsing must not receive text input", !activity.findViewById<EditText>(R.id.offline_search).hasFocus())
             }
 
             scenario.onActivity {

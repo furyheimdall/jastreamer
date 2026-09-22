@@ -18,11 +18,13 @@ import android.text.TextUtils
 import android.text.TextWatcher
 import android.util.SparseArray
 import android.view.Gravity
+import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
 import android.view.ViewGroup.LayoutParams.MATCH_PARENT
 import android.view.ViewGroup.LayoutParams.WRAP_CONTENT
 import android.view.accessibility.AccessibilityEvent
+import android.view.inputmethod.InputMethodManager
 import android.widget.ArrayAdapter
 import android.widget.Button
 import android.widget.CheckBox
@@ -68,7 +70,14 @@ class OfflineMusicView(
     private val header = LinearLayout(activity)
     private val workspace = LinearLayout(activity)
     private val navigation = LinearLayout(activity)
-    private val page = FrameLayout(activity)
+    private var browseBlocked = false
+    private val page = object : FrameLayout(activity) {
+        override fun onInterceptTouchEvent(event: MotionEvent): Boolean =
+            browseBlocked || super.onInterceptTouchEvent(event)
+
+        override fun onTouchEvent(event: MotionEvent): Boolean =
+            browseBlocked || super.onTouchEvent(event)
+    }
     private val content = LinearLayout(activity)
     private val expandedPlayer = FrameLayout(activity)
     private val miniPlayer = LinearLayout(activity)
@@ -142,6 +151,7 @@ class OfflineMusicView(
         content.orientation = VERTICAL
         page.id = R.id.offline_browse_content
         expandedPlayer.visibility = GONE
+        expandedPlayer.accessibilityPaneTitle = text(R.string.offline_expanded_player)
         content.addView(page, LayoutParams(MATCH_PARENT, 0, 1f))
         content.addView(expandedPlayer, LayoutParams(MATCH_PARENT, WRAP_CONTENT))
         workspace.addView(content, LayoutParams(MATCH_PARENT, 0, 1f))
@@ -443,7 +453,12 @@ class OfflineMusicView(
                 diagnostics = snapshot.errors
                 loading = false
                 pruneSelection()
-                renderPage(preserveState = true)
+                if (screen == SCREEN_LIBRARY && pageList?.isAttachedToWindow == true) {
+                    renderLibraryResults()
+                    if (fullPlayerOpen) renderFullPlayer()
+                } else {
+                    renderPage(preserveState = true)
+                }
                 updatePlayerChrome()
             } catch (failure: Throwable) {
                 if (failure is CancellationException) throw failure
@@ -485,6 +500,7 @@ class OfflineMusicView(
             restoredPageState = null
             if (focusedId != null && focusedId != View.NO_ID) content.findViewById<View>(focusedId)?.requestFocus()
         }
+        updateBrowseInteraction()
     }
 
     private fun renderLibrary() {
@@ -2010,7 +2026,21 @@ class OfflineMusicView(
             fullPlayerPosition = null
             fullPlayerDuration = null
         }
+        updateBrowseInteraction()
         updatePlayerChrome()
+    }
+
+    private fun updateBrowseInteraction() {
+        val blocked = fullPlayerOpen && resources.configuration.smallestScreenWidthDp < 600
+        if (blocked == browseBlocked) return
+        browseBlocked = blocked
+        page.importantForAccessibility = if (blocked) IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS else IMPORTANT_FOR_ACCESSIBILITY_AUTO
+        page.descendantFocusability = if (blocked) ViewGroup.FOCUS_BLOCK_DESCENDANTS else ViewGroup.FOCUS_BEFORE_DESCENDANTS
+        if (blocked) {
+            page.clearFocus()
+            (activity.getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager)
+                .hideSoftInputFromWindow(windowToken, 0)
+        }
     }
 
     private fun openQueueFromPlayer() {
@@ -2097,16 +2127,9 @@ class OfflineMusicView(
     }
 
     private fun updatePlayPauseButton(button: Button) {
-        val label = text(when {
-            playback.owner == "server" -> R.string.offline_play
-            playback.playing -> R.string.offline_pause
-            else -> R.string.offline_resume
-        })
-        val icon = if (playback.playing && playback.owner != "server") {
-            R.drawable.ic_offline_pause
-        } else {
-            R.drawable.ic_offline_play
-        }
+        val isPlaying = playback.playing && playback.owner != "server"
+        val label = text(if (isPlaying) R.string.offline_pause else R.string.offline_play)
+        val icon = if (isPlaying) R.drawable.ic_offline_pause else R.drawable.ic_offline_play
         if (button.tag == icon && button.text.toString() == label) return
         OfflineUi.configureIconButton(button, icon, label, primary = true)
     }
