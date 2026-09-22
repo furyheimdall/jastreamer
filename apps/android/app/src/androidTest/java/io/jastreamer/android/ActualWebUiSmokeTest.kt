@@ -108,23 +108,8 @@ class ActualWebUiSmokeTest {
                     document.querySelector('.auth-form button[type=submit]').click();
                 })()
             """.trimIndent())
-            waitFor("authenticated populated phone library") {
-                evaluate(
-                    """
-                    (() => {
-                        const album = document.querySelector('.library-album-card');
-                        const artwork = album?.querySelector('.library-artwork');
-                        const artworkReady = !!artwork
-                            && (artwork.tagName !== 'IMG' || (artwork.complete && artwork.naturalWidth > 0));
-                        return !!document.querySelector('.phone-player-bar')
-                            && document.querySelectorAll('.mobile-nav button').length === 4
-                            && !document.querySelector('.library-loading')
-                            && !!album
-                            && album.checkVisibility()
-                            && artworkReady;
-                    })()
-                    """.trimIndent(),
-                ) == "true"
+            waitFor("authenticated phone shell") {
+                evaluate("!!document.querySelector('.phone-player-bar') && document.querySelectorAll('.mobile-nav button').length === 4 && !document.querySelector('.library-loading')") == "true"
             }
             assertEquals("Four phone tabs must fit the visible viewport", "true", evaluate("""
                 Array.from(document.querySelectorAll('.mobile-nav button')).every(button => {
@@ -145,7 +130,7 @@ class ActualWebUiSmokeTest {
                         && target.top >= 0 && target.bottom <= innerHeight;
                 })()
             """.trimIndent()))
-            screenshot("real-web-phone-library")
+            screenshot("real-web-phone-empty-library")
             assertStopped()
 
             evaluate("window.androidRecoveryMarker = 'view-' + Math.random(); 'marked'")
@@ -232,7 +217,27 @@ class ActualWebUiSmokeTest {
             screenshot("real-web-phone-korean")
             exerciseNativePlayback()
             evaluate("document.querySelector('.error-dialog-close')?.click(); 'dismissed';")
+            evaluate("document.querySelector('.mobile-nav button').click(); 'library';")
             awaitRenderedFrame()
+            waitFor("authenticated populated phone library") {
+                evaluate(
+                    """
+                    (() => {
+                        const album = document.querySelector('.library-album-card');
+                        const artwork = album?.querySelector('.library-artwork');
+                        const artworkReady = !!artwork
+                            && (artwork.tagName !== 'IMG' || (artwork.complete && artwork.naturalWidth > 0));
+                        return !!document.querySelector('.phone-player-bar')
+                            && document.querySelectorAll('.mobile-nav button').length === 4
+                            && !document.querySelector('.library-loading')
+                            && !!album
+                            && album.checkVisibility()
+                            && artworkReady;
+                    })()
+                    """.trimIndent(),
+                ) == "true"
+            }
+            screenshot("real-web-phone-library")
             OfflineImportSmoke(scenario, ::evaluate, ::screenshot).run()
         }
     }

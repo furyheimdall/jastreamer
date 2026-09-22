@@ -2,6 +2,7 @@ package io.jastreamer.android
 
 import android.content.ComponentName
 import android.content.Intent
+import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
 import android.widget.EditText
@@ -23,6 +24,11 @@ import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicReference
 import kotlin.math.PI
 import kotlin.math.sin
+import kotlin.coroutines.CoroutineContext
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.async
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
@@ -159,18 +165,19 @@ class OfflinePlaybackBoundaryTest {
     }
 
     @Test
-    fun enqueuePersistsWithoutStartingAServiceOrPlayback() {
+    fun inactiveEnqueuePersistsAfterDeletionWithoutAutoplay() {
         val track = importWav("Inactive enqueue", 369.99)
-        assertTrue(NativePlaybackRegistry.service == null)
+        val removed = importWav("Deleted inactive queue", 311.13)
+        library.saveQueue(OfflinePlaybackPolicy.newQueue(listOf(removed.id), 0))
+        runBlocking { OfflinePlayback.restore(context) }
+        assertTrue(library.deleteTracks(listOf(removed.id)).failures.isEmpty())
+        createdTrackIds.remove(removed.id)
 
         runBlocking { OfflinePlayback.enqueue(context, listOf(track.id, track.id), next = false) }
 
-        val queued = OfflinePlayback.state.value.queue.entries.filter { entry -> entry.trackId == track.id }
-        assertEquals(2, queued.size)
-        assertEquals(queued.map { entry -> entry.id }, library.loadQueue().entries
-            .filter { entry -> entry.trackId == track.id }
-            .map { entry -> entry.id })
-        assertTrue(NativePlaybackRegistry.service == null)
+        val queued = OfflinePlayback.state.value.queue.entries
+        assertEquals(listOf(track.id, track.id), queued.map { entry -> entry.trackId })
+        assertEquals(queued, library.loadQueue().entries)
         assertEquals(OfflinePlaybackPolicy.OWNER_NONE, OfflinePlayback.state.value.owner)
         assertFalse(OfflinePlayback.state.value.playing)
     }
@@ -207,7 +214,8 @@ class OfflinePlaybackBoundaryTest {
                 }
                 val inserted = OfflinePlayback.state.value.queue
                 assertEquals(inserted.entries.size, inserted.entries.map { entry -> entry.id }.toSet().size)
-                assertTrue(OfflinePlayback.state.value.queue.positionMs >= beforePosition)
+                val afterPosition = onMain { controller.currentPosition }
+                assertTrue("Live playback moved backwards from $beforePosition to $afterPosition", afterPosition >= beforePosition)
                 val selectedEntryId = inserted.entries[2].id
                 val stableIds = inserted.entries.map { entry -> entry.id }
 
@@ -228,6 +236,9 @@ class OfflinePlaybackBoundaryTest {
     fun serverOwnedEnqueuePersistsWithoutAutoplayAndPlayEntryRequiresHandoff() {
         RegistrationFixture().use { fixture ->
             val track = importWav("Server-owned enqueue", 698.46)
+            val removed = importWav("Deleted Server-owned queue", 622.25)
+            library.saveQueue(OfflinePlaybackPolicy.newQueue(listOf(removed.id), 0))
+            runBlocking { OfflinePlayback.restore(context) }
             addedServers += fixture.endpoint
             ActivityScenario.launch(MainActivity::class.java).use {
                 try {
@@ -235,16 +246,16 @@ class OfflinePlaybackBoundaryTest {
                     await("Server registration owns playback") {
                         OfflinePlayback.state.value.owner == OfflinePlaybackPolicy.OWNER_SERVER
                     }
+                    assertTrue(library.deleteTracks(listOf(removed.id)).failures.isEmpty())
+                    createdTrackIds.remove(removed.id)
 
                     runBlocking {
                         OfflinePlayback.enqueue(context, listOf(track.id, track.id), next = false)
                     }
-                    val queued = OfflinePlayback.state.value.queue.entries.filter { entry -> entry.trackId == track.id }
-                    assertEquals(2, queued.size)
+                    val queued = OfflinePlayback.state.value.queue.entries
+                    assertEquals(listOf(track.id, track.id), queued.map { entry -> entry.trackId })
                     assertEquals(2, queued.map { entry -> entry.id }.toSet().size)
-                    assertEquals(queued.map { entry -> entry.id }, library.loadQueue().entries
-                        .filter { entry -> entry.trackId == track.id }
-                        .map { entry -> entry.id })
+                    assertEquals(queued, library.loadQueue().entries)
                     assertEquals(OfflinePlaybackPolicy.OWNER_SERVER, OfflinePlayback.state.value.owner)
                     assertFalse(OfflinePlayback.state.value.playing)
                     assertEquals(0, fixture.registrationDeletes())
@@ -264,6 +275,97 @@ class OfflinePlaybackBoundaryTest {
                     await("fixture registration releases Server ownership", 5_000L) {
                         OfflinePlayback.state.value.owner == OfflinePlaybackPolicy.OWNER_NONE
                     }
+                    releasePlayback()
+                }
+            }
+        }
+    }
+
+    @Test
+    fun enqueueDoesNotCancelPendingNextPlayback() {
+        val first = importWav("Pending next current", 261.63)
+        val next = importWav("Pending next target", 329.63)
+        val appended = importWav("Pending next append", 392.0)
+        ActivityScenario.launch(MainActivity::class.java).use {
+            runBlocking { OfflinePlayback.play(context, listOf(first.id, next.id)) }
+            val (controller, releaseController) = connectController()
+            val service = onMain { requireNotNull(NativePlaybackRegistry.service) }
+            val scopeField = NativePlaybackService::class.java.getDeclaredField("scope").apply { isAccessible = true }
+            val originalScope = onMain { scopeField.get(service) as CoroutineScope }
+            val gate = PausedMainDispatcher()
+            try {
+                await("first track starts before pending Next") { OfflinePlayback.state.value.playing }
+                val nextEntry = OfflinePlayback.state.value.queue.entries[1].id
+                onMain {
+                    scopeField.set(service, CoroutineScope(originalScope.coroutineContext + gate))
+                    OfflinePlayback.next()
+                }
+                runBlocking { OfflinePlayback.enqueue(context, listOf(appended.id), next = false) }
+                onMain {
+                    gate.release()
+                    scopeField.set(service, originalScope)
+                }
+                await("Next still selects its existing occurrence after append") {
+                    OfflinePlayback.state.value.playing &&
+                        onMain { controller.currentMediaItem?.mediaId == nextEntry }
+                }
+                assertEquals(
+                    listOf(first.id, next.id, appended.id),
+                    OfflinePlayback.state.value.queue.entries.map { entry -> entry.trackId },
+                )
+            } finally {
+                onMain {
+                    gate.release()
+                    scopeField.set(service, originalScope)
+                }
+                releaseController()
+            }
+        }
+    }
+
+    @Test
+    fun enqueueSurvivesAnAlreadyConfirmedPendingPlaybackHandoff() {
+        val deleteRequested = CountDownLatch(1)
+        val allowDelete = CountDownLatch(1)
+        RegistrationFixture(beforeDelete = {
+            deleteRequested.countDown()
+            check(allowDelete.await(10, TimeUnit.SECONDS)) { "Handoff fixture was not released" }
+        }).use { fixture ->
+            addedServers += fixture.endpoint
+            val first = importWav("Pending handoff current", 440.0)
+            val appended = importWav("Pending handoff append", 554.37)
+            ActivityScenario.launch(MainActivity::class.java).use {
+                onMainSuspend { NativePlayback.connect(context, fixture.endpoint, "Boundary phone") }
+                try {
+                    runBlocking {
+                        val play = async(Dispatchers.Main.immediate) {
+                            OfflinePlayback.play(context, listOf(first.id), confirmHandoff = true)
+                        }
+                        try {
+                            withContext(Dispatchers.IO) {
+                                assertTrue("Confirmed handoff reaches Server", deleteRequested.await(5, TimeUnit.SECONDS))
+                            }
+                            val append = async(Dispatchers.Main.immediate, start = CoroutineStart.UNDISPATCHED) {
+                                OfflinePlayback.enqueue(context, listOf(appended.id), next = false)
+                            }
+                            allowDelete.countDown()
+                            play.await()
+                            append.await()
+                        } finally {
+                            allowDelete.countDown()
+                        }
+                    }
+                    await("confirmed playback and additive request both survive") {
+                        val state = OfflinePlayback.state.value
+                        state.playing && state.queue.entries.map { entry -> entry.trackId } == listOf(first.id, appended.id)
+                    }
+                    val queue = OfflinePlayback.state.value.queue
+                    assertEquals(first.id, queue.entries.first { it.id == queue.currentEntryId }.trackId)
+                    assertEquals(queue.entries, library.loadQueue().entries)
+                    assertEquals(1, fixture.registrationDeletes())
+                } finally {
+                    allowDelete.countDown()
+                    fixture.removeRegistration()
                     releasePlayback()
                 }
             }
@@ -471,6 +573,26 @@ class OfflinePlaybackBoundaryTest {
         .digest(bytes)
         .joinToString("") { "%02x".format(it.toInt() and 0xff) }
 
+    private class PausedMainDispatcher : CoroutineDispatcher() {
+        private val pending = ArrayDeque<Runnable>()
+        private val handler = Handler(Looper.getMainLooper())
+        private var paused = true
+
+        override fun dispatch(context: CoroutineContext, block: Runnable) {
+            synchronized(pending) {
+                if (paused) pending.addLast(block) else handler.post(block)
+            }
+        }
+
+        fun release() {
+            val ready = synchronized(pending) {
+                paused = false
+                pending.toList().also { pending.clear() }
+            }
+            ready.forEach(Runnable::run)
+        }
+    }
+
     private data class SeenRequest(val method: String, val path: String)
 
     private class BrowserFixture : AutoCloseable {
@@ -514,7 +636,7 @@ class OfflinePlaybackBoundaryTest {
         override fun close() = server.shutdown()
     }
 
-    private class RegistrationFixture : AutoCloseable {
+    private class RegistrationFixture(private val beforeDelete: (() -> Unit)? = null) : AutoCloseable {
         private val identity = UUID.randomUUID().toString()
         val deviceId = "device-${UUID.randomUUID()}"
         private val registrationId = "registration-${UUID.randomUUID()}"
@@ -561,8 +683,10 @@ class OfflinePlaybackBoundaryTest {
                             } else {
                                 json("""{"lease_duration_ms":15000}""")
                             }
-                        request.method == "DELETE" && path == "/api/v1/browser-output/registrations/$registrationId" ->
+                        request.method == "DELETE" && path == "/api/v1/browser-output/registrations/$registrationId" -> {
+                            beforeDelete?.invoke()
                             MockResponse().setResponseCode(204)
+                        }
                         else -> MockResponse().setResponseCode(404)
                     }
                 }
