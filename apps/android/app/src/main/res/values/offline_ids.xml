@@ -18,10 +18,27 @@
     <item name="offline_list" type="id" />
     <item name="offline_selection_bar" type="id" />
     <item name="offline_mini_player" type="id" />
+    <item name="offline_mini_artwork" type="id" />
     <item name="offline_player_title" type="id" />
-    <item name="offline_mini_position" type="id" />
+    <item name="offline_player_artist" type="id" />
+    <item name="offline_mini_play_pause" type="id" />
+    <item name="offline_mini_stop" type="id" />
+    <item name="offline_mini_expand" type="id" />
+    <item name="offline_player_close" type="id" />
+    <item name="offline_player_artwork" type="id" />
+    <item name="offline_full_player_title" type="id" />
+    <item name="offline_full_player_artist" type="id" />
     <item name="offline_player_position" type="id" />
+    <item name="offline_player_duration" type="id" />
     <item name="offline_player_seek" type="id" />
+    <item name="offline_player_previous" type="id" />
+    <item name="offline_player_play_pause" type="id" />
+    <item name="offline_player_next" type="id" />
+    <item name="offline_player_stop" type="id" />
+    <item name="offline_player_shuffle" type="id" />
+    <item name="offline_player_repeat" type="id" />
+    <item name="offline_player_queue" type="id" />
+    <item name="offline_player_information" type="id" />
     <item name="offline_new_folder_button" type="id" />
     <item name="offline_rename_folder_button" type="id" />
     <item name="offline_move_folder_button" type="id" />

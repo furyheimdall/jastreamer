@@ -15,6 +15,15 @@
     <string name="offline_download_confirm">Download</string>
     <string name="offline_download_quality_original">Original</string>
     <string name="offline_download_quality_aac">Space saving (AAC 256 kbps)</string>
+    <string name="offline_download_network_unmetered_available">Network: unmetered network available</string>
+    <string name="offline_download_network_metered_allowed">Network: metered or mobile downloads allowed</string>
+    <string name="offline_download_network_metered_blocked">Network: metered or mobile data requires your permission</string>
+    <string name="offline_download_network_roaming">Network: downloads stay paused while roaming</string>
+    <string name="offline_download_network_unavailable">Network: connect to the selected Server’s network to continue</string>
+    <string name="offline_download_allow_metered">Allow metered or mobile downloads</string>
+    <string name="offline_download_network_confirm_title">Allow metered or mobile downloads?</string>
+    <string name="offline_download_network_confirm_summary">%1$s\n\n%2$s</string>
+    <string name="offline_download_network_roaming_guard">Downloads always stay paused while roaming. This permission applies only on a non-roaming network and can use your mobile data plan.</string>
     <plurals name="offline_download_track_count">
         <item quantity="one">%d track</item>
         <item quantity="other">%d tracks</item>

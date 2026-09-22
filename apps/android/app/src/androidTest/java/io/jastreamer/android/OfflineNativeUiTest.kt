@@ -1,15 +1,35 @@
 package io.jastreamer.android
 
+import android.accessibilityservice.AccessibilityServiceInfo
+import android.content.ContentValues
 import android.content.Context
+import android.content.pm.ActivityInfo
+import android.content.res.Configuration
+import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.Color
+import android.graphics.drawable.BitmapDrawable
 import android.os.SystemClock
+import android.provider.MediaStore
 import android.view.View
 import android.view.ViewGroup
+import android.view.accessibility.AccessibilityNodeInfo
 import android.widget.Button
 import android.widget.CheckBox
+import android.widget.ImageView
+import android.widget.SeekBar
+import android.widget.TextView
 import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import java.io.File
+import java.io.FileInputStream
+import java.security.MessageDigest
 import java.util.UUID
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
+import kotlinx.coroutines.runBlocking
+import org.json.JSONObject
 import org.junit.After
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
@@ -23,6 +43,7 @@ class OfflineNativeUiTest {
     private lateinit var scenario: ActivityScenario<MainActivity>
     private lateinit var library: OfflineLibrary
     private val createdFolderIds = mutableListOf<String>()
+    private val createdTrackIds = mutableListOf<String>()
 
     @Before
     fun prepare() {
@@ -35,6 +56,9 @@ class OfflineNativeUiTest {
         if (::scenario.isInitialized) scenario.close()
         createdFolderIds.asReversed().forEach { id ->
             runCatching { if (library.folder(id) != null) library.deleteFolder(id) }
+        }
+        createdTrackIds.asReversed().forEach { id ->
+            runCatching { if (library.track(id) != null) library.deleteTracks(listOf(id)) }
         }
     }
 
@@ -149,6 +173,220 @@ class OfflineNativeUiTest {
         }
     }
 
+    @Test
+    fun offlinePlayerUsesAccessibleIconControlsWithoutNarrowOrLandscapeOverflow() {
+        val context = instrumentation.targetContext
+        val originalQueue = library.loadQueue()
+        val originalFontScale = shell("settings get system font_scale").trim().toFloatOrNull() ?: 1f
+        val marker = UUID.randomUUID().toString()
+        val bytes = "offline-player-ui-$marker".toByteArray()
+        val source = File(context.cacheDir, "$marker.wav").apply { writeBytes(bytes) }
+        val artwork = File(context.cacheDir, "$marker.png").also(::writeArtwork)
+        val track = library.importTrack(
+            source,
+            JSONObject()
+                .put("status", "ready")
+                .put("title", "A deliberately long saved track title that must stay inside the player")
+                .put("artist", "A long local artist name for narrow and large-font layouts")
+                .put("album", "Offline player layout fixture")
+                .put("album_artist", "Local fixture artist")
+                .put("disc", 1)
+                .put("track", 1)
+                .put("duration_ms", 182_000)
+                .put("quality", "original")
+                .put("mime", "audio/wav")
+                .put("codec", "pcm")
+                .put("byte_size", bytes.size)
+                .put("sha256", sha256(bytes)),
+            artwork = artwork,
+        )
+        createdTrackIds += track.id
+        val entry = OfflineQueueEntry("ui-$marker", track.id)
+        val fixtureQueue = OfflineQueue(listOf(entry), entry.id, 31_000)
+        var originalRequestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+
+        try {
+            library.saveQueue(fixtureQueue)
+            runBlocking { OfflinePlayback.restore(context) }
+            assertTrue(
+                "fixture queue must load without replacing active playback ownership",
+                OfflinePlayback.state.value.owner == "none" &&
+                    OfflinePlayback.state.value.queue.currentEntryId == entry.id,
+            )
+            shell("settings put system font_scale 1.3")
+            scenario = ActivityScenario.launch(MainActivity::class.java)
+            scenario.onActivity { originalRequestedOrientation = it.requestedOrientation }
+            waitFor("large-font activity configuration") {
+                var scaled = false
+                scenario.onActivity { scaled = it.resources.configuration.fontScale >= 1.25f }
+                scaled
+            }
+            openSavedMusic()
+            waitFor("offline mini player fixture") {
+                var shown = false
+                scenario.onActivity { shown = it.findViewById<View>(R.id.offline_mini_player)?.isShown == true }
+                shown
+            }
+            waitFor("mini player fixture artwork") {
+                var loaded = false
+                scenario.onActivity {
+                    loaded = it.findViewById<ImageView>(R.id.offline_mini_artwork)?.drawable is BitmapDrawable
+                }
+                loaded
+            }
+            scenario.onActivity { activity ->
+                val mini = activity.findViewById<ViewGroup>(R.id.offline_mini_player)
+                listOf(
+                    activity.findViewById<Button>(R.id.offline_mini_play_pause),
+                    activity.findViewById<Button>(R.id.offline_mini_stop),
+                    activity.findViewById<Button>(R.id.offline_mini_expand),
+                ).forEach { control ->
+                    assertIconControl(control, activity)
+                }
+                assertNoHorizontalOverflow(mini)
+                val title = activity.findViewById<TextView>(R.id.offline_player_title)
+                assertTrue(title.maxLines == 1)
+                assertTrue((title.parent as View).contentDescription.toString().contains(title.text))
+            }
+            screenshot("offline-player-mini")
+
+            scenario.onActivity { it.findViewById<View>(R.id.offline_mini_expand).performClick() }
+            waitFor("expanded offline player") {
+                var shown = false
+                scenario.onActivity { shown = it.findViewById<View>(R.id.offline_player_seek)?.isShown == true }
+                shown
+            }
+            waitFor("expanded player fixture artwork") {
+                var loaded = false
+                scenario.onActivity {
+                    loaded = it.findViewById<ImageView>(R.id.offline_player_artwork)?.drawable is BitmapDrawable
+                }
+                loaded
+            }
+            scenario.onActivity { activity ->
+                assertTrue(activity.findViewById<View>(R.id.offline_mini_player).visibility == View.GONE)
+                listOf(
+                    R.id.offline_player_close,
+                    R.id.offline_player_previous,
+                    R.id.offline_player_play_pause,
+                    R.id.offline_player_next,
+                    R.id.offline_player_stop,
+                    R.id.offline_player_shuffle,
+                    R.id.offline_player_repeat,
+                    R.id.offline_player_queue,
+                    R.id.offline_player_information,
+                ).forEach { id ->
+                    assertIconControl(activity.findViewById(id), activity)
+                }
+                assertMinimumTouchTarget(activity.findViewById<SeekBar>(R.id.offline_player_seek), activity)
+                assertNoHorizontalOverflow(activity.findViewById(R.id.offline_content))
+            }
+
+            scenario.onActivity {
+                it.findViewById<View>(R.id.offline_player_shuffle).performClick()
+            }
+            waitFor("shuffle icon updates the local queue") {
+                OfflinePlayback.state.value.queue.shuffle && library.loadQueue().shuffle
+            }
+            scenario.onActivity {
+                it.findViewById<View>(R.id.offline_player_repeat).performClick()
+            }
+            waitFor("repeat icon updates the local queue") {
+                OfflinePlayback.state.value.queue.repeatMode == androidx.media3.common.Player.REPEAT_MODE_ALL &&
+                    library.loadQueue().repeatMode == androidx.media3.common.Player.REPEAT_MODE_ALL
+            }
+
+            screenshot("offline-player-expanded")
+
+            scenario.onActivity { it.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE }
+            waitFor("landscape expanded offline player") {
+                var ready = false
+                scenario.onActivity { activity ->
+                    ready = activity.resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE &&
+                        activity.findViewById<View>(R.id.offline_player_seek)?.isShown == true &&
+                        activity.findViewById<ImageView>(R.id.offline_player_artwork)?.drawable is BitmapDrawable
+                }
+                ready
+            }
+            scenario.onActivity { activity ->
+                val content = activity.findViewById<ViewGroup>(R.id.offline_content)
+                val playerArtwork = activity.findViewById<View>(R.id.offline_player_artwork)
+                assertNoHorizontalOverflow(content)
+                assertTrue("landscape artwork width", playerArtwork.width <= content.width - dp(activity, 24))
+            }
+            screenshot("offline-player-landscape")
+            scenario.onActivity {
+                it.findViewById<View>(R.id.offline_player_information).performClick()
+            }
+            val automation = instrumentation.uiAutomation
+            automation.serviceInfo = automation.serviceInfo.apply {
+                flags = flags or AccessibilityServiceInfo.FLAG_REPORT_VIEW_IDS
+            }
+            waitFor("track information dialog") {
+                val root = automation.rootInActiveWindow ?: return@waitFor false
+                try {
+                    val titleVisible = root.findAccessibilityNodeInfosByText(track.title)
+                        .any { it.isVisibleToUser }
+                    val done = root.findAccessibilityNodeInfosByViewId("android:id/button1")
+                        .firstOrNull { it.isVisibleToUser && it.isEnabled }
+                    titleVisible && done?.performAction(AccessibilityNodeInfo.ACTION_CLICK) == true
+                } finally {
+                    root.recycle()
+                }
+            }
+            instrumentation.waitForIdleSync()
+            scenario.onActivity { activity ->
+                activity.findViewById<View>(R.id.offline_player_queue).performClick()
+            }
+            waitFor("queue affordance closes the full player") {
+                var queueShown = false
+                scenario.onActivity { activity ->
+                    queueShown = activity.findViewById<View>(R.id.offline_queue_button).isSelected &&
+                        activity.findViewById<View>(R.id.offline_player_seek) == null &&
+                        activity.findViewById<View>(R.id.offline_mini_player).isShown
+                }
+                queueShown
+            }
+            scenario.onActivity {
+                assertNoHorizontalOverflow(it.findViewById(R.id.offline_content))
+            }
+        } finally {
+            if (::scenario.isInitialized) {
+                runCatching {
+                    scenario.onActivity {
+                        it.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+                    }
+                    waitFor("portrait cleanup", timeoutMillis = 5_000) {
+                        var portrait = false
+                        scenario.onActivity {
+                            portrait = it.resources.configuration.orientation == Configuration.ORIENTATION_PORTRAIT
+                        }
+                        portrait
+                    }
+                    scenario.onActivity { it.requestedOrientation = originalRequestedOrientation }
+                }
+            }
+            shell("settings put system font_scale $originalFontScale")
+            if (::scenario.isInitialized) {
+                runCatching {
+                    waitFor("font scale cleanup", timeoutMillis = 5_000) {
+                        var restored = false
+                        scenario.onActivity {
+                            restored = kotlin.math.abs(
+                                it.resources.configuration.fontScale - originalFontScale,
+                            ) < 0.01f
+                        }
+                        restored
+                    }
+                }
+            }
+            library.saveQueue(originalQueue)
+            runBlocking { OfflinePlayback.restore(context) }
+            if (library.track(track.id) != null) library.deleteTracks(listOf(track.id))
+            createdTrackIds.remove(track.id)
+        }
+    }
+
     private fun openSavedMusic() {
         waitFor("saved music launcher") {
             var ready = false
@@ -171,6 +409,98 @@ class OfflineNativeUiTest {
         assertTrue("${view.resources.getResourceEntryName(view.id)} width", view.width >= minimum || view.minimumWidth >= minimum)
         assertTrue("${view.resources.getResourceEntryName(view.id)} height", view.height >= minimum || view.minimumHeight >= minimum)
     }
+
+    private fun assertIconControl(button: Button, context: Context) {
+        assertMinimumTouchTarget(button, context)
+        assertTrue(
+            "${button.resources.getResourceEntryName(button.id)} description",
+            !button.contentDescription.isNullOrBlank(),
+        )
+        assertTrue(
+            "${button.resources.getResourceEntryName(button.id)} icon",
+            button.compoundDrawablesRelative.any { it != null },
+        )
+    }
+
+    private fun assertNoHorizontalOverflow(root: ViewGroup) {
+        val rootLocation = IntArray(2)
+        root.getLocationOnScreen(rootLocation)
+        val left = rootLocation[0]
+        val right = left + root.width
+        fun visit(view: View) {
+            if (view.visibility != View.VISIBLE || view.width == 0) return
+            val location = IntArray(2)
+            view.getLocationOnScreen(location)
+            assertTrue(
+                "${view.javaClass.simpleName} starts outside ${root.resources.getResourceEntryName(root.id)}",
+                location[0] >= left - 1,
+            )
+            assertTrue(
+                "${view.javaClass.simpleName} ends outside ${root.resources.getResourceEntryName(root.id)}",
+                location[0] + view.width <= right + 1,
+            )
+            if (view is ViewGroup) {
+                for (index in 0 until view.childCount) visit(view.getChildAt(index))
+            }
+        }
+        visit(root)
+    }
+
+    private fun screenshot(name: String) {
+        val rendered = CountDownLatch(1)
+        scenario.onActivity { activity ->
+            activity.window.decorView.postOnAnimation {
+                activity.window.decorView.postOnAnimation { rendered.countDown() }
+            }
+        }
+        assertTrue("Rendered Android frame did not commit", rendered.await(10, TimeUnit.SECONDS))
+        instrumentation.waitForIdleSync()
+        val bitmap = requireNotNull(instrumentation.uiAutomation.takeScreenshot()) {
+            "Emulator screenshot unavailable"
+        }
+        val resolver = instrumentation.targetContext.contentResolver
+        val values = ContentValues().apply {
+            put(MediaStore.Images.Media.DISPLAY_NAME, "$name.png")
+            put(MediaStore.Images.Media.MIME_TYPE, "image/png")
+            put(MediaStore.Images.Media.RELATIVE_PATH, "Pictures/jastreamer-android-smoke")
+            put(MediaStore.Images.Media.IS_PENDING, 1)
+        }
+        val uri = requireNotNull(resolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values))
+        requireNotNull(resolver.openOutputStream(uri)).use { stream ->
+            check(bitmap.compress(Bitmap.CompressFormat.PNG, 100, stream))
+        }
+        values.clear()
+        values.put(MediaStore.Images.Media.IS_PENDING, 0)
+        check(resolver.update(uri, values, null, null) == 1)
+        bitmap.recycle()
+    }
+
+    private fun writeArtwork(file: File) {
+        val bitmap = Bitmap.createBitmap(96, 96, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(bitmap)
+        canvas.drawColor(Color.rgb(37, 43, 47))
+        val paint = android.graphics.Paint().apply {
+            color = Color.rgb(200, 237, 178)
+            style = android.graphics.Paint.Style.FILL
+        }
+        canvas.drawCircle(48f, 48f, 28f, paint)
+        file.outputStream().use { stream ->
+            check(bitmap.compress(Bitmap.CompressFormat.PNG, 100, stream))
+        }
+        bitmap.recycle()
+    }
+
+    private fun sha256(bytes: ByteArray): String = MessageDigest.getInstance("SHA-256")
+        .digest(bytes)
+        .joinToString("") { "%02x".format(it) }
+
+    private fun shell(command: String): String =
+        instrumentation.uiAutomation.executeShellCommand(command).use { descriptor ->
+            FileInputStream(descriptor.fileDescriptor).bufferedReader().use { it.readText() }
+        }
+
+    private fun dp(context: Context, value: Int) =
+        (value * context.resources.displayMetrics.density).toInt()
 
     private fun findButton(root: View, text: String): Button =
         requireNotNull(findButtonOrNull(root, text)) { "Button '$text' was not found" }

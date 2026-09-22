@@ -136,7 +136,10 @@
   gap: clamp(1rem, 2vw, 1.5rem);
 }
 .library-album-tile {
+  display: grid;
   min-width: 0;
+  grid-template-columns: minmax(0, 1fr);
+  align-content: start;
 }
 
 .library-album-tile > .native-download-action {
@@ -150,6 +153,9 @@
 
 
 .library-album-card {
+  display: block;
+  width: 100%;
+  max-width: 100%;
   appearance: none;
   min-width: 0;
   padding: 0;
@@ -228,6 +234,21 @@
   gap: 0.75rem;
 }
 
+.library-folder-item {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: stretch;
+  gap: 0.55rem;
+}
+
+.library-folder-item > .library-folder-row {
+  width: 100%;
+}
+
+.library-folder-item > .native-download-action {
+  align-self: center;
+}
 .library-name-card,
 .library-folder-row {
   appearance: none;
@@ -934,6 +955,141 @@
 .playlist-sidebar > .empty-state {
   margin: 1rem;
 }
+.native-download-status-toolbar {
+  display: flex;
+  width: min(100%, 1120px);
+  min-width: 0;
+  margin: 0 auto 1rem;
+  justify-content: flex-end;
+}
+
+.native-download-status-open {
+  display: inline-flex;
+  max-width: 100%;
+  min-width: 0;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.native-download-status-open > span {
+  min-width: 0;
+}
+
+.native-download-status-count {
+  overflow: hidden;
+  color: var(--muted, #9aa3a6);
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.native-download-status-dialog {
+  width: min(44rem, 100%);
+}
+
+.native-download-status-dialog .library-dialog-heading > div {
+  min-width: 0;
+}
+
+.native-download-status-dialog .library-dialog-heading h2 {
+  overflow-wrap: anywhere;
+}
+
+.native-download-status-error,
+.native-download-status-empty,
+.native-download-panel-action-error {
+  overflow-wrap: anywhere;
+}
+
+.native-download-status-error {
+  padding: 0.75rem;
+  border: 1px solid color-mix(in srgb, var(--danger, #ff9b9b) 35%, transparent);
+  border-radius: 0.6rem;
+  color: var(--danger, #ff9b9b);
+  background: color-mix(in srgb, var(--danger, #ff9b9b) 8%, transparent);
+}
+
+.native-download-status-empty {
+  color: var(--muted, #9aa3a6);
+  line-height: 1.5;
+}
+
+.native-download-job-list {
+  display: grid;
+  min-width: 0;
+  gap: 0.75rem;
+}
+
+.native-download-job {
+  display: grid;
+  min-width: 0;
+  padding: 0.9rem;
+  border: 1px solid var(--border, #ffffff12);
+  border-radius: 0.7rem;
+  background: var(--panel, #1b1f22);
+  gap: 0.55rem;
+}
+
+.native-download-job-heading {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: baseline;
+  gap: 0.75rem;
+}
+
+.native-download-job-heading strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.native-download-job-heading span {
+  color: var(--accent, #c8edb2);
+  font-size: 0.8rem;
+  font-weight: 700;
+  text-align: right;
+}
+
+.native-download-job > p {
+  margin: 0;
+  color: var(--muted, #9aa3a6);
+  font-size: 0.8rem;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.native-download-job progress {
+  width: 100%;
+  height: 0.45rem;
+  accent-color: var(--accent, #c8edb2);
+}
+
+.native-download-job > .native-download-job-error {
+  color: var(--danger, #ff9b9b);
+}
+
+.native-download-network-action {
+  max-width: 100%;
+  justify-self: start;
+  white-space: normal;
+}
+
+.native-download-panel-actions {
+  display: flex;
+  min-width: 0;
+  margin-top: 1rem;
+  justify-content: flex-end;
+}
+
+.native-download-panel-actions .button {
+  max-width: 100%;
+  white-space: normal;
+}
+
+.native-download-panel-action-error {
+  margin: 1rem 0 0;
+}
 .native-download-action {
   display: inline-flex;
   align-items: center;
@@ -972,11 +1128,6 @@
 
 .native-download-action-button.native-download-action-saved {
   flex-wrap: wrap;
-}
-
-.native-download-action-saved .native-download-compact-status {
-  right: auto;
-  left: 1.55rem;
 }
 
 .native-download-open-library {
@@ -1175,6 +1326,40 @@
 
   .library-name-grid {
     grid-template-columns: 1fr;
+  }
+
+  .library-folder-item > .native-download-action:not(.native-download-action-saved) .native-download-button {
+    width: 2.75rem;
+    padding: 0;
+  }
+
+  .library-folder-item > .native-download-action:not(.native-download-action-saved) .native-download-button > span {
+    display: none;
+  }
+
+  .library-folder-item:has(> .native-download-action-saved) {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .library-folder-item > .native-download-action-saved {
+    width: 100%;
+    justify-content: flex-end;
+  }
+
+  .native-download-job-heading {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0.3rem;
+  }
+
+  .native-download-job-heading span {
+    min-width: 0;
+    text-align: left;
+    overflow-wrap: anywhere;
+  }
+
+  .native-download-panel-actions,
+  .native-download-dialog-actions {
+    flex-wrap: wrap;
   }
 
   .library-detail-header {

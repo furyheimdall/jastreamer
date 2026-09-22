@@ -6,7 +6,7 @@ import PlayerBar from "./PlayerBar";
 import Queue from "./Queue";
 import Settings from "./Settings";
 import { useI18n, type MessageKey } from "./i18n";
-import { useJastreamerDownloads } from "./JastreamerDownloads";
+import { NativeDownloadsStatus, useJastreamerDownloads } from "./JastreamerDownloads";
 import type { Session, SessionUser, StatusWarning } from "./types";
 import { isPhone } from "./device";
 
@@ -625,7 +625,10 @@ export default function App() {
         </div>
       </header>
 
-      <main className="main-content" id="main-content" inert={isPhone && phonePlayerExpanded}>{page}</main>
+      <main className="main-content" id="main-content" inert={isPhone && phonePlayerExpanded}>
+        <NativeDownloadsStatus downloads={downloads} />
+        {page}
+      </main>
 
       <nav className="mobile-nav" aria-label={t("app.nav.main")}>
         {navigation.map((item) => (

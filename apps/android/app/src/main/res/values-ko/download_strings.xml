@@ -15,6 +15,15 @@
     <string name="offline_download_confirm">다운로드</string>
     <string name="offline_download_quality_original">원본</string>
     <string name="offline_download_quality_aac">공간 절약(AAC 256kbps)</string>
+    <string name="offline_download_network_unmetered_available">네트워크: 데이터 제한 없는 네트워크를 사용할 수 있습니다</string>
+    <string name="offline_download_network_metered_allowed">네트워크: 데이터 제한 또는 모바일 다운로드 허용됨</string>
+    <string name="offline_download_network_metered_blocked">네트워크: 데이터 제한 또는 모바일 데이터를 사용하려면 권한이 필요합니다</string>
+    <string name="offline_download_network_roaming">네트워크: 로밍 중에는 다운로드가 일시 중지됩니다</string>
+    <string name="offline_download_network_unavailable">네트워크: 계속하려면 선택한 서버의 네트워크에 연결하세요</string>
+    <string name="offline_download_allow_metered">데이터 제한 또는 모바일 다운로드 허용</string>
+    <string name="offline_download_network_confirm_title">데이터 제한 또는 모바일 다운로드를 허용할까요?</string>
+    <string name="offline_download_network_confirm_summary">%1$s\n\n%2$s</string>
+    <string name="offline_download_network_roaming_guard">로밍 중에는 다운로드가 항상 일시 중지됩니다. 이 권한은 로밍이 아닌 네트워크에서만 적용되며 모바일 데이터 요금제를 사용할 수 있습니다.</string>
     <plurals name="offline_download_track_count">
         <item quantity="other">%d곡</item>
     </plurals>

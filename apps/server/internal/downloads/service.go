@@ -40,7 +40,7 @@ const schema = `
 CREATE TABLE IF NOT EXISTS download_jobs (
   id TEXT PRIMARY KEY,
   owner_id TEXT NOT NULL,
-  kind TEXT NOT NULL CHECK(kind IN ('track','album','playlist')),
+  kind TEXT NOT NULL CHECK(kind IN ('track','album','playlist','folder')),
   source_id TEXT NOT NULL,
   title TEXT NOT NULL,
   quality TEXT NOT NULL CHECK(quality IN ('original','aac_256')),
@@ -80,8 +80,120 @@ CREATE TABLE IF NOT EXISTS download_job_tracks (
 CREATE INDEX IF NOT EXISTS download_job_tracks_artifact ON download_job_tracks(job_id,artifact_name);
 `
 
+func initializeDownloadSchema(ctx context.Context, db *sql.DB) error {
+	var definition string
+	err := db.QueryRowContext(ctx, `SELECT sql FROM sqlite_schema WHERE type='table' AND name='download_jobs'`).Scan(&definition)
+	if errors.Is(err, sql.ErrNoRows) {
+		if _, err = db.ExecContext(ctx, schema); err != nil {
+			return fmt.Errorf("initialize download schema: %w", err)
+		}
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("inspect download schema: %w", err)
+	}
+	if strings.Contains(definition, "'folder'") {
+		if _, err = db.ExecContext(ctx, schema); err != nil {
+			return fmt.Errorf("initialize download schema: %w", err)
+		}
+		return nil
+	}
+	if !strings.Contains(definition, "CHECK(kind IN ('track','album','playlist'))") {
+		return errors.New("downloads: existing download job schema cannot be safely extended")
+	}
+
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin download schema migration: %w", err)
+	}
+	defer tx.Rollback()
+	if _, err = tx.ExecContext(ctx, `PRAGMA defer_foreign_keys=ON`); err != nil {
+		return fmt.Errorf("defer download migration foreign keys: %w", err)
+	}
+	const migration = `
+CREATE TABLE download_jobs_folder_migration (
+  id TEXT PRIMARY KEY,
+  owner_id TEXT NOT NULL,
+  kind TEXT NOT NULL CHECK(kind IN ('track','album','playlist','folder')),
+  source_id TEXT NOT NULL,
+  title TEXT NOT NULL,
+  quality TEXT NOT NULL CHECK(quality IN ('original','aac_256')),
+  status TEXT NOT NULL CHECK(status IN ('preparing','ready','partial','failed','cancelled')),
+  created_at TEXT NOT NULL,
+  expires_at TEXT NOT NULL,
+  error_code TEXT NOT NULL,
+  error_message TEXT NOT NULL
+) STRICT;
+INSERT INTO download_jobs_folder_migration(id,owner_id,kind,source_id,title,quality,status,created_at,expires_at,error_code,error_message)
+SELECT id,owner_id,kind,source_id,title,quality,status,created_at,expires_at,error_code,error_message FROM download_jobs;
+CREATE TABLE download_job_tracks_folder_migration (
+  job_id TEXT NOT NULL REFERENCES download_jobs_folder_migration(id) ON DELETE CASCADE,
+  position INTEGER NOT NULL CHECK(position>=0),
+  track_id TEXT NOT NULL,
+  status TEXT NOT NULL CHECK(status IN ('pending','preparing','ready','failed')),
+  title TEXT NOT NULL,
+  artist TEXT NOT NULL,
+  album TEXT NOT NULL,
+  album_artist TEXT NOT NULL,
+  disc INTEGER NOT NULL CHECK(disc>=0),
+  track_number INTEGER NOT NULL CHECK(track_number>=0),
+  duration_ms INTEGER NOT NULL CHECK(duration_ms>=0),
+  source_version TEXT NOT NULL,
+  quality TEXT NOT NULL CHECK(quality IN ('original','aac_256')),
+  mime TEXT NOT NULL,
+  codec TEXT NOT NULL,
+  byte_size INTEGER NOT NULL CHECK(byte_size>=0),
+  sha256 TEXT NOT NULL,
+  media_path TEXT NOT NULL,
+  artwork_path TEXT NOT NULL,
+  error_code TEXT NOT NULL,
+  error_message TEXT NOT NULL,
+  artifact_name TEXT NOT NULL,
+  PRIMARY KEY(job_id,position)
+) STRICT;
+INSERT INTO download_job_tracks_folder_migration(job_id,position,track_id,status,title,artist,album,album_artist,disc,track_number,duration_ms,source_version,quality,mime,codec,byte_size,sha256,media_path,artwork_path,error_code,error_message,artifact_name)
+SELECT job_id,position,track_id,status,title,artist,album,album_artist,disc,track_number,duration_ms,source_version,quality,mime,codec,byte_size,sha256,media_path,artwork_path,error_code,error_message,artifact_name FROM download_job_tracks;
+DROP TABLE download_job_tracks;
+DROP TABLE download_jobs;
+ALTER TABLE download_jobs_folder_migration RENAME TO download_jobs;
+ALTER TABLE download_job_tracks_folder_migration RENAME TO download_job_tracks;
+CREATE INDEX download_jobs_owner ON download_jobs(owner_id,created_at DESC);
+CREATE INDEX download_jobs_expiry ON download_jobs(expires_at);
+CREATE INDEX download_job_tracks_artifact ON download_job_tracks(job_id,artifact_name);
+`
+	if _, err = tx.ExecContext(ctx, migration); err != nil {
+		return fmt.Errorf("migrate download schema: %w", err)
+	}
+	rows, err := tx.QueryContext(ctx, `PRAGMA foreign_key_check(download_job_tracks)`)
+	if err != nil {
+		return fmt.Errorf("verify download migration foreign keys: %w", err)
+	}
+	if rows.Next() {
+		var table, parent string
+		var rowID sql.NullInt64
+		var foreignKeyID int
+		scanErr := rows.Scan(&table, &rowID, &parent, &foreignKeyID)
+		rows.Close()
+		if scanErr != nil {
+			return fmt.Errorf("read download migration foreign key failure: %w", scanErr)
+		}
+		return fmt.Errorf("download schema migration left an invalid foreign key in %s", table)
+	}
+	if err = rows.Err(); err != nil {
+		rows.Close()
+		return fmt.Errorf("read download migration foreign keys: %w", err)
+	}
+	if err = rows.Close(); err != nil {
+		return fmt.Errorf("close download migration foreign keys: %w", err)
+	}
+	if err = tx.Commit(); err != nil {
+		return fmt.Errorf("commit download schema migration: %w", err)
+	}
+	return nil
+}
+
 type catalog interface {
-	DownloadSnapshot(context.Context, string, string) (library.DownloadSnapshot, error)
+	DownloadSnapshot(context.Context, string, string, string, string) (library.DownloadSnapshot, error)
 	Open(context.Context, string) (*os.File, library.Track, error)
 	Info(context.Context, string) (library.TrackInfo, error)
 }
@@ -119,8 +231,8 @@ func New(parent context.Context, db *sql.DB, catalog catalog, directory, ffmpegP
 	if err != nil || !directoryInfo.IsDir() || directoryInfo.Mode()&os.ModeSymlink != 0 {
 		return nil, errors.New("downloads: artifact directory must be a real directory")
 	}
-	if _, err := db.ExecContext(parent, schema); err != nil {
-		return nil, fmt.Errorf("initialize download schema: %w", err)
+	if err := initializeDownloadSchema(parent, db); err != nil {
+		return nil, err
 	}
 	ctx, cancel := context.WithCancel(parent)
 	service := &Service{
@@ -171,9 +283,19 @@ func (service *Service) Create(ctx context.Context, ownerID string, request Requ
 	}
 	request.Kind = strings.TrimSpace(request.Kind)
 	request.ID = strings.TrimSpace(request.ID)
+	request.RootID = strings.TrimSpace(request.RootID)
 	request.Quality = strings.TrimSpace(request.Quality)
-	if request.ID == "" || len(request.ID) > 256 {
-		return Manifest{}, fault.New(http.StatusBadRequest, "INVALID_REQUEST", "A valid download source id is required.")
+	switch request.Kind {
+	case "track", "album", "playlist":
+		if request.ID == "" || len(request.ID) > 256 || request.RootID != "" || request.Path != "" {
+			return Manifest{}, fault.New(http.StatusBadRequest, "INVALID_REQUEST", "A valid download source id is required.")
+		}
+	case "folder":
+		if request.ID != "" || request.RootID == "" || len(request.RootID) > 256 || len(request.Path) > 4_096 {
+			return Manifest{}, fault.New(http.StatusBadRequest, "INVALID_REQUEST", "A valid download folder root and path are required.")
+		}
+	default:
+		return Manifest{}, fault.New(http.StatusBadRequest, "INVALID_REQUEST", "The download source kind is unsupported.")
 	}
 	if request.Quality != QualityOriginal && request.Quality != QualityAAC256 {
 		return Manifest{}, fault.New(http.StatusBadRequest, "UNSUPPORTED_QUALITY", "The requested download quality is not supported.")
@@ -181,7 +303,7 @@ func (service *Service) Create(ctx context.Context, ownerID string, request Requ
 	if request.Quality == QualityAAC256 && !service.aacEnabled {
 		return Manifest{}, fault.New(http.StatusConflict, "QUALITY_UNAVAILABLE", "AAC download preparation is not available on this server.")
 	}
-	snapshot, err := service.catalog.DownloadSnapshot(ctx, request.Kind, request.ID)
+	snapshot, err := service.catalog.DownloadSnapshot(ctx, request.Kind, request.ID, request.RootID, request.Path)
 	if err != nil {
 		return Manifest{}, err
 	}
@@ -246,12 +368,16 @@ func (service *Service) Create(ctx context.Context, ownerID string, request Requ
 			<-service.admissions
 		}
 	}()
+	sourceID := request.ID
+	if request.Kind == "folder" {
+		sourceID = request.RootID + "\x00" + request.Path
+	}
 	tx, err := service.db.BeginTx(ctx, nil)
 	if err != nil {
 		return Manifest{}, fmt.Errorf("begin download job: %w", err)
 	}
 	defer tx.Rollback()
-	if _, err = tx.ExecContext(ctx, `INSERT INTO download_jobs(id,owner_id,kind,source_id,title,quality,status,created_at,expires_at,error_code,error_message) VALUES(?,?,?,?,?,?,?,?,?,'','')`, id, ownerID, request.Kind, request.ID, snapshot.Title, request.Quality, status, now.Format(time.RFC3339Nano), expires.Format(time.RFC3339Nano)); err != nil {
+	if _, err = tx.ExecContext(ctx, `INSERT INTO download_jobs(id,owner_id,kind,source_id,title,quality,status,created_at,expires_at,error_code,error_message) VALUES(?,?,?,?,?,?,?,?,?,'','')`, id, ownerID, request.Kind, sourceID, snapshot.Title, request.Quality, status, now.Format(time.RFC3339Nano), expires.Format(time.RFC3339Nano)); err != nil {
 		return Manifest{}, fmt.Errorf("create download job: %w", err)
 	}
 	for _, track := range tracks {

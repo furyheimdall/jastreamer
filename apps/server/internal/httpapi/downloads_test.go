@@ -51,6 +51,9 @@ func TestDownloadRoutesRequireAuthServeVerifiedRangesAndLeaveQueueUntouched(t *t
 		t.Fatalf("queue before download status=%d error=%v", beforeResponse.StatusCode, err)
 	}
 
+	// A null path must not be interpreted as an explicit request for the entire root.
+	expectStatus(t, fixture.request(t, http.MethodPost, "/api/v1/downloads", `{"kind":"folder","root_id":"music","path":null,"quality":"original"}`, nil), http.StatusBadRequest)
+
 	response := fixture.request(t, http.MethodPost, "/api/v1/downloads", `{"kind":"track","id":"`+track.ID+`","quality":"original"}`, nil)
 	defer response.Body.Close()
 	if response.StatusCode != http.StatusAccepted {

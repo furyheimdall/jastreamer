@@ -5,6 +5,7 @@ import android.content.res.Configuration
 import android.net.Uri
 import android.os.Looper
 import android.view.View
+import android.widget.CheckBox
 import android.widget.LinearLayout
 import android.widget.RadioButton
 import android.widget.RadioGroup
@@ -37,6 +38,7 @@ internal class NativeDownloadBridge(
     private val server: ServerEndpoint,
     private val canDownload: () -> Boolean,
     private val onOpenLibrary: () -> Unit,
+    private val onOpenDownloads: () -> Unit,
 ) : WebViewCompat.WebMessageListener {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private var documentGeneration = 0L
@@ -139,7 +141,7 @@ internal class NativeDownloadBridge(
             Action.STATUS -> {
                 val permitted = (request.jobIds ?: documentJobs).filterTo(LinkedHashSet()) { it in documentJobs }
                 val values = JSONArray()
-                OfflineDownloads.jobValues(permitted).forEach { values.put(statusValue(it)) }
+                OfflineDownloads.jobValues(webView.context, permitted).forEach { values.put(statusValue(it)) }
                 reply(replyProxy, generation, result(request.id, JSONObject().put("jobs", values)))
             }
             Action.LOGOUT -> {
@@ -163,6 +165,20 @@ internal class NativeDownloadBridge(
                     }
                 }
             }
+            Action.OPEN_DOWNLOADS -> {
+                if (!hostInteractive || !canDownload()) {
+                    reply(
+                        replyProxy,
+                        generation,
+                        error(request.id, "not_foreground", "Open the app to view downloads"),
+                    )
+                } else if (reply(replyProxy, generation, result(request.id, JSONObject()))) {
+                    webView.post {
+                        if (isCurrent(generation) && hostInteractive && canDownload()) onOpenDownloads()
+                    }
+                }
+            }
+            Action.CONFIGURE_NETWORK -> configureNetwork(request, generation, replyProxy)
             Action.DOWNLOAD -> startDownload(request, generation, replyProxy)
         }
     }
@@ -181,12 +197,47 @@ internal class NativeDownloadBridge(
             try {
                 val target = requireNotNull(request.target)
                 val quality = requireNotNull(request.quality)
+                val initialNetwork = OfflineDownloads.networkState(webView.context)
+                if (
+                    initialNetwork.errorCode == "network_roaming" ||
+                    initialNetwork.errorCode == "network_unavailable"
+                ) {
+                    throw OfflineDownloadException(
+                        requireNotNull(initialNetwork.errorCode),
+                        requireNotNull(initialNetwork.errorMessage),
+                    )
+                }
+                if (initialNetwork.errorCode == "network_unmetered_required") {
+                    val allowed = confirmMeteredAccess(initialNetwork, generation)
+                    if (!allowed) throw OfflineDownloadException("cancelled", "Download was not confirmed")
+                    if (!isCurrent(generation) || !hostInteractive || !canDownload()) return@launch
+                    OfflineDownloads.setAllowMetered(webView.context, true)
+                }
+                val previewNetwork = OfflineDownloads.networkState(webView.context)
+                if (!previewNetwork.allowed) {
+                    throw OfflineDownloadException(
+                        requireNotNull(previewNetwork.errorCode),
+                        requireNotNull(previewNetwork.errorMessage),
+                    )
+                }
                 val preview = OfflineDownloads.preview(webView.context, server, target)
                 if (!isCurrent(generation) || !hostInteractive || !canDownload()) return@launch
-                val selection = chooseDestination(preview, quality, generation)
-                    ?: throw OfflineDownloadException("cancelled", "Download was not confirmed")
+                val selection = chooseDestination(
+                    preview,
+                    quality,
+                    generation,
+                    OfflineDownloads.networkState(webView.context),
+                ) ?: throw OfflineDownloadException("cancelled", "Download was not confirmed")
                 if (!isCurrent(generation) || !hostInteractive || !canDownload()) return@launch
-                val jobId = OfflineDownloads.enqueue(webView.context, server, target, quality, selection)
+                if (selection.allowMetered) OfflineDownloads.setAllowMetered(webView.context, true)
+                val network = OfflineDownloads.networkState(webView.context)
+                if (!network.allowed) {
+                    throw OfflineDownloadException(
+                        requireNotNull(network.errorCode),
+                        requireNotNull(network.errorMessage),
+                    )
+                }
+                val jobId = OfflineDownloads.enqueue(webView.context, server, target, quality, selection.folderId)
                 if (!isCurrent(generation)) return@launch
                 documentJobs.add(jobId)
                 reply(replyProxy, generation, result(request.id, JSONObject().put("job_id", jobId)))
@@ -202,7 +253,108 @@ internal class NativeDownloadBridge(
         }
     }
 
-    private suspend fun chooseDestination(preview: DownloadPreview, quality: String, generation: Long): String? {
+    private fun configureNetwork(request: Request, generation: Long, replyProxy: JavaScriptReplyProxy) {
+        val jobId = requireNotNull(request.jobId)
+        if (jobId !in documentJobs) {
+            reply(replyProxy, generation, error(request.id, "invalid_request", "The download is not available to this page"))
+            return
+        }
+        if (!hostInteractive || !canDownload()) {
+            reply(replyProxy, generation, error(request.id, "not_foreground", "Open the app to change download network access"))
+            return
+        }
+        if (confirmationPending) {
+            reply(replyProxy, generation, error(request.id, "busy", "Finish the current download confirmation first"))
+            return
+        }
+        confirmationPending = true
+        scope.launch {
+            try {
+                val confirmed = confirmMeteredAccess(
+                    OfflineDownloads.networkState(webView.context),
+                    generation,
+                )
+                if (!confirmed) {
+                    if (isCurrent(generation) && hostInteractive && canDownload() && jobId in documentJobs) {
+                        reply(replyProxy, generation, result(request.id, JSONObject()))
+                    }
+                    return@launch
+                }
+                if (!isCurrent(generation) || !hostInteractive || !canDownload() || jobId !in documentJobs) return@launch
+                OfflineDownloads.setAllowMetered(webView.context, true)
+                if (!isCurrent(generation) || jobId !in documentJobs) return@launch
+                reply(replyProxy, generation, result(request.id, JSONObject()))
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (failure: OfflineDownloadException) {
+                reply(replyProxy, generation, error(request.id, safeCode(failure.code), failure.message))
+            } catch (_: Throwable) {
+                reply(replyProxy, generation, error(request.id, "unavailable", "Download network access could not be changed"))
+            } finally {
+                confirmationPending = false
+            }
+        }
+    }
+
+    private suspend fun confirmMeteredAccess(network: OfflineNetworkState, generation: Long): Boolean {
+        val strings = localizedStrings()
+        return suspendCancellableCoroutine { continuation ->
+            if (!isCurrent(generation) || !hostInteractive || !canDownload()) {
+                continuation.resume(false)
+                return@suspendCancellableCoroutine
+            }
+            val density = webView.resources.displayMetrics.density
+            val padding = (20 * density).toInt()
+            val content = TextView(webView.context).apply {
+                text = strings.meteredConfirmation(network)
+                textSize = 16f
+                setPadding(padding, padding / 2, padding, padding / 2)
+                importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_YES
+            }
+            var completed = false
+            val candidate = AlertDialog.Builder(webView.context)
+                .setTitle(strings.meteredTitle)
+                .setView(ScrollView(webView.context).apply { addView(content) })
+                .setNegativeButton(strings.cancel) { _, _ ->
+                    if (!completed && continuation.isActive) {
+                        completed = true
+                        continuation.resume(false)
+                    }
+                }
+                .setPositiveButton(strings.allowMetered) { _, _ ->
+                    if (!completed && continuation.isActive) {
+                        completed = true
+                        continuation.resume(true)
+                    }
+                }
+                .setOnCancelListener {
+                    if (!completed && continuation.isActive) {
+                        completed = true
+                        continuation.resume(false)
+                    }
+                }
+                .create()
+            dialog = candidate
+            continuation.invokeOnCancellation {
+                webView.post { if (dialog === candidate) candidate.dismiss() }
+            }
+            candidate.setOnDismissListener {
+                if (dialog === candidate) dialog = null
+                if (!completed && continuation.isActive) {
+                    completed = true
+                    continuation.resume(false)
+                }
+            }
+            candidate.show()
+        }
+    }
+
+    private suspend fun chooseDestination(
+        preview: DownloadPreview,
+        quality: String,
+        generation: Long,
+        network: OfflineNetworkState,
+    ): DestinationSelection? {
         val strings = localizedStrings()
         val folders = withContext(Dispatchers.IO) {
             val library = OfflineLibrary.get(webView.context)
@@ -237,13 +389,26 @@ internal class NativeDownloadBridge(
             val padding = (20 * density).toInt()
             val content = LinearLayout(webView.context).apply {
                 orientation = LinearLayout.VERTICAL
-                setPadding(padding, padding / 2, padding, 0)
+                setPadding(padding, padding / 2, padding, padding / 2)
             }
             content.addView(TextView(webView.context).apply {
                 text = strings.summary(preview.title, preview.trackCount, quality)
                 textSize = 16f
                 importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_YES
             })
+            content.addView(TextView(webView.context).apply {
+                text = strings.networkStatus(network)
+                setPadding(0, padding / 2, 0, 0)
+                importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_YES
+            })
+            val meteredChoice = if (network.errorCode == "network_unmetered_required") {
+                CheckBox(webView.context).apply {
+                    text = strings.allowMetered
+                    minHeight = (48 * density).toInt()
+                }.also(content::addView)
+            } else {
+                null
+            }
             content.addView(TextView(webView.context).apply {
                 text = strings.chooseFolder
                 setPadding(0, padding / 2, 0, padding / 4)
@@ -258,17 +423,14 @@ internal class NativeDownloadBridge(
                     minHeight = (48 * density).toInt()
                 })
             }
-            content.addView(ScrollView(webView.context).apply {
-                isFillViewport = true
-                addView(group)
-            }, LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                (320 * density).toInt(),
-            ))
+            content.addView(group)
             var completed = false
             val candidate = AlertDialog.Builder(webView.context)
                 .setTitle(strings.title)
-                .setView(content)
+                .setView(ScrollView(webView.context).apply {
+                    isFillViewport = true
+                    addView(content)
+                })
                 .setNegativeButton(strings.cancel) { _, _ ->
                     if (!completed && continuation.isActive) {
                         completed = true
@@ -280,7 +442,12 @@ internal class NativeDownloadBridge(
                         completed = true
                         val selected = group.findViewById<RadioButton>(group.checkedRadioButtonId)
                         val index = selected?.tag as? Int ?: initial
-                        continuation.resume(folders[index].first.id)
+                        continuation.resume(
+                            DestinationSelection(
+                                folders[index].first.id,
+                                meteredChoice?.isChecked == true,
+                            ),
+                        )
                     }
                 }
                 .setOnCancelListener {
@@ -315,6 +482,15 @@ internal class NativeDownloadBridge(
             setLocale(Locale.forLanguageTag(if (language == "ko") "ko" else "en"))
         }
         val context = webView.context.createConfigurationContext(configuration)
+        fun networkStatus(state: OfflineNetworkState): String = context.getString(
+            when {
+                state.errorCode == "network_unavailable" -> R.string.offline_download_network_unavailable
+                state.errorCode == "network_roaming" -> R.string.offline_download_network_roaming
+                state.errorCode == "network_unmetered_required" -> R.string.offline_download_network_metered_blocked
+                state.metered -> R.string.offline_download_network_metered_allowed
+                else -> R.string.offline_download_network_unmetered_available
+            },
+        )
         return DialogStrings(
             title = context.getString(R.string.offline_download_confirm_title),
             chooseFolder = context.getString(R.string.offline_download_choose_folder),
@@ -322,6 +498,16 @@ internal class NativeDownloadBridge(
             cancel = context.getString(android.R.string.cancel),
             importedFolder = context.getString(R.string.offline_download_imported_folder),
             rootFolder = context.getString(R.string.offline_download_root_folder),
+            allowMetered = context.getString(R.string.offline_download_allow_metered),
+            meteredTitle = context.getString(R.string.offline_download_network_confirm_title),
+            networkStatus = ::networkStatus,
+            meteredConfirmation = { state ->
+                context.getString(
+                    R.string.offline_download_network_confirm_summary,
+                    networkStatus(state),
+                    context.getString(R.string.offline_download_network_roaming_guard),
+                )
+            },
             summary = { title, count, quality ->
                 context.getString(
                     R.string.offline_download_confirm_summary,
@@ -346,12 +532,15 @@ internal class NativeDownloadBridge(
             "status" -> Action.STATUS
             "logout" -> Action.LOGOUT
             "open_library" -> Action.OPEN_LIBRARY
+            "configure_network" -> Action.CONFIGURE_NETWORK
+            "open_downloads" -> Action.OPEN_DOWNLOADS
             null -> throw RequestFailure(id, "Action is required")
             else -> throw RequestFailure(id, "Action is not supported")
         }
         val allowed = when (action) {
             Action.DOWNLOAD -> DOWNLOAD_KEYS
             Action.STATUS -> STATUS_KEYS
+            Action.CONFIGURE_NETWORK -> CONFIGURE_NETWORK_KEYS
             else -> BASIC_KEYS
         }
         value.keys().forEach { if (it !in allowed) throw RequestFailure(id, "Request contains unsupported fields") }
@@ -369,7 +558,7 @@ internal class NativeDownloadBridge(
                 } catch (failure: OfflineDownloadException) {
                     throw RequestFailure(id, failure.message)
                 }
-                Request(id, action, JSONObject(target.toString()), quality, null)
+                Request(id, action, JSONObject(target.toString()), quality, null, null)
             }
             Action.STATUS -> {
                 if (value.has("job_ids") && value.optJSONArray("job_ids") == null) {
@@ -387,9 +576,16 @@ internal class NativeDownloadBridge(
                         }
                     }
                 }
-                Request(id, action, null, null, ids)
+                Request(id, action, null, null, ids, null)
             }
-            else -> Request(id, action, null, null, null)
+            Action.CONFIGURE_NETWORK -> {
+                val jobId = value.opt("job_id") as? String ?: throw RequestFailure(id, "Job id is required")
+                if (jobId.isBlank() || jobId.length > MAX_JOB_ID_CHARACTERS || jobId.any(Char::isISOControl)) {
+                    throw RequestFailure(id, "Job id is invalid")
+                }
+                Request(id, action, null, null, null, jobId)
+            }
+            else -> Request(id, action, null, null, null, null)
         }
     }
 
@@ -448,8 +644,14 @@ internal class NativeDownloadBridge(
         val cancel: String,
         val importedFolder: String,
         val rootFolder: String,
+        val allowMetered: String,
+        val meteredTitle: String,
+        val networkStatus: (OfflineNetworkState) -> String,
+        val meteredConfirmation: (OfflineNetworkState) -> String,
         val summary: (String, Int, String) -> String,
     )
+
+    private data class DestinationSelection(val folderId: String, val allowMetered: Boolean)
 
     private data class Request(
         val id: String,
@@ -457,10 +659,19 @@ internal class NativeDownloadBridge(
         val target: JSONObject?,
         val quality: String?,
         val jobIds: Set<String>?,
+        val jobId: String?,
     )
 
     private class RequestFailure(val id: String, val safeMessage: String) : Exception()
-    private enum class Action { CAPABILITIES, DOWNLOAD, STATUS, LOGOUT, OPEN_LIBRARY }
+    private enum class Action {
+        CAPABILITIES,
+        DOWNLOAD,
+        STATUS,
+        LOGOUT,
+        OPEN_LIBRARY,
+        CONFIGURE_NETWORK,
+        OPEN_DOWNLOADS,
+    }
 
     companion object {
         const val OBJECT_NAME = "JastreamerDownloads"
@@ -474,6 +685,7 @@ internal class NativeDownloadBridge(
         private val BASIC_KEYS = setOf("id", "action")
         private val DOWNLOAD_KEYS = setOf("id", "action", "target", "quality")
         private val STATUS_KEYS = setOf("id", "action", "job_ids")
+        private val CONFIGURE_NETWORK_KEYS = setOf("id", "action", "job_id")
         private val SAFE_CODE = Regex("[a-z0-9_.-]{1,64}")
     }
 }

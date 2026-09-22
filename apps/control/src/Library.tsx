@@ -477,6 +477,7 @@ export default function Library({ revision, onNotice, onQueueChange, downloads }
             <button className="button button-ghost" type="button" disabled={actionBusy || (!loading && !page?.total)} onClick={() => runScopeQueue("append")}><Icon name="append" /> {t("library.addToEnd")}</button>
             <button className="button button-ghost" type="button" disabled={actionBusy || (!loading && !page?.total)} onClick={openScopePicker}><Icon name="playlist" /> {t("library.addToSaved")}</button>
             {scope.kind === "album" && <NativeDownloadAction downloads={downloads} target={{ kind: "album", id: scope.id }} title={scope.title} />}
+            {scope.kind === "folder" && <NativeDownloadAction downloads={downloads} target={{ kind: "folder", root_id: scope.rootID, path: scope.path }} title={scope.title} />}
           </div>
         </div>
       )}
@@ -528,13 +529,23 @@ export default function Library({ revision, onNotice, onQueueChange, downloads }
 
       {!loading && !error && !scope && kind === "folders" && (
         <div className="library-folder-list">
-          {(page?.items as Folder[] | undefined)?.map((folder) => <button className="library-folder-row" type="button" key={`${folder.root_id}:${folder.path}`} onClick={() => openItem(folder)}><span className="library-folder-icon"><Icon name="folder" /></span><span><strong>{folder.name}</strong><small>{folder.path || t("library.rootFolder")}</small></span><span className="library-folder-count">{t(folder.track_count === 1 ? "library.oneTrack" : "library.manyTracks", { count: numberFormatter.format(folder.track_count) })}</span></button>)}
+          {(page?.items as Folder[] | undefined)?.map((folder) => (
+            <div className="library-folder-item" key={`${folder.root_id}:${folder.path}`}>
+              <button className="library-folder-row" type="button" onClick={() => openItem(folder)}><span className="library-folder-icon"><Icon name="folder" /></span><span><strong>{folder.name}</strong><small>{folder.path || t("library.rootFolder")}</small></span><span className="library-folder-count">{t(folder.track_count === 1 ? "library.oneTrack" : "library.manyTracks", { count: numberFormatter.format(folder.track_count) })}</span></button>
+              <NativeDownloadAction downloads={downloads} target={{ kind: "folder", root_id: folder.root_id, path: folder.path }} title={folder.name} disabled={folder.track_count === 0} />
+            </div>
+          ))}
         </div>
       )}
 
       {!loading && !error && scope?.kind === "folder" && childFolders.length > 0 && (
         <div className="library-child-folders" aria-label={t("library.childFolders")}>
-          {childFolders.map((folder) => <button className="library-folder-row" type="button" key={`${folder.root_id}:${folder.path}`} onClick={() => setScope({ kind: "folder", rootID: folder.root_id, path: folder.path, title: folder.name })}><span className="library-folder-icon"><Icon name="folder" /></span><span><strong>{folder.name}</strong><small>{folder.path}</small></span><span className="library-folder-count">{t(folder.track_count === 1 ? "library.oneTrack" : "library.manyTracks", { count: numberFormatter.format(folder.track_count) })}</span></button>)}
+          {childFolders.map((folder) => (
+            <div className="library-folder-item" key={`${folder.root_id}:${folder.path}`}>
+              <button className="library-folder-row" type="button" onClick={() => setScope({ kind: "folder", rootID: folder.root_id, path: folder.path, title: folder.name })}><span className="library-folder-icon"><Icon name="folder" /></span><span><strong>{folder.name}</strong><small>{folder.path}</small></span><span className="library-folder-count">{t(folder.track_count === 1 ? "library.oneTrack" : "library.manyTracks", { count: numberFormatter.format(folder.track_count) })}</span></button>
+              <NativeDownloadAction downloads={downloads} target={{ kind: "folder", root_id: folder.root_id, path: folder.path }} title={folder.name} disabled={folder.track_count === 0} />
+            </div>
+          ))}
         </div>
       )}
 

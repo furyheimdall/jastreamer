@@ -7,13 +7,16 @@ const RESPONSE_TIMEOUT_MS = 10_000;
 const DOWNLOAD_CONFIRMATION_TIMEOUT_MS = 5 * 60_000;
 const MAX_MESSAGE_BYTES = 64 * 1024;
 const MAX_ID_BYTES = 512;
+const MAX_TARGET_PATH_BYTES = 4_096;
 const MAX_STATUS_JOBS = 100;
 const POLL_INTERVAL_MS = 1_500;
 const textEncoder = new TextEncoder();
 let requestSequence = 0;
 
 export type DownloadQuality = "original" | "aac_256";
-export type DownloadTarget = { kind: "track" | "album" | "playlist"; id: string };
+export type DownloadTarget =
+  | { kind: "track" | "album" | "playlist"; id: string }
+  | { kind: "folder"; root_id: string; path: string };
 export type DownloadStatus = "waiting" | "preparing" | "downloading" | "paused" | "importing" | "completed" | "partial" | "failed" | "cancelled";
 
 export interface JastreamerDownloadsBridge {
@@ -38,8 +41,11 @@ export type NativeDownloadJob = {
   total_bytes: number;
   error?: { code: string; message: string };
 };
+export type NativeDownloadDisplayJob = NativeDownloadJob & {
+  title: string;
+};
 
-type BridgeAction = "capabilities" | "download" | "status" | "logout" | "open_library";
+type BridgeAction = "capabilities" | "download" | "status" | "logout" | "open_library" | "configure_network" | "open_downloads";
 type PendingRequest = {
   timer: number;
   parse: (value: unknown) => unknown | null;
@@ -56,9 +62,15 @@ type ServerCapabilities = {
 export type JastreamerDownloads = {
   available: boolean;
   qualities: DownloadQuality[];
+  jobs: NativeDownloadDisplayJob[];
   statusError: string;
+  statusOpen: boolean;
   jobFor: (target: DownloadTarget) => NativeDownloadJob | undefined;
-  start: (target: DownloadTarget, quality: DownloadQuality) => Promise<string>;
+  start: (target: DownloadTarget, quality: DownloadQuality, title: string) => Promise<string>;
+  openStatus: () => void;
+  closeStatus: () => void;
+  configureNetwork: (jobID: string) => Promise<void>;
+  openDownloads: () => Promise<void>;
   openLibrary: () => Promise<void>;
   logout: () => Promise<void>;
 };
@@ -89,6 +101,12 @@ function boundedString(value: unknown, maxBytes = MAX_ID_BYTES): value is string
   return typeof value === "string"
     && value.length > 0
     && textEncoder.encode(value).length <= maxBytes
+    && !/[\u0000-\u001f\u007f]/u.test(value);
+}
+
+function boundedTargetPath(value: unknown): value is string {
+  return typeof value === "string"
+    && textEncoder.encode(value).length <= MAX_TARGET_PATH_BYTES
     && !/[\u0000-\u001f\u007f]/u.test(value);
 }
 
@@ -195,15 +213,22 @@ function messageData(event: Event): string | null {
 }
 
 function targetKey(target: DownloadTarget): string {
-  return `${target.kind}:${target.id}`;
+  return target.kind === "folder"
+    ? JSON.stringify(["folder", target.root_id, target.path])
+    : JSON.stringify([target.kind, target.id]);
 }
 
 function validTarget(target: DownloadTarget): boolean {
   const candidate = record(target);
-  return Boolean(candidate
-    && hasOnlyKeys(candidate, ["kind", "id"])
+  if (!candidate) return false;
+  if (candidate.kind === "folder") {
+    return hasOnlyKeys(candidate, ["kind", "root_id", "path"])
+      && boundedString(candidate.root_id)
+      && boundedTargetPath(candidate.path);
+  }
+  return hasOnlyKeys(candidate, ["kind", "id"])
     && (candidate.kind === "track" || candidate.kind === "album" || candidate.kind === "playlist")
-    && boundedString(candidate.id));
+    && boundedString(candidate.id);
 }
 
 export function nativeDownloadsBridge(): JastreamerDownloadsBridge | null {
@@ -293,6 +318,17 @@ export class JastreamerDownloadsClient {
     await this.request("open_library", {}, parseEmptyResult);
   }
 
+  async configureNetwork(jobID: string): Promise<void> {
+    if (!boundedString(jobID)) {
+      throw new JastreamerDownloadsError("invalid_request", "The download network request is invalid.");
+    }
+    await this.request("configure_network", { job_id: jobID }, parseEmptyResult, DOWNLOAD_CONFIRMATION_TIMEOUT_MS);
+  }
+
+  async openDownloads(): Promise<void> {
+    await this.request("open_downloads", {}, parseEmptyResult);
+  }
+
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
@@ -347,7 +383,10 @@ export function useJastreamerDownloads(authenticated: boolean): JastreamerDownlo
   const [qualities, setQualities] = useState<DownloadQuality[]>([]);
   const [jobs, setJobs] = useState<Record<string, NativeDownloadJob>>({});
   const [targetJobs, setTargetJobs] = useState<Record<string, string>>({});
+  const [jobTitles, setJobTitles] = useState<Record<string, string>>({});
+  const [jobOrder, setJobOrder] = useState<string[]>([]);
   const [statusError, setStatusError] = useState("");
+  const [statusOpen, setStatusOpen] = useState(false);
   const [pollGeneration, setPollGeneration] = useState(0);
   const clientRef = useRef<JastreamerDownloadsClient | null>(null);
   const enabledRef = useRef(false);
@@ -364,6 +403,9 @@ export function useJastreamerDownloads(authenticated: boolean): JastreamerDownlo
     if (!authenticated) {
       setJobs({});
       setTargetJobs({});
+      setJobTitles({});
+      setJobOrder([]);
+      setStatusOpen(false);
       setStatusError("");
       setPollGeneration(0);
       jobIdsRef.current = new Set();
@@ -455,7 +497,7 @@ export function useJastreamerDownloads(authenticated: boolean): JastreamerDownlo
     return () => window.clearInterval(timer);
   }, [available, pollGeneration, refreshStatuses]);
 
-  const start = useCallback(async (target: DownloadTarget, quality: DownloadQuality): Promise<string> => {
+  const start = useCallback(async (target: DownloadTarget, quality: DownloadQuality, title: string): Promise<string> => {
     const client = clientRef.current;
     if (!client || !enabledRef.current || !qualities.includes(quality)) {
       throw new JastreamerDownloadsError("downloads_unavailable", "Downloads are not available in this app or from this server.");
@@ -475,6 +517,9 @@ export function useJastreamerDownloads(authenticated: boolean): JastreamerDownlo
     };
     jobsRef.current = { ...jobsRef.current, [result.job_id]: waitingJob };
     setJobs((current) => ({ ...current, [result.job_id]: waitingJob }));
+    setJobTitles((current) => ({ ...current, [result.job_id]: title }));
+    setJobOrder((current) => current.includes(result.job_id) ? current : [...current, result.job_id]);
+    setStatusOpen(true);
     return result.job_id;
   }, [qualities]);
 
@@ -487,6 +532,9 @@ export function useJastreamerDownloads(authenticated: boolean): JastreamerDownlo
     jobsRef.current = {};
     setJobs({});
     setTargetJobs({});
+    setJobTitles({});
+    setJobOrder([]);
+    setStatusOpen(false);
     setStatusError("");
     setPollGeneration((current) => current + 1);
   }, []);
@@ -497,12 +545,67 @@ export function useJastreamerDownloads(authenticated: boolean): JastreamerDownlo
     await client.openLibrary();
   }, []);
 
+  const configureNetwork = useCallback(async (jobID: string) => {
+    const client = clientRef.current;
+    if (!client || !enabledRef.current || !jobsRef.current[jobID]) {
+      throw new JastreamerDownloadsError("bridge_unavailable", "The native download service is unavailable.");
+    }
+    await client.configureNetwork(jobID);
+    if (isTerminal(jobsRef.current[jobID]?.status ?? "")) return;
+    jobIdsRef.current = new Set(jobIdsRef.current).add(jobID);
+    setPollGeneration((current) => current + 1);
+  }, []);
+
+  const openDownloads = useCallback(async () => {
+    const client = clientRef.current;
+    if (!client || !enabledRef.current) {
+      throw new JastreamerDownloadsError("bridge_unavailable", "The native download service is unavailable.");
+    }
+    await client.openDownloads();
+  }, []);
+
+  const openStatus = useCallback(() => setStatusOpen(true), []);
+  const closeStatus = useCallback(() => setStatusOpen(false), []);
+
   const jobFor = useCallback((target: DownloadTarget) => {
     const id = targetJobs[targetKey(target)];
     return id ? jobs[id] : undefined;
   }, [jobs, targetJobs]);
 
-  return useMemo(() => ({ available, qualities, statusError, jobFor, start, logout, openLibrary }), [available, jobFor, logout, openLibrary, qualities, start, statusError]);
+  const displayJobs = useMemo(() => jobOrder.flatMap((id) => {
+    const job = jobs[id];
+    return job ? [{ ...job, title: jobTitles[id] ?? "" }] : [];
+  }), [jobOrder, jobTitles, jobs]);
+
+  return useMemo(() => ({
+    available,
+    qualities,
+    jobs: displayJobs,
+    statusError,
+    statusOpen,
+    jobFor,
+    start,
+    openStatus,
+    closeStatus,
+    configureNetwork,
+    openDownloads,
+    openLibrary,
+    logout,
+  }), [
+    available,
+    closeStatus,
+    configureNetwork,
+    displayJobs,
+    jobFor,
+    logout,
+    openDownloads,
+    openLibrary,
+    openStatus,
+    qualities,
+    start,
+    statusError,
+    statusOpen,
+  ]);
 }
 
 function DownloadIcon() {
@@ -558,6 +661,203 @@ function compactStatus(job: NativeDownloadJob): string {
   if (job.status === "failed" || job.status === "cancelled") return "!";
   if (job.total_bytes > 0 && job.received_bytes > 0) return `${Math.min(100, Math.floor((job.received_bytes / job.total_bytes) * 100))}%`;
   return "…";
+}
+
+function networkActionKey(code: string | undefined): MessageKey | null {
+  if (code === "network_unmetered_required") return "downloads.panel.configureMetered";
+  if (code === "network_roaming") return "downloads.panel.configureRoaming";
+  return null;
+}
+
+export function NativeDownloadsStatus({ downloads }: { downloads: JastreamerDownloads }) {
+  const { locale, t } = useI18n();
+  const [networkBusy, setNetworkBusy] = useState("");
+  const [managerBusy, setManagerBusy] = useState(false);
+  const [actionError, setActionError] = useState("");
+  const dialogRef = useRef<HTMLElement | null>(null);
+  const closeRef = useRef<HTMLButtonElement | null>(null);
+  const openRef = useRef<HTMLButtonElement | null>(null);
+  const previousFocusRef = useRef<HTMLElement | null>(null);
+  const activeCount = downloads.jobs.filter((job) => !isTerminal(job.status)).length;
+
+  useEffect(() => {
+    if (!downloads.statusOpen) return;
+    previousFocusRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    closeRef.current?.focus();
+
+    function isTopmostDialog(): boolean {
+      const dialogs = document.querySelectorAll<HTMLElement>('[aria-modal="true"][role="dialog"], [aria-modal="true"][role="alertdialog"]');
+      return dialogs[dialogs.length - 1] === dialogRef.current;
+    }
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (!isTopmostDialog()) return;
+      if (event.key === "Escape") {
+        event.preventDefault();
+        downloads.closeStatus();
+        return;
+      }
+      if (event.key !== "Tab") return;
+      const focusable = Array.from(dialogRef.current?.querySelectorAll<HTMLElement>(
+        'button:not(:disabled), [href], input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex="-1"])',
+      ) ?? []).filter((element) => !element.hasAttribute("hidden"));
+      if (focusable.length === 0) {
+        event.preventDefault();
+        dialogRef.current?.focus();
+        return;
+      }
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && (document.activeElement === first || !dialogRef.current?.contains(document.activeElement))) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && (document.activeElement === last || !dialogRef.current?.contains(document.activeElement))) {
+        event.preventDefault();
+        first.focus();
+      }
+    }
+
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("keydown", handleKeyDown);
+      const previousFocus = previousFocusRef.current;
+      previousFocusRef.current = null;
+      if (previousFocus?.isConnected) previousFocus.focus();
+      else openRef.current?.focus();
+    };
+  }, [downloads.closeStatus, downloads.statusOpen]);
+
+  if (!downloads.available) return null;
+
+  async function configureNetwork(jobID: string) {
+    setNetworkBusy(jobID);
+    setActionError("");
+    try {
+      await downloads.configureNetwork(jobID);
+    } catch (error) {
+      if (!(error instanceof DOMException && error.name === "AbortError")) {
+        setActionError(error instanceof Error ? error.message : t("downloads.panel.configureFailed"));
+      }
+    } finally {
+      setNetworkBusy("");
+    }
+  }
+
+  async function openNativeDownloads() {
+    setManagerBusy(true);
+    setActionError("");
+    try {
+      await downloads.openDownloads();
+    } catch (error) {
+      if (!(error instanceof DOMException && error.name === "AbortError")) {
+        setActionError(error instanceof Error ? error.message : t("downloads.panel.openManagerFailed"));
+      }
+    } finally {
+      setManagerBusy(false);
+    }
+  }
+
+  const countLabel = activeCount > 0
+    ? t("downloads.panel.activeCount", { count: activeCount })
+    : downloads.jobs.length > 0
+      ? t("downloads.panel.count", { count: downloads.jobs.length })
+      : "";
+
+  return (
+    <>
+      <div className="native-download-status-toolbar">
+        <button
+          ref={openRef}
+          className="button button-ghost native-download-status-open"
+          type="button"
+          data-download-status="true"
+          aria-haspopup="dialog"
+          aria-expanded={downloads.statusOpen}
+          aria-label={t("downloads.panel.openLabel")}
+          onClick={downloads.openStatus}
+        >
+          <DownloadIcon />
+          <span>{t("downloads.panel.open")}</span>
+          {countLabel && <span className="native-download-status-count" aria-live="polite">{countLabel}</span>}
+        </button>
+      </div>
+      {downloads.statusOpen && createPortal(
+        <div className="library-dialog-backdrop native-download-status-backdrop" role="presentation" onMouseDown={(event) => {
+          if (event.currentTarget === event.target) downloads.closeStatus();
+        }}>
+          <section
+            ref={dialogRef}
+            className="library-dialog native-download-status-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="native-download-status-title"
+            tabIndex={-1}
+          >
+            <div className="library-dialog-heading">
+              <div>
+                <p className="library-eyebrow">{t("downloads.panel.eyebrow")}</p>
+                <h2 id="native-download-status-title">{t("downloads.panel.heading")}</h2>
+              </div>
+              <button ref={closeRef} className="button button-ghost" type="button" onClick={downloads.closeStatus}>{t("common.close")}</button>
+            </div>
+            {downloads.statusError && <p className="native-download-status-error" role="status">{t("downloads.status.unavailable")}: {downloads.statusError}</p>}
+            {downloads.jobs.length === 0 ? (
+              <p className="native-download-status-empty">{t("downloads.panel.empty")}</p>
+            ) : (
+              <div className="native-download-job-list">
+                {[...downloads.jobs].reverse().map((job) => {
+                  const percent = job.total_bytes > 0 ? Math.min(100, Math.floor((job.received_bytes / job.total_bytes) * 100)) : 0;
+                  const networkKey = networkActionKey(job.error?.code);
+                  return (
+                    <article className={`native-download-job native-download-job-${job.status}`} key={job.id}>
+                      <div className="native-download-job-heading">
+                        <strong>{job.title}</strong>
+                        <span>{t(statusKey(job.status))}</span>
+                      </div>
+                      {job.total_tracks > 0 ? (
+                        <p>{t("downloads.panel.trackProgress", { completed: job.completed_tracks, total: job.total_tracks, failed: job.failed_tracks })}</p>
+                      ) : (
+                        <p>{t("downloads.panel.trackPreparing")}</p>
+                      )}
+                      {job.total_bytes > 0 ? (
+                        <>
+                          <progress max={job.total_bytes} value={job.received_bytes} aria-label={t("downloads.status.progress", {
+                            percent,
+                            received: formatBytes(job.received_bytes, locale),
+                            total: formatBytes(job.total_bytes, locale),
+                          })} />
+                          <p>{t("downloads.status.progress", {
+                            percent,
+                            received: formatBytes(job.received_bytes, locale),
+                            total: formatBytes(job.total_bytes, locale),
+                          })}</p>
+                        </>
+                      ) : job.received_bytes > 0 ? (
+                        <p>{t("downloads.panel.bytesReceived", { received: formatBytes(job.received_bytes, locale) })}</p>
+                      ) : null}
+                      {job.error && <p className="native-download-job-error" role="status">{job.error.message}</p>}
+                      {networkKey && (
+                        <button className="button button-ghost native-download-network-action" type="button" disabled={networkBusy === job.id} onClick={() => void configureNetwork(job.id)}>
+                          {t(networkBusy === job.id ? "downloads.panel.configuringNetwork" : networkKey)}
+                        </button>
+                      )}
+                    </article>
+                  );
+                })}
+              </div>
+            )}
+            {actionError && <p className="error-text native-download-panel-action-error" role="alert">{actionError}</p>}
+            <div className="native-download-panel-actions">
+              <button className="button button-ghost" type="button" disabled={managerBusy} onClick={() => void openNativeDownloads()}>
+                {t(managerBusy ? "downloads.panel.openingManager" : "downloads.panel.openManager")}
+              </button>
+            </div>
+          </section>
+        </div>,
+        document.body,
+      )}
+    </>
+  );
 }
 
 export function NativeDownloadAction({
@@ -656,7 +956,10 @@ export function NativeDownloadAction({
   function openDialog(event: MouseEvent<HTMLButtonElement>) {
     event.preventDefault();
     event.stopPropagation();
-    if (active) return;
+    if (active) {
+      downloads.openStatus();
+      return;
+    }
     setRequestError("");
     setQuality(downloads.qualities.includes("original") ? "original" : downloads.qualities[0] ?? "original");
     setOpen(true);
@@ -666,7 +969,7 @@ export function NativeDownloadAction({
     setSubmitting(true);
     setRequestError("");
     try {
-      await downloads.start(target, quality);
+      await downloads.start(target, quality, title);
       setOpen(false);
     } catch (error) {
       if (error instanceof JastreamerDownloadsError && error.code === "cancelled") {
@@ -695,11 +998,14 @@ export function NativeDownloadAction({
     }
   }
 
-  const buttonLabel = job
-    ? t("downloads.actionWithStatus", { title, status })
-    : t("downloads.actionFor", { title });
+  const buttonLabel = job && !active
+    ? t("downloads.againFor", { title })
+    : job ? t("downloads.actionWithStatus", { title, status }) : t("downloads.actionFor", { title });
   const dialogTitleID = `${dialogID}-title`;
   const dialogDescriptionID = `${dialogID}-description`;
+  const targetID = target.kind === "folder" ? undefined : target.id;
+  const targetRootID = target.kind === "folder" ? target.root_id : undefined;
+  const targetPath = target.kind === "folder" ? target.path : undefined;
 
   return (
     <>
@@ -708,15 +1014,16 @@ export function NativeDownloadAction({
           className={variant === "button" ? "button button-ghost native-download-button" : "native-download-icon-button"}
           type="button"
           data-download-kind={target.kind}
-          data-download-id={target.id}
-          disabled={disabled}
-          aria-disabled={active || disabled}
+          data-download-id={targetID}
+          data-download-root-id={targetRootID}
+          data-download-path={targetPath}
+          disabled={disabled && !active}
           aria-label={buttonLabel}
           title={status || t("downloads.action")}
           onClick={openDialog}
         >
           <DownloadIcon />
-          {variant === "button" && <span>{job ? status : t("downloads.action")}</span>}
+          {variant === "button" && <span>{job ? t(active ? "downloads.viewStatus" : "downloads.again") : t("downloads.action")}</span>}
         </button>
         {variant === "icon" && job && <span className={`native-download-compact-status native-download-status-${job.status}`} title={status} aria-hidden="true">{downloads.statusError && active ? "?" : compactStatus(job)}</span>}
         {saved && (
@@ -750,14 +1057,14 @@ export function NativeDownloadAction({
             </div>
             <fieldset className="native-download-quality" disabled={submitting}>
               <legend>{t("downloads.quality.legend")}</legend>
-              {downloads.qualities.includes("original") && <label><input type="radio" name={`quality-${target.kind}-${target.id}`} value="original" checked={quality === "original"} onChange={() => setQuality("original")} /><span><strong>{t("downloads.quality.original")}</strong><small>{t("downloads.quality.originalDescription")}</small></span></label>}
-              {downloads.qualities.includes("aac_256") && <label><input type="radio" name={`quality-${target.kind}-${target.id}`} value="aac_256" checked={quality === "aac_256"} onChange={() => setQuality("aac_256")} /><span><strong>{t("downloads.quality.spaceSaving")}</strong><small>{t("downloads.quality.spaceSavingDescription")}</small></span></label>}
+              {downloads.qualities.includes("original") && <label><input type="radio" name={`quality-${dialogID}`} value="original" checked={quality === "original"} onChange={() => setQuality("original")} /><span><strong>{t("downloads.quality.original")}</strong><small>{t("downloads.quality.originalDescription")}</small></span></label>}
+              {downloads.qualities.includes("aac_256") && <label><input type="radio" name={`quality-${dialogID}`} value="aac_256" checked={quality === "aac_256"} onChange={() => setQuality("aac_256")} /><span><strong>{t("downloads.quality.spaceSaving")}</strong><small>{t("downloads.quality.spaceSavingDescription")}</small></span></label>}
             </fieldset>
             <p className="native-download-folder-note" id={dialogDescriptionID}>{t("downloads.folderConfirmation")}</p>
             {requestError && <p className="error-text" role="alert">{requestError}</p>}
             <div className="native-download-dialog-actions">
               <button className="button button-ghost" type="button" disabled={submitting} onClick={() => setOpen(false)}>{t("common.cancel")}</button>
-              <button className="button button-primary" type="button" data-download-confirm="true" data-download-kind={target.kind} data-download-id={target.id} disabled={submitting} onClick={() => void submit()}>{t(submitting ? "downloads.requesting" : "downloads.continue")}</button>
+              <button className="button button-primary" type="button" data-download-confirm="true" data-download-kind={target.kind} data-download-id={targetID} data-download-root-id={targetRootID} data-download-path={targetPath} disabled={submitting} onClick={() => void submit()}>{t(submitting ? "downloads.requesting" : "downloads.continue")}</button>
             </div>
           </section>
         </div>,

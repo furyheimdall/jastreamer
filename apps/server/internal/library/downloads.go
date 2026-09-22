@@ -5,13 +5,15 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"path/filepath"
+	"strings"
 )
 
 const MaximumDownloadTracks = 10_000
 
-// DownloadSnapshot is a point-in-time catalog or playlist view used only while
-// preparing a client-owned import. Track order and duplicate playlist entries
-// are retained exactly.
+// DownloadSnapshot is a point-in-time catalog, folder, or playlist view used
+// only while preparing a client-owned import. Track order and duplicate
+// playlist entries are retained exactly.
 type DownloadSnapshot struct {
 	Kind              string
 	ID                string
@@ -20,8 +22,8 @@ type DownloadSnapshot struct {
 	IntegrityFailures map[string]bool
 }
 
-func (service *Service) DownloadSnapshot(ctx context.Context, kind, id string) (DownloadSnapshot, error) {
-	if id == "" {
+func (service *Service) DownloadSnapshot(ctx context.Context, kind, id, rootID, path string) (DownloadSnapshot, error) {
+	if kind != "folder" && id == "" {
 		return DownloadSnapshot{}, invalid("download source id is required")
 	}
 	tx, err := service.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
@@ -94,6 +96,59 @@ func (service *Service) DownloadSnapshot(ctx context.Context, kind, id string) (
 		if len(result.Tracks) == 0 {
 			return DownloadSnapshot{}, notFound("album was not found")
 		}
+	case "folder":
+		if rootID == "" {
+			return DownloadSnapshot{}, invalid("download folder root is required")
+		}
+		path = filepath.ToSlash(filepath.Clean(filepath.FromSlash(path)))
+		if path == "." {
+			path = ""
+		}
+		if strings.HasPrefix(path, "/") || path == ".." || strings.HasPrefix(path, "../") {
+			return DownloadSnapshot{}, invalid("folder path is invalid")
+		}
+		root, exists := service.root(rootID)
+		if !exists {
+			return DownloadSnapshot{}, notFound("folder root was not found")
+		}
+		result.ID = rootID + "\x00" + path
+		result.Title = root.Name
+		if path != "" {
+			result.Title = filepath.Base(filepath.FromSlash(path))
+		}
+		prefix := path
+		if prefix != "" {
+			prefix += "/"
+		}
+		rows, queryErr := tx.QueryContext(ctx, `SELECT `+trackColumns+` FROM library_tracks WHERE root_id=? AND available=1 AND (?='' OR substr(relative_path,1,length(?))=?) ORDER BY lower(relative_path),relative_path,id`, rootID, prefix, prefix, prefix)
+		if queryErr != nil {
+			return DownloadSnapshot{}, fmt.Errorf("snapshot download folder: %w", queryErr)
+		}
+		for rows.Next() {
+			record, scanErr := scanTrack(rows)
+			if scanErr != nil {
+				rows.Close()
+				return DownloadSnapshot{}, fmt.Errorf("read download folder: %w", scanErr)
+			}
+			if !strings.HasPrefix(record.track.Path, prefix) {
+				continue
+			}
+			result.Tracks = append(result.Tracks, record.track)
+			if len(result.Tracks) > MaximumDownloadTracks {
+				rows.Close()
+				return DownloadSnapshot{}, invalid("download collection has too many tracks")
+			}
+		}
+		if queryErr = rows.Err(); queryErr != nil {
+			rows.Close()
+			return DownloadSnapshot{}, fmt.Errorf("read download folder: %w", queryErr)
+		}
+		if queryErr = rows.Close(); queryErr != nil {
+			return DownloadSnapshot{}, fmt.Errorf("close download folder: %w", queryErr)
+		}
+		if len(result.Tracks) == 0 {
+			return DownloadSnapshot{}, notFound("folder was not found or contains no tracks")
+		}
 	case "playlist":
 		var revision int64
 		if queryErr := tx.QueryRowContext(ctx, `SELECT name,revision FROM library_playlists WHERE id=?`, id).Scan(&result.Title, &revision); errors.Is(queryErr, sql.ErrNoRows) {
@@ -113,7 +168,7 @@ func (service *Service) DownloadSnapshot(ctx context.Context, kind, id string) (
 			return DownloadSnapshot{}, loadErr
 		}
 	default:
-		return DownloadSnapshot{}, invalid("download kind must be track, album, or playlist")
+		return DownloadSnapshot{}, invalid("download kind must be track, album, playlist, or folder")
 	}
 	if err := tx.Commit(); err != nil {
 		return DownloadSnapshot{}, fmt.Errorf("commit download snapshot: %w", err)

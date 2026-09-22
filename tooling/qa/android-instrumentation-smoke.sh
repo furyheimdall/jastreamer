@@ -43,7 +43,8 @@ fi
 for required in native-playing native-background native-recreated native-recovery-stopped \
   offline-import-complete offline-library-after-logout offline-playing-after-folder-move \
   offline-current-delete-deferred offline-restored-without-server-login \
-  offline-cold-process-airplane-playback; do
+  offline-cold-process-airplane-playback \
+  offline-player-mini offline-player-expanded offline-player-landscape; do
   if [[ ! -s "${evidence}/screenshots/${required}.png" ]]; then
     echo "Missing native playback evidence: ${required}.png" >&2
     exit 65

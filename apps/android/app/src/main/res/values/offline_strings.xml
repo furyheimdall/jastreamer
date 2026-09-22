@@ -44,6 +44,11 @@
     <string name="offline_now_playing">Now playing</string>
     <string name="offline_expand_player">Open full player</string>
     <string name="offline_close_player">Close full player</string>
+    <string name="offline_expanded_player">Saved music player</string>
+    <string name="offline_open_queue">Open queue</string>
+    <string name="offline_playback_options">Playback options</string>
+    <string name="offline_track_information">Track information</string>
+    <string name="offline_player_summary">%1$s, %2$s. %3$s</string>
     <string name="offline_seek">Playback position</string>
     <string name="offline_shuffle_on">Shuffle on</string>
     <string name="offline_shuffle_off">Shuffle off</string>
@@ -114,7 +119,9 @@
     <string name="offline_status_partial">Partially saved</string>
     <string name="offline_status_failed">Failed</string>
     <string name="offline_status_cancelled">Cancelled</string>
-    <string name="offline_reason_network_policy">Waiting for an allowed network</string>
+    <string name="offline_reason_network_unmetered">Waiting for Wi-Fi or an unmetered network</string>
+    <string name="offline_reason_network_roaming">Downloads stay paused while roaming</string>
+    <string name="offline_reason_network_unavailable">Waiting for a network connection</string>
     <string name="offline_reason_auth">Sign in to the originating server again</string>
     <string name="offline_reason_destination">Choose a new destination folder</string>
     <string name="offline_reason_storage">Not enough permitted storage</string>

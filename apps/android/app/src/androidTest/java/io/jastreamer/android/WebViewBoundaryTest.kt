@@ -273,6 +273,31 @@ class WebViewBoundaryTest {
                 """.trimIndent(),
             ),
         )
+        evaluate(
+            """
+            JastreamerDownloads.postMessage(JSON.stringify({
+              id:'network-unknown', action:'configure_network', job_id:'not-issued-to-this-document'
+            }));
+            'sent';
+            """.trimIndent(),
+        )
+        waitFor("document job allowlist rejection") {
+            evaluate("String(window.nativeDownloadReplies.length)") == "2"
+        }
+        assertEquals(
+            true,
+            evaluate(
+                """
+                (() => {
+                  const response = JSON.parse(nativeDownloadReplies[1]);
+                  return response.id === 'network-unknown' &&
+                    response.error.code === 'invalid_request' &&
+                    !JSON.stringify(response).includes('cookie');
+                })()
+                """.trimIndent(),
+            ),
+        )
+
 
         evaluate(
             """
@@ -493,6 +518,7 @@ class WebViewBoundaryTest {
                 },
                 onLanguageChanged = {},
                 onOpenLibrary = {},
+                onOpenDownloads = {},
             )
             val container = activity.findViewById<FrameLayout>(R.id.remote_container)
             container.addView(view, FrameLayout.LayoutParams(-1, -1))

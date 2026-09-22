@@ -10,6 +10,7 @@ import (
 	"image/jpeg"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -157,6 +158,50 @@ func TestPlaylistPreservesDuplicatesUnknownTracksAndRevisionConflicts(t *testing
 	var public *fault.Error
 	if !errors.As(err, &public) || public.Status != 409 || public.Code != "REVISION_CONFLICT" {
 		t.Fatalf("stale save error = %#v", err)
+	}
+}
+
+func TestDownloadFolderSnapshotIsRecursiveOrderedAndRootConfined(t *testing.T) {
+	firstRoot := t.TempDir()
+	secondRoot := t.TempDir()
+	writeTestWAV(t, filepath.Join(firstRoot, "Chosen", "direct.wav"), 4_000)
+	writeTestWAV(t, filepath.Join(firstRoot, "Chosen", "Child", "nested.wav"), 4_000)
+	writeTestWAV(t, filepath.Join(firstRoot, "ChosenElse", "prefix-sibling.wav"), 4_000)
+	writeTestWAV(t, filepath.Join(firstRoot, "Sibling", "outside.wav"), 4_000)
+	writeTestWAV(t, filepath.Join(secondRoot, "Chosen", "other-root.wav"), 4_000)
+	service := newTestService(t, []Root{
+		{ID: "first", Name: "First", Path: firstRoot},
+		{ID: "second", Name: "Second", Path: secondRoot},
+	})
+	job, err := service.StartScan(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if job = waitScan(t, service, job.ID); job.Status != "complete" {
+		t.Fatalf("scan = %+v", job)
+	}
+
+	snapshot, err := service.DownloadSnapshot(t.Context(), "folder", "", "first", "Chosen")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snapshot.Kind != "folder" || snapshot.Title != "Chosen" || len(snapshot.Tracks) != 2 {
+		t.Fatalf("folder snapshot = %+v", snapshot)
+	}
+	paths := []string{snapshot.Tracks[0].Path, snapshot.Tracks[1].Path}
+	if paths[0] != "Chosen/Child/nested.wav" || paths[1] != "Chosen/direct.wav" {
+		t.Fatalf("folder snapshot paths = %#v", paths)
+	}
+	for _, track := range snapshot.Tracks {
+		if track.RootID != "first" || !strings.HasPrefix(track.Path, "Chosen/") {
+			t.Fatalf("folder snapshot escaped its root or sibling boundary: %+v", track)
+		}
+	}
+	if _, err := service.DownloadSnapshot(t.Context(), "folder", "", "first", "../Chosen"); !isInvalidRequest(err) {
+		t.Fatalf("folder traversal error = %#v", err)
+	}
+	if _, err := service.DownloadSnapshot(t.Context(), "folder", "", "first", "Empty"); err == nil {
+		t.Fatal("empty folder snapshot succeeded")
 	}
 }
 

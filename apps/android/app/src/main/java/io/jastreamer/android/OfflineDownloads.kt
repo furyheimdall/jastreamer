@@ -1,6 +1,10 @@
 package io.jastreamer.android
 
 import android.content.Context
+import android.net.ConnectivityManager
+import android.net.Network
+import android.net.NetworkCapabilities
+import android.net.NetworkRequest
 import androidx.work.Constraints
 import androidx.work.ExistingWorkPolicy
 import androidx.work.NetworkType
@@ -36,6 +40,11 @@ object OfflineDownloads {
     private val remoteScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val serverGenerations = mutableMapOf<String, Long>()
     private val workerLock = Mutex()
+    @Volatile private var remoteWorkerActive = false
+    private var remoteScheduleRequested = false
+    private var lastNetworkState: OfflineNetworkState? = null
+    private var lastObservedNetworkState: OfflineNetworkState? = null
+    private var networkCallback: ConnectivityManager.NetworkCallback? = null
     private const val NOTIFICATION_STEP_BYTES = 1024L * 1024
     private val mutableJobs = MutableStateFlow<List<OfflineDownloadJob>>(emptyList())
     private var appContext: Context? = null
@@ -48,6 +57,7 @@ object OfflineDownloads {
 
     private fun initialize(context: Context, scheduleRestored: Boolean) {
         val application = context.applicationContext
+        var registerNetworkObserver = false
         var localFinalizationIds = emptyList<String>()
         var restoredPendingWork = false
         var completedReceipts = emptyList<Pair<String, String>>()
@@ -91,6 +101,14 @@ object OfflineDownloads {
             } else if (appContext !== application && appContext?.filesDir != application.filesDir) {
                 throw IllegalStateException("OfflineDownloads was initialized with another application")
             }
+            if (networkCallback == null) {
+                networkCallback = DownloadNetworkCallback(application)
+                registerNetworkObserver = true
+            }
+        }
+        if (registerNetworkObserver) {
+            application.getSystemService(ConnectivityManager::class.java)
+                .registerDefaultNetworkCallback(requireNotNull(networkCallback))
         }
         if (completedReceipts.isNotEmpty()) {
             val library = OfflineLibrary.get(application)
@@ -109,7 +127,7 @@ object OfflineDownloads {
         if (scheduleRestored) {
             localFinalizationIds.forEach { jobId -> finishCancelledAsync(application, jobId) }
         }
-        if (scheduleRestored && restoredPendingWork) schedule(application)
+        if (scheduleRestored && restoredPendingWork) schedule(application, replace = true)
     }
 
     suspend fun enqueue(
@@ -157,7 +175,7 @@ object OfflineDownloads {
             records.add(0, record)
             persistLocked()
         }
-        schedule(context.applicationContext)
+        schedule(context.applicationContext, replace = true)
         localId
     }
 
@@ -184,7 +202,7 @@ object OfflineDownloads {
             job.errorMessage = null
             persistLocked()
         }
-        schedule(context.applicationContext)
+        schedule(context.applicationContext, replace = true)
     }
 
     fun cancel(context: Context, jobId: String) {
@@ -265,6 +283,9 @@ object OfflineDownloads {
         context.applicationContext.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE)
             .getBoolean(ALLOW_METERED, false)
 
+    internal fun networkState(context: Context): OfflineNetworkState =
+        currentNetworkState(context.applicationContext, allowMetered(context))
+
     fun setAllowMetered(context: Context, allowed: Boolean) {
         val application = context.applicationContext
         application.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE)
@@ -292,7 +313,7 @@ object OfflineDownloads {
             }
             persistLocked()
         }
-        if (exists) schedule(context.applicationContext)
+        if (exists) schedule(context.applicationContext, replace = true)
     }
 
     internal suspend fun preview(context: Context, server: ServerEndpoint, target: JSONObject): DownloadPreview =
@@ -304,8 +325,11 @@ object OfflineDownloads {
             client.preview(kind, targetId, principal)
         }
 
-    internal fun jobValues(ids: Set<String>): List<OfflineDownloadJob> = synchronized(lock) {
-        records.asSequence().filter { it.id in ids }.map(StoredDownloadJob::publicValue).toList()
+    internal fun jobValues(context: Context, ids: Set<String>): List<OfflineDownloadJob> {
+        updateNetworkState(context.applicationContext)
+        return synchronized(lock) {
+            records.asSequence().filter { it.id in ids }.map(StoredDownloadJob::publicValue).toList()
+        }
     }
 
     internal suspend fun process(
@@ -314,35 +338,51 @@ object OfflineDownloads {
         localOnly: Boolean = false,
     ): Boolean = workerLock.withLock {
         initialize(context, scheduleRestored = false)
-        var needsRetry = false
-        var remoteHandoff = false
-        var localHandoff = false
-        val attempted = LinkedHashSet<String>()
-        while (true) {
-            val jobId = synchronized(lock) {
-                records.firstOrNull {
-                    it.id !in attempted &&
-                        if (localOnly) {
-                            needsLocalRecovery(it)
-                        } else {
-                            it.server != null &&
-                                it.status in setOf("waiting", "preparing", "downloading", "importing") &&
-                                !needsLocalRecovery(it)
-                        }
-                }?.id
-            } ?: break
-            attempted.add(jobId)
-            val outcome = processOne(context.applicationContext, jobId, progress, localOnly)
-            if (outcome == ProcessOutcome.RETRY) needsRetry = true
-            if (outcome == ProcessOutcome.REMOTE_REQUIRED) remoteHandoff = true
-            if (!localOnly && synchronized(lock) { findLocked(jobId)?.let(::needsLocalRecovery) == true }) {
-                localHandoff = true
+        if (!localOnly) synchronized(lock) {
+            remoteWorkerActive = true
+            remoteScheduleRequested = false
+        }
+        try {
+            var needsRetry = false
+            var remoteHandoff = false
+            var localHandoff = false
+            val attempted = LinkedHashSet<String>()
+            while (true) {
+                val jobId = synchronized(lock) {
+                    records.firstOrNull {
+                        it.id !in attempted &&
+                            if (localOnly) {
+                                needsLocalRecovery(it)
+                            } else {
+                                it.server != null &&
+                                    it.status in setOf("waiting", "preparing", "downloading", "importing") &&
+                                    !needsLocalRecovery(it)
+                            }
+                    }?.id
+                } ?: break
+                attempted.add(jobId)
+                val outcome = processOne(context.applicationContext, jobId, progress, localOnly)
+                if (outcome == ProcessOutcome.RETRY) needsRetry = true
+                if (outcome == ProcessOutcome.REMOTE_REQUIRED) remoteHandoff = true
+                if (!localOnly && synchronized(lock) { findLocked(jobId)?.let(::needsLocalRecovery) == true }) {
+                    localHandoff = true
+                }
+            }
+            if (remoteHandoff) schedule(context.applicationContext)
+            if (localHandoff) scheduleLocal(context.applicationContext)
+            progress(null)
+            needsRetry
+        } finally {
+            if (!localOnly) {
+                val reschedule = synchronized(lock) {
+                    remoteWorkerActive = false
+                    val requested = remoteScheduleRequested
+                    remoteScheduleRequested = false
+                    requested && records.any(::isRemotePending)
+                }
+                if (reschedule) schedule(context.applicationContext, replace = true)
             }
         }
-        if (remoteHandoff) schedule(context.applicationContext)
-        if (localHandoff) scheduleLocal(context.applicationContext)
-        progress(null)
-        needsRetry
     }
 
     private suspend fun processOne(
@@ -371,6 +411,12 @@ object OfflineDownloads {
             return ProcessOutcome.DONE
         }
         if (localOnly) return ProcessOutcome.REMOTE_REQUIRED
+        val network = updateNetworkState(context)
+        if (!network.allowed) {
+            update(jobId, "waiting", network.errorCode, network.errorMessage)
+            progress(publicJob(jobId))
+            return ProcessOutcome.NO_PROGRESS
+        }
         val principal = initial.principalId ?: return hardFailure(jobId, "auth_required", "Download authorization is unavailable")
         val remoteId = initial.remoteId ?: return hardFailure(jobId, "invalid_manifest", "Download job identity is unavailable")
         val client = OfflineTransferClient(endpoint)
@@ -573,20 +619,36 @@ object OfflineDownloads {
             progress(publicJob(jobId))
             return ProcessOutcome.DONE
         } catch (cancelled: CancellationException) {
-            update(jobId, "waiting", "network_policy", "Waiting for an allowed network")
+            val network = currentNetworkState(context, allowMetered(context))
+            if (!network.allowed) update(jobId, "waiting", network.errorCode, network.errorMessage)
             throw cancelled
         } catch (failure: OfflineDownloadException) {
             if (finishCancelledIfNeeded(context, jobId)) return ProcessOutcome.DONE
+            val network = currentNetworkState(context, allowMetered(context))
+            if (!network.allowed) {
+                update(jobId, "waiting", network.errorCode, network.errorMessage)
+                return ProcessOutcome.NO_PROGRESS
+            }
             if (isPermanentFailure(failure) && finishPartialIfAny(context, jobId)) {
                 return ProcessOutcome.DONE
             }
             return handleFailure(jobId, failure)
         } catch (failure: SSLException) {
             if (finishCancelledIfNeeded(context, jobId)) return ProcessOutcome.DONE
+            val network = currentNetworkState(context, allowMetered(context))
+            if (!network.allowed) {
+                update(jobId, "waiting", network.errorCode, network.errorMessage)
+                return ProcessOutcome.NO_PROGRESS
+            }
             if (finishPartialIfAny(context, jobId)) return ProcessOutcome.DONE
             return hardFailure(jobId, "tls", "The server TLS connection could not be verified")
         } catch (failure: IOException) {
             if (finishCancelledIfNeeded(context, jobId)) return ProcessOutcome.DONE
+            val network = currentNetworkState(context, allowMetered(context))
+            if (!network.allowed) {
+                update(jobId, "waiting", network.errorCode, network.errorMessage)
+                return ProcessOutcome.NO_PROGRESS
+            }
             if (library.usage().availableBytes < SAFETY_RESERVE_BYTES) {
                 update(jobId, "paused", "storage_full", "Not enough free space to continue the download")
                 return ProcessOutcome.NO_PROGRESS
@@ -595,6 +657,11 @@ object OfflineDownloads {
             return ProcessOutcome.RETRY
         } catch (failure: Exception) {
             if (finishCancelledIfNeeded(context, jobId)) return ProcessOutcome.DONE
+            val network = currentNetworkState(context, allowMetered(context))
+            if (!network.allowed) {
+                update(jobId, "waiting", network.errorCode, network.errorMessage)
+                return ProcessOutcome.NO_PROGRESS
+            }
             update(jobId, "waiting", "transfer", failure.message?.take(240) ?: "Download could not continue")
             return ProcessOutcome.RETRY
         }
@@ -965,7 +1032,10 @@ object OfflineDownloads {
     private fun findLocked(id: String): StoredDownloadJob? = records.firstOrNull { it.id == id }
     private fun transferMayContinue(jobId: String): Boolean = synchronized(lock) {
         val job = findLocked(jobId)
-        job != null && job.server != null && job.status !in setOf("paused", "cancelled")
+        job != null &&
+            job.server != null &&
+            job.status !in setOf("paused", "cancelled") &&
+            lastNetworkState?.allowed != false
     }
 
     private fun isLocallyResolved(job: StoredDownloadJob): Boolean =
@@ -994,24 +1064,128 @@ object OfflineDownloads {
         return commitWon
     }
 
+    private fun isRemotePending(job: StoredDownloadJob): Boolean =
+        job.server != null &&
+            job.status in setOf("waiting", "preparing", "downloading", "importing") &&
+            !needsLocalRecovery(job)
+
+    private fun currentNetworkState(context: Context, meteredAllowed: Boolean): OfflineNetworkState {
+        // OfflineTransferClient does not bind OkHttp to a Network, so only the process
+        // default route may authorize bytes; a secondary network is never implicit consent.
+        val connectivity = context.getSystemService(ConnectivityManager::class.java)
+        val network = connectivity.activeNetwork
+        val capabilities = network?.let(connectivity::getNetworkCapabilities)
+        return classifyOfflineNetwork(
+            available = capabilities?.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_SUSPENDED) == true,
+            metered = capabilities?.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_METERED) == false,
+            mobile = capabilities?.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) == true,
+            roaming = capabilities?.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_ROAMING) == false,
+            meteredAllowed = meteredAllowed,
+        )
+    }
+
+    private fun updateNetworkState(context: Context): OfflineNetworkState {
+        val state = currentNetworkState(context, allowMetered(context))
+        synchronized(lock) {
+            lastNetworkState = state
+            var changed = false
+            records.forEach { job ->
+                if (!isRemotePending(job) || job.status == "paused") return@forEach
+                if (!state.allowed) {
+                    if (
+                        job.status != "waiting" ||
+                        job.errorCode != state.errorCode ||
+                        job.errorMessage != state.errorMessage
+                    ) {
+                        job.status = "waiting"
+                        job.errorCode = state.errorCode
+                        job.errorMessage = state.errorMessage
+                        changed = true
+                    }
+                } else if (job.errorCode in NETWORK_POLICY_CODES) {
+                    job.status = "waiting"
+                    job.errorCode = null
+                    job.errorMessage = null
+                    changed = true
+                }
+            }
+            if (changed) persistLocked()
+        }
+        return state
+    }
+
+    private fun onNetworkChanged(context: Context) {
+        val state = updateNetworkState(context)
+        val changed = synchronized(lock) {
+            val previous = lastObservedNetworkState
+            lastObservedNetworkState = state
+            previous != state
+        }
+        if (changed && synchronized(lock) { records.any(::isRemotePending) }) {
+            schedule(context, replace = true)
+        }
+    }
+
+    private class DownloadNetworkCallback(private val context: Context) : ConnectivityManager.NetworkCallback() {
+        override fun onAvailable(network: Network) = changed()
+        override fun onLost(network: Network) = changed()
+        override fun onCapabilitiesChanged(network: Network, capabilities: NetworkCapabilities) = changed()
+
+        private fun changed() {
+            OfflineDownloads.remoteScope.launch { OfflineDownloads.onNetworkChanged(context) }
+        }
+    }
+
     private fun requireInitialized() {
         check(appContext != null && store != null) { "OfflineDownloads is not initialized" }
     }
 
     private fun schedule(context: Context, replace: Boolean = false) {
+        val application = context.applicationContext
+        val meteredAllowed = allowMetered(application)
+        val state = updateNetworkState(application)
+        if (!state.allowed) WorkManager.getInstance(application).cancelUniqueWork(UNIQUE_WORK)
+        synchronized(lock) {
+            if (remoteWorkerActive) {
+                remoteScheduleRequested = true
+                return
+            }
+        }
+        // This request keeps queued work durable and deliberately does not require public
+        // Internet validation. processOne still authorizes the active/default route above.
+        val networkRequest = NetworkRequest.Builder()
+            .removeCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+            .removeCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
+            .removeCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN)
+            .addCapability(NetworkCapabilities.NET_CAPABILITY_NOT_ROAMING)
+            .addCapability(NetworkCapabilities.NET_CAPABILITY_NOT_SUSPENDED)
+            .apply {
+                if (!meteredAllowed) {
+                    addCapability(NetworkCapabilities.NET_CAPABILITY_NOT_METERED)
+                    addTransportType(NetworkCapabilities.TRANSPORT_WIFI)
+                    addTransportType(NetworkCapabilities.TRANSPORT_ETHERNET)
+                    addTransportType(NetworkCapabilities.TRANSPORT_BLUETOOTH)
+                    addTransportType(NetworkCapabilities.TRANSPORT_VPN)
+                    addTransportType(NetworkCapabilities.TRANSPORT_WIFI_AWARE)
+                    addTransportType(NetworkCapabilities.TRANSPORT_LOWPAN)
+                }
+            }
+            .build()
         val constraints = Constraints.Builder()
-            .setRequiredNetworkType(if (allowMetered(context)) NetworkType.NOT_ROAMING else NetworkType.UNMETERED)
+            .setRequiredNetworkRequest(
+                networkRequest,
+                if (meteredAllowed) NetworkType.NOT_ROAMING else NetworkType.UNMETERED,
+            )
             .build()
         val request = OneTimeWorkRequestBuilder<OfflineDownloadService>()
             .setConstraints(constraints)
             .build()
-        WorkManager.getInstance(context).enqueueUniqueWork(
+        WorkManager.getInstance(application).enqueueUniqueWork(
             UNIQUE_WORK,
-            if (replace) ExistingWorkPolicy.REPLACE else ExistingWorkPolicy.APPEND_OR_REPLACE,
+            if (replace || !state.allowed) ExistingWorkPolicy.REPLACE else ExistingWorkPolicy.APPEND_OR_REPLACE,
             request,
         )
     }
-
     private fun normalizedServer(value: ServerEndpoint): ServerEndpoint = ServerEndpoint(
         id = EndpointPolicy.normalizeServerId(value.id),
         name = value.name.trim().take(200),
@@ -1035,6 +1209,12 @@ object OfflineDownloads {
         .put("codec", item.codec)
         .put("byte_size", item.byteSize)
         .put("sha256", item.sha256)
+
+    private val NETWORK_POLICY_CODES = setOf(
+        "network_unmetered_required",
+        "network_roaming",
+        "network_unavailable",
+    )
 
     private class CommitGate {
         private var state = CommitGateState.OPEN
@@ -1063,4 +1243,49 @@ object OfflineDownloads {
     }
 
     private enum class ProcessOutcome { DONE, RETRY, NO_PROGRESS, REMOTE_REQUIRED }
+}
+
+internal data class OfflineNetworkState(
+    val allowed: Boolean,
+    val metered: Boolean,
+    val roaming: Boolean,
+    val errorCode: String?,
+    val errorMessage: String?,
+)
+
+internal fun classifyOfflineNetwork(
+    available: Boolean,
+    metered: Boolean,
+    mobile: Boolean,
+    roaming: Boolean,
+    meteredAllowed: Boolean,
+): OfflineNetworkState = when {
+    !available -> OfflineNetworkState(
+        allowed = false,
+        metered = false,
+        roaming = false,
+        errorCode = "network_unavailable",
+        errorMessage = "Connect to the selected server's network to continue",
+    )
+    roaming -> OfflineNetworkState(
+        allowed = false,
+        metered = metered || mobile,
+        roaming = true,
+        errorCode = "network_roaming",
+        errorMessage = "Downloads do not run while roaming",
+    )
+    (metered || mobile) && !meteredAllowed -> OfflineNetworkState(
+        allowed = false,
+        metered = true,
+        roaming = false,
+        errorCode = "network_unmetered_required",
+        errorMessage = "Allow metered or mobile data to continue",
+    )
+    else -> OfflineNetworkState(
+        allowed = true,
+        metered = metered || mobile,
+        roaming = false,
+        errorCode = null,
+        errorMessage = null,
+    )
 }

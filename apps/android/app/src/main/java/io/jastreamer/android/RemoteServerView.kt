@@ -41,6 +41,7 @@ class RemoteServerView(
     private val onError: (ClientException) -> Unit,
     private val onLanguageChanged: (String) -> Unit,
     private val onOpenLibrary: () -> Unit,
+    private val onOpenDownloads: () -> Unit,
 ) : FrameLayout(context) {
     private enum class LoadPhase { IDLE, PREPARING, LOADING, LOADED }
 
@@ -281,6 +282,7 @@ class RemoteServerView(
                         canStartNativePlayback()
                 },
                 onOpenLibrary = onOpenLibrary,
+                onOpenDownloads = onOpenDownloads,
             )
             WebViewCompat.addWebMessageListener(
                 candidate,

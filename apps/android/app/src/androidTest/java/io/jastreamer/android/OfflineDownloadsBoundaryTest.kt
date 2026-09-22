@@ -1,5 +1,8 @@
 package io.jastreamer.android
 
+import android.net.ConnectivityManager
+import android.os.ParcelFileDescriptor
+import android.provider.Settings
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import androidx.webkit.ProfileStore
@@ -203,6 +206,50 @@ class OfflineDownloadsBoundaryTest {
         assertNull(library.folder(deletedFolder.id))
         assertFalse(library.folders().any { it.name == deletedName })
         assertTrue(library.tracks().none { it.title == deleteFixture.title })
+    }
+
+    @Test
+    fun blockedRuntimeNetworkKeepsPendingTransferDurable(): Unit = runBlocking {
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        val connectivity = context.getSystemService(ConnectivityManager::class.java)
+        val originallyConnected = connectivity.activeNetwork != null
+        val originalAirplane = Settings.Global.getInt(context.contentResolver, Settings.Global.AIRPLANE_MODE_ON, 0) != 0
+        val originalWifi = Settings.Global.getInt(context.contentResolver, "wifi_on", 0) != 0
+        val originalAllowance = OfflineDownloads.allowMetered(context)
+        var jobId: String? = null
+        fun shell(command: String) {
+            ParcelFileDescriptor.AutoCloseInputStream(instrumentation.uiAutomation.executeShellCommand(command))
+                .bufferedReader().use { it.readText() }
+        }
+        try {
+            OfflineDownloads.setAllowMetered(context, false)
+            shell("cmd connectivity airplane-mode enable")
+            shell("svc wifi disable")
+            withTimeout(10_000) {
+                while (connectivity.activeNetwork != null) delay(25)
+            }
+            val marker = UUID.randomUUID().toString()
+            val fixture = fixture(marker, "pending-$marker".toByteArray())
+            val endpoint = endpoint(fixture)
+            setCookie(endpoint, "session=$marker; Path=/; HttpOnly")
+            // Loopback creates the fixture authority without an eligible download route.
+            jobId = enqueue(endpoint, marker)
+            val retry = withTimeout(10_000) { OfflineDownloads.process(context, {}) }
+            awaitJob(jobId) { it.status == "waiting" && it.errorCode == "network_unavailable" }
+            assertEquals("Blocked policy must not fetch media", 0, fixture.fileRequestCount())
+            assertFalse("Waiting must not grant mobile consent", OfflineDownloads.allowMetered(context))
+            assertTrue("A pending network wait must not complete its durable worker", retry)
+        } finally {
+            jobId?.let { OfflineDownloads.cancel(context, it) }
+            shell("cmd connectivity airplane-mode ${if (originalAirplane) "enable" else "disable"}")
+            shell("svc wifi ${if (originalWifi) "enable" else "disable"}")
+            OfflineDownloads.setAllowMetered(context, originalAllowance)
+            if (originallyConnected) {
+                withTimeout(10_000) {
+                    while (connectivity.activeNetwork == null) delay(25)
+                }
+            }
+        }
     }
 
     private suspend fun enqueue(endpoint: ServerEndpoint, marker: String, folderId: String = OfflineLibrary.IMPORT_FOLDER_ID): String {

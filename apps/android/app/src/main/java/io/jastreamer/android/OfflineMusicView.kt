@@ -2,10 +2,10 @@ package io.jastreamer.android
 
 import android.app.AlertDialog
 import android.content.Context
-import android.graphics.Color
 import android.os.Bundle
 import android.text.Editable
 import android.text.InputType
+import android.text.TextUtils
 import android.text.TextWatcher
 import android.view.Gravity
 import android.view.View
@@ -55,13 +55,13 @@ class OfflineMusicView(
     private val navigation = LinearLayout(activity)
     private val page = FrameLayout(activity)
     private val miniPlayer = LinearLayout(activity)
+    private val miniSummary = LinearLayout(activity)
     private val playerTitle = TextView(activity)
-    private val playerPosition = TextView(activity)
+    private val playerArtist = TextView(activity)
     private val miniArtwork = ImageView(activity)
     private val playPause = Button(activity)
-    private val miniPrevious = Button(activity)
-    private val miniNext = Button(activity)
-
+    private val miniStop = Button(activity)
+    private val miniExpand = Button(activity)
     private var screen = savedState?.getString(STATE_SCREEN) ?: initialScreen
     private var libraryTab = savedState?.getString(STATE_TAB) ?: TAB_TRACKS
     private var searchQuery = savedState?.getString(STATE_QUERY).orEmpty()
@@ -90,11 +90,14 @@ class OfflineMusicView(
     private var searchField: EditText? = null
     private var playerSeek: SeekBar? = null
     private var fullPlayerPosition: TextView? = null
+    private var fullPlayerDuration: TextView? = null
     private var fullPlayerPlayPause: Button? = null
     private var updatingSeek = false
     private var wideLayout: Boolean? = null
     private var moveInProgress = false
     private var miniArtworkPath: String? = null
+    private var miniTrackInitialized = false
+    private var miniTrackId: String? = null
 
     private var lastDownloadSignature: List<OfflineDownloadJob> = emptyList()
     private val downloadProgressViews = mutableMapOf<String, Pair<ProgressBar, TextView>>()
@@ -150,11 +153,7 @@ class OfflineMusicView(
                 if (queueChanged && screen == SCREEN_QUEUE) renderQueue()
                 if (fullPlayerOpen) {
                     if (queueChanged || controlsChanged) renderFullPlayer()
-                    else if (playingChanged) fullPlayerPlayPause?.text = text(when {
-                        playback.owner == "server" -> R.string.offline_play
-                        playback.playing -> R.string.offline_pause
-                        else -> R.string.offline_resume
-                    })
+                    else if (playingChanged) fullPlayerPlayPause?.let(::updatePlayPauseButton)
                 }
             }
         }
@@ -232,6 +231,11 @@ class OfflineMusicView(
     fun updateForConfiguration() {
         wideLayout = null
         applyAdaptiveLayout(width.takeIf { it > 0 } ?: resources.displayMetrics.widthPixels)
+        if (fullPlayerOpen) {
+            post {
+                if (attached && fullPlayerOpen) renderFullPlayer()
+            }
+        }
     }
 
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
@@ -265,42 +269,63 @@ class OfflineMusicView(
         miniPlayer.id = R.id.offline_mini_player
         miniPlayer.orientation = HORIZONTAL
         miniPlayer.gravity = Gravity.CENTER_VERTICAL
-        miniPlayer.minimumHeight = dp(80)
-        miniArtwork.importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
-        miniPlayer.addView(miniArtwork, LayoutParams(dp(64), dp(64)).apply { marginEnd = dp(8) })
-        miniPlayer.setPadding(dp(8), dp(4), dp(8), dp(4))
+        miniPlayer.minimumHeight = dp(68)
+        miniPlayer.setPadding(dp(8), dp(8), dp(8), dp(8))
         miniPlayer.setBackgroundColor(PANEL)
-        val titles = LinearLayout(activity).apply { orientation = VERTICAL }
+
+        miniArtwork.id = R.id.offline_mini_artwork
+        miniArtwork.importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_YES
+        miniArtwork.contentDescription = text(R.string.offline_open_queue)
+        miniArtwork.isClickable = true
+        miniArtwork.isFocusable = true
+        miniArtwork.setOnClickListener { openQueueFromPlayer() }
+        OfflinePlayerUi.styleArtwork(miniArtwork)
+        miniPlayer.addView(miniArtwork, LayoutParams(dp(48), dp(48)).apply { marginEnd = dp(8) })
+
+        miniSummary.apply {
+            orientation = VERTICAL
+            gravity = Gravity.CENTER_VERTICAL
+            minimumWidth = 0
+            isClickable = true
+            isFocusable = true
+            accessibilityLiveRegion = View.ACCESSIBILITY_LIVE_REGION_POLITE
+            setOnClickListener { openFullPlayer() }
+        }
         playerTitle.id = R.id.offline_player_title
         playerTitle.setTextColor(FOREGROUND)
-        playerTitle.textSize = 15f
-        playerTitle.maxLines = 2
-        playerPosition.id = R.id.offline_mini_position
-        playerPosition.setTextColor(MUTED)
-        playerPosition.textSize = 12f
-        titles.addView(playerTitle)
-        titles.addView(playerPosition)
-        titles.setOnClickListener {
-            fullPlayerOpen = true
-            renderPage()
-        }
-        titles.contentDescription = text(R.string.offline_expand_player)
-        titles.isFocusable = true
-        miniPlayer.addView(titles, LayoutParams(0, MATCH_PARENT, 1f))
-        configureAction(miniPrevious, text(R.string.offline_previous)) { OfflinePlayback.previous() }
-        miniPlayer.addView(miniPrevious)
-        playPause.setTextColor(FOREGROUND)
-        playPause.isAllCaps = false
-        playPause.minWidth = dp(48)
-        playPause.minHeight = dp(48)
+        playerTitle.textSize = 14f
+        playerTitle.maxLines = 1
+        playerTitle.ellipsize = TextUtils.TruncateAt.END
+        playerArtist.id = R.id.offline_player_artist
+        playerArtist.setTextColor(MUTED)
+        playerArtist.textSize = 12f
+        playerArtist.maxLines = 1
+        playerArtist.ellipsize = TextUtils.TruncateAt.END
+        miniSummary.addView(playerTitle, LayoutParams(MATCH_PARENT, WRAP_CONTENT))
+        miniSummary.addView(playerArtist, LayoutParams(MATCH_PARENT, WRAP_CONTENT))
+        miniPlayer.addView(miniSummary, LayoutParams(0, MATCH_PARENT, 1f))
+
+        playPause.id = R.id.offline_mini_play_pause
+        updatePlayPauseButton(playPause)
         playPause.setOnClickListener {
             if (playback.owner == "server") resumeOrRequestHandoff()
             else if (playback.playing) OfflinePlayback.pause() else resumeOrRequestHandoff()
         }
-        miniPlayer.addView(playPause)
-        configureAction(miniNext, text(R.string.offline_next)) { OfflinePlayback.next() }
-        miniPlayer.addView(miniNext)
-        addView(miniPlayer, LayoutParams(MATCH_PARENT, dp(80)))
+        miniPlayer.addView(playPause, miniControlParams())
+
+        miniStop.id = R.id.offline_mini_stop
+        configurePlayerAction(miniStop, R.drawable.ic_offline_stop, text(R.string.offline_stop)) {
+            OfflinePlayback.stop()
+        }
+        miniPlayer.addView(miniStop, miniControlParams())
+
+        miniExpand.id = R.id.offline_mini_expand
+        configurePlayerAction(miniExpand, R.drawable.ic_offline_expand, text(R.string.offline_expand_player)) {
+            openFullPlayer()
+        }
+        miniPlayer.addView(miniExpand, miniControlParams())
+
+        addView(miniPlayer, LayoutParams(MATCH_PARENT, WRAP_CONTENT))
         updatePlayerChrome()
     }
 
@@ -389,9 +414,12 @@ class OfflineMusicView(
     }
 
     private fun renderPage() {
+        miniPlayer.visibility = if (playback.queue.entries.isEmpty() || fullPlayerOpen) GONE else VISIBLE
         if (!fullPlayerOpen) {
             playerSeek = null
             fullPlayerPosition = null
+            fullPlayerDuration = null
+            fullPlayerPlayPause = null
         }
         when {
             fullPlayerOpen -> renderFullPlayer()
@@ -798,36 +826,94 @@ class OfflineMusicView(
             val entry = playback.queue.entries[index]
             val track = trackIndex[entry.trackId]
             val current = entry.id == playback.queue.currentEntryId
-            val row = row()
-            row.addView(label((if (current) "▶ " else "") + (track?.title ?: text(R.string.offline_missing_track)), 14f), LayoutParams(0, WRAP_CONTENT, 1f))
-            row.addView(action(text(R.string.offline_move_up)) { OfflinePlayback.moveEntry(entry.id, -1) }.apply {
+            val card = vertical(dp(8)).apply {
+                background = OfflinePlayerUi.cardBackground(activity)
+            }
+            card.addView(label((if (current) "▶ " else "") + (track?.title ?: text(R.string.offline_missing_track)), 14f).apply {
+                maxLines = 2
+                ellipsize = TextUtils.TruncateAt.END
+            }, LayoutParams(MATCH_PARENT, WRAP_CONTENT))
+            val actions = row()
+            actions.addView(action(text(R.string.offline_move_up)) { OfflinePlayback.moveEntry(entry.id, -1) }.apply {
                 isEnabled = index > 0
-            })
-            row.addView(action(text(R.string.offline_move_down)) { OfflinePlayback.moveEntry(entry.id, 1) }.apply {
+            }, LayoutParams(0, WRAP_CONTENT, 1f))
+            actions.addView(action(text(R.string.offline_move_down)) { OfflinePlayback.moveEntry(entry.id, 1) }.apply {
                 isEnabled = index < playback.queue.entries.lastIndex
-            })
-            row.addView(action(text(R.string.offline_remove_queue)) { OfflinePlayback.removeEntry(entry.id) })
-            body.addView(row)
+            }, LayoutParams(0, WRAP_CONTENT, 1f))
+            actions.addView(
+                action(text(R.string.offline_remove_queue)) { OfflinePlayback.removeEntry(entry.id) },
+                LayoutParams(0, WRAP_CONTENT, 1f),
+            )
+            card.addView(actions, LayoutParams(MATCH_PARENT, WRAP_CONTENT))
+            body.addView(card, LayoutParams(MATCH_PARENT, WRAP_CONTENT).apply { bottomMargin = dp(8) })
         }
         setPage(ScrollView(activity).apply { addView(body) })
     }
 
     private fun renderFullPlayer() {
-        val body = vertical(dp(16))
-        body.gravity = Gravity.CENTER_HORIZONTAL
-        body.addView(action(text(R.string.offline_close_player)) { fullPlayerOpen = false; renderPage() })
+        miniPlayer.visibility = GONE
         val track = currentTrack()
-        track?.let {
-            body.addView(artwork(it, 240), LayoutParams(dp(240), dp(240)).apply {
-                gravity = Gravity.CENTER_HORIZONTAL
-            })
+        val body = vertical(dp(12))
+
+        val header = row()
+        val heading = vertical(0)
+        heading.addView(label(text(R.string.offline_now_playing), 12f).apply {
+            setTextColor(MUTED)
+            setPadding(0, 0, 0, 0)
+        })
+        heading.addView(label(text(R.string.offline_expanded_player), 20f).apply {
+            setPadding(0, 0, 0, 0)
+        })
+        header.addView(heading, LayoutParams(0, WRAP_CONTENT, 1f))
+        val close = playerAction(
+            R.id.offline_player_close,
+            R.drawable.ic_offline_collapse,
+            text(R.string.offline_close_player),
+        ) { closeFullPlayer() }
+        header.addView(close, LayoutParams(dp(48), dp(48)))
+        body.addView(header, sectionParams())
+
+        val trackCard = vertical(dp(12)).apply {
+            gravity = Gravity.CENTER_HORIZONTAL
+            background = OfflinePlayerUi.cardBackground(activity)
         }
-        body.addView(label(track?.title ?: text(R.string.offline_no_queue), 26f).apply { gravity = Gravity.CENTER })
-        body.addView(label(track?.let(::displayArtist) ?: "", 16f).apply { gravity = Gravity.CENTER; setTextColor(MUTED) })
+        val artworkSize = fullArtworkSize()
+        val playerArtwork = playerArtwork(track, artworkSize)
+        playerArtwork.id = R.id.offline_player_artwork
+        trackCard.addView(playerArtwork, LayoutParams(artworkSize, artworkSize).apply {
+            gravity = Gravity.CENTER_HORIZONTAL
+            bottomMargin = dp(10)
+        })
+        trackCard.addView(label(track?.title ?: text(R.string.offline_no_queue), 22f).apply {
+            id = R.id.offline_full_player_title
+            gravity = Gravity.CENTER
+            maxLines = 2
+            ellipsize = TextUtils.TruncateAt.END
+        }, LayoutParams(MATCH_PARENT, WRAP_CONTENT))
+        trackCard.addView(label(track?.let(::displayArtist).orEmpty(), 14f).apply {
+            id = R.id.offline_full_player_artist
+            gravity = Gravity.CENTER
+            maxLines = 1
+            ellipsize = TextUtils.TruncateAt.END
+            setTextColor(MUTED)
+        }, LayoutParams(MATCH_PARENT, WRAP_CONTENT))
+        body.addView(trackCard, sectionParams())
+
+        val transport = vertical(dp(12)).apply {
+            background = OfflinePlayerUi.cardBackground(activity)
+        }
+        val seekRow = row()
+        val elapsed = label(durationValue(playback.queue.positionMs), 11f).apply {
+            id = R.id.offline_player_position
+            gravity = Gravity.CENTER
+            setTextColor(MUTED)
+        }
+        fullPlayerPosition = elapsed
+        seekRow.addView(elapsed, LayoutParams(dp(48), WRAP_CONTENT))
         val seek = SeekBar(activity).apply {
             id = R.id.offline_player_seek
-            isEnabled = playback.owner != "server"
-            max = (track?.durationMs ?: 0L).coerceIn(0L, Int.MAX_VALUE.toLong()).toInt()
+            isEnabled = playback.owner == OfflinePlaybackPolicy.OWNER_LOCAL && track != null && track.durationMs > 0
+            max = (track?.durationMs ?: 0L).coerceIn(1L, Int.MAX_VALUE.toLong()).toInt()
             progress = playback.queue.positionMs.coerceIn(0L, max.toLong()).toInt()
             contentDescription = text(R.string.offline_seek)
             minimumHeight = dp(48)
@@ -835,7 +921,7 @@ class OfflineMusicView(
                 private var dragging = false
                 override fun onProgressChanged(seekBar: SeekBar?, value: Int, fromUser: Boolean) {
                     if (fromUser && !updatingSeek) {
-                        fullPlayerPosition?.text = duration(value.toLong(), max.toLong())
+                        fullPlayerPosition?.text = durationValue(value.toLong())
                         if (!dragging) OfflinePlayback.seekTo(value.toLong())
                     }
                 }
@@ -847,78 +933,149 @@ class OfflineMusicView(
             })
         }
         playerSeek = seek
-        body.addView(seek, LayoutParams(MATCH_PARENT, WRAP_CONTENT))
-        val positionLabel = label(duration(playback.queue.positionMs, track?.durationMs ?: 0L), 14f).apply {
-            id = R.id.offline_player_position
+        seekRow.addView(seek, LayoutParams(0, WRAP_CONTENT, 1f))
+        val total = label(durationValue(track?.durationMs ?: 0L), 11f).apply {
+            id = R.id.offline_player_duration
             gravity = Gravity.CENTER
+            setTextColor(MUTED)
         }
-        fullPlayerPosition = positionLabel
-        body.addView(positionLabel)
-        val controls = row().apply { gravity = Gravity.CENTER }
-        controls.addView(action(text(R.string.offline_previous)) { OfflinePlayback.previous() }.apply {
-            isEnabled = playback.owner != "server"
+        fullPlayerDuration = total
+        seekRow.addView(total, LayoutParams(dp(48), WRAP_CONTENT))
+        transport.addView(seekRow, LayoutParams(MATCH_PARENT, WRAP_CONTENT))
+
+        val controls = row()
+        val previous = playerAction(
+            R.id.offline_player_previous,
+            R.drawable.ic_offline_previous,
+            text(R.string.offline_previous),
+        ) { OfflinePlayback.previous() }.apply {
+            isEnabled = playback.owner == OfflinePlaybackPolicy.OWNER_LOCAL
+        }
+        addCenteredControl(controls, previous)
+        val fullPlayPause = Button(activity).apply {
+            id = R.id.offline_player_play_pause
+            updatePlayPauseButton(this)
+            setOnClickListener {
+                if (playback.owner == "server") resumeOrRequestHandoff()
+                else if (playback.playing) OfflinePlayback.pause() else resumeOrRequestHandoff()
+            }
+        }
+        fullPlayerPlayPause = fullPlayPause
+        addCenteredControl(controls, fullPlayPause)
+        val next = playerAction(
+            R.id.offline_player_next,
+            R.drawable.ic_offline_next,
+            text(R.string.offline_next),
+        ) { OfflinePlayback.next() }.apply {
+            isEnabled = playback.owner == OfflinePlaybackPolicy.OWNER_LOCAL
+        }
+        addCenteredControl(controls, next)
+        val stop = playerAction(
+            R.id.offline_player_stop,
+            R.drawable.ic_offline_stop,
+            text(R.string.offline_stop),
+        ) { OfflinePlayback.stop() }.apply {
+            isEnabled = playback.owner == OfflinePlaybackPolicy.OWNER_LOCAL
+        }
+        addCenteredControl(controls, stop)
+        transport.addView(controls, LayoutParams(MATCH_PARENT, dp(56)))
+        body.addView(transport, sectionParams())
+
+        val options = vertical(dp(12)).apply {
+            background = OfflinePlayerUi.cardBackground(activity)
+        }
+        options.addView(label(text(R.string.offline_playback_options), 13f).apply {
+            setTextColor(MUTED)
+            setPadding(0, 0, 0, dp(4))
         })
-        controls.addView(action(text(when {
-            playback.owner == "server" -> R.string.offline_play
-            playback.playing -> R.string.offline_pause
-            else -> R.string.offline_resume
-        })) {
-            if (playback.owner == "server") resumeOrRequestHandoff()
-            else if (playback.playing) OfflinePlayback.pause() else resumeOrRequestHandoff()
-        }.also { fullPlayerPlayPause = it })
-        controls.addView(action(text(R.string.offline_next)) { OfflinePlayback.next() }.apply {
-            isEnabled = playback.owner != "server"
+        val optionControls = row()
+        val shuffle = playerAction(
+            R.id.offline_player_shuffle,
+            R.drawable.ic_offline_shuffle,
+            text(if (playback.queue.shuffle) R.string.offline_shuffle_on else R.string.offline_shuffle_off),
+        ) { OfflinePlayback.setShuffle(!playback.queue.shuffle) }.apply {
+            isSelected = playback.queue.shuffle
+        }
+        addCenteredControl(optionControls, shuffle)
+        val repeatText = repeatLabel()
+        val repeat = playerAction(
+            R.id.offline_player_repeat,
+            if (playback.queue.repeatMode == Player.REPEAT_MODE_ONE) {
+                R.drawable.ic_offline_repeat_one
+            } else {
+                R.drawable.ic_offline_repeat
+            },
+            text(repeatText),
+        ) { cycleRepeat() }.apply {
+            isSelected = playback.queue.repeatMode != Player.REPEAT_MODE_OFF
+        }
+        addCenteredControl(optionControls, repeat)
+        val queue = playerAction(
+            R.id.offline_player_queue,
+            R.drawable.ic_offline_queue,
+            text(R.string.offline_open_queue),
+        ) { openQueueFromPlayer() }
+        addCenteredControl(optionControls, queue)
+        val information = playerAction(
+            R.id.offline_player_information,
+            R.drawable.ic_offline_info,
+            text(R.string.offline_track_information),
+        ) { track?.let(::showTrackInformation) }.apply {
+            isEnabled = track != null
+        }
+        addCenteredControl(optionControls, information)
+        options.addView(optionControls, LayoutParams(MATCH_PARENT, dp(56)))
+        body.addView(options, sectionParams())
+
+        playback.errorMessage?.takeIf { it.isNotBlank() }?.let {
+            body.addView(label(it, 14f).apply {
+                setTextColor(ERROR)
+                background = OfflinePlayerUi.cardBackground(activity)
+            }, sectionParams())
+        }
+        setPage(ScrollView(activity).apply {
+            isFillViewport = true
+            isHorizontalScrollBarEnabled = false
+            addView(body)
         })
-        controls.addView(action(text(R.string.offline_stop)) { OfflinePlayback.stop() }.apply {
-            isEnabled = playback.owner != "server"
-        })
-        body.addView(actionStrip(controls))
-        body.addView(playerModeControls())
-        playback.errorMessage?.takeIf { it.isNotBlank() }?.let { body.addView(label(it, 14f).apply { setTextColor(ERROR) }) }
-        setPage(ScrollView(activity).apply { isFillViewport = true; addView(body) })
     }
 
     private fun playerModeControls(): LinearLayout = row().apply {
         addView(action(text(if (playback.queue.shuffle) R.string.offline_shuffle_on else R.string.offline_shuffle_off)) {
             OfflinePlayback.setShuffle(!playback.queue.shuffle)
-        })
-        val repeatText = when (playback.queue.repeatMode) {
-            Player.REPEAT_MODE_ONE -> R.string.offline_repeat_one
-            Player.REPEAT_MODE_ALL -> R.string.offline_repeat_all
-            else -> R.string.offline_repeat_off
-        }
-        addView(action(text(repeatText)) {
-            val next = when (playback.queue.repeatMode) {
-                Player.REPEAT_MODE_OFF -> Player.REPEAT_MODE_ALL
-                Player.REPEAT_MODE_ALL -> Player.REPEAT_MODE_ONE
-                else -> Player.REPEAT_MODE_OFF
-            }
-            OfflinePlayback.setRepeat(next)
-        })
+        }, LayoutParams(0, WRAP_CONTENT, 1f))
+        addView(action(text(repeatLabel())) { cycleRepeat() }, LayoutParams(0, WRAP_CONTENT, 1f))
     }
 
     private fun updatePlayerChrome() {
         val current = currentTrack()
-        miniPlayer.visibility = if (playback.queue.entries.isEmpty()) GONE else VISIBLE
-        playerTitle.text = current?.title ?: text(R.string.offline_missing_track)
-        playerPosition.text = duration(playback.queue.positionMs, current?.durationMs ?: 0L)
-        playPause.text = text(when {
-            playback.owner == "server" -> R.string.offline_play
-            playback.playing -> R.string.offline_pause
-            else -> R.string.offline_resume
-        })
-        fullPlayerPosition?.text = duration(playback.queue.positionMs, current?.durationMs ?: 0L)
+        miniPlayer.visibility = if (playback.queue.entries.isEmpty() || fullPlayerOpen) GONE else VISIBLE
+        if (!miniTrackInitialized || miniTrackId != current?.id) {
+            miniTrackInitialized = true
+            miniTrackId = current?.id
+            playerTitle.text = current?.title ?: text(R.string.offline_missing_track)
+            playerArtist.text = current?.let(::displayArtist).orEmpty()
+            miniSummary.contentDescription = text(
+                R.string.offline_player_summary,
+                playerTitle.text,
+                playerArtist.text,
+                text(R.string.offline_expand_player),
+            )
+        }
+        updatePlayPauseButton(playPause)
+        miniStop.isEnabled = playback.owner == OfflinePlaybackPolicy.OWNER_LOCAL
+        fullPlayerPosition?.text = durationValue(playback.queue.positionMs)
+        fullPlayerDuration?.text = durationValue(current?.durationMs ?: 0L)
         if (miniArtworkPath != current?.artworkPath || miniArtwork.drawable == null) {
             miniArtworkPath = current?.artworkPath
-            OfflineArtworkLoader.load(scope, miniArtwork, miniArtworkPath, dp(64))
+            OfflineArtworkLoader.load(scope, miniArtwork, miniArtworkPath, dp(48))
         }
-        miniPrevious.isEnabled = playback.owner != "server"
-        miniNext.isEnabled = playback.owner != "server"
         val seek = playerSeek
         if (seek != null && fullPlayerOpen) {
             updatingSeek = true
-            seek.max = (current?.durationMs ?: 0L).coerceIn(0L, Int.MAX_VALUE.toLong()).toInt()
+            seek.max = (current?.durationMs ?: 0L).coerceIn(1L, Int.MAX_VALUE.toLong()).toInt()
             seek.progress = playback.queue.positionMs.coerceIn(0L, seek.max.toLong()).toInt()
+            seek.isEnabled = playback.owner == OfflinePlaybackPolicy.OWNER_LOCAL && current != null && current.durationMs > 0
             updatingSeek = false
         }
     }
@@ -1627,6 +1784,120 @@ class OfflineMusicView(
         return trackIndex[currentEntry?.trackId]
     }
 
+    private fun openFullPlayer() {
+        if (playback.queue.entries.isEmpty()) return
+        fullPlayerOpen = true
+        renderPage()
+    }
+
+    private fun closeFullPlayer() {
+        fullPlayerOpen = false
+        renderPage()
+    }
+
+    private fun openQueueFromPlayer() {
+        fullPlayerOpen = false
+        screen = SCREEN_QUEUE
+        clearSelection()
+        renderNavigation()
+        renderPage()
+    }
+
+    private fun repeatLabel(): Int = when (playback.queue.repeatMode) {
+        Player.REPEAT_MODE_ONE -> R.string.offline_repeat_one
+        Player.REPEAT_MODE_ALL -> R.string.offline_repeat_all
+        else -> R.string.offline_repeat_off
+    }
+
+    private fun cycleRepeat() {
+        val next = when (playback.queue.repeatMode) {
+            Player.REPEAT_MODE_OFF -> Player.REPEAT_MODE_ALL
+            Player.REPEAT_MODE_ALL -> Player.REPEAT_MODE_ONE
+            else -> Player.REPEAT_MODE_OFF
+        }
+        OfflinePlayback.setRepeat(next)
+    }
+
+    private fun showTrackInformation(track: OfflineTrack) {
+        val detail = buildString {
+            append(displayArtist(track))
+            append('\n')
+            append(displayAlbum(track))
+            append('\n')
+            append(track.codec.uppercase(Locale.ROOT))
+            append(" · ")
+            append(displayQuality(track.quality))
+            append('\n')
+            append(bytes(track.byteSize))
+        }
+        AlertDialog.Builder(activity)
+            .setTitle(track.title)
+            .setMessage(detail)
+            .setPositiveButton(text(R.string.offline_done), null)
+            .show()
+    }
+
+    private fun fullArtworkSize(): Int {
+        val viewportWidth = page.width.takeIf { it > 0 } ?: resources.displayMetrics.widthPixels
+        val viewportHeight = page.height.takeIf { it > 0 } ?: resources.displayMetrics.heightPixels
+        return minOf(
+            dp(240),
+            (viewportWidth - dp(48)).coerceAtLeast(dp(96)),
+            (viewportHeight * 2 / 5).coerceAtLeast(dp(112)),
+        )
+    }
+
+    private fun sectionParams() = LayoutParams(MATCH_PARENT, WRAP_CONTENT).apply {
+        bottomMargin = dp(12)
+    }
+
+    private fun miniControlParams() = LayoutParams(dp(48), dp(48)).apply {
+        marginStart = dp(4)
+    }
+
+    private fun addCenteredControl(parent: LinearLayout, button: Button) {
+        val slot = FrameLayout(activity)
+        slot.addView(button, FrameLayout.LayoutParams(dp(48), dp(48), Gravity.CENTER))
+        parent.addView(slot, LayoutParams(0, dp(56), 1f))
+    }
+
+    private fun playerAction(
+        id: Int,
+        icon: Int,
+        label: String,
+        primary: Boolean = false,
+        click: () -> Unit,
+    ): Button = Button(activity).apply {
+        this.id = id
+        configurePlayerAction(this, icon, label, primary, click)
+    }
+
+    private fun configurePlayerAction(
+        button: Button,
+        icon: Int,
+        label: String,
+        primary: Boolean = false,
+        click: () -> Unit,
+    ) {
+        OfflinePlayerUi.configureIconButton(button, icon, label, primary)
+        button.setOnClickListener { click() }
+    }
+
+    private fun updatePlayPauseButton(button: Button) {
+        val label = text(when {
+            playback.owner == "server" -> R.string.offline_play
+            playback.playing -> R.string.offline_pause
+            else -> R.string.offline_resume
+        })
+        val icon = if (playback.playing && playback.owner != "server") {
+            R.drawable.ic_offline_pause
+        } else {
+            R.drawable.ic_offline_play
+        }
+        if (button.tag == icon && button.text.toString() == label) return
+        OfflinePlayerUi.configureIconButton(button, icon, label, primary = true)
+    }
+
     private fun flattenFolders(): List<Pair<String, String>> {
         val result = mutableListOf(OfflineLibrary.ROOT_FOLDER_ID to text(R.string.offline_saved_music))
         fun visit(parent: String, depth: Int) {
@@ -1675,7 +1946,9 @@ class OfflineMusicView(
             else -> R.string.offline_status_waiting
         })
         val reasonResource = when (job.errorCode) {
-            "network_policy" -> R.string.offline_reason_network_policy
+            "network_unmetered_required" -> R.string.offline_reason_network_unmetered
+            "network_roaming" -> R.string.offline_reason_network_roaming
+            "network_unavailable" -> R.string.offline_reason_network_unavailable
             "auth_required" -> R.string.offline_reason_auth
             "destination_missing" -> R.string.offline_reason_destination
             "storage_full" -> R.string.offline_reason_storage
@@ -1745,17 +2018,14 @@ class OfflineMusicView(
     }
     private fun artwork(track: OfflineTrack, sizeDp: Int): ImageView = ImageView(activity).apply {
         importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
-        scaleType = ImageView.ScaleType.CENTER_CROP
+        OfflinePlayerUi.styleArtwork(this)
         OfflineArtworkLoader.load(scope, this, track.artworkPath, dp(sizeDp))
     }
-    private fun configureAction(button: Button, value: String, click: () -> Unit) {
-        button.text = value
-        button.textSize = 13f
-        button.isAllCaps = false
-        button.setTextColor(FOREGROUND)
-        button.minHeight = dp(48)
-        button.minWidth = dp(48)
-        button.setOnClickListener { click() }
+
+    private fun playerArtwork(track: OfflineTrack?, sizePixels: Int): ImageView = ImageView(activity).apply {
+        importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+        OfflinePlayerUi.styleArtwork(this, cornerDp = 14)
+        OfflineArtworkLoader.load(scope, this, track?.artworkPath, sizePixels)
     }
 
     private fun scrollColumn(): LinearLayout = vertical(dp(12))
@@ -1801,12 +2071,9 @@ class OfflineMusicView(
         }
         return String.format(Locale.getDefault(), if (amount >= 10) "%.0f %s" else "%.1f %s", amount, units[index])
     }
-    private fun duration(positionMs: Long, durationMs: Long): String {
-        fun value(ms: Long): String {
-            val total = ms.coerceAtLeast(0) / 1_000
-            return text(R.string.offline_minutes_seconds, total / 60, total % 60)
-        }
-        return "${value(positionMs)} / ${value(durationMs)}"
+    private fun durationValue(milliseconds: Long): String {
+        val total = milliseconds.coerceAtLeast(0) / 1_000
+        return text(R.string.offline_minutes_seconds, total / 60, total % 60)
     }
 
     private data class AlbumKey(val artist: String, val album: String)
@@ -1839,11 +2106,11 @@ class OfflineMusicView(
         private const val STATE_COLLECTION_FIRST = "offline_collection_first"
         private const val STATE_COLLECTION_SECOND = "offline_collection_second"
 
-        private val BACKGROUND = Color.rgb(12, 23, 19)
-        private val PANEL = Color.rgb(24, 45, 37)
-        private val FOREGROUND = Color.rgb(234, 245, 238)
-        private val MUTED = Color.rgb(164, 186, 172)
-        private val ERROR = Color.rgb(255, 180, 171)
+        private val BACKGROUND = OfflinePalette.background
+        private val PANEL = OfflinePalette.panel
+        private val FOREGROUND = OfflinePalette.foreground
+        private val MUTED = OfflinePalette.muted
+        private val ERROR = OfflinePalette.error
 
         private fun allFolders(library: OfflineLibrary): List<OfflineFolder> {
             val result = mutableListOf<OfflineFolder>()

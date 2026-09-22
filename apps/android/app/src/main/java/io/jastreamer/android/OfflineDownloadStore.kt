@@ -213,16 +213,36 @@ internal class OfflineDownloadStore(private val root: File) {
             )
         }
         val tracks = value.optJSONArray("tracks") ?: JSONArray()
+        val kind = value.optString("kind")
+        val targetID = value.optionalString("target_id")
+        val quality = value.optString("quality")
+        if (kind !in setOf("track", "album", "playlist", "folder")) {
+            throw JSONException("Download target kind is invalid")
+        }
+        try {
+            OfflineTransferPolicy.requireQuality(quality)
+            if (targetID != null) {
+                if (kind == "folder") {
+                    OfflineTransferClient.decodeFolderTarget(targetID)
+                } else {
+                    OfflineTransferPolicy.requireOpaqueTarget(targetID)
+                }
+            } else if (endpoint != null) {
+                throw OfflineDownloadException("invalid_request", "Pending download target is missing")
+            }
+        } catch (_: OfflineDownloadException) {
+            throw JSONException("Download target is invalid")
+        }
         return StoredDownloadJob(
             id = value.getString("id"),
             title = value.optString("title"),
             server = endpoint,
             principalId = value.optionalString("principal_id"),
             remoteId = value.optionalString("remote_id"),
-            kind = value.optString("kind"),
-            targetId = value.optionalString("target_id"),
+            kind = kind,
+            targetId = targetID,
             status = value.optString("status", "failed"),
-            quality = value.optString("quality"),
+            quality = quality,
             folderId = value.optString("folder_id", OfflineLibrary.IMPORT_FOLDER_ID),
             tracks = MutableList(tracks.length()) { decodeTrack(tracks.getJSONObject(it)) },
             playlistId = value.optionalString("playlist_id"),

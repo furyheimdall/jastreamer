@@ -5,11 +5,14 @@ import java.util.Locale
 import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
+import org.json.JSONArray
+import org.json.JSONObject
 
 internal object OfflineTransferPolicy {
     private val sha256 = Regex("[0-9a-f]{64}")
     private val opaqueId = Regex("[A-Za-z0-9._~-]{1,160}")
     private val contentRange = Regex("bytes ([0-9]+)-([0-9]+)/([0-9]+)")
+    private const val MAX_FOLDER_PATH_BYTES = 4_096
 
     fun requireQuality(value: String): String {
         if (value != "original" && value != "aac_256") {
@@ -18,22 +21,59 @@ internal object OfflineTransferPolicy {
         return value
     }
 
-    fun requireTarget(value: org.json.JSONObject): Pair<String, String> {
-        val keys = value.keys().asSequence().toSet()
-        if (keys != setOf("kind", "id")) {
-            throw OfflineDownloadException("invalid_request", "Download target contains unsupported fields")
-        }
+    fun requireTarget(value: JSONObject): Pair<String, String> {
         val kind = value.opt("kind") as? String
             ?: throw OfflineDownloadException("invalid_request", "Download target kind is required")
+        if (kind == "folder") {
+            if (value.keys().asSequence().toSet() != setOf("kind", "root_id", "path")) {
+                throw OfflineDownloadException("invalid_request", "Download target contains unsupported fields")
+            }
+            val rootID = requireFolderRoot(value.opt("root_id"))
+            val path = requireFolderPath(value.opt("path"))
+            return kind to JSONArray().put(rootID).put(path).toString()
+        }
+        if (value.keys().asSequence().toSet() != setOf("kind", "id")) {
+            throw OfflineDownloadException("invalid_request", "Download target contains unsupported fields")
+        }
         if (kind !in setOf("track", "album", "playlist")) {
             throw OfflineDownloadException("invalid_request", "Download target kind is unsupported")
         }
         val id = value.opt("id") as? String
             ?: throw OfflineDownloadException("invalid_request", "Download target id is required")
-        if (!opaqueId.matches(id)) {
+        requireOpaqueTarget(id)
+        return kind to id
+    }
+
+    internal fun requireOpaqueTarget(value: String): String {
+        if (!opaqueId.matches(value)) {
             throw OfflineDownloadException("invalid_request", "Download target id is invalid")
         }
-        return kind to id
+        return value
+    }
+
+    internal fun requireFolderRoot(value: Any?): String {
+        val rootID = value as? String
+            ?: throw OfflineDownloadException("invalid_request", "Download folder root is required")
+        if (!opaqueId.matches(rootID)) {
+            throw OfflineDownloadException("invalid_request", "Download folder root is invalid")
+        }
+        return rootID
+    }
+
+    internal fun requireFolderPath(value: Any?): String {
+        val path = value as? String
+            ?: throw OfflineDownloadException("invalid_request", "Download folder path is required")
+        val segments = if (path.isEmpty()) emptyList() else path.split('/')
+        if (
+            path.toByteArray(Charsets.UTF_8).size > MAX_FOLDER_PATH_BYTES ||
+            path.startsWith('/') ||
+            path.endsWith('/') ||
+            path.any(Char::isISOControl) ||
+            segments.any { it.isEmpty() || it == "." || it == ".." }
+        ) {
+            throw OfflineDownloadException("invalid_request", "Download folder path is invalid")
+        }
+        return path
     }
 
     fun requireRemoteJobId(value: String): String {

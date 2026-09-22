@@ -133,8 +133,45 @@ internal class OfflineTransferClient(
                 val entries = value.optJSONArray("track_ids") ?: value.optJSONArray("tracks") ?: JSONArray()
                 DownloadPreview(safeTitle(value.optString("name"), "Playlist"), entries.length())
             }
+            "folder" -> folderPreview(targetId, authorization)
             else -> throw OfflineDownloadException("invalid_request", "Unsupported download target")
         }
+    }
+
+    private suspend fun folderPreview(targetId: String, authorization: String): DownloadPreview {
+        val (rootID, folderPath) = decodeFolderTarget(targetId)
+        val parentPath = folderPath.substringBeforeLast('/', "")
+        var offset = 0
+        while (offset < MAX_FOLDER_PREVIEW_ITEMS) {
+            val builder = path("api", "v1", "library", "folders").newBuilder()
+                .addQueryParameter("offset", offset.toString())
+                .addQueryParameter("limit", FOLDER_PREVIEW_PAGE_SIZE.toString())
+                .addQueryParameter("sort", "path")
+            if (folderPath.isNotEmpty()) {
+                builder.addQueryParameter("root_id", rootID)
+                builder.addQueryParameter("path", parentPath)
+                builder.addQueryParameter("q", folderPath.substringAfterLast('/'))
+            }
+            val value = json("GET", builder.build(), authenticated = false, authorization = authorization)
+            val items = value.optJSONArray("items")
+                ?: throw OfflineDownloadException("invalid_response", "Server returned an invalid folder listing")
+            for (index in 0 until items.length()) {
+                val item = items.optJSONObject(index) ?: continue
+                if (item.optString("root_id") != rootID || item.optString("path") != folderPath) continue
+                val count = item.optInt("track_count", -1)
+                if (count <= 0) {
+                    throw OfflineDownloadException("source_missing", "The folder was not found or contains no tracks")
+                }
+                if (count > MAX_TRACKS) {
+                    throw OfflineDownloadException("collection_too_large", "The folder contains too many tracks to download")
+                }
+                return DownloadPreview(safeTitle(item.optString("name"), "Folder"), count)
+            }
+            val total = value.optInt("total", items.length()).coerceAtLeast(0)
+            if (items.length() == 0 || offset + items.length() >= total) break
+            offset += items.length()
+        }
+        throw OfflineDownloadException("source_missing", "The folder was not found or contains no tracks")
     }
 
     suspend fun create(
@@ -146,7 +183,16 @@ internal class OfflineTransferClient(
     ): DownloadManifest {
         val authorization = requirePrincipal(expectedPrincipal)
         if (!shouldContinue()) throw OfflineDownloadException("stopped", "Download stopped")
-        val body = JSONObject().put("kind", kind).put("id", targetId).put("quality", quality)
+        val body = if (kind == "folder") {
+            val (rootID, path) = decodeFolderTarget(targetId)
+            JSONObject()
+                .put("kind", kind)
+                .put("root_id", rootID)
+                .put("path", path)
+                .put("quality", quality)
+        } else {
+            JSONObject().put("kind", kind).put("id", targetId).put("quality", quality)
+        }
         val value = json(
             "POST",
             path("api", "v1", "downloads"),
@@ -537,6 +583,25 @@ internal class OfflineTransferClient(
     private fun safeTitle(value: String, fallback: String): String = safeText(value).ifBlank { fallback }
 
     companion object {
+        internal fun decodeFolderTarget(value: String): Pair<String, String> {
+            val tuple = try {
+                JSONArray(value)
+            } catch (failure: JSONException) {
+                throw OfflineDownloadException("invalid_request", "Download folder target is invalid", failure)
+            }
+            if (tuple.length() != 2) {
+                throw OfflineDownloadException("invalid_request", "Download folder target is invalid")
+            }
+            val rootID = OfflineTransferPolicy.requireFolderRoot(tuple.opt(0))
+            val path = OfflineTransferPolicy.requireFolderPath(tuple.opt(1))
+            if (JSONArray().put(rootID).put(path).toString() != value) {
+                throw OfflineDownloadException("invalid_request", "Download folder target is invalid")
+            }
+            return rootID to path
+        }
+
+        private const val FOLDER_PREVIEW_PAGE_SIZE = 500
+        private const val MAX_FOLDER_PREVIEW_ITEMS = 10_000
         private const val MAX_JSON_BYTES = 32 * 1024 * 1024
         private const val MAX_ERROR_BYTES = 32 * 1024
         private const val MAX_ARTWORK_BYTES = 5 * 1024 * 1024

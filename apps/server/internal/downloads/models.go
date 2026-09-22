@@ -1,6 +1,8 @@
 package downloads
 
 import (
+	"encoding/json"
+	"errors"
 	"os"
 	"time"
 )
@@ -57,8 +59,46 @@ type Manifest struct {
 
 type Request struct {
 	Kind    string `json:"kind"`
-	ID      string `json:"id"`
+	ID      string `json:"id,omitempty"`
+	RootID  string `json:"root_id,omitempty"`
+	Path    string `json:"path,omitempty"`
 	Quality string `json:"quality"`
+}
+
+func (request *Request) UnmarshalJSON(data []byte) error {
+	var fields map[string]*string
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return err
+	}
+	kind := fields["kind"]
+	if kind == nil {
+		return errors.New("download kind is required")
+	}
+	required := []string{"kind", "quality", "id"}
+	switch *kind {
+	case "track", "album", "playlist":
+	case "folder":
+		required = []string{"kind", "quality", "root_id", "path"}
+	default:
+		return errors.New("download kind is unsupported")
+	}
+	if len(fields) != len(required) {
+		return errors.New("download target fields are invalid")
+	}
+	for _, name := range required {
+		if fields[name] == nil {
+			return errors.New("download target fields must be strings")
+		}
+	}
+	decoded := Request{Kind: *kind, Quality: *fields["quality"]}
+	if *kind == "folder" {
+		decoded.RootID = *fields["root_id"]
+		decoded.Path = *fields["path"]
+	} else {
+		decoded.ID = *fields["id"]
+	}
+	*request = decoded
+	return nil
 }
 
 type Artifact struct {

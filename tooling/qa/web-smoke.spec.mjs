@@ -482,6 +482,146 @@ test("liked playlist creation reconciles an earlier event refresh and preserves 
   }
 });
 
+test.describe("native download presentation", () => {
+  test.use({
+    userAgent: "Mozilla/5.0 (Linux; Android 16; Pixel 6) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Mobile Safari/537.36 JaStreamerAndroid/0.2",
+    viewport: { width: 360, height: 740 },
+    isMobile: true,
+    hasTouch: true,
+  });
+
+  async function installNativeDownloads(page) {
+    await page.addInitScript(() => {
+      const listeners = new Set();
+      const jobs = {};
+      window.refinementDownloadJobs = jobs;
+      window.JastreamerDownloads = {
+        addEventListener(type, listener) {
+          if (type === "message") listeners.add(listener);
+        },
+        removeEventListener(type, listener) {
+          listeners.delete(listener);
+        },
+        postMessage(raw) {
+          const request = JSON.parse(raw);
+          let result = {};
+          if (request.action === "capabilities") result = { version: 1 };
+          if (request.action === "download") {
+            jobs["fixture-download"] = {
+              id: "fixture-download", status: "waiting",
+              completed_tracks: 0, total_tracks: 2, failed_tracks: 0,
+              received_bytes: 0, total_bytes: 2_000_000,
+              error: { code: "network_unmetered_required", message: "Waiting for an unmetered network" },
+            };
+            result = { job_id: "fixture-download" };
+          }
+          if (request.action === "status") result = { jobs: Object.values(jobs) };
+          if (request.action === "configure_network") {
+            const job = jobs[request.job_id];
+            if (job) {
+              job.status = "downloading";
+              job.received_bytes = 500_000;
+              delete job.error;
+            }
+          }
+          setTimeout(() => {
+            const event = new MessageEvent("message", { data: JSON.stringify({ id: request.id, result }) });
+            for (const listener of listeners) listener(event);
+          }, 0);
+        },
+      };
+    });
+  }
+
+  async function openPhoneLibrary(page) {
+    const setup = await control(page, "/setup");
+    await control(page, setup.required ? "/setup" : "/login", "POST", {
+      username: "browser-smoke", password: "browser-smoke-password",
+    });
+    await control(page, "/library/scans", "POST", {});
+    await expect.poll(async () => (await control(page, "/library/tracks")).total).toBe(2);
+    await page.goto(origin, { waitUntil: "domcontentloaded" });
+    await expect(page.locator(".library-album-tile").first()).toBeVisible();
+  }
+
+  test("long album metadata cannot expand the phone viewport or displace the player", async ({ page }) => {
+    await installNativeDownloads(page);
+    await page.route("**/api/v1/library/albums?*", async (route) => {
+      const response = await route.fetch();
+      const result = await response.json();
+      result.items = result.items.map((album) => ({
+        ...album,
+        title: "Live Concert Recording — Complete Deluxe Anniversary Edition",
+        artist: "A very long artist and orchestra collaboration",
+      }));
+      await route.fulfill({ response, json: result });
+    });
+    await openPhoneLibrary(page);
+    await expect(page.locator(".library-album-tile .native-download-button").first()).toBeVisible();
+    for (const viewport of [{ width: 360, height: 740 }, { width: 740, height: 360 }]) {
+      await page.setViewportSize(viewport);
+      await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(viewport.width + 1);
+      const cards = await page.locator(".library-album-card").evaluateAll((elements) =>
+        elements.map((element) => ({ left: element.getBoundingClientRect().left, right: element.getBoundingClientRect().right })));
+      for (const card of cards) {
+        expect(card.left).toBeGreaterThanOrEqual(0);
+        expect(card.right).toBeLessThanOrEqual(viewport.width + 1);
+      }
+      const player = await page.locator(".player-bar").boundingBox();
+      expect(player).not.toBeNull();
+      expect(player.x).toBeGreaterThanOrEqual(0);
+      expect(player.x + player.width).toBeLessThanOrEqual(viewport.width + 1);
+      expect(player.y).toBeGreaterThanOrEqual(0);
+      expect(player.y + player.height).toBeLessThanOrEqual(viewport.height + 1);
+      await page.locator(".library-album-card").first().click();
+      await expect(page.locator(".library-detail-header")).toBeVisible();
+      expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(viewport.width + 1);
+      await page.getByRole("button", { name: /Back to/ }).click();
+    }
+  });
+
+  test("accepted downloads expose waiting reasons and reopenable live progress without leaving Server", async ({ page }) => {
+    await installNativeDownloads(page);
+    await openPhoneLibrary(page);
+    const queueBefore = await control(page, "/queue");
+    const playerBefore = await control(page, "/player");
+    const download = page.locator(".library-album-tile .native-download-button").first();
+    await download.click();
+    await page.locator("[data-download-confirm=true]").click();
+    const panel = page.locator(".native-download-status-dialog");
+    await expect(panel).toBeVisible();
+    await expect(panel).toContainText(/unmetered|metered|network/i);
+    await panel.getByRole("button", { name: "Close", exact: true }).click();
+    await expect(panel).not.toBeVisible();
+    await download.click();
+    await expect(panel).toBeVisible();
+    await page.evaluate(() => {
+      const job = window.refinementDownloadJobs["fixture-download"];
+      job.status = "downloading";
+      job.completed_tracks = 1;
+      job.received_bytes = 500_000;
+      delete job.error;
+    });
+    await expect(panel).toContainText("25%");
+    await expect(panel.getByRole("progressbar")).toBeVisible();
+    await panel.getByRole("button", { name: "Close", exact: true }).click();
+    await page.locator(".native-download-status-open").click();
+    await expect(panel).toBeVisible();
+    await page.evaluate(() => {
+      const job = window.refinementDownloadJobs["fixture-download"];
+      job.status = "completed";
+      job.completed_tracks = 2;
+      job.received_bytes = 2_000_000;
+    });
+    await expect(panel).toContainText("Saved to device");
+    await panel.getByRole("button", { name: "Close", exact: true }).click();
+    await download.click();
+    await expect(page.locator("[data-download-confirm=true]")).toBeVisible();
+    expect((await control(page, "/queue")).entries).toEqual(queueBefore.entries);
+    expect((await control(page, "/player")).state).toBe(playerBefore.state);
+  });
+});
+
 test("unliking the last item on the last liked page returns to remaining tracks", async ({ page }) => {
   const setup = await control(page, "/setup");
   await control(page, setup.required ? "/setup" : "/login", "POST", {

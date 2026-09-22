@@ -96,6 +96,55 @@ func TestOriginalJobPreservesBytesOwnerScopeAndPlaylistDuplicates(t *testing.T) 
 		t.Fatalf("other owner artifact error = %#v", err)
 	}
 }
+
+func TestFolderJobUsesExplicitRootAndPathTarget(t *testing.T) {
+	root := t.TempDir()
+	writeDownloadTestWAV(t, filepath.Join(root, "Selected", "Child", "nested.wav"), 4_000)
+	writeDownloadTestWAV(t, filepath.Join(root, "Selected", "direct.wav"), 4_000)
+	writeDownloadTestWAV(t, filepath.Join(root, "SelectedElse", "sibling.wav"), 4_000)
+	directory := t.TempDir()
+	db, err := database.Open(filepath.Join(directory, "server.sqlite"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	catalog, err := library.New(t.Context(), db, []library.Root{{ID: "music", Name: "Music", Path: root}}, filepath.Join(directory, "artwork"), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	scan, err := catalog.StartScan(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitDownloadTestScan(t, catalog, scan.ID)
+	service, err := New(t.Context(), db, catalog, filepath.Join(directory, "downloads"), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(service.Close)
+
+	created, err := service.Create(t.Context(), "owner", Request{
+		Kind: "folder", RootID: "music", Path: "Selected", Quality: QualityOriginal,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifest := waitDownloadManifest(t, service, "owner", created.ID)
+	if manifest.Kind != "folder" || manifest.Title != "Selected" || manifest.Status != "ready" || len(manifest.Tracks) != 2 {
+		t.Fatalf("folder manifest = %+v", manifest)
+	}
+	if manifest.Tracks[0].Title != "nested" || manifest.Tracks[1].Title != "direct" {
+		t.Fatalf("folder track order = %+v", manifest.Tracks)
+	}
+	var sourceID string
+	if err = db.QueryRowContext(t.Context(), `SELECT source_id FROM download_jobs WHERE id=?`, created.ID).Scan(&sourceID); err != nil {
+		t.Fatal(err)
+	}
+	if sourceID != "music\x00Selected" {
+		t.Fatalf("folder source id = %q", sourceID)
+	}
+}
+
 func TestArtifactNamesAllowHexDigitsAndRejectPathEscape(t *testing.T) {
 	directory := t.TempDir()
 	info, err := os.Lstat(directory)
@@ -194,6 +243,68 @@ func TestInterruptedPreparationIsPersistedAsFailedOnRestart(t *testing.T) {
 	}
 	if manifest.Status != "failed" || manifest.Tracks[0].Error == nil || manifest.Tracks[0].Error.Code != "JOB_INTERRUPTED" {
 		t.Fatalf("recovered manifest = %+v", manifest)
+	}
+}
+
+func TestFolderKindSchemaMigrationPreservesJobsTracksIndexesAndArtifacts(t *testing.T) {
+	directory := t.TempDir()
+	db, err := database.Open(filepath.Join(directory, "server.sqlite"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	oldSchema := strings.Replace(schema, "'track','album','playlist','folder'", "'track','album','playlist'", 1)
+	if _, err = db.ExecContext(t.Context(), oldSchema); err != nil {
+		t.Fatal(err)
+	}
+	createdAt := "2026-01-01T00:00:00Z"
+	expiresAt := "2026-01-02T00:00:00Z"
+	if _, err = db.ExecContext(t.Context(), `INSERT INTO download_jobs(id,owner_id,kind,source_id,title,quality,status,created_at,expires_at,error_code,error_message) VALUES('existing','owner','album','source','Existing album','original','preparing',?,?,'','')`, createdAt, expiresAt); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = db.ExecContext(t.Context(), `INSERT INTO download_job_tracks(job_id,position,track_id,status,title,artist,album,album_artist,disc,track_number,duration_ms,source_version,quality,mime,codec,byte_size,sha256,media_path,artwork_path,error_code,error_message,artifact_name) VALUES('existing',0,'track','pending','Existing track','Artist','Album','Artist',1,2,3000,'version','original','audio/flac','flac',123,'digest','/api/v1/downloads/existing/files/0','','','','original.flac')`); err != nil {
+		t.Fatal(err)
+	}
+	artifact := filepath.Join(directory, "downloads", "existing", "original.flac")
+	if err = os.MkdirAll(filepath.Dir(artifact), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err = os.WriteFile(artifact, []byte("preserved"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if err = initializeDownloadSchema(t.Context(), db); err != nil {
+		t.Fatal(err)
+	}
+	var kind, status, title, trackTitle, artifactName string
+	if err = db.QueryRowContext(t.Context(), `SELECT kind,status,title FROM download_jobs WHERE id='existing'`).Scan(&kind, &status, &title); err != nil {
+		t.Fatal(err)
+	}
+	if err = db.QueryRowContext(t.Context(), `SELECT title,artifact_name FROM download_job_tracks WHERE job_id='existing' AND position=0`).Scan(&trackTitle, &artifactName); err != nil {
+		t.Fatal(err)
+	}
+	if kind != "album" || status != "preparing" || title != "Existing album" || trackTitle != "Existing track" || artifactName != "original.flac" {
+		t.Fatalf("migrated job=%q/%q/%q track=%q/%q", kind, status, title, trackTitle, artifactName)
+	}
+	if bytes, readErr := os.ReadFile(artifact); readErr != nil || string(bytes) != "preserved" {
+		t.Fatalf("artifact bytes=%q error=%v", bytes, readErr)
+	}
+	if _, err = db.ExecContext(t.Context(), `INSERT INTO download_jobs(id,owner_id,kind,source_id,title,quality,status,created_at,expires_at,error_code,error_message) VALUES('folder','owner','folder','root/path','Folder','original','failed',?,?,'EMPTY','Empty')`, createdAt, expiresAt); err != nil {
+		t.Fatalf("folder kind rejected after migration: %v", err)
+	}
+	var indexCount int
+	if err = db.QueryRowContext(t.Context(), `SELECT count(*) FROM sqlite_schema WHERE type='index' AND name IN ('download_jobs_owner','download_jobs_expiry','download_job_tracks_artifact')`).Scan(&indexCount); err != nil {
+		t.Fatal(err)
+	}
+	if indexCount != 3 {
+		t.Fatalf("download indexes preserved = %d", indexCount)
+	}
+	var foreignKeyFailures int
+	if err = db.QueryRowContext(t.Context(), `SELECT count(*) FROM pragma_foreign_key_check('download_job_tracks')`).Scan(&foreignKeyFailures); err != nil {
+		t.Fatal(err)
+	}
+	if foreignKeyFailures != 0 {
+		t.Fatalf("download foreign key failures = %d", foreignKeyFailures)
 	}
 }
 
@@ -476,7 +587,7 @@ func TestQueuedCancellationPreventsLateWorkerStart(t *testing.T) {
 
 type unavailableCatalog struct{}
 
-func (unavailableCatalog) DownloadSnapshot(context.Context, string, string) (library.DownloadSnapshot, error) {
+func (unavailableCatalog) DownloadSnapshot(context.Context, string, string, string, string) (library.DownloadSnapshot, error) {
 	return library.DownloadSnapshot{Kind: "track", ID: "missing", Title: "Missing", Tracks: []library.Track{{ID: "missing", Title: "Missing"}}}, nil
 }
 
@@ -492,7 +603,7 @@ type routingBlockingCatalog struct {
 	opened chan string
 }
 
-func (catalog *routingBlockingCatalog) DownloadSnapshot(_ context.Context, _, id string) (library.DownloadSnapshot, error) {
+func (catalog *routingBlockingCatalog) DownloadSnapshot(_ context.Context, _, id, _, _ string) (library.DownloadSnapshot, error) {
 	return library.DownloadSnapshot{Kind: "track", ID: id, Title: id, Tracks: []library.Track{{ID: id, Title: id, Available: true, Size: 4, ModifiedAt: "2026-01-01T00:00:00Z", Format: "wav", Mime: "audio/wav"}}}, nil
 }
 
@@ -512,7 +623,7 @@ type blockingCatalog struct {
 	once   sync.Once
 }
 
-func (catalog *blockingCatalog) DownloadSnapshot(context.Context, string, string) (library.DownloadSnapshot, error) {
+func (catalog *blockingCatalog) DownloadSnapshot(context.Context, string, string, string, string) (library.DownloadSnapshot, error) {
 	return library.DownloadSnapshot{Kind: "track", ID: "track", Title: "Track", Tracks: []library.Track{{ID: "track", Title: "Track", Available: true, Size: 4, ModifiedAt: "2026-01-01T00:00:00Z", Format: "wav", Mime: "audio/wav"}}}, nil
 }
 
@@ -528,7 +639,7 @@ func (catalog *blockingCatalog) Info(context.Context, string) (library.TrackInfo
 
 type changedCatalog struct{}
 
-func (changedCatalog) DownloadSnapshot(context.Context, string, string) (library.DownloadSnapshot, error) {
+func (changedCatalog) DownloadSnapshot(context.Context, string, string, string, string) (library.DownloadSnapshot, error) {
 	return library.DownloadSnapshot{Kind: "track", ID: "track", Title: "Track", Tracks: []library.Track{{ID: "track", Title: "Track", Available: true, Size: 4, ModifiedAt: "2026-01-01T00:00:00Z", Format: "wav", Mime: "audio/wav"}}}, nil
 }
 

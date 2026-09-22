@@ -288,6 +288,11 @@ class MainActivity : ComponentActivity() {
                             showOffline(OfflineMusicView.SCREEN_LIBRARY)
                         }
                     },
+                    onOpenDownloads = {
+                        if (epoch == remoteEpoch && foreground && !destroyed) {
+                            showOffline(OfflineMusicView.SCREEN_DOWNLOADS)
+                        }
+                    },
                 )
                 remote = view
                 remoteRequiresReload = true

@@ -65,6 +65,17 @@ class OfflineTransferPolicyTest {
             "playlist" to "list-1",
             OfflineTransferPolicy.requireTarget(JSONObject().put("kind", "playlist").put("id", "list-1")),
         )
+        val folderTarget = JSONObject()
+            .put("kind", "folder")
+            .put("root_id", "root-1")
+            .put("path", "Albums/Live")
+        assertEquals("folder" to "[\"root-1\",\"Albums/Live\"]", OfflineTransferPolicy.requireTarget(folderTarget))
+        assertEquals("root-1" to "Albums/Live", OfflineTransferClient.decodeFolderTarget("[\"root-1\",\"Albums/Live\"]"))
+        assertThrows(OfflineDownloadException::class.java) {
+            OfflineTransferPolicy.requireTarget(
+                JSONObject().put("kind", "folder").put("root_id", "root-1").put("path", "../Albums"),
+            )
+        }
         assertThrows(OfflineDownloadException::class.java) {
             OfflineTransferPolicy.requireTarget(
                 JSONObject().put("kind", "track").put("id", "one").put("url", "file:///sdcard/music"),
