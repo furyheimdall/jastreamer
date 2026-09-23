@@ -11,21 +11,39 @@ Use the [installation guide](INSTALL.md) for requirements, release verification,
 ## 1. First setup and everyday use
 
 1. Open the installed Server's complete private-LAN URL (`http://<server-LAN-IP>:8080/` for the default Linux listener or port 18080 for the default native Windows listener). Create the first administrator account only on a new installation; the password must have at least 10 characters. After an update, use the existing account and session rather than repeating setup or clearing data.
-2. English is the default. Open **Settings**, then choose **English** or **한국어** under **Language / 언어**. The menu name remains **Settings** in both languages. The change is immediate and remembered; it does not save Server configuration or send playback commands.
-3. In **Settings**, confirm the music root (`/music` for the standard Linux container), save, then choose **Scan now**. A new sample-enabled installation places three bundled MP3s under `jastreamer-samples`; they appear only after this explicit scan. Scanning supports FLAC, MP3, WAV/WAVE, Ogg/Vorbis, Opus, and M4A without modifying source files. Samples are never queued or played automatically.
+2. English is the default. Open **Settings → General**, then choose **English** or **한국어** under **Language / 언어**. The menu name remains **Settings** in both languages. The change is immediate and remembered; it does not save Server configuration or send playback commands.
+3. In **Settings → Library**, confirm the music root (`/music` for the standard Linux container), save, then choose **Scan now**. A new sample-enabled installation places three bundled MP3s under `jastreamer-samples`; they appear only after this explicit scan. Scanning supports FLAC, MP3, WAV/WAVE, Ogg/Vorbis, Opus, and M4A without modifying source files. Samples are never queued or played automatically.
    If that host music folder is empty, there is nothing to play: put your audio files in the exact host path confirmed during installation, then scan again. Bundled samples, when present, are only test tracks and do not represent your personal library.
-   **Library scan**, including its start button, progress and history, is immediately below **Music folders** in Settings. Saving folder edits and starting a scan remain separate actions.
-4. To use Google Cast, enable **Google Cast output** in **Settings**, save, and restart the Server. It remains disabled when `cast.enabled` is false or absent from an older configuration. Do not enable it merely because a receiver is present.
+   **Library scan**, including its start button, progress and history, is immediately below **Music folders** in the Library settings tab. Saving folder edits and starting a scan remain separate actions.
+4. To use Google Cast, enable **Google Cast output** in **Settings → Playback & outputs**, save, and restart the Server. It remains disabled when `cast.enabled` is false or absent from an older configuration. Do not enable it merely because a receiver is present.
 5. Browse Library or Playlists, add tracks or grouped views to Queue, and select an output while playback is stopped. Refresh outputs if a newly powered receiver is missing.
 6. Use the player controls for Play/Pause, Stop, Previous, Next, and Seek when supported by the receiver. AirPlay may require a PIN or password; pair only while stopped.
 
+### Settings categories
+
+The Server's Settings screen groups existing controls into five tabs:
+
+| Tab | Controls |
+|---|---|
+| General | Language, app installation, Server name, data directory, and account password |
+| Network | HTTP/HTTPS, access rules, network adapters, discovery/polling intervals, and the Server audio URL |
+| Library | Music folders, scanning, and background audio verification |
+| Playback & outputs | Google Cast, AirPlay/help, FFmpeg, and audio conversion |
+| Diagnostics | Playback/file-check history and CSV report downloads |
+
+Switching tabs retains unsaved edits and does not save, restart, scan, or control playback. **Save settings** and **Discard changes** apply to all Server-setting tabs together; language and account actions remain separate. An invalid field in a hidden tab is revealed and focused before saving. Restart and configuration-conflict notices remain visible across tabs. On narrow screens, scroll the tab strip horizontally; keyboard users can use Left/Right, Home, and End.
+
 ### Playback and file-check history
 
-Open **Settings → Playback and file-check history** to view the Server's shared, persistent history. Filter by result type or renderer. Renderer reports include the renderer name and ID, track, error code, playback position when supplied, and expandable structured diagnostics. Older imported records may identify a renderer only by ID. The newest 5,000 records are retained; viewing them never changes playback.
+Open **Settings → Diagnostics → Playback and file-check history** to view the Server's shared, persistent history. Filter by result type or renderer. Renderer reports include the renderer name and ID, track, error code, playback position when supplied, and expandable structured diagnostics. Older imported records may identify a renderer only by ID. The newest 5,000 records are retained; viewing them never changes playback.
 
 **Scan now** first indexes metadata for browsing. After a successful scan, **Background audio verification** separately checks every indexed audio file, including unchanged files. It decodes one file at a time with the Server's configured FFmpeg and pauses during playback or another scan. FLAC checks also compare the decoded sample count and the STREAMINFO checksum when present. A completed index is not a passed integrity check.
 
 Failed checks and files that could not be verified appear in the same history with the music-folder name and relative path. Missing engines, unsupported formats, timeouts, and changed or unreadable files are not reported as healthy. Progress resumes after a Server restart. These checks never repair, rewrite, delete, or automatically remove source files or queue entries.
+
+In a PC or mobile web browser, select **File checks** to limit the report to audio verification, then choose **Download CSV**. The file contains all currently retained records matching the selected filters, not just the visible page. It includes UTC timestamps, outcomes, track/folder/relative-path information, error codes/messages, and structured details; renderer reports also retain their renderer and playback identifiers. UTF-8 with a BOM preserves Korean text in spreadsheet software, and formula-like cells are quoted as text to prevent execution.
+
+This exports the existing failure/inconclusive history, not a complete pass certificate for every file. Exporting neither deletes history nor changes source files or playback. Android, iOS, and Desktop embedded clients keep their existing download restrictions and show guidance to open the same Server in a normal browser; sign in there separately if necessary.
 
 The queue is Server-wide, preserves order and duplicates, and survives restarts. A Server restart does not automatically resume playback. Cast uses that same single queue, loads media with Cast autoplay disabled, and sends Play explicitly. Receiver groups and gapless playback are not supported.
 
@@ -36,6 +54,15 @@ The queue is Server-wide, preserves order and duplicates, and survives restarts.
 - Select **Liked** in Library to browse liked tracks. Search and paging still apply to that view.
 - In **Playlists**, enter a name under **Liked shuffle** and select **Shuffle**. This saves all currently available liked tracks in random order, not just the current page or search results. Unavailable tracks are excluded; an empty selection or more than the normal 10,000-track playlist limit produces an error rather than a partial playlist.
 - The result is an ordinary saved snapshot: later like changes do not rewrite it. Creating it does not change Queue or start playback; use its normal playback or queue actions explicitly.
+
+<a id="most-played"></a>
+### Play counts and Most Played
+
+- Open **Library → Most Played** to see available tracks with at least one counted play, ordered by count from highest to lowest. Each row shows its count; search and pagination apply to the globally ranked results. A track's information dialog shows the same count, including zero for an unplayed track.
+- Counts are shared across the Server, not private per-account statistics. One playback session qualifies after 30 seconds of confirmed listening, or half the duration for a track shorter than one minute. If duration is unknown, the threshold is 30 seconds. The Server uses correlated renderer playback and position progress; this is not a claim that a human heard the physical output.
+- Pause/resume keeps the accumulated listening time within that session and never counts the same session twice. Pause time, seek-skipped time, stalled progress, and gaps without reliable playback observations do not qualify. A new replay can add another count after meeting the threshold again.
+- Counts start when this feature is installed; earlier listening is not reconstructed. Completed counts survive rescans and Server restarts. Partial listening below the threshold is not restored after a Server restart. Standalone Android **Saved music** playback does not contribute.
+- Browsing statistics does not change the queue or start playback. Counts are stored in the Server database, not in music-file tags, and do not modify source audio.
 
 <a id="browser-output"></a>
 ### This device: local audio output
@@ -76,7 +103,7 @@ The native Kotlin app adds Server selection, Server-controlled phone output, and
 - In Server mode, the native header identifies the selected Server and its complete origin. **Servers** returns to selection without stopping Server-controlled network outputs or saved-music playback. A changed Server UUID is rejected for a saved entry rather than silently reusing its session.
 - Android applies system-bar and keyboard insets once in the native shell. Back first dismisses the keyboard when Android handles it, then navigates Web history, then returns to Server selection; Back from selection leaves the app. Rotation retains the live screen and unsaved Web form state. Foreground return rechecks a Server before exposing its page, but a failed Server check does not block **Saved music**.
 - Cookies and Web storage are isolated by Server UUID plus complete origin, including port. **Remove from recent servers** removes only the shortcut: it neither signs out nor deletes that isolated profile or saved music. Sign out inside the Server UI to end its session. Signing out stops that Server's incomplete imports; already committed music remains device-owned.
-- Native language controls and **Settings → Language / 언어** support English and Korean. A Web-language change is reflected in the native shell when the page finishes loading or you leave or pause it.
+- Native language controls and **Settings → General → Language / 언어** support English and Korean. A Web-language change is reflected in the native shell when the page finishes loading or you leave or pause it.
 
 **Saved music and downloads**
 
@@ -112,7 +139,7 @@ The SwiftUI app wraps the same Server-hosted interface. Its current availability
 - The header shows the selected Server and complete origin, including port. **Change Server** returns to selection without stopping network-output playback. Foreground return rechecks the Server UUID before exposing the page; identity or network failure keeps the old page and its keyboard inaccessible.
 - Cookies and local Web storage use named profiles keyed by verified Server UUID and canonical scheme/host/port. Different ports are separate sessions. Removing a recent entry only changes the list; sign out inside the Server UI to end its session.
 - Back navigates available Web history; Reload refreshes the page. Use the keyboard's **Next** and **Done** for form entry. Rotation retains the live page and unsaved input. In compact-height keyboard layouts the back/reload bar hides, while Server switching and language remain available.
-- Native language controls and **Settings → Language / 언어** support English and Korean. Web language is read back at page load, foreground return and native screen transitions, without a JavaScript bridge. Changing the native language reloads the Web page, so finish unsaved edits first.
+- Native language controls and **Settings → General → Language / 언어** support English and Korean. Web language is read back at page load, foreground return and native screen transitions, without a JavaScript bridge. Changing the native language reloads the Web page, so finish unsaved edits first.
 - The native shell sends no Play or Stop when closing, backgrounding or switching Servers. If the Web page owns **This device**, losing that page or its live registration releases the browser output as described above. There is no standalone native audio engine, offline player or cached command queue. External navigation, new windows, downloads, file pickers and native media/device permission requests are blocked; use the browser for file-upload workflows.
 
 The shared PWA card is for browser use, not an extra installation inside the native client. Use only a trusted Server, especially over unencrypted HTTP. If discovery fails, check Local Network access, Wi-Fi/multicast and VPN routing or enter the complete address manually.

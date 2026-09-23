@@ -2,7 +2,9 @@ package httpapi
 
 import (
 	"bufio"
+	"bytes"
 	"context"
+	"encoding/csv"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -187,6 +189,16 @@ func TestDiscoveryIsPublicAndReturnsOnlyConnectionMetadata(t *testing.T) {
 	}
 	if metadata != fixture.metadata {
 		t.Fatalf("discovery metadata=%#v, want %#v", metadata, fixture.metadata)
+	}
+}
+
+func TestLibraryPlayedQueryParsing(t *testing.T) {
+	fixture := startAPI(t, false)
+	fixture.setup(t)
+	expectStatus(t, fixture.request(t, http.MethodGet, "/api/v1/library/tracks?played=true&sort=most_played", "", nil), http.StatusOK)
+	response := fixture.request(t, http.MethodGet, "/api/v1/library/tracks?played=not-a-boolean", "", nil)
+	if code := responseErrorCode(t, response); code != "INVALID_QUERY" {
+		t.Fatalf("invalid played filter error=%q, want INVALID_QUERY", code)
 	}
 }
 
@@ -557,6 +569,7 @@ func TestConfigRestartStateDistinguishesLiveAndExternalRoots(t *testing.T) {
 func TestHistoryAndVerificationRequireAuthentication(t *testing.T) {
 	fixture := startAPI(t, false)
 	expectStatus(t, fixture.request(t, "GET", "/api/v1/history", "", nil), http.StatusUnauthorized)
+	expectStatus(t, fixture.request(t, "GET", "/api/v1/history/export", "", nil), http.StatusUnauthorized)
 	expectStatus(t, fixture.request(t, "GET", "/api/v1/library/verification", "", nil), http.StatusUnauthorized)
 }
 
@@ -593,6 +606,82 @@ func TestHistoryFiltersPagesAndNeverReturnsNullArrays(t *testing.T) {
 	}
 	if emptyResult.Items == nil || emptyResult.Renderers == nil {
 		t.Fatalf("history arrays must not be null: %#v", emptyResult)
+	}
+}
+
+func TestHistoryExportFiltersEscapesAndNeutralizesCSV(t *testing.T) {
+	fixture := startAPI(t, false)
+	fixture.setup(t)
+	base := time.Date(2026, 9, 21, 10, 0, 0, 0, time.UTC)
+	position := int64(1234)
+	events := []errorhistory.Event{
+		{Key: "matching-older", ReceivedAt: base, Kind: "renderer", RendererID: "renderer-1", RendererName: "Room", Protocol: "upnp", TrackID: "track-older", TrackTitle: "Older", Stage: "Play", Code: "transport", Message: "Older failure.", Outcome: "unknown", Details: json.RawMessage(`{"attempt":1}`)},
+		{Key: "matching-newer", ReceivedAt: base.Add(time.Second), Kind: "renderer", RendererID: "renderer-1", RendererName: "\t@SUM(1,1)", Protocol: "upnp", TrackID: "+track", TrackTitle: "=HYPERLINK(\"https://example.invalid\")", RootName: " 음악,보관함", RelativePath: "=2+2,\"앨범\"\n곡.flac", Stage: " \t-CMD()", Code: "\u200e=CMD()", Message: "\r=cmd|' /C calc'!A0\n한국어", Outcome: "failed", PlayID: "@play", CommandID: " +command", PositionMS: &position, Details: json.RawMessage(`{"formula":"=SUM(1,1)","note":"한국어, \"quoted\""}`)},
+		{Key: "other-renderer", ReceivedAt: base.Add(2 * time.Second), Kind: "renderer", RendererID: "renderer-2", Outcome: "unknown", Message: "Excluded renderer.", Details: json.RawMessage(`{}`)},
+		{Key: "integrity", ReceivedAt: base.Add(3 * time.Second), Kind: "integrity", TrackID: "track-integrity", Outcome: "failed", Message: "Excluded file.", Details: json.RawMessage(`{}`)},
+	}
+	for _, event := range events {
+		if err := fixture.history.Record(t.Context(), event); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	expectStatus(t, fixture.request(t, "GET", "/api/v1/history/export?kind=invalid", "", nil), http.StatusBadRequest)
+	expectStatus(t, fixture.request(t, "GET", "/api/v1/history/export?renderer_id=%00", "", nil), http.StatusBadRequest)
+	response := fixture.request(t, "GET", "/api/v1/history/export?kind=renderer&renderer_id=renderer-1", "", nil)
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		t.Fatalf("HTTP status=%d, want %d", response.StatusCode, http.StatusOK)
+	}
+	if response.Header.Get("Content-Type") != "text/csv; charset=utf-8" || response.Header.Get("Cache-Control") != "no-store" || response.Header.Get("X-Content-Type-Options") != "nosniff" {
+		t.Fatalf("export headers=%v", response.Header)
+	}
+	if disposition := response.Header.Get("Content-Disposition"); disposition != `attachment; filename="jastreamer-diagnostic-history.csv"` {
+		t.Fatalf("Content-Disposition=%q", disposition)
+	}
+	body, err := io.ReadAll(response.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.HasPrefix(body, []byte{0xef, 0xbb, 0xbf}) {
+		t.Fatalf("CSV omitted UTF-8 BOM: %x", body[:min(len(body), 3)])
+	}
+	if response.ContentLength != int64(len(body)) {
+		t.Fatalf("Content-Length=%d, body=%d", response.ContentLength, len(body))
+	}
+	records, err := csv.NewReader(bytes.NewReader(body[3:])).ReadAll()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(records) != 3 {
+		t.Fatalf("CSV rows=%d, want header plus 2 matching records", len(records))
+	}
+	headerIndex := make(map[string]int, len(records[0]))
+	for index, name := range records[0] {
+		headerIndex[name] = index
+	}
+	newer := records[1]
+	older := records[2]
+	if newer[headerIndex["track_title"]] != `'=HYPERLINK("https://example.invalid")` || older[headerIndex["track_title"]] != "Older" {
+		t.Fatalf("CSV order or title escaping failed: newer=%q older=%q", newer, older)
+	}
+	expected := map[string]string{
+		"track_id":      "'+track",
+		"folder":        " 음악,보관함",
+		"relative_path": "'=2+2,\"앨범\"\n곡.flac",
+		"stage":         "' \t-CMD()",
+		"code":          "'\u200e=CMD()",
+		"message":       "'\r=cmd|' /C calc'!A0\n한국어",
+		"renderer_name": "'\t@SUM(1,1)",
+		"position_ms":   "1234",
+		"play_id":       "'@play",
+		"command_id":    "' +command",
+		"details_json":  `{"formula":"=SUM(1,1)","note":"한국어, \"quoted\""}`,
+	}
+	for column, want := range expected {
+		if got := newer[headerIndex[column]]; got != want {
+			t.Fatalf("%s=%q, want %q", column, got, want)
+		}
 	}
 }
 

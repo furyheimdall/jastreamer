@@ -116,6 +116,13 @@
   fill: currentColor;
 }
 
+.library-most-played-help {
+  max-width: 60rem;
+  margin: -0.9rem 0 1.25rem;
+  color: var(--muted, #9aa3a6);
+  font-size: 0.82rem;
+  line-height: 1.5;
+}
 
 .library-tab:focus-visible,
 .library-album-card:focus-visible,
@@ -474,6 +481,12 @@
   margin-top: 0.18rem;
   color: var(--muted, #9aa3a6);
   font-size: 0.76rem;
+}
+
+.library-track-main .library-track-play-count {
+  color: var(--accent, #c8edb2);
+  font-variant-numeric: tabular-nums;
+  font-weight: 650;
 }
 
 .library-track-album small,

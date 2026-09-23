@@ -11,7 +11,7 @@ import (
 	"strings"
 )
 
-const trackColumns = `id,title,artist,album,album_artist,album_id,disc,track_number,genres_json,duration_ms,format,mime,artwork_id,root_id,relative_path,available,EXISTS(SELECT 1 FROM library_track_likes AS track_likes WHERE track_likes.track_id=library_tracks.id),byte_size,modified_at,modified_ns`
+const trackColumns = `id,title,artist,album,album_artist,album_id,disc,track_number,genres_json,duration_ms,format,mime,artwork_id,root_id,relative_path,available,EXISTS(SELECT 1 FROM library_track_likes AS track_likes WHERE track_likes.track_id=library_tracks.id),COALESCE((SELECT play_count FROM track_play_counts AS track_counts WHERE track_counts.track_id=library_tracks.id),0),byte_size,modified_at,modified_ns`
 
 type trackRecord struct {
 	track      Track
@@ -50,7 +50,7 @@ func scanTrack(scanner interface{ Scan(...any) error }) (trackRecord, error) {
 		&record.track.AlbumArtist, &record.track.AlbumID, &record.track.Disc, &record.track.Track,
 		&genres, &record.track.DurationMS, &record.track.Format, &record.track.Mime,
 		&record.track.ArtworkID, &record.track.RootID, &record.track.Path, &available, &liked,
-		&record.track.Size, &record.track.ModifiedAt, &record.modifiedNS,
+		&record.track.PlayCount, &record.track.Size, &record.track.ModifiedAt, &record.modifiedNS,
 	)
 	if err != nil {
 		return trackRecord{}, err

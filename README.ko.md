@@ -58,7 +58,7 @@ manifest에 샘플 묶음이 포함된 릴리즈는 기존 파일을 덮어쓰�
 
 ## 선택 사항인 Google Cast
 
-Google Cast는 기본적으로 꺼져 있으며 이전 `server.json`에 `cast.enabled`가 없을 때도 `false`로 처리됩니다. **Settings**에서 **Google Cast 출력**을 켜고 저장한 뒤 Server를 재시작하세요. 수신기가 보인다는 이유만으로 임의로 켜면 안 됩니다. 검색에는 선택한 `network.interfaces`의 mDNS UDP 5353이 필요합니다. Server에서 수신기가 mDNS로 광고한 Cast TCP 포트에 연결할 수 있어야 하고, 수신기에서는 **재생 기기가 음원을 가져올 Server URL**에 접근할 수 있어야 합니다. 이 설정은 보통 비워 두어 자동 선택하게 하고 라우팅 때문에 필요할 때만 수신기가 접근할 수 있는 실제 Server 주소를 지정하세요.
+Google Cast는 기본적으로 꺼져 있으며 이전 `server.json`에 `cast.enabled`가 없을 때도 `false`로 처리됩니다. **Settings → 재생·출력**에서 **Google Cast 출력**을 켜고 저장한 뒤 Server를 재시작하세요. 수신기가 보인다는 이유만으로 임의로 켜면 안 됩니다. 검색에는 선택한 `network.interfaces`의 mDNS UDP 5353이 필요합니다. Server에서 수신기가 mDNS로 광고한 Cast TCP 포트에 연결할 수 있어야 하고, 수신기에서는 **재생 기기가 음원을 가져올 Server URL**에 접근할 수 있어야 합니다. 이 설정은 보통 비워 두어 자동 선택하게 하고 라우팅 때문에 필요할 때만 수신기가 접근할 수 있는 실제 Server 주소를 지정하세요.
 
 Cast 원본 직접 스트리밍은 검사된 codec·sample rate·channel 메타데이터와 해당되는 경우 bit depth를 보수적으로 판단합니다. 모든 직접 전송 원본은 일치하는 codec이 확인되고 sample rate가 양수이며 mono 또는 stereo여야 합니다. FLAC은 96 kHz 및 1–24-bit까지, MP3·Ogg/Vorbis·Ogg/Opus·M4A/AAC는 48 kHz까지, LPCM WAV는 48 kHz 및 1–16-bit까지 허용합니다. 그 밖의 형식이나 확인되지 않은 원본은 미디어 변환을 켜고 FFmpeg를 설정해야 하며, 변환 결과는 탐색할 수 없는 44.1 kHz stereo 16-bit WAV 스트림입니다. 원본 파일은 변경하지 않습니다.
 

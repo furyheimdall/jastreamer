@@ -77,6 +77,7 @@ export const playerMessages = {
   "info.field.disc": { en: "Disc", ko: "디스크" },
   "info.field.track": { en: "Track", ko: "트랙" },
   "info.field.genre": { en: "Genre", ko: "장르" },
+  "info.field.playCount": { en: "Play count", ko: "재생 횟수" },
   "info.audio": { en: "Audio", ko: "오디오" },
   "info.field.codec": { en: "Codec", ko: "코덱" },
   "info.channelCountOne": { en: "{count} channel", ko: "{count}채널" },

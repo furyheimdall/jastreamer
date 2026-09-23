@@ -933,13 +933,67 @@ html[data-client] .app-shell .mobile-header {
 }
 
 .settings-page {
+  display: grid;
+  min-width: 0;
   padding-bottom: 1rem;
+  gap: 1rem;
 }
 
-.settings-form,
-.settings-page {
+.settings-tabs {
+  display: flex;
+  min-width: 0;
+  max-width: 100%;
+  overflow-x: auto;
+  border-bottom: 1px solid var(--border);
+  scrollbar-width: thin;
+  scroll-snap-type: x proximity;
+  overscroll-behavior-inline: contain;
+}
+
+.settings-tab {
+  min-height: 2.85rem;
+  padding: 0.65rem 0.9rem;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  color: var(--muted);
+  flex: 0 0 auto;
+  font-weight: 700;
+  scroll-snap-align: start;
+  white-space: nowrap;
+}
+
+.settings-tab:hover {
+  color: var(--text);
+}
+
+.settings-tab[aria-selected="true"] {
+  border-bottom-color: var(--accent);
+  color: var(--accent);
+}
+
+.settings-tab-panel {
   display: grid;
+  min-width: 0;
   gap: 1rem;
+}
+
+.settings-tab-panel[hidden] {
+  display: none;
+}
+
+.settings-tab-heading {
+  padding: 0 0.15rem;
+}
+
+.settings-tab-heading h2 {
+  margin-bottom: 0.3rem;
+}
+
+.settings-tab-heading p {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.5;
 }
 
 .settings-card {
@@ -1165,7 +1219,22 @@ html[data-client] .app-shell .mobile-header {
   border-radius: 0.9rem;
   background: #1b1f22ee;
   backdrop-filter: blur(14px);
-  justify-content: flex-end;
+  justify-content: space-between;
+}
+
+.settings-save-copy {
+  max-width: 42rem;
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.8rem;
+  line-height: 1.45;
+}
+
+.settings-save-actions {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 0.75rem;
 }
 
 .scan-list {
@@ -1525,6 +1594,17 @@ body:has([aria-modal="true"]) {
     width: 100%;
   }
 
+  .settings-save-row {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .settings-save-actions {
+    display: grid;
+    width: 100%;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .airplay-help-row {
     align-items: stretch;
     flex-direction: column;
@@ -1769,6 +1849,11 @@ html[data-device="phone"] :is(.toast, .settings-save-row) {
 
 html[data-device="phone"] .settings-save-row {
   flex-wrap: wrap;
+}
+
+
+html[data-device="phone"] .settings-tab {
+  min-height: 44px;
 }
 
 html[data-device="phone"] :is(.field-grid, .root-row, .password-form) {

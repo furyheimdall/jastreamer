@@ -22,14 +22,14 @@ interface ErrorEnvelope {
   };
 }
 
-export async function api<T>(path: string, options: RequestInit = {}): Promise<T> {
+async function apiResponse(path: string, options: RequestInit, accept: string, contentType: string | null): Promise<Response> {
   if (!path.startsWith("/") || path.startsWith("//")) {
     throw new Error(t("api.invalidPath"));
   }
 
   const headers = new Headers(options.headers);
-  headers.set("Accept", "application/json");
-  headers.set("Content-Type", "application/json");
+  headers.set("Accept", accept);
+  if (contentType) headers.set("Content-Type", contentType);
   headers.set("X-Jastreamer-Request", "web");
 
   let response: Response;
@@ -61,7 +61,11 @@ export async function api<T>(path: string, options: RequestInit = {}): Promise<T
     }
     throw error;
   }
+  return response;
+}
 
+export async function api<T>(path: string, options: RequestInit = {}): Promise<T> {
+  const response = await apiResponse(path, options, "application/json", "application/json");
   if (response.status === 204 || response.status === 205) {
     return undefined as T;
   }
@@ -72,6 +76,14 @@ export async function api<T>(path: string, options: RequestInit = {}): Promise<T
   } catch {
     throw new ApiError(response.status, "INVALID_RESPONSE", t("api.invalidResponse"));
   }
+}
+
+export async function apiBlob(path: string, options: RequestInit = {}): Promise<Blob> {
+  const response = await apiResponse(path, options, "text/csv", null);
+  if (!response.headers.get("Content-Type")?.toLowerCase().startsWith("text/csv")) {
+    throw new ApiError(response.status, "INVALID_RESPONSE", t("api.invalidResponse"));
+  }
+  return response.blob();
 }
 
 

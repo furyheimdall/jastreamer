@@ -47,4 +47,9 @@ export const diagnosticsMessages = {
   "settings.history.page": { en: "{start}–{end} of {total}", ko: "{total}개 중 {start}–{end}" },
   "settings.history.retention": { en: "The newest {limit} records are retained.", ko: "최신 기록 {limit}개를 보관합니다." },
   "settings.history.refresh": { en: "Refresh history", ko: "기록 새로 고침" },
+  "settings.history.export": { en: "Download CSV", ko: "CSV 다운로드" },
+  "settings.history.exporting": { en: "Preparing all matching records…", ko: "일치하는 모든 기록을 준비하는 중…" },
+  "settings.history.exportFailed": { en: "The history report could not be downloaded.", ko: "기록 보고서를 다운로드하지 못했습니다." },
+  "settings.history.exportScope": { en: "The CSV includes every retained record matching the current filters, not only this page. History records renderer errors and failed or inconclusive file checks; it does not show that all files passed.", ko: "CSV에는 현재 페이지만이 아니라 현재 필터와 일치하는 보관 기록 전체가 포함됩니다. 기록에는 재생 기기 오류와 실패 또는 판정 불가 파일 검사만 포함되며 모든 파일이 검증을 통과했다는 뜻은 아닙니다." },
+  "settings.history.exportBrowserOnly": { en: "To save a CSV report, open this Server in a PC or mobile web browser. Downloads are unavailable in the embedded app.", ko: "CSV 보고서를 저장하려면 이 서버를 PC 또는 모바일 웹 브라우저에서 여세요. 내장 앱에서는 다운로드할 수 없습니다." },
 } as const;

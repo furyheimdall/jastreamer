@@ -296,6 +296,7 @@ export default function TrackInfoDialog({ trackId, revision, onNotice, onClose, 
                 <Detail label={t("info.field.albumArtist")} value={present(track.album_artist, unavailable)} />
                 <Detail label={t("info.field.disc")} value={track.disc > 0 ? track.disc.toLocaleString(locale) : unavailable} />
                 <Detail label={t("info.field.track")} value={track.track > 0 ? track.track.toLocaleString(locale) : unavailable} />
+                <Detail label={t("info.field.playCount")} value={t(track.play_count === 1 ? "library.onePlay" : "library.manyPlays", { count: track.play_count.toLocaleString(locale) })} />
                 <Detail label={t("info.field.genre")} value={track.genres.length ? track.genres.join(", ") : unavailable} wide />
               </dl>
             </section>

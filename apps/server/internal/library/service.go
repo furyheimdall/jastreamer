@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/jastreamer/jastreamer-server/internal/fault"
+	"github.com/jastreamer/jastreamer-server/internal/playstats"
 )
 
 const schema = `
@@ -163,6 +164,9 @@ func New(ctx context.Context, db *sql.DB, roots []Root, cacheDir string, notify 
 	}
 	if _, err := db.ExecContext(ctx, schema); err != nil {
 		return nil, fmt.Errorf("initialize library schema: %w", err)
+	}
+	if err := playstats.Initialize(ctx, db); err != nil {
+		return nil, fmt.Errorf("initialize play count schema: %w", err)
 	}
 	if notify == nil {
 		notify = func(string) {}

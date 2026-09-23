@@ -14,6 +14,7 @@ import (
 	"github.com/jastreamer/jastreamer-server/internal/fault"
 	"github.com/jastreamer/jastreamer-server/internal/library"
 	"github.com/jastreamer/jastreamer-server/internal/output"
+	"github.com/jastreamer/jastreamer-server/internal/playstats"
 )
 
 const commandTimeout = 20 * time.Second
@@ -68,6 +69,7 @@ type Service struct {
 	now                func() time.Time
 	terminal           terminalPositionEvidence   // guarded by opMu; never restored after restart
 	startup            startupObservationEvidence // guarded by opMu; never restored after restart
+	listening          listeningEvidence          // guarded by opMu; qualified partial listening is process-local
 	observationFailure observationFailure         // guarded by opMu; scoped to the current renderer/playback
 }
 
@@ -131,6 +133,9 @@ func newService(ctx context.Context, db *sql.DB, lib libraryAPI, devices deviceA
 }
 
 func (s *Service) initialize(ctx context.Context) error {
+	if err := playstats.Initialize(ctx, s.db); err != nil {
+		return fmt.Errorf("player: initialize play counts: %w", err)
+	}
 	const schema = `
 CREATE TABLE IF NOT EXISTS player_state (
   singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
@@ -379,6 +384,7 @@ func (s *Service) SelectOutput(ctx context.Context, rendererID string) (State, e
 	}
 	if err == nil {
 		s.startup = startupObservationEvidence{}
+		s.listening = listeningEvidence{}
 	}
 	s.opMu.Unlock()
 	s.rendererMu.Unlock()

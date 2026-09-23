@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type FormEvent, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import { api, ApiError } from "./api";
 import { useI18n, type Language, type MessageKey } from "./i18n";
 import AirPlayHelpDialog from "./AirPlayHelpDialog";
@@ -15,6 +15,15 @@ interface SettingsProps {
   onNotice: (message: string, error?: boolean) => void;
   onSignedOut: () => void;
 }
+type SettingsTab = "general" | "network" | "library" | "playback" | "diagnostics";
+
+const settingsTabOrder: SettingsTab[] = ["general", "network", "library", "playback", "diagnostics"];
+const settingsConfigFormID = "settings-config-form";
+
+function isSettingsTab(value: string | undefined): value is SettingsTab {
+  return settingsTabOrder.some((tab) => tab === value);
+}
+
 
 type PathPickerTarget =
   | { field: "data_dir" | "certificate_file" | "private_key_file" | "ffmpeg_path" | "helper_path" }
@@ -47,9 +56,10 @@ interface PathFieldProps {
   required?: boolean;
   placeholder?: string;
   describedBy?: string;
+  form?: string;
 }
 
-function PathField({ id, label, value, browseLabel, browseText, onChange, onBrowse, disabled, required, placeholder, describedBy }: PathFieldProps) {
+function PathField({ id, label, value, browseLabel, browseText, onChange, onBrowse, disabled, required, placeholder, describedBy, form }: PathFieldProps) {
   return (
     <div className="server-path-field">
       <label className="field-label" htmlFor={id}>{label}</label>
@@ -62,6 +72,7 @@ function PathField({ id, label, value, browseLabel, browseText, onChange, onBrow
           required={required}
           placeholder={placeholder}
           aria-describedby={describedBy}
+          form={form}
           spellCheck={false}
           onChange={(event) => onChange(event.target.value)}
         />
@@ -138,6 +149,7 @@ export default function Settings({ configRevision, libraryRevision, historyRevis
   const [networkInterfacesLoading, setNetworkInterfacesLoading] = useState(true);
   const [networkInterfacesError, setNetworkInterfacesError] = useState("");
   const [networkInterfacesRequest, setNetworkInterfacesRequest] = useState(0);
+  const [activeTab, setActiveTab] = useState<SettingsTab>("general");
   const mountedRef = useRef(true);
   const configDirtyRef = useRef(false);
   const restartInFlightRef = useRef(false);
@@ -145,6 +157,8 @@ export default function Settings({ configRevision, libraryRevision, historyRevis
   const restartBannerRef = useRef<HTMLDivElement | null>(null);
   const restartFocusFrameRef = useRef<number | null>(null);
   const restartButtonRef = useRef<HTMLButtonElement | null>(null);
+  const invalidFocusFrameRef = useRef<number | null>(null);
+  const tabRefs = useRef<Array<HTMLButtonElement | null>>([]);
   const cancelRestartConfirmation = useCallback(() => {
     setRestartArmed(false);
     if (restartFocusFrameRef.current !== null) {
@@ -247,6 +261,9 @@ export default function Settings({ configRevision, libraryRevision, historyRevis
       if (restartFocusFrameRef.current !== null) {
         window.cancelAnimationFrame(restartFocusFrameRef.current);
       }
+      if (invalidFocusFrameRef.current !== null) {
+        window.cancelAnimationFrame(invalidFocusFrameRef.current);
+      }
     };
   }, []);
 
@@ -309,8 +326,33 @@ export default function Settings({ configRevision, libraryRevision, historyRevis
     replaceSelectedInterfaces(current.filter((item) => item !== name));
   }
 
-  async function saveConfig(event: FormEvent) {
+  async function saveConfig(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    const form = event.currentTarget;
+    if (!form.checkValidity()) {
+      const invalid = Array.from(form.elements).find((element) => {
+        const candidate = element as HTMLInputElement;
+        return candidate.willValidate && !candidate.validity.valid;
+      });
+      const invalidElement = invalid instanceof HTMLElement ? invalid : null;
+      const invalidTab = invalidElement?.closest<HTMLElement>("[data-settings-tab]")?.dataset.settingsTab;
+      if (isSettingsTab(invalidTab)) setActiveTab(invalidTab);
+      if (invalidElement) {
+        if (invalidFocusFrameRef.current !== null) window.cancelAnimationFrame(invalidFocusFrameRef.current);
+        invalidFocusFrameRef.current = window.requestAnimationFrame(() => {
+          invalidFocusFrameRef.current = null;
+          invalidElement.focus({ preventScroll: true });
+          invalidElement.scrollIntoView({
+            behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth",
+            block: "center",
+          });
+          if ("reportValidity" in invalidElement) {
+            (invalidElement as HTMLInputElement).reportValidity();
+          }
+        });
+      }
+      return;
+    }
     if (!document || !draft || restartInFlightRef.current || restartStatus.kind === "handoff") return;
     setSaving(true);
     try {
@@ -603,12 +645,61 @@ export default function Settings({ configRevision, libraryRevision, historyRevis
     }
   }
 
+  function handleTabKeyDown(event: ReactKeyboardEvent<HTMLButtonElement>, tab: SettingsTab) {
+    const currentIndex = settingsTabOrder.indexOf(tab);
+    let nextIndex: number | null = null;
+    if (event.key === "ArrowRight") nextIndex = (currentIndex + 1) % settingsTabOrder.length;
+    if (event.key === "ArrowLeft") nextIndex = (currentIndex - 1 + settingsTabOrder.length) % settingsTabOrder.length;
+    if (event.key === "Home") nextIndex = 0;
+    if (event.key === "End") nextIndex = settingsTabOrder.length - 1;
+    if (nextIndex === null) return;
+    event.preventDefault();
+    const nextTabName = settingsTabOrder[nextIndex];
+    if (!nextTabName) return;
+    setActiveTab(nextTabName);
+    const nextTab = tabRefs.current[nextIndex];
+    nextTab?.focus();
+    nextTab?.scrollIntoView({ block: "nearest", inline: "nearest" });
+  }
+
   const settingsHeader = (
     <header className="page-heading">
       <p className="eyebrow">{t("settings.eyebrow")}</p>
       <h1 id="settings-heading">{t("settings.title")}</h1>
       <p className="muted">{t("settings.description")}</p>
     </header>
+  );
+  const settingsCategories = settingsTabOrder.map((tab) => ({
+    tab,
+    label: t(`settings.tabs.${tab}`),
+  }));
+  const settingsTabList = (
+    <div
+      className="settings-tabs"
+      role="tablist"
+      aria-label={t("settings.tabs.label")}
+      aria-orientation="horizontal"
+    >
+      {settingsCategories.map((category, index) => (
+        <button
+          key={category.tab}
+          ref={(element) => {
+            tabRefs.current[index] = element;
+          }}
+          className="settings-tab"
+          id={`settings-tab-${category.tab}`}
+          type="button"
+          role="tab"
+          aria-selected={activeTab === category.tab}
+          aria-controls={`settings-panel-${category.tab}`}
+          tabIndex={activeTab === category.tab ? 0 : -1}
+          onClick={() => setActiveTab(category.tab)}
+          onKeyDown={(event) => handleTabKeyDown(event, category.tab)}
+        >
+          {category.label}
+        </button>
+      ))}
+    </div>
   );
   const languageSettings = (
     <section className="settings-card" aria-labelledby="language-heading">
@@ -633,31 +724,70 @@ export default function Settings({ configRevision, libraryRevision, historyRevis
       )}
     </section>
   );
-
-  if (loading && !draft) {
-    return (
-      <section className="content-section settings-page" aria-labelledby="settings-heading">
-        {settingsHeader}
-        {languageSettings}
-        <InstallApp />
-        <HistoryPanel revision={historyRevision} />
-        <div className="loading-block" aria-live="polite">{t("settings.loading")}</div>
-      </section>
-    );
-  }
+  const historySettings = <HistoryPanel revision={historyRevision} />;
 
   if (!draft) {
     return (
       <section className="content-section settings-page" aria-labelledby="settings-heading">
         {settingsHeader}
-        {languageSettings}
-        <InstallApp />
-        <HistoryPanel revision={historyRevision} />
-        <div className="inline-error" role="alert">
-          <span>{error || t("settings.loadFailed")}</span>
-          <button className="button button-ghost" type="button" onClick={() => void loadConfig()}>
-            {t("settings.retry")}
-          </button>
+        {loading ? (
+          <div className="loading-block" aria-live="polite">{t("settings.loading")}</div>
+        ) : (
+          <div className="inline-error" role="alert">
+            <span>{error || t("settings.loadFailed")}</span>
+            <button className="button button-ghost" type="button" onClick={() => void loadConfig()}>
+              {t("settings.retry")}
+            </button>
+          </div>
+        )}
+        {settingsTabList}
+        <div
+          className="settings-tab-panel"
+          id="settings-panel-general"
+          role="tabpanel"
+          tabIndex={0}
+          aria-labelledby="settings-tab-general"
+          data-settings-tab="general"
+          hidden={activeTab !== "general"}
+        >
+          <header className="settings-tab-heading">
+            <h2>{t("settings.tabs.general")}</h2>
+            <p>{t("settings.tabs.general.description")}</p>
+          </header>
+          {languageSettings}
+          <InstallApp />
+        </div>
+        {(["network", "library", "playback"] as SettingsTab[]).map((tab) => (
+          <div
+            className="settings-tab-panel"
+            id={`settings-panel-${tab}`}
+            role="tabpanel"
+            tabIndex={0}
+            aria-labelledby={`settings-tab-${tab}`}
+            data-settings-tab={tab}
+            hidden={activeTab !== tab}
+            key={tab}
+          >
+            <header className="settings-tab-heading">
+              <h2>{t(`settings.tabs.${tab}`)}</h2>
+              <p>{t(`settings.tabs.${tab}.description`)}</p>
+            </header>
+          </div>
+        ))}
+        <div
+          className="settings-tab-panel"
+          id="settings-panel-diagnostics"
+          role="tabpanel"
+          tabIndex={0}
+          aria-labelledby="settings-tab-diagnostics"
+          data-settings-tab="diagnostics"
+          hidden={activeTab !== "diagnostics"}
+        >
+          <header className="settings-tab-heading">
+            <h2>{t("settings.tabs.diagnostics")}</h2>
+            <p>{t("settings.tabs.diagnostics.description")}</p>
+          </header>
+          {historySettings}
         </div>
       </section>
     );
@@ -699,9 +829,6 @@ export default function Settings({ configRevision, libraryRevision, historyRevis
   return (
     <section className="content-section settings-page" aria-labelledby="settings-heading">
       {settingsHeader}
-      {languageSettings}
-      <InstallApp />
-      <HistoryPanel revision={historyRevision} />
 
       {error && <p className="error-text" role="alert">{error}</p>}
       {remoteConfigPending && (
@@ -798,13 +925,29 @@ export default function Settings({ configRevision, libraryRevision, historyRevis
         </div>
       )}
 
-      <form className="settings-form" onSubmit={(event) => void saveConfig(event)}>
+      {settingsTabList}
+      <div
+        className="settings-tab-panel"
+        id="settings-panel-general"
+        role="tabpanel"
+        tabIndex={0}
+        aria-labelledby="settings-tab-general"
+        data-settings-tab="general"
+        hidden={activeTab !== "general"}
+      >
+        <header className="settings-tab-heading">
+          <h2>{t("settings.tabs.general")}</h2>
+          <p>{t("settings.tabs.general.description")}</p>
+        </header>
+        {languageSettings}
+        <InstallApp />
         <section className="settings-card">
           <h2>{t("settings.serverName.title")}</h2>
           <label className="field-label" htmlFor="server-name">{t("settings.serverName.label")}</label>
           <input
             className="input"
             id="server-name"
+            form={settingsConfigFormID}
             value={draft.server_name ?? ""}
             maxLength={64}
             placeholder={t("settings.serverName.placeholder")}
@@ -819,6 +962,7 @@ export default function Settings({ configRevision, libraryRevision, historyRevis
             id="data-directory"
             label={t("settings.storage.dataDirectory")}
             value={draft.data_dir}
+            form={settingsConfigFormID}
             required
             browseText={t("settings.pathPicker.browse")}
             browseLabel={t("settings.pathPicker.browseLabel", { label: t("settings.storage.dataDirectory") })}
@@ -832,6 +976,69 @@ export default function Settings({ configRevision, libraryRevision, historyRevis
           />
           <p className="field-help">{t("settings.storage.help")}</p>
         </section>
+      <section className="settings-card account-settings" aria-labelledby="password-heading">
+        <h2 id="password-heading">{t("settings.account.title")}</h2>
+        <p className="muted">{t("settings.account.description")}</p>
+        <form className="password-form" onSubmit={(event) => void changePassword(event)}>
+          <label>
+            <span className="field-label">{t("settings.account.currentPassword")}</span>
+            <input
+              className="input"
+              type="password"
+              autoComplete="current-password"
+              value={currentPassword}
+              required
+              onChange={(event) => setCurrentPassword(event.target.value)}
+            />
+          </label>
+          <label>
+            <span className="field-label">{t("settings.account.newPassword")}</span>
+            <input
+              className="input"
+              type="password"
+              autoComplete="new-password"
+              minLength={10}
+              value={newPassword}
+              required
+              onChange={(event) => setNewPassword(event.target.value)}
+            />
+          </label>
+          <label>
+            <span className="field-label">{t("settings.account.confirmPassword")}</span>
+            <input
+              className="input"
+              type="password"
+              autoComplete="new-password"
+              minLength={10}
+              value={confirmPassword}
+              required
+              onChange={(event) => setConfirmPassword(event.target.value)}
+            />
+          </label>
+          <button
+            className="button button-primary"
+            type="submit"
+            disabled={passwordBusy || restartMutationsDisabled}
+          >
+            {passwordBusy ? t("settings.account.changing") : t("settings.account.change")}
+          </button>
+        </form>
+      </section>
+      </div>
+
+      <div
+        className="settings-tab-panel"
+        id="settings-panel-network"
+        role="tabpanel"
+        tabIndex={0}
+        aria-labelledby="settings-tab-network"
+        data-settings-tab="network"
+        hidden={activeTab !== "network"}
+      >
+        <header className="settings-tab-heading">
+          <h2>{t("settings.tabs.network")}</h2>
+          <p>{t("settings.tabs.network.description")}</p>
+        </header>
 
         <section className="settings-card protocol-settings">
           <div className="settings-card-heading">
@@ -842,6 +1049,7 @@ export default function Settings({ configRevision, libraryRevision, historyRevis
             <label className="switch-label">
               <input
                 type="checkbox"
+                form={settingsConfigFormID}
                 checked={draft.http.enabled}
                 onChange={(event) => updateDraft((config) => ({
                   ...config,
@@ -855,6 +1063,7 @@ export default function Settings({ configRevision, libraryRevision, historyRevis
           <input
             className="input"
             id="http-address"
+            form={settingsConfigFormID}
             value={draft.http.address}
             disabled={!draft.http.enabled}
             required={draft.http.enabled}
@@ -875,6 +1084,7 @@ export default function Settings({ configRevision, libraryRevision, historyRevis
             <label className="switch-label">
               <input
                 type="checkbox"
+                form={settingsConfigFormID}
                 checked={draft.https.enabled}
                 onChange={(event) => updateDraft((config) => ({
                   ...config,
@@ -890,6 +1100,7 @@ export default function Settings({ configRevision, libraryRevision, historyRevis
               <input
                 className="input"
                 value={draft.https.address}
+                form={settingsConfigFormID}
                 disabled={!draft.https.enabled}
                 required={draft.https.enabled}
                 placeholder=":8443"
@@ -903,6 +1114,7 @@ export default function Settings({ configRevision, libraryRevision, historyRevis
               id="https-certificate-file"
               label={t("settings.https.certificate")}
               value={draft.https.certificate_file}
+              form={settingsConfigFormID}
               disabled={!draft.https.enabled}
               required={draft.https.enabled}
               placeholder="/etc/jastreamer/server.crt"
@@ -923,6 +1135,7 @@ export default function Settings({ configRevision, libraryRevision, historyRevis
               id="https-private-key-file"
               label={t("settings.https.privateKey")}
               value={draft.https.private_key_file}
+              form={settingsConfigFormID}
               disabled={!draft.https.enabled}
               required={draft.https.enabled}
               placeholder="/etc/jastreamer/server.key"
@@ -942,6 +1155,197 @@ export default function Settings({ configRevision, libraryRevision, historyRevis
           </div>
         </section>
 
+
+        <section className="settings-card">
+          <h2>{t("settings.network.title")}</h2>
+          <div className="field-grid">
+            <label>
+              <span className="field-label">{t("settings.network.interfaces")}</span>
+              <textarea
+                className="input"
+                rows={3}
+                form={settingsConfigFormID}
+                value={interfacesText}
+                placeholder={t("settings.network.interfacesPlaceholder")}
+                onChange={(event) => {
+                  setInterfacesText(event.target.value);
+                  updateDraft((config) => ({
+                    ...config,
+                    network: { ...config.network, interfaces: parseList(event.target.value) },
+                  }));
+                }}
+              />
+            </label>
+            <label>
+              <span className="field-label">{t("settings.network.cidrs")}</span>
+              <textarea
+                className="input"
+                rows={3}
+                form={settingsConfigFormID}
+                value={cidrsText}
+                placeholder={t("settings.network.cidrsPlaceholder")}
+                onChange={(event) => {
+                  setCidrsText(event.target.value);
+                  updateDraft((config) => ({
+                    ...config,
+                    network: { ...config.network, allowed_cidrs: parseList(event.target.value) },
+                  }));
+                }}
+              />
+            </label>
+            <label>
+              <span className="field-label">{t("settings.network.discoveryInterval")}</span>
+              <input
+                className="input"
+                type="number"
+                form={settingsConfigFormID}
+                min={5}
+                value={draft.network.discovery_interval_seconds}
+                onChange={(event) => updateDraft((config) => ({
+                  ...config,
+                  network: { ...config.network, discovery_interval_seconds: Number(event.target.value) },
+                }))}
+              />
+            </label>
+            <label>
+              <span className="field-label">{t("settings.network.pollInterval")}</span>
+              <input
+                className="input"
+                type="number"
+                form={settingsConfigFormID}
+                min={1}
+                value={draft.network.poll_interval_seconds}
+                onChange={(event) => updateDraft((config) => ({
+                  ...config,
+                  network: { ...config.network, poll_interval_seconds: Number(event.target.value) },
+                }))}
+              />
+            </label>
+          </div>
+          <section className="server-interface-picker" aria-labelledby="server-adapters-heading">
+            <div className="server-interface-heading">
+              <div>
+                <h3 id="server-adapters-heading">{t("settings.network.adapters.title")}</h3>
+                <p id="server-adapters-description">{t("settings.network.adapters.description")} {t("settings.network.adapters.automaticHelp")}</p>
+              </div>
+              <button
+                className={`button ${selectedInterfaceNames.length === 0 ? "button-primary" : "button-ghost"}`}
+                type="button"
+                aria-pressed={selectedInterfaceNames.length === 0}
+                aria-describedby="server-adapters-description"
+                title={t("settings.network.adapters.automaticHelp")}
+                onClick={() => replaceSelectedInterfaces([])}
+              >
+                {t("settings.network.adapters.automatic")}
+              </button>
+            </div>
+            {networkInterfacesLoading && <p className="server-interface-status" role="status">{t("settings.network.adapters.loading")}</p>}
+            {networkInterfacesError && (
+              <div className="inline-error" role="alert">
+                <span>{networkInterfacesError}</span>
+                <button className="button button-ghost" type="button" onClick={() => setNetworkInterfacesRequest((value) => value + 1)}>{t("settings.network.adapters.retry")}</button>
+              </div>
+            )}
+            {!networkInterfacesLoading && !networkInterfacesError && networkInterfaces?.interfaces.length === 0 && (
+              <p className="server-interface-status">{t("settings.network.adapters.empty")}</p>
+            )}
+            {!networkInterfacesLoading && !networkInterfacesError && networkInterfaces && networkInterfaces.interfaces.length > 0 && (
+              <fieldset className="server-interface-list">
+                <legend>{t("settings.network.adapters.list")}</legend>
+                {networkInterfaces.interfaces.map((item) => {
+                  const selected = selectedInterfaceNames.includes(item.name);
+                  const eligible = item.addresses.some((address) => address.upnp_usable);
+                  return (
+                    <label className={`server-interface-option${eligible ? "" : " is-unavailable"}`} key={`${item.index}:${item.name}`}>
+                      <input
+                        type="checkbox"
+                        form={settingsConfigFormID}
+                        checked={selected}
+                        disabled={!eligible && !selected}
+                        onChange={(event) => changeInterfaceSelection(item.name, event.target.checked)}
+                      />
+                      <span className="server-interface-copy">
+                        <span className="server-interface-name">
+                          <strong>{item.name}</strong>
+                          {!eligible && <em>{t(selected ? "settings.network.adapters.selectedUnavailable" : "settings.network.adapters.unavailable")}</em>}
+                        </span>
+                        <span className="server-interface-flags">
+                          {!item.up && <span>{t("settings.network.adapters.down")}</span>}
+                          {!item.multicast && <span>{t("settings.network.adapters.noMulticast")}</span>}
+                          {item.loopback && <span>{t("settings.network.adapters.loopback")}</span>}
+                        </span>
+                        <span className="server-interface-addresses">
+                          {item.addresses.length === 0 ? t("settings.network.adapters.noAddresses") : item.addresses.map((address) => (
+                            <span key={`${address.address}/${address.prefix_length}`}>
+                              <code>{address.address}/{address.prefix_length}</code>
+                              {!address.upnp_usable && <em>{t("settings.network.adapters.addressUnavailable")}</em>}
+                            </span>
+                          ))}
+                        </span>
+                      </span>
+                    </label>
+                  );
+                })}
+              </fieldset>
+            )}
+          </section>
+        </section>
+        <section className="settings-card" aria-labelledby="media-delivery-heading">
+          <h2 id="media-delivery-heading">{t("settings.media.title")}</h2>
+          <p className="muted">{t("settings.media.description")}</p>
+          <div className="media-base-url-field">
+            <label className="field-label" htmlFor="media-base-url">{t("settings.media.baseUrl")}</label>
+            <input
+              className="input"
+              id="media-base-url"
+              form={settingsConfigFormID}
+              value={draft.media.base_url}
+              placeholder={t("settings.media.baseUrlPlaceholder")}
+              aria-describedby="media-base-url-help"
+              onChange={(event) => updateDraft((config) => ({
+                ...config,
+                media: { ...config.media, base_url: event.target.value },
+              }))}
+            />
+            <p className="field-help" id="media-base-url-help">{t("settings.media.baseUrlHelp")}</p>
+            <label className="field-label media-quick-url-label" htmlFor="media-quick-url">{t("settings.media.quickUrl")}</label>
+            <select
+              className="input"
+              id="media-quick-url"
+              form={settingsConfigFormID}
+              value={selectedMediaOrigin}
+              aria-describedby="media-quick-url-help"
+              onChange={(event) => {
+                if (event.target.value === "__manual__") return;
+                updateDraft((config) => ({
+                  ...config,
+                  media: { ...config.media, base_url: event.target.value },
+                }));
+              }}
+            >
+              <option value="">{t("settings.media.quickUrlAutomatic")}</option>
+              {selectedMediaOrigin === "__manual__" && <option value="__manual__">{t("settings.media.quickUrlManual")}</option>}
+              {mediaOriginOptions.length === 0 && <option value="__unavailable__" disabled>{t("settings.media.quickUrlUnavailable")}</option>}
+              {mediaOriginOptions.map((option) => <option value={option.value} key={`${option.label}:${option.value}`}>{option.label}</option>)}
+            </select>
+            <p className="field-help" id="media-quick-url-help">{t("settings.media.quickUrlHelp")}</p>
+          </div>
+        </section>
+      </div>
+
+      <div
+        className="settings-tab-panel"
+        id="settings-panel-library"
+        role="tabpanel"
+        tabIndex={0}
+        aria-labelledby="settings-tab-library"
+        data-settings-tab="library"
+        hidden={activeTab !== "library"}
+      >
+        <header className="settings-tab-heading">
+          <h2>{t("settings.tabs.library")}</h2>
+          <p>{t("settings.tabs.library.description")}</p>
+        </header>
         <section className="settings-card roots-settings">
           <div className="settings-card-heading">
             <div>
@@ -961,6 +1365,7 @@ export default function Settings({ configRevision, libraryRevision, historyRevis
                     <input
                       className="input"
                       value={root.name}
+                      form={settingsConfigFormID}
                       required
                       placeholder={t("settings.roots.namePlaceholder")}
                       onChange={(event) => changeRoot(index, "name", event.target.value)}
@@ -970,6 +1375,7 @@ export default function Settings({ configRevision, libraryRevision, historyRevis
                     id={`library-root-path-${root.id}`}
                     label={t("settings.roots.path")}
                     value={root.path}
+                    form={settingsConfigFormID}
                     required
                     placeholder="/music"
                     browseText={t("settings.pathPicker.browse")}
@@ -1050,136 +1456,21 @@ export default function Settings({ configRevision, libraryRevision, historyRevis
           <VerificationStatus revision={verificationRevision} />
         </section>
 
-        <section className="settings-card">
-          <h2>{t("settings.network.title")}</h2>
-          <div className="field-grid">
-            <label>
-              <span className="field-label">{t("settings.network.interfaces")}</span>
-              <textarea
-                className="input"
-                rows={3}
-                value={interfacesText}
-                placeholder={t("settings.network.interfacesPlaceholder")}
-                onChange={(event) => {
-                  setInterfacesText(event.target.value);
-                  updateDraft((config) => ({
-                    ...config,
-                    network: { ...config.network, interfaces: parseList(event.target.value) },
-                  }));
-                }}
-              />
-            </label>
-            <label>
-              <span className="field-label">{t("settings.network.cidrs")}</span>
-              <textarea
-                className="input"
-                rows={3}
-                value={cidrsText}
-                placeholder={t("settings.network.cidrsPlaceholder")}
-                onChange={(event) => {
-                  setCidrsText(event.target.value);
-                  updateDraft((config) => ({
-                    ...config,
-                    network: { ...config.network, allowed_cidrs: parseList(event.target.value) },
-                  }));
-                }}
-              />
-            </label>
-            <label>
-              <span className="field-label">{t("settings.network.discoveryInterval")}</span>
-              <input
-                className="input"
-                type="number"
-                min={5}
-                value={draft.network.discovery_interval_seconds}
-                onChange={(event) => updateDraft((config) => ({
-                  ...config,
-                  network: { ...config.network, discovery_interval_seconds: Number(event.target.value) },
-                }))}
-              />
-            </label>
-            <label>
-              <span className="field-label">{t("settings.network.pollInterval")}</span>
-              <input
-                className="input"
-                type="number"
-                min={1}
-                value={draft.network.poll_interval_seconds}
-                onChange={(event) => updateDraft((config) => ({
-                  ...config,
-                  network: { ...config.network, poll_interval_seconds: Number(event.target.value) },
-                }))}
-              />
-            </label>
-          </div>
-          <section className="server-interface-picker" aria-labelledby="server-adapters-heading">
-            <div className="server-interface-heading">
-              <div>
-                <h3 id="server-adapters-heading">{t("settings.network.adapters.title")}</h3>
-                <p id="server-adapters-description">{t("settings.network.adapters.description")} {t("settings.network.adapters.automaticHelp")}</p>
-              </div>
-              <button
-                className={`button ${selectedInterfaceNames.length === 0 ? "button-primary" : "button-ghost"}`}
-                type="button"
-                aria-pressed={selectedInterfaceNames.length === 0}
-                aria-describedby="server-adapters-description"
-                title={t("settings.network.adapters.automaticHelp")}
-                onClick={() => replaceSelectedInterfaces([])}
-              >
-                {t("settings.network.adapters.automatic")}
-              </button>
-            </div>
-            {networkInterfacesLoading && <p className="server-interface-status" role="status">{t("settings.network.adapters.loading")}</p>}
-            {networkInterfacesError && (
-              <div className="inline-error" role="alert">
-                <span>{networkInterfacesError}</span>
-                <button className="button button-ghost" type="button" onClick={() => setNetworkInterfacesRequest((value) => value + 1)}>{t("settings.network.adapters.retry")}</button>
-              </div>
-            )}
-            {!networkInterfacesLoading && !networkInterfacesError && networkInterfaces?.interfaces.length === 0 && (
-              <p className="server-interface-status">{t("settings.network.adapters.empty")}</p>
-            )}
-            {!networkInterfacesLoading && !networkInterfacesError && networkInterfaces && networkInterfaces.interfaces.length > 0 && (
-              <fieldset className="server-interface-list">
-                <legend>{t("settings.network.adapters.list")}</legend>
-                {networkInterfaces.interfaces.map((item) => {
-                  const selected = selectedInterfaceNames.includes(item.name);
-                  const eligible = item.addresses.some((address) => address.upnp_usable);
-                  return (
-                    <label className={`server-interface-option${eligible ? "" : " is-unavailable"}`} key={`${item.index}:${item.name}`}>
-                      <input
-                        type="checkbox"
-                        checked={selected}
-                        disabled={!eligible && !selected}
-                        onChange={(event) => changeInterfaceSelection(item.name, event.target.checked)}
-                      />
-                      <span className="server-interface-copy">
-                        <span className="server-interface-name">
-                          <strong>{item.name}</strong>
-                          {!eligible && <em>{t(selected ? "settings.network.adapters.selectedUnavailable" : "settings.network.adapters.unavailable")}</em>}
-                        </span>
-                        <span className="server-interface-flags">
-                          {!item.up && <span>{t("settings.network.adapters.down")}</span>}
-                          {!item.multicast && <span>{t("settings.network.adapters.noMulticast")}</span>}
-                          {item.loopback && <span>{t("settings.network.adapters.loopback")}</span>}
-                        </span>
-                        <span className="server-interface-addresses">
-                          {item.addresses.length === 0 ? t("settings.network.adapters.noAddresses") : item.addresses.map((address) => (
-                            <span key={`${address.address}/${address.prefix_length}`}>
-                              <code>{address.address}/{address.prefix_length}</code>
-                              {!address.upnp_usable && <em>{t("settings.network.adapters.addressUnavailable")}</em>}
-                            </span>
-                          ))}
-                        </span>
-                      </span>
-                    </label>
-                  );
-                })}
-              </fieldset>
-            )}
-          </section>
-        </section>
+      </div>
 
+      <div
+        className="settings-tab-panel"
+        id="settings-panel-playback"
+        role="tabpanel"
+        tabIndex={0}
+        aria-labelledby="settings-tab-playback"
+        data-settings-tab="playback"
+        hidden={activeTab !== "playback"}
+      >
+        <header className="settings-tab-heading">
+          <h2>{t("settings.tabs.playback")}</h2>
+          <p>{t("settings.tabs.playback.description")}</p>
+        </header>
         <section className="settings-card protocol-settings">
           <div className="settings-card-heading">
             <div>
@@ -1189,6 +1480,7 @@ export default function Settings({ configRevision, libraryRevision, historyRevis
             <label className="switch-label">
               <input
                 type="checkbox"
+                form={settingsConfigFormID}
                 checked={draft.cast.enabled}
                 onChange={(event) => updateDraft((config) => ({
                   ...config,
@@ -1210,6 +1502,7 @@ export default function Settings({ configRevision, libraryRevision, historyRevis
             <label className="switch-label">
               <input
                 type="checkbox"
+                form={settingsConfigFormID}
                 checked={draft.airplay.enabled}
                 onChange={(event) => updateDraft((config) => ({
                   ...config,
@@ -1223,6 +1516,7 @@ export default function Settings({ configRevision, libraryRevision, historyRevis
             id="airplay-helper-path"
             label={t("settings.airplay.helperPath")}
             value={draft.airplay.helper_path}
+            form={settingsConfigFormID}
             disabled={!draft.airplay.enabled}
             required={draft.airplay.enabled}
             placeholder={t("settings.airplay.helperPlaceholder")}
@@ -1253,67 +1547,32 @@ export default function Settings({ configRevision, libraryRevision, historyRevis
           </div>
         </section>
 
-        <section className="settings-card" aria-labelledby="media-delivery-heading">
-          <h2 id="media-delivery-heading">{t("settings.media.title")}</h2>
-          <p className="muted">{t("settings.media.description")}</p>
-          <div className="field-grid">
-            <div className="media-base-url-field">
-              <label className="field-label" htmlFor="media-base-url">{t("settings.media.baseUrl")}</label>
-              <input
-                className="input"
-                id="media-base-url"
-                value={draft.media.base_url}
-                placeholder={t("settings.media.baseUrlPlaceholder")}
-                aria-describedby="media-base-url-help"
-                onChange={(event) => updateDraft((config) => ({
-                  ...config,
-                  media: { ...config.media, base_url: event.target.value },
-                }))}
-              />
-              <p className="field-help" id="media-base-url-help">{t("settings.media.baseUrlHelp")}</p>
-              <label className="field-label media-quick-url-label" htmlFor="media-quick-url">{t("settings.media.quickUrl")}</label>
-              <select
-                className="input"
-                id="media-quick-url"
-                value={selectedMediaOrigin}
-                aria-describedby="media-quick-url-help"
-                onChange={(event) => {
-                  if (event.target.value === "__manual__") return;
-                  updateDraft((config) => ({
-                    ...config,
-                    media: { ...config.media, base_url: event.target.value },
-                  }));
-                }}
-              >
-                <option value="">{t("settings.media.quickUrlAutomatic")}</option>
-                {selectedMediaOrigin === "__manual__" && <option value="__manual__">{t("settings.media.quickUrlManual")}</option>}
-                {mediaOriginOptions.length === 0 && <option value="__unavailable__" disabled>{t("settings.media.quickUrlUnavailable")}</option>}
-                {mediaOriginOptions.map((option) => <option value={option.value} key={`${option.label}:${option.value}`}>{option.label}</option>)}
-              </select>
-              <p className="field-help" id="media-quick-url-help">{t("settings.media.quickUrlHelp")}</p>
-            </div>
-            <PathField
-              id="ffmpeg-path"
-              label={t("settings.media.ffmpegPath")}
-              value={draft.media.ffmpeg_path}
-              placeholder="/usr/bin/ffmpeg"
-              browseText={t("settings.pathPicker.browse")}
-              browseLabel={t("settings.pathPicker.browseLabel", { label: t("settings.media.ffmpegPath") })}
-              onChange={(value) => updateDraft((config) => ({
-                ...config,
-                media: { ...config.media, ffmpeg_path: value },
-              }))}
-              onBrowse={() => setPathPicker({
-                kind: "file",
-                label: t("settings.media.ffmpegPath"),
-                value: draft.media.ffmpeg_path,
-                target: { field: "ffmpeg_path" },
-              })}
-            />
-          </div>
+        <section className="settings-card" aria-labelledby="media-conversion-heading">
+          <h2 id="media-conversion-heading">{t("settings.media.conversionTitle")}</h2>
+          <p className="muted">{t("settings.media.conversionDescription")}</p>
+          <PathField
+            id="ffmpeg-path"
+            label={t("settings.media.ffmpegPath")}
+            value={draft.media.ffmpeg_path}
+            form={settingsConfigFormID}
+            placeholder="/usr/bin/ffmpeg"
+            browseText={t("settings.pathPicker.browse")}
+            browseLabel={t("settings.pathPicker.browseLabel", { label: t("settings.media.ffmpegPath") })}
+            onChange={(value) => updateDraft((config) => ({
+              ...config,
+              media: { ...config.media, ffmpeg_path: value },
+            }))}
+            onBrowse={() => setPathPicker({
+              kind: "file",
+              label: t("settings.media.ffmpegPath"),
+              value: draft.media.ffmpeg_path,
+              target: { field: "ffmpeg_path" },
+            })}
+          />
           <label className="switch-label inline-switch">
             <input
               type="checkbox"
+              form={settingsConfigFormID}
               checked={draft.media.transcode}
               onChange={(event) => updateDraft((config) => ({
                 ...config,
@@ -1323,80 +1582,53 @@ export default function Settings({ configRevision, libraryRevision, historyRevis
             {t("settings.media.transcode")}
           </label>
         </section>
+      </div>
 
+      <div
+        className="settings-tab-panel"
+        id="settings-panel-diagnostics"
+        role="tabpanel"
+        tabIndex={0}
+        aria-labelledby="settings-tab-diagnostics"
+        data-settings-tab="diagnostics"
+        hidden={activeTab !== "diagnostics"}
+      >
+        <header className="settings-tab-heading">
+          <h2>{t("settings.tabs.diagnostics")}</h2>
+          <p>{t("settings.tabs.diagnostics.description")}</p>
+        </header>
+        {historySettings}
+      </div>
+
+      <form id={settingsConfigFormID} noValidate onSubmit={(event) => void saveConfig(event)}>
         <div className="settings-save-row">
-          <button
-            className="button button-ghost"
-            type="button"
-            disabled={saving || restartMutationsDisabled}
-            onClick={() => {
-              setDraft(structuredClone(document?.config ?? draft));
-              setInterfacesText(listText((document?.config ?? draft).network.interfaces));
-              setCidrsText(listText((document?.config ?? draft).network.allowed_cidrs));
-              setError("");
-            }}
-          >
-            {t("settings.discard")}
-          </button>
-          <button
-            className="button button-primary"
-            type="submit"
-            disabled={saving || restartMutationsDisabled}
-          >
-            {saving ? t("settings.saving") : t("settings.save")}
-          </button>
+          <p className="settings-save-copy">{t("settings.saveAllHint")}</p>
+          <div className="settings-save-actions">
+            <button
+              className="button button-ghost"
+              type="button"
+              disabled={saving || restartMutationsDisabled}
+              onClick={() => {
+                setDraft(structuredClone(document?.config ?? draft));
+                setInterfacesText(listText((document?.config ?? draft).network.interfaces));
+                setCidrsText(listText((document?.config ?? draft).network.allowed_cidrs));
+                setError("");
+              }}
+            >
+              {t("settings.discard")}
+            </button>
+            <button
+              className="button button-primary"
+              type="submit"
+              disabled={saving || restartMutationsDisabled}
+            >
+              {saving ? t("settings.saving") : t("settings.save")}
+            </button>
+          </div>
         </div>
       </form>
 
 
-      <section className="settings-card account-settings" aria-labelledby="password-heading">
-        <h2 id="password-heading">{t("settings.account.title")}</h2>
-        <p className="muted">{t("settings.account.description")}</p>
-        <form className="password-form" onSubmit={(event) => void changePassword(event)}>
-          <label>
-            <span className="field-label">{t("settings.account.currentPassword")}</span>
-            <input
-              className="input"
-              type="password"
-              autoComplete="current-password"
-              value={currentPassword}
-              required
-              onChange={(event) => setCurrentPassword(event.target.value)}
-            />
-          </label>
-          <label>
-            <span className="field-label">{t("settings.account.newPassword")}</span>
-            <input
-              className="input"
-              type="password"
-              autoComplete="new-password"
-              minLength={10}
-              value={newPassword}
-              required
-              onChange={(event) => setNewPassword(event.target.value)}
-            />
-          </label>
-          <label>
-            <span className="field-label">{t("settings.account.confirmPassword")}</span>
-            <input
-              className="input"
-              type="password"
-              autoComplete="new-password"
-              minLength={10}
-              value={confirmPassword}
-              required
-              onChange={(event) => setConfirmPassword(event.target.value)}
-            />
-          </label>
-          <button
-            className="button button-primary"
-            type="submit"
-            disabled={passwordBusy || restartMutationsDisabled}
-          >
-            {passwordBusy ? t("settings.account.changing") : t("settings.account.change")}
-          </button>
-        </form>
-      </section>
       {pathPicker && (
         <ServerPathPicker
           kind={pathPicker.kind}

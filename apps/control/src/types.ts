@@ -16,6 +16,7 @@ export interface Track {
   path: string;
   available: boolean;
   liked: boolean;
+  play_count: number;
   size: number;
   modified_at: string;
 }

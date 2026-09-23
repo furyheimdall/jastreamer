@@ -13,7 +13,7 @@ type Props = {
   downloads: JastreamerDownloads;
 };
 
-type LibraryKind = "albums" | "artists" | "genres" | "folders" | "tracks";
+type LibraryKind = "albums" | "artists" | "genres" | "folders" | "tracks" | "most_played";
 type BrowseItem = Album | Artist | Genre | Folder | Track;
 type Scope =
   | { kind: "album"; id: string; title: string; subtitle: string; artworkID: string }
@@ -28,6 +28,7 @@ const tabs: Array<{ kind: LibraryKind; labelKey: MessageKey }> = [
   { kind: "genres", labelKey: "library.tabs.genres" },
   { kind: "folders", labelKey: "library.tabs.folders" },
   { kind: "tracks", labelKey: "library.tabs.tracks" },
+  { kind: "most_played", labelKey: "library.tabs.mostPlayed" },
 ];
 
 const scopeTypeKeys: Record<Scope["kind"], MessageKey> = {
@@ -95,7 +96,7 @@ function Artwork({ id, label, missingLabel, compact = false }: { id: string; lab
   return <img className={`library-artwork${compact ? " library-artwork-compact" : ""}`} src={src} alt={label} loading="lazy" onError={() => setFailedID(id)} />;
 }
 
-function paramsFor(kind: LibraryKind | "tracks", search: string, offset: number, limit: number, scope: Scope | null, likedOnly = false): URLSearchParams {
+function paramsFor(kind: LibraryKind, search: string, offset: number, limit: number, scope: Scope | null, likedOnly = false): URLSearchParams {
   const params = new URLSearchParams({ offset: String(offset), limit: String(limit) });
   if (search.trim()) params.set("q", search.trim());
   if (likedOnly) params.set("liked", "true");
@@ -116,6 +117,9 @@ function paramsFor(kind: LibraryKind | "tracks", search: string, offset: number,
     params.set("sort", "album");
   } else if (kind === "artists") {
     params.set("sort", "artist");
+  } else if (kind === "most_played") {
+    params.set("played", "true");
+    params.set("sort", "most_played");
   } else if (kind === "tracks") {
     params.set("sort", "title");
   }
@@ -158,13 +162,13 @@ export default function Library({ revision, onNotice, onQueueChange, downloads }
   useEffect(() => {
     const controller = new AbortController();
     const serial = ++requestSerial.current;
-    const effectiveKind: LibraryKind = scope ? "tracks" : kind;
-    const limit = effectiveKind === "tracks" ? trackPageSize : pageSize;
-    const params = paramsFor(effectiveKind, search, offset, limit, scope, likedOnly);
+    const endpointKind: Exclude<LibraryKind, "most_played"> = scope || kind === "most_played" ? "tracks" : kind;
+    const limit = endpointKind === "tracks" ? trackPageSize : pageSize;
+    const params = paramsFor(kind, search, offset, limit, scope, likedOnly);
     setLoading(true);
     setError("");
 
-    const pageRequest = api<Page<BrowseItem>>(`/library/${effectiveKind}?${params}`, { signal: controller.signal });
+    const pageRequest = api<Page<BrowseItem>>(`/library/${endpointKind}?${params}`, { signal: controller.signal });
     const foldersRequest: Promise<Page<Folder> | null> = scope?.kind === "folder"
       ? api<Page<Folder>>(`/library/folders?${new URLSearchParams({ root_id: scope.rootID, path: scope.path, offset: "0", limit: "200", sort: "path" })}`, { signal: controller.signal })
       : Promise.resolve(null);
@@ -422,7 +426,7 @@ export default function Library({ revision, onNotice, onQueueChange, downloads }
   }
 
   const total = page?.total ?? 0;
-  const limit = page?.limit || (scope || kind === "tracks" ? trackPageSize : pageSize);
+  const limit = page?.limit || (scope || kind === "tracks" || kind === "most_played" ? trackPageSize : pageSize);
   const start = total ? offset + 1 : 0;
   const end = Math.min(offset + (page?.items.length ?? 0), total);
 
@@ -452,6 +456,10 @@ export default function Library({ revision, onNotice, onQueueChange, downloads }
         ))}
         <button className={`library-tab library-liked-filter${likedOnly ? " library-tab-active" : ""}`} type="button" aria-pressed={likedOnly} onClick={() => { setLikedOnly((current) => !current); setKind("tracks"); setScope(null); }}><Icon name="heart" /> {t("library.likedFilter")}</button>
       </nav>
+
+      {!scope && kind === "most_played" && !likedOnly && (
+        <p className="library-most-played-help">{t("library.mostPlayedHelp")}</p>
+      )}
 
       {scope && (
         <div className="library-detail-header">
@@ -486,7 +494,7 @@ export default function Library({ revision, onNotice, onQueueChange, downloads }
       {loading && <div className="library-loading" role="status">{t("library.loading")}</div>}
 
       {!loading && !error && page && page.items.length === 0 && childFolders.length === 0 && (
-        <div className="empty-state">{t(search ? "library.noSearchResults" : likedOnly ? "library.noLikedTracks" : "library.empty")}</div>
+        <div className="empty-state">{t(search ? "library.noSearchResults" : likedOnly ? "library.noLikedTracks" : kind === "most_played" ? "library.noMostPlayedTracks" : "library.empty")}</div>
       )}
 
       {!loading && !error && !scope && kind === "albums" && (
@@ -549,7 +557,7 @@ export default function Library({ revision, onNotice, onQueueChange, downloads }
         </div>
       )}
 
-      {!loading && !error && (scope || kind === "tracks") && visibleTracks.length > 0 && (
+      {!loading && !error && (scope || kind === "tracks" || kind === "most_played") && visibleTracks.length > 0 && (
         <div className="library-track-list" role="list" aria-label={t("library.trackList")}>
           {visibleTracks.map((track, index) => (
             <article className={`library-track-row${track.available ? "" : " library-track-unavailable"}`} role="listitem" key={track.id}>
@@ -560,7 +568,13 @@ export default function Library({ revision, onNotice, onQueueChange, downloads }
                 missingLabel={t("library.noArtwork", { name: track.album || track.title })}
                 compact
               />
-              <div className="library-track-main"><strong>{track.title}</strong><span>{track.artist || t("library.unknownArtist")}</span></div>
+              <div className="library-track-main">
+                <strong>{track.title}</strong>
+                <span>{track.artist || t("library.unknownArtist")}</span>
+                {kind === "most_played" && !scope && (
+                  <span className="library-track-play-count">{t(track.play_count === 1 ? "library.onePlay" : "library.manyPlays", { count: numberFormatter.format(track.play_count) })}</span>
+                )}
+              </div>
               <div className="library-track-album"><span>{track.album || t("library.unknownAlbum")}</span>{!track.available && <small>{t("library.fileUnavailable")}</small>}</div>
               <time className="library-track-duration">{formatDuration(track.duration_ms)}</time>
               <div className="library-track-actions" aria-label={t("library.trackActions", { title: track.title })}>

@@ -205,6 +205,105 @@ func TestDownloadFolderSnapshotIsRecursiveOrderedAndRootConfined(t *testing.T) {
 	}
 }
 
+func TestPlayCountsRankGloballyAndSurviveRescan(t *testing.T) {
+	firstRoot := t.TempDir()
+	secondRoot := t.TempDir()
+	writeTestWAV(t, filepath.Join(firstRoot, "Alpha.wav"), 4_000)
+	writeTestWAV(t, filepath.Join(firstRoot, "Beta.wav"), 4_000)
+	writeTestWAV(t, filepath.Join(firstRoot, "Zero.wav"), 4_000)
+	writeTestWAV(t, filepath.Join(secondRoot, "Gamma.wav"), 4_000)
+	service := newTestService(t, []Root{
+		{ID: "first", Name: "First", Path: firstRoot},
+		{ID: "second", Name: "Second", Path: secondRoot},
+	})
+	job, err := service.StartScan(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if job = waitScan(t, service, job.ID); job.Status != "complete" {
+		t.Fatalf("scan = %+v", job)
+	}
+	page, err := service.Browse(t.Context(), Query{Kind: "tracks", Limit: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	byPath := make(map[string]Track)
+	for _, track := range page.Items.([]Track) {
+		byPath[track.Path] = track
+	}
+	alpha, beta, gamma, zero := byPath["Alpha.wav"], byPath["Beta.wav"], byPath["Gamma.wav"], byPath["Zero.wav"]
+	if alpha.ID == "" || beta.ID == "" || gamma.ID == "" || zero.ID == "" {
+		t.Fatalf("scanned tracks = %#v", byPath)
+	}
+	if zero.PlayCount != 0 {
+		t.Fatalf("uncounted track play count = %d, want 0", zero.PlayCount)
+	}
+	for _, track := range []Track{alpha, beta, gamma} {
+		if _, err = service.SetLiked(t.Context(), track.ID, true); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, count := range []struct {
+		track Track
+		plays int64
+	}{
+		{track: alpha, plays: 5},
+		{track: beta, plays: 5},
+		{track: gamma, plays: 9},
+	} {
+		if _, err = service.db.ExecContext(t.Context(), `INSERT INTO track_play_counts(track_id,play_count,last_play_id) VALUES(?,?,?)`, count.track.ID, count.plays, "play-"+count.track.ID); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	ranked, err := service.Browse(t.Context(), Query{Kind: "tracks", Played: true, Sort: "most_played", Offset: 1, Limit: 2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rankedTracks := ranked.Items.([]Track)
+	if ranked.Total != 3 || len(rankedTracks) != 2 || rankedTracks[0].ID != alpha.ID || rankedTracks[1].ID != beta.ID {
+		t.Fatalf("ranked page = %+v", ranked)
+	}
+	filtered, err := service.Browse(t.Context(), Query{Kind: "tracks", Search: "beta", RootID: "first", Liked: true, Played: true, Sort: "most_played", Limit: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	filteredTracks := filtered.Items.([]Track)
+	if filtered.Total != 1 || len(filteredTracks) != 1 || filteredTracks[0].ID != beta.ID {
+		t.Fatalf("filtered ranking = %+v", filtered)
+	}
+	loaded, err := service.Track(t.Context(), alpha.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	info, err := service.Info(t.Context(), alpha.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	playlist, err := service.SavePlaylist(t.Context(), "", "Played", []string{alpha.ID}, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded.PlayCount != 5 || info.Track.PlayCount != 5 || len(playlist.Tracks) != 1 || playlist.Tracks[0].PlayCount != 5 {
+		t.Fatalf("count exposure: track=%d info=%d playlist=%+v", loaded.PlayCount, info.Track.PlayCount, playlist.Tracks)
+	}
+
+	job, err = service.StartScan(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if job = waitScan(t, service, job.ID); job.Status != "complete" {
+		t.Fatalf("rescan = %+v", job)
+	}
+	loaded, err = service.Track(t.Context(), alpha.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded.PlayCount != 5 {
+		t.Fatalf("play count after rescan = %d, want 5", loaded.PlayCount)
+	}
+}
+
 func newTestService(t *testing.T, roots []Root) *Service {
 	t.Helper()
 	db, err := sql.Open("sqlite", filepath.Join(t.TempDir(), "library.sqlite"))

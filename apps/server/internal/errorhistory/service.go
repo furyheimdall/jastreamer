@@ -59,6 +59,11 @@ type ListOptions struct {
 	Limit      int
 }
 
+type Filter struct {
+	Kind       string
+	RendererID string
+}
+
 type ListResult struct {
 	Items          []Event    `json:"items"`
 	Total          int        `json:"total"`
@@ -184,7 +189,11 @@ func (s *Service) List(ctx context.Context, options ListOptions) (ListResult, er
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	if options.Offset < 0 || options.Limit < 1 || options.Limit > 100 || (options.Kind != "" && options.Kind != "renderer" && options.Kind != "integrity") || len(options.RendererID) > maxShortLength {
+	if options.Offset < 0 || options.Limit < 1 || options.Limit > 100 {
+		return result, errors.New("error history: invalid list options")
+	}
+	where, args, err := historyWhere(options.Kind, options.RendererID)
+	if err != nil {
 		return result, errors.New("error history: invalid list options")
 	}
 	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
@@ -192,16 +201,6 @@ func (s *Service) List(ctx context.Context, options ListOptions) (ListResult, er
 		return result, fmt.Errorf("error history: begin history snapshot: %w", err)
 	}
 	defer tx.Rollback()
-	where := " WHERE 1=1"
-	args := make([]any, 0, 4)
-	if options.Kind != "" {
-		where += " AND kind=?"
-		args = append(args, options.Kind)
-	}
-	if options.RendererID != "" {
-		where += " AND renderer_id=?"
-		args = append(args, options.RendererID)
-	}
 	if err := tx.QueryRowContext(ctx, "SELECT COUNT(*) FROM error_history"+where, args...).Scan(&result.Total); err != nil {
 		return result, fmt.Errorf("error history: count records: %w", err)
 	}
@@ -211,24 +210,11 @@ func (s *Service) List(ctx context.Context, options ListOptions) (ListResult, er
 		return result, fmt.Errorf("error history: query records: %w", err)
 	}
 	for rows.Next() {
-		var event Event
-		var received string
-		var position sql.NullInt64
-		var details []byte
-		if err := rows.Scan(&event.ID, &received, &event.Kind, &event.RendererID, &event.RendererName, &event.Protocol, &event.TrackID, &event.TrackTitle, &event.RootName, &event.RelativePath, &event.Stage, &event.Code, &event.Message, &event.Outcome, &event.PlayID, &event.CommandID, &position, &details); err != nil {
-			rows.Close()
-			return result, fmt.Errorf("error history: read record: %w", err)
-		}
-		event.ReceivedAt, err = time.Parse(time.RFC3339Nano, received)
+		event, err := scanEvent(rows)
 		if err != nil {
 			rows.Close()
-			return result, fmt.Errorf("error history: parse record time: %w", err)
+			return result, err
 		}
-		if position.Valid {
-			value := position.Int64
-			event.PositionMS = &value
-		}
-		event.Details = json.RawMessage(details)
 		result.Items = append(result.Items, event)
 	}
 	if err := rows.Close(); err != nil {
@@ -261,6 +247,93 @@ ORDER BY lower(CASE WHEN h.renderer_name='' THEN h.renderer_id ELSE h.renderer_n
 		return result, fmt.Errorf("error history: finish history snapshot: %w", err)
 	}
 	return result, nil
+}
+
+// Stream visits every retained record matching filter in newest-first order.
+// The read transaction remains open for the complete visit so callers receive
+// one coherent snapshot without accumulating the retained history in memory.
+func (s *Service) Stream(ctx context.Context, filter Filter, visit func(Event) error) error {
+	if s == nil || s.db == nil {
+		return errors.New("error history: service is unavailable")
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if visit == nil {
+		return errors.New("error history: record visitor is required")
+	}
+	where, args, err := historyWhere(filter.Kind, filter.RendererID)
+	if err != nil {
+		return err
+	}
+	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	if err != nil {
+		return fmt.Errorf("error history: begin export snapshot: %w", err)
+	}
+	defer tx.Rollback()
+	rows, err := tx.QueryContext(ctx, `SELECT id,received_at,kind,renderer_id,renderer_name,protocol,track_id,track_title,root_name,relative_path,stage,code,message,outcome,play_id,command_id,position_ms,details FROM error_history`+where+` ORDER BY received_at DESC,id DESC`, args...)
+	if err != nil {
+		return fmt.Errorf("error history: query export records: %w", err)
+	}
+	for rows.Next() {
+		event, err := scanEvent(rows)
+		if err != nil {
+			rows.Close()
+			return err
+		}
+		if err := visit(event); err != nil {
+			rows.Close()
+			return fmt.Errorf("error history: export record: %w", err)
+		}
+	}
+	if err := rows.Close(); err != nil {
+		return fmt.Errorf("error history: close export records: %w", err)
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("error history: iterate export records: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("error history: finish export snapshot: %w", err)
+	}
+	return nil
+}
+
+func historyWhere(kind, rendererID string) (string, []any, error) {
+	if (kind != "" && kind != "renderer" && kind != "integrity") || !validText(rendererID, maxShortLength) {
+		return "", nil, errors.New("error history: invalid filter")
+	}
+	where := " WHERE 1=1"
+	args := make([]any, 0, 2)
+	if kind != "" {
+		where += " AND kind=?"
+		args = append(args, kind)
+	}
+	if rendererID != "" {
+		where += " AND renderer_id=?"
+		args = append(args, rendererID)
+	}
+	return where, args, nil
+}
+
+func scanEvent(scanner *sql.Rows) (Event, error) {
+	var event Event
+	var received string
+	var position sql.NullInt64
+	var details []byte
+	if err := scanner.Scan(&event.ID, &received, &event.Kind, &event.RendererID, &event.RendererName, &event.Protocol, &event.TrackID, &event.TrackTitle, &event.RootName, &event.RelativePath, &event.Stage, &event.Code, &event.Message, &event.Outcome, &event.PlayID, &event.CommandID, &position, &details); err != nil {
+		return Event{}, fmt.Errorf("error history: read record: %w", err)
+	}
+	parsed, err := time.Parse(time.RFC3339Nano, received)
+	if err != nil {
+		return Event{}, fmt.Errorf("error history: parse record time: %w", err)
+	}
+	event.ReceivedAt = parsed
+	if position.Valid {
+		value := position.Int64
+		event.PositionMS = &value
+	}
+	event.Details = json.RawMessage(details)
+	return event, nil
 }
 
 func validateEvent(event *Event) error {
