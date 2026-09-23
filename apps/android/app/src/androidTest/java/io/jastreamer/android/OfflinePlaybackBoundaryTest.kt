@@ -531,8 +531,10 @@ class OfflinePlaybackBoundaryTest {
     private fun browse(scenario: ActivityScenario<MainActivity>, fixture: BrowserFixture) {
         addedServers += fixture.endpoint
         scenario.onActivity { activity ->
-            activity.findViewById<EditText>(R.id.server_address).setText(fixture.origin)
-            activity.findViewById<android.view.View>(R.id.connect_button).performClick()
+            activity.findViewById<android.view.View>(R.id.server_playback_button)?.performClick()
+            activity.findViewById<android.view.View>(R.id.manual_address_button)?.performClick()
+            requireNotNull(activity.findViewById<EditText>(R.id.server_address)).setText(fixture.origin)
+            requireNotNull(activity.findViewById<android.view.View>(R.id.connect_button)).performClick()
         }
         assertTrue("The isolated Server profile did not load", fixture.rootRequested.await(10, TimeUnit.SECONDS))
     }

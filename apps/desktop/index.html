@@ -32,8 +32,8 @@
       <section class="intro">
         <div class="intro-header">
           <div>
-            <p class="eyebrow" data-i18n="shell.intro.eyebrow">DESKTOP CONNECTION</p>
-            <h1 data-i18n="shell.intro.title">Select a server to play from</h1>
+            <p class="eyebrow" data-i18n="shell.intro.eyebrow">YOUR SERVER LIBRARY</p>
+            <h1 data-i18n="shell.intro.title">Server playback</h1>
           </div>
           <label class="language-control" for="language">
             <span data-i18n="shell.language">Language</span>
@@ -44,44 +44,23 @@
           </label>
         </div>
         <p data-i18n="shell.intro.detail">
-          You can connect only to verified JASTREAMER servers on your network. You must always choose a server yourself; the app never connects automatically.
+          Choose a server to open its music library. Connecting never starts playback.
         </p>
-      </section>
-
-      <section class="manual-panel panel" aria-labelledby="manual-heading">
-        <div>
-          <h2 id="manual-heading" data-i18n="shell.manual.title">Connect by address</h2>
-          <p class="muted" data-i18n="shell.manual.detail">Enter a host name or an HTTP(S) root URL.</p>
-        </div>
-        <form id="manual-form" class="manual-form">
-          <label class="sr-only" for="manual-origin" data-i18n="shell.manual.label">Server address</label>
-          <input
-            id="manual-origin"
-            class="input"
-            type="text"
-            inputmode="url"
-            autocomplete="off"
-            autocapitalize="none"
-            spellcheck="false"
-            placeholder="Example: music-server.local:8080 or https://music.example.local"
-            data-i18n-placeholder="shell.manual.placeholder"
-            required
-          />
-          <button class="button button-primary" type="submit" data-i18n="shell.manual.connect">Verify and connect</button>
-        </form>
-        <p class="http-note" data-i18n="shell.manual.httpNote">Use HTTP only on a trusted private LAN. HTTPS certificate checks cannot be disabled.</p>
+        <button id="open-manual" class="button button-ghost" type="button" data-i18n="shell.manual.title">Connect by address</button>
       </section>
 
       <div id="inline-error" class="inline-error" role="alert" hidden></div>
 
+      <div class="server-sections">
       <section class="server-section" aria-labelledby="discovered-heading">
         <div class="section-heading">
           <div>
             <p class="eyebrow" data-i18n="shell.discovered.eyebrow">LOCAL NETWORK</p>
-            <h2 id="discovered-heading" data-i18n="shell.discovered.title">Discovered servers</h2>
+            <h2 id="discovered-heading" data-i18n="shell.discovered.title">Discovered now</h2>
           </div>
           <button id="refresh" class="button button-ghost compact" type="button" data-i18n="shell.refresh">Refresh</button>
         </div>
+        <p class="section-detail" data-i18n="shell.discovered.detail">Verified servers on your current network.</p>
         <div id="discovered-list" class="server-grid" aria-live="polite"></div>
       </section>
 
@@ -89,12 +68,42 @@
         <div class="section-heading">
           <div>
             <p class="eyebrow" data-i18n="shell.recent.eyebrow">RECENT</p>
-            <h2 id="recent-heading" data-i18n="shell.recent.title">Recent servers</h2>
+            <h2 id="recent-heading" data-i18n="shell.recent.title">Recent connections</h2>
           </div>
         </div>
+        <p class="section-detail" data-i18n="shell.recent.detail">Servers you connected to before. Availability is checked again.</p>
         <div id="recent-list" class="server-grid" aria-live="polite"></div>
       </section>
+      </div>
     </main>
+
+    <dialog id="manual-dialog" class="manual-dialog panel" aria-labelledby="manual-heading" aria-describedby="manual-detail">
+      <p class="eyebrow" data-i18n="shell.manual.eyebrow">MANUAL CONNECTION</p>
+      <h2 id="manual-heading" data-i18n="shell.manual.title">Connect by address</h2>
+      <p id="manual-detail" class="muted" data-i18n="shell.manual.detail">Enter a host name or an HTTP(S) root URL.</p>
+      <form id="manual-form" class="manual-form">
+        <label for="manual-origin" data-i18n="shell.manual.label">Server address</label>
+        <input
+          id="manual-origin"
+          class="input"
+          type="text"
+          inputmode="url"
+          autocomplete="off"
+          autocapitalize="none"
+          spellcheck="false"
+          placeholder="Example: music-server.local:8080 or https://music.example.local"
+          data-i18n-placeholder="shell.manual.placeholder"
+          aria-describedby="manual-http-note manual-error"
+          required
+        />
+        <p id="manual-http-note" class="http-note" data-i18n="shell.manual.httpNote">Use HTTP only on a trusted private LAN. HTTPS certificate checks cannot be disabled.</p>
+        <p id="manual-error" class="inline-error" role="alert" hidden></p>
+        <div class="manual-actions">
+          <button id="cancel-manual" class="button button-ghost" type="button" data-i18n="shell.manual.cancel">Cancel</button>
+          <button class="button button-primary" type="submit" data-i18n="shell.manual.connect">Verify and connect</button>
+        </div>
+      </form>
+    </dialog>
 
     <main id="workspace-screen" class="screen workspace-screen" hidden>
       <section id="loading-panel" class="status-panel" hidden>

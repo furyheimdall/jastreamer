@@ -173,7 +173,8 @@ async function launch() {
       timeout: 20_000,
     });
     const shell = await application.firstWindow();
-    await shell.locator("#manual-origin").waitFor({ state: "visible" });
+    await shell.locator("#open-manual").waitFor({ state: "visible" });
+    assert.equal(await shell.locator("#manual-origin").isVisible(), false, "Address entry must require an explicit action");
     const dataPath = await application.evaluate(({ app }) => app.getPath("userData"));
     assert.equal(path.resolve(dataPath), expectedDataPath, "Installed Linux profile must use the ordinary user's XDG configuration root");
     return shell;
@@ -184,8 +185,9 @@ async function launch() {
 }
 
 async function connect(shell, origin) {
+  await shell.locator("#open-manual").click();
   await shell.locator("#manual-origin").fill(origin);
-  await shell.locator("#manual-form button").click();
+  await shell.locator("#manual-form button[type=submit]").click();
   const page = await until(
     () => application.context().pages().find((candidate) => candidate.url() === `${origin}/`),
     "Remote WebContentsView did not open",
@@ -322,8 +324,17 @@ try {
 
   const [a, b] = await Promise.all([startServer("Desktop A"), startServer("Desktop B")]);
   let shell = await launch();
-  assert.equal(await shell.locator("#language").inputValue(), "en", "A new per-user profile must default to English");
-  assert.equal(await shell.locator("#manual-heading").innerText(), "Connect by address");
+  await shell.locator("#open-manual").click();
+  await shell.locator("#manual-origin").fill("http://127.0.0.1:1");
+  await shell.keyboard.press("Escape");
+  assert.equal(await shell.locator("#manual-origin").isVisible(), false);
+  assert.equal(await shell.locator("#open-manual").evaluate((button) => button === document.activeElement), true);
+  await shell.locator("#open-manual").click();
+  assert.equal(await shell.locator("#manual-origin").inputValue(), "http://127.0.0.1:1", "Dismissal must retain the address draft");
+  await shell.locator("#cancel-manual").click();
+  assert.equal(await shell.locator("#selection-screen").isVisible(), true);
+  assert.equal(application.context().pages().some((candidate) => /^https?:/.test(candidate.url())), false, "Cancel must not connect");
+  await shell.locator("#language").selectOption("en");
   let page = await connect(shell, a);
   await createAccount(page, "desktop-a");
   assert.equal(await username(page), "desktop-a");
@@ -355,7 +366,7 @@ try {
   assert.equal(await username(page), "desktop-a", "B login must not overwrite A session");
   await shell.locator("#change-server").click();
   await shell.locator("#language").selectOption("ko");
-  await until(async () => (await shell.locator("#manual-heading").innerText()) === "주소로 연결", "Local language selection did not apply");
+  await until(async () => (await shell.locator("html").getAttribute("lang")) === "ko", "Local language selection did not apply to the accessible document language");
   await application.close();
   application = null;
   assert.deepEqual(commands, [], "Switching and closing must not send queue or playback commands");
@@ -369,7 +380,7 @@ try {
   assert.equal(await shell.locator("#language").inputValue(), "ko", "Installed restart must retain the per-user language preference");
   assert.equal(application.context().pages().some((candidate) => candidate.url() === `${a}/` || candidate.url() === `${b}/`), false, "Restart must not auto-connect");
   await shell.locator("#language").selectOption("en");
-  await until(async () => (await shell.locator("#manual-heading").innerText()) === "Connect by address", "English selection did not apply");
+  await until(async () => (await shell.locator("html").getAttribute("lang")) === "en", "English selection did not apply to the accessible document language");
   page = await connect(shell, a);
   await page.getByLabel("Output device", { exact: true }).waitFor({ state: "visible" });
   assert.equal(await username(page), "desktop-a", "Installed restart must retain the ordinary user's server session");

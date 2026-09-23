@@ -1,8 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="offline_saved_music">Saved music</string>
-    <string name="offline_listen_saved_music">Listen to saved music</string>
-    <string name="offline_saved_entry_detail">Listen without a server or sign-in. Downloads belong to this device after they are saved.</string>
     <string name="offline_saved_counts">%1$d tracks · %2$d albums</string>
     <string name="offline_saved_counts_unavailable">Saved music is still available</string>
     <string name="offline_downloads">Downloads</string>

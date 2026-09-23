@@ -57,6 +57,7 @@ class ActualWebUiSmokeTest {
                 focused
             }
             awaitRenderedFrame()
+            openManualAddress()
             scenario.onActivity { activity ->
                 val address = activity.findViewById<EditText>(R.id.server_address)
                 address.requestFocus()
@@ -179,6 +180,7 @@ class ActualWebUiSmokeTest {
             """.trimIndent())
             waitFor("Korean Web interface") { evaluate("document.documentElement.lang === 'ko'") == "true" }
             scenario.onActivity { it.findViewById<View>(R.id.change_server_button).performClick() }
+            openManualAddress()
             val korean = Configuration(instrumentation.targetContext.resources.configuration).apply {
                 setLocale(java.util.Locale.KOREAN)
             }
@@ -232,10 +234,18 @@ class ActualWebUiSmokeTest {
         }
     }
 
-    private fun connect(origin: String) {
+    private fun openManualAddress() {
         scenario.onActivity { activity ->
-            activity.findViewById<EditText>(R.id.server_address).setText(origin)
-            activity.findViewById<View>(R.id.connect_button).performClick()
+            activity.findViewById<View>(R.id.server_playback_button)?.performClick()
+            activity.findViewById<View>(R.id.manual_address_button)?.performClick()
+        }
+    }
+
+    private fun connect(origin: String) {
+        openManualAddress()
+        scenario.onActivity { activity ->
+            requireNotNull(activity.findViewById<EditText>(R.id.server_address)).setText(origin)
+            requireNotNull(activity.findViewById<View>(R.id.connect_button)).performClick()
         }
     }
 

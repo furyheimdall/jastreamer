@@ -2,7 +2,7 @@
 
 [프로젝트 소개](README.ko.md) · [한국어 사용자 안내서](INSTRUCTION.ko.md) · [English installation guide](INSTALL.md)
 
-실제로 사용할 패키지와 플랫폼에 맞는 아래 분기를 선택하세요. Server가 Web 화면을 제공하며 선택 사항인 Desktop·네이티브 모바일·휴대전화 PWA는 기존 Server에 접속할 수 있습니다. Server 모드의 로컬 재생은 네이티브 Android를 제외하면 브라우저 오디오를 사용하며 Android Media3 서비스도 Server 대기열의 출력입니다. Android **저장된 음악**은 같은 서비스를 별도 로컬 소유권으로 사용하고 독립 기기 대기열을 가지며 Server가 필요 없습니다. [사용자 안내서](INSTRUCTION.ko.md#android-controls)를 참고하세요.
+실제로 사용할 패키지와 플랫폼에 맞는 아래 분기를 선택하세요. Server가 Web 화면을 제공하며 선택 사항인 Desktop·네이티브 모바일·휴대전화 PWA는 기존 Server에 접속할 수 있습니다. Server 모드의 로컬 재생은 브라우저·Desktop의 브라우저 오디오 또는 네이티브 Android Media3 서비스를 Server 대기열의 출력으로 사용합니다. 네이티브 iOS 앱은 제어 전용이며 미디어 로드를 차단합니다. Android **저장된 음악**은 같은 서비스를 별도 로컬 소유권으로 사용하고 독립 기기 대기열을 유지하며 Server 접속을 요구하지 않습니다. 사용법은 [사용자 안내서](INSTRUCTION.ko.md#android-controls)를 참고하세요.
 
 공개 프리뷰는 미서명이며 production 검증을 마친 릴리즈가 아닙니다. 선택한 릴리즈의 제한을 읽고 내려받은 모든 파일을 검증한 뒤 실제 네트워크와 수신기에서 동작을 확인하세요. 설치 후 화면 사용법과 문제 해결은 [한국어 사용자 안내서](INSTRUCTION.ko.md)를 참고하세요.
 
@@ -167,7 +167,7 @@ Windows 10/11 x64에서 선택한 프리뷰의 미서명 `jastreamer-desktop_0.2
 Get-FileHash .\jastreamer-desktop_0.2.0_windows-x64.zip -Algorithm SHA256
 ```
 
-ZIP 전체를 쓰기 가능한 새 로컬 폴더에 풀고 `jastreamer-desktop.exe`를 실행하세요. ZIP 안에서 실행하거나 EXE만 복사하지 마세요. 발견된 서버를 선택하거나 완전한 HTTP(S) 주소를 입력합니다. 앱은 접속 전에 서버를 확인하며 검색·접속은 재생을 시작하지 않습니다.
+ZIP 전체를 쓰기 가능한 새 로컬 폴더에 풀고 `jastreamer-desktop.exe`를 실행하세요. ZIP 안에서 실행하거나 EXE만 복사하지 마세요. 서버 재생 화면에서 발견된 서버와 최근 서버가 별도 카드로 표시됩니다. 카드의 연결 버튼을 누르거나 **주소로 직접 연결**을 눌러 입력창에 완전한 HTTP(S) 루트 주소를 입력하세요. 앱은 접속 전에 서버를 확인하며 검색·접속은 재생을 시작하지 않습니다.
 
 서버 검색은 활성 IPv4 네트워크 어댑터마다 5초 간격으로 수행하며 어댑터 변경도 반영합니다. 방화벽이나 멀티캐스트 제한이 있으면 서버 주소를 직접 입력해야 할 수 있습니다.
 
@@ -225,7 +225,7 @@ Server 모드, 저장된 음악, 다운로드, 로컬 관리, 재생 소유권 �
 <a id="ios"></a>
 ## 8. 네이티브 iOS 소스와 CI
 
-`apps/ios`의 SwiftUI/WKWebView 앱은 `_jastreamer._tcp` Server를 검색하고 `/api/v1/discovery`로 확인한 뒤 선택한 Server의 Web 화면을 사용합니다. 네이티브 파일 선택기 요청을 거부하는 공개 WebKit API를 포함해 최소 **iOS/iPadOS 18.4**가 필요합니다. 독립 네이티브 오디오 엔진을 추가하지 않으며 공유 Web 오디오는 WebKit의 제약을 따릅니다.
+`apps/ios`의 SwiftUI/WKWebView 앱은 `_jastreamer._tcp` Server를 검색하고 `/api/v1/discovery`로 확인한 뒤 선택한 Server의 Web 화면을 사용합니다. 네이티브 파일 선택기 요청을 거부하는 공개 WebKit API를 포함해 최소 **iOS/iPadOS 18.4**가 필요합니다. 제어 전용으로 WebView의 미디어 로드를 차단하며 독립 네이티브 오디오 엔진, 저장 음악 플레이어나 로컬 재생 진입점은 없습니다.
 
 현재 범위는 **소스, 미서명 기기용 빌드와 시뮬레이터 CI만**입니다. 성공한 [iOS CI 실행](https://github.com/furyheimdall/jastreamer/actions/workflows/ios.yml)은 `jastreamer-ios-development-unsigned-and-simulator-<revision>`을 제공합니다. 개발 산출물을 사용하기 전에 `SHA256SUMS`, `provenance.json`, 소스 리비전, bundle identifier와 플랫폼을 확인하세요. PR 산출물은 검증한 merge 리비전을 기록하며 보호된 main의 릴리즈가 아닙니다.
 

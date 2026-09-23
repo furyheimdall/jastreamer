@@ -157,6 +157,7 @@ internal class OfflineImportSmoke(
             assertEquals(playlist.trackIds, localQueue)
 
             scenario.onActivity { it.findViewById<View>(R.id.change_server_button).performClick() }
+            scenario.onActivity { it.findViewById<View>(R.id.server_chooser_back_button).performClick() }
             await("independent music launcher entry") {
                 var visible = false
                 scenario.onActivity { visible = it.findViewById<View>(R.id.saved_music_button)?.isShown == true }
