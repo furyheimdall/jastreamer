@@ -52,6 +52,7 @@
     <item name="offline_move_tracks_button" type="id" />
     <item name="offline_destination_list" type="id" />
     <item name="offline_download_list" type="id" />
+    <item name="offline_clear_download_history" type="id" />
     <item name="offline_storage_usage" type="id" />
     <item name="offline_diagnostics" type="id" />
     <item name="offline_previous_page" type="id" />

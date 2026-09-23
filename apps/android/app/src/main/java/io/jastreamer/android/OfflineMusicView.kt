@@ -205,7 +205,7 @@ class OfflineMusicView(
                     downloads = next
                     lastDownloadSignature = next
                     if (screen == SCREEN_DOWNLOADS) {
-                        if (structureChanged) renderDownloads() else updateDownloadProgress()
+                        if (structureChanged) renderPage(preserveState = true) else updateDownloadProgress()
                     }
                 }
             } catch (failure: Throwable) {
@@ -1274,6 +1274,14 @@ class OfflineMusicView(
             addView(label(text(R.string.offline_network_policy), 16f).apply { setTypeface(typeface, Typeface.BOLD) })
             addView(policy, LayoutParams(MATCH_PARENT, WRAP_CONTENT))
         }, sectionParams())
+        if (downloads.any { it.status in TERMINAL_DOWNLOAD_STATUSES }) {
+            val historyActions = row()
+            historyActions.addView(action(
+                text(R.string.offline_download_clear_history),
+                R.id.offline_clear_download_history,
+            ) { confirmClearDownloadHistory() })
+            body.addView(actionStrip(historyActions), sectionParams())
+        }
         val list = LinearLayout(activity).apply {
             id = R.id.offline_download_list
             orientation = VERTICAL
@@ -1336,7 +1344,7 @@ class OfflineMusicView(
                     renderPage()
                 })
             }
-            if (job.status !in setOf("completed", "cancelled")) {
+            if (job.status !in TERMINAL_DOWNLOAD_STATUSES) {
                 if (!hardFailure) {
                     actions.addView(action(text(R.string.offline_download_change_destination)) {
                         chooseDestination { folderId ->
@@ -1345,6 +1353,13 @@ class OfflineMusicView(
                     })
                 }
                 actions.addView(action(text(R.string.offline_download_cancel)) { confirmCancelDownload(job) })
+            }
+            if (job.status in TERMINAL_DOWNLOAD_STATUSES) {
+                actions.addView(action(text(R.string.offline_download_remove_history)) {
+                    confirmRemoveDownloadHistory(job)
+                }.apply {
+                    contentDescription = text(R.string.offline_download_remove_history_accessibility, job.title)
+                })
             }
             if (actions.childCount > 0) card.addView(actionStrip(actions))
             list.addView(card, LayoutParams(MATCH_PARENT, WRAP_CONTENT).apply { bottomMargin = dp(8) })
@@ -1368,11 +1383,16 @@ class OfflineMusicView(
             R.string.offline_download_progress,
             job.completedTracks,
             job.totalTracks,
-            bytes(job.receivedBytes),
-            bytes(job.totalBytes),
+            bytes(job.receivedBytes, fractional = true),
+            bytes(job.totalBytes, fractional = true),
         )
-        progress.contentDescription = description
-        label.text = description
+        val message = if (job.status == "downloading") {
+            text(R.string.offline_download_progress_speed, description, bytes(job.bytesPerSecond))
+        } else {
+            description
+        }
+        progress.contentDescription = message
+        label.text = message
     }
 
     private fun renderSettings() {
@@ -1907,6 +1927,28 @@ class OfflineMusicView(
             .show()
     }
 
+    private fun confirmRemoveDownloadHistory(job: OfflineDownloadJob) {
+        AlertDialog.Builder(activity)
+            .setTitle(text(R.string.offline_download_remove_history_title))
+            .setMessage(text(R.string.offline_download_remove_history_message, job.title))
+            .setPositiveButton(text(R.string.offline_download_remove_history)) { _, _ ->
+                runStoreAction { OfflineDownloads.removeHistory(activity.applicationContext, job.id) }
+            }
+            .setNegativeButton(text(R.string.offline_cancel), null)
+            .show()
+    }
+
+    private fun confirmClearDownloadHistory() {
+        AlertDialog.Builder(activity)
+            .setTitle(text(R.string.offline_download_clear_history_title))
+            .setMessage(text(R.string.offline_download_clear_history_message))
+            .setPositiveButton(text(R.string.offline_download_clear_history)) { _, _ ->
+                runStoreAction { OfflineDownloads.clearFinishedHistory(activity.applicationContext) }
+            }
+            .setNegativeButton(text(R.string.offline_cancel), null)
+            .show()
+    }
+
     private fun toggleTrack(id: String) {
         if (!selectedTrackIds.add(id)) selectedTrackIds.remove(id)
         renderLibraryResults()
@@ -2335,7 +2377,7 @@ class OfflineMusicView(
     }
     private fun text(id: Int, vararg values: Any): String = strings.getString(id, *values)
     private fun dp(value: Int) = (value * resources.displayMetrics.density).toInt()
-    private fun bytes(value: Long): String {
+    private fun bytes(value: Long, fractional: Boolean = false): String {
         val safe = value.coerceAtLeast(0)
         if (safe < 1_000) return "$safe B"
         val units = arrayOf("KB", "MB", "GB", "TB")
@@ -2345,7 +2387,7 @@ class OfflineMusicView(
             amount /= 1_000
             index++
         }
-        return String.format(Locale.getDefault(), if (amount >= 10) "%.0f %s" else "%.1f %s", amount, units[index])
+        return String.format(Locale.getDefault(), if (!fractional && amount >= 10) "%.0f %s" else "%.1f %s", amount, units[index])
     }
     private fun durationValue(milliseconds: Long): String {
         val total = milliseconds.coerceAtLeast(0) / 1_000
@@ -2363,6 +2405,7 @@ class OfflineMusicView(
 
     companion object {
         private const val PAGE_SIZE = 100
+        private val TERMINAL_DOWNLOAD_STATUSES = setOf("completed", "partial", "failed", "cancelled")
         const val SCREEN_LIBRARY = "library"
         const val SCREEN_DOWNLOADS = "downloads"
         private const val SCREEN_PLAYLISTS = "playlists"

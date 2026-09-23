@@ -5,6 +5,7 @@ import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
 import android.net.NetworkRequest
+import android.os.SystemClock
 import androidx.work.Constraints
 import androidx.work.ExistingWorkPolicy
 import androidx.work.NetworkType
@@ -16,6 +17,10 @@ import java.util.concurrent.ConcurrentHashMap
 import javax.net.ssl.SSLException
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.SupervisorJob
@@ -33,6 +38,7 @@ object OfflineDownloads {
     private const val ALLOW_METERED = "allow_metered"
     private const val UNIQUE_WORK = "offline-music-imports"
     private const val SAFETY_RESERVE_BYTES = 32L * 1024 * 1024
+    private const val PREPARATION_POLL_INTERVAL_MS = 1_500L
 
     private val lock = Any()
     private val commitGates = ConcurrentHashMap<String, CommitGate>()
@@ -45,7 +51,8 @@ object OfflineDownloads {
     private var lastNetworkState: OfflineNetworkState? = null
     private var lastObservedNetworkState: OfflineNetworkState? = null
     private var networkCallback: ConnectivityManager.NetworkCallback? = null
-    private const val NOTIFICATION_STEP_BYTES = 1024L * 1024
+    private const val PROGRESS_INTERVAL_MS = 250L
+    private const val RATE_IDLE_MS = 2_000L
     private val mutableJobs = MutableStateFlow<List<OfflineDownloadJob>>(emptyList())
     private var appContext: Context? = null
     private var store: OfflineDownloadStore? = null
@@ -247,6 +254,41 @@ object OfflineDownloads {
         if (finishLocal) scheduleLocal(context.applicationContext)
         if (finishLocal) finishCancelledAsync(context.applicationContext, jobId)
     }
+
+    fun removeHistory(context: Context, jobId: String) {
+        val application = context.applicationContext
+        initialize(application)
+        if (synchronized(lock) { findLocked(jobId)?.terminal() != true }) return
+        val finalizationLock = finalizationLocks.computeIfAbsent(jobId) { Any() }
+        synchronized(finalizationLock) {
+            val receipt = synchronized(lock) {
+                val job = findLocked(jobId) ?: return
+                if (!job.terminal()) return
+                job.playlistReceiptToken
+            }
+            if (receipt != null) {
+                OfflineLibrary.get(application).acknowledgePlaylistSnapshot(receipt)
+            }
+            synchronized(lock) {
+                val job = findLocked(jobId) ?: return
+                if (!job.terminal()) return
+                if (job.playlistReceiptToken != null && job.playlistReceiptToken != receipt) return
+                store!!.discardTemporary(job)
+                records.remove(job)
+                persistLocked()
+            }
+        }
+    }
+
+    fun clearFinishedHistory(context: Context) {
+        val application = context.applicationContext
+        initialize(application)
+        val finishedIds = synchronized(lock) {
+            records.filter(StoredDownloadJob::terminal).map(StoredDownloadJob::id)
+        }
+        finishedIds.forEach { removeHistory(application, it) }
+    }
+
     fun logout(context: Context, server: ServerEndpoint) {
         initialize(context)
         val key = serverKey(server)
@@ -346,27 +388,50 @@ object OfflineDownloads {
             var needsRetry = false
             var remoteHandoff = false
             var localHandoff = false
-            val attempted = LinkedHashSet<String>()
+            var waitForPreparation = false
+            // Preparation stays inside this foreground run. Jobs deferred after an
+            // actual failure return to WorkManager so its error backoff still applies.
+            val deferred = HashSet<String>()
             while (true) {
-                val jobId = synchronized(lock) {
-                    records.firstOrNull {
-                        it.id !in attempted &&
-                            if (localOnly) {
-                                needsLocalRecovery(it)
-                            } else {
-                                it.server != null &&
-                                    it.status in setOf("waiting", "preparing", "downloading", "importing") &&
-                                    !needsLocalRecovery(it)
-                            }
-                    }?.id
-                } ?: break
-                attempted.add(jobId)
-                val outcome = processOne(context.applicationContext, jobId, progress, localOnly)
-                if (outcome == ProcessOutcome.RETRY) needsRetry = true
-                if (outcome == ProcessOutcome.REMOTE_REQUIRED) remoteHandoff = true
-                if (!localOnly && synchronized(lock) { findLocked(jobId)?.let(::needsLocalRecovery) == true }) {
-                    localHandoff = true
+                if (waitForPreparation) delay(PREPARATION_POLL_INTERVAL_MS)
+                val jobIds = synchronized(lock) {
+                    records.asSequence()
+                        .filter { job ->
+                            // Resume and destination changes can unblock work during another job's preparation.
+                            if (job.status == "waiting" && job.errorCode == null) deferred.remove(job.id)
+                            job.id !in deferred &&
+                                if (localOnly) {
+                                    needsLocalRecovery(job)
+                                } else {
+                                    isRemotePending(job)
+                                }
+                        }
+                        .map(StoredDownloadJob::id)
+                        .toList()
                 }
+                if (jobIds.isEmpty()) break
+                var preparationRemains = false
+                jobIds.forEach { jobId ->
+                    when (processOne(context.applicationContext, jobId, progress, localOnly)) {
+                        ProcessOutcome.PREPARING -> preparationRemains = true
+                        ProcessOutcome.RETRY -> {
+                            needsRetry = true
+                            deferred += jobId
+                        }
+                        ProcessOutcome.NO_PROGRESS -> deferred += jobId
+                        ProcessOutcome.REMOTE_REQUIRED -> {
+                            remoteHandoff = true
+                            deferred += jobId
+                        }
+                        ProcessOutcome.DONE -> Unit
+                    }
+                    if (!localOnly && synchronized(lock) { findLocked(jobId)?.let(::needsLocalRecovery) == true }) {
+                        localHandoff = true
+                        deferred += jobId
+                    }
+                }
+                if (localOnly || !preparationRemains) break
+                waitForPreparation = true
             }
             if (remoteHandoff) schedule(context.applicationContext)
             if (localHandoff) scheduleLocal(context.applicationContext)
@@ -462,23 +527,61 @@ object OfflineDownloads {
                 progress(publicJob(jobId))
                 val partial = store!!.partialFile(jobId, index)
                 val previousHash = item.sha256
-                var lastNotifiedBytes = partial.length()
                 val completedBytes = current.tracks
                     .filter { it.importedTrackId != null && it.index != index }
                     .sumOf { it.byteSize }
-                client.download(remoteId, item, partial, principal, { transferMayContinue(jobId) }) { received ->
-                    var notification: OfflineDownloadJob? = null
-                    synchronized(lock) {
-                        val active = findLocked(jobId) ?: return@synchronized
-                        if (active.status == "cancelled") return@synchronized
-                        active.receivedBytes = maxOf(active.receivedBytes, received + completedBytes)
-                        if (received == item.byteSize || received - lastNotifiedBytes >= NOTIFICATION_STEP_BYTES) {
-                            lastNotifiedBytes = received
+                coroutineScope {
+                    var receivedBytes = partial.length()
+                    var lastReportedBytes = receivedBytes
+                    var lastReportedAt = SystemClock.elapsedRealtime()
+
+                    fun publishProgress(stopped: Boolean = false) {
+                        var notification: OfflineDownloadJob? = null
+                        synchronized(lock) {
+                            val active = findLocked(jobId) ?: return@synchronized
+                            if (active.status == "cancelled") return@synchronized
+                            val now = SystemClock.elapsedRealtime()
+                            val elapsed = now - lastReportedAt
+                            val delta = (receivedBytes - lastReportedBytes).coerceAtLeast(0)
+                            val rate = when {
+                                stopped -> 0L
+                                delta > 0 -> (delta.toDouble() * 1_000 / elapsed.coerceAtLeast(1)).toLong()
+                                elapsed >= RATE_IDLE_MS -> 0L
+                                else -> active.bytesPerSecond
+                            }
+                            if (delta == 0L && rate == active.bytesPerSecond) return@synchronized
+                            active.bytesPerSecond = rate
+                            if (delta > 0) {
+                                lastReportedBytes = receivedBytes
+                                lastReportedAt = now
+                            }
                             notification = active.publicValue()
                             publishLocked()
                         }
+                        notification?.let(progress)
                     }
-                    notification?.let(progress)
+
+                    val progressUpdates = launch {
+                        while (true) {
+                            delay(PROGRESS_INTERVAL_MS)
+                            publishProgress()
+                        }
+                    }
+                    try {
+                        client.download(remoteId, item, partial, principal, { transferMayContinue(jobId) }) { received ->
+                            synchronized(lock) {
+                                val active = findLocked(jobId) ?: return@synchronized
+                                if (active.status == "cancelled") return@synchronized
+                                receivedBytes = received
+                                active.receivedBytes = maxOf(active.receivedBytes, received + completedBytes)
+                            }
+                        }
+                    } finally {
+                        withContext(NonCancellable) {
+                            progressUpdates.cancelAndJoin()
+                            publishProgress(stopped = true)
+                        }
+                    }
                 }
                 val afterDownload = synchronized(lock) { findLocked(jobId) }
                 if (afterDownload == null || afterDownload.status == "cancelled" || afterDownload.server == null) {
@@ -612,17 +715,21 @@ object OfflineDownloads {
             if (after.status == "cancelled" || after.server == null) return ProcessOutcome.DONE
             if (after.status == "paused") return ProcessOutcome.NO_PROGRESS
             val pending = after.tracks.any { it.importedTrackId == null && it.status in setOf("pending", "preparing", "ready") }
-            if (pending && manifest.status in setOf("preparing", "ready")) {
+            if (manifest.status == "preparing" || (pending && manifest.status == "ready")) {
                 update(jobId, "preparing", null, null)
                 progress(publicJob(jobId))
-                return ProcessOutcome.RETRY
+                return ProcessOutcome.PREPARING
             }
             finishImport(context, jobId)
             progress(publicJob(jobId))
             return ProcessOutcome.DONE
         } catch (cancelled: CancellationException) {
             val network = currentNetworkState(context, allowMetered(context))
-            if (!network.allowed) update(jobId, "waiting", network.errorCode, network.errorMessage)
+            if (!network.allowed) {
+                update(jobId, "waiting", network.errorCode, network.errorMessage)
+            } else if (synchronized(lock) { findLocked(jobId)?.status == "downloading" }) {
+                update(jobId, "waiting", "interrupted", "The interrupted download is ready to resume")
+            }
             throw cancelled
         } catch (failure: OfflineDownloadException) {
             if (finishCancelledIfNeeded(context, jobId)) return ProcessOutcome.DONE
@@ -915,19 +1022,20 @@ object OfflineDownloads {
     }
 
     private fun isPermanentFailure(failure: OfflineDownloadException): Boolean =
-        failure.retryable == false ||
-            failure.code in setOf(
-                "principal_changed",
-                "identity_changed",
-                "invalid_server",
-                "invalid_manifest",
-                "expired",
-                "invalid_path",
-                "source_changed",
-                "range_mismatch",
-                "size_mismatch",
-                "redirect",
-            )
+        failure.code != "not_ready" &&
+            (failure.retryable == false ||
+                failure.code in setOf(
+                    "principal_changed",
+                    "identity_changed",
+                    "invalid_server",
+                    "invalid_manifest",
+                    "expired",
+                    "invalid_path",
+                    "source_changed",
+                    "range_mismatch",
+                    "size_mismatch",
+                    "redirect",
+                ))
 
     private fun failTrack(jobId: String, index: Int, code: String, message: String) {
         synchronized(lock) {
@@ -951,7 +1059,7 @@ object OfflineDownloads {
             }
             "not_ready" -> {
                 update(jobId, "preparing", failure.code, failure.message)
-                ProcessOutcome.RETRY
+                ProcessOutcome.PREPARING
             }
             "storage_full" -> {
                 update(jobId, "paused", failure.code, failure.message)
@@ -1014,6 +1122,7 @@ object OfflineDownloads {
                 (job.status == "importing" && job.errorCode in setOf("cancelled", "logout"))
             ) return
             job.status = status
+            job.bytesPerSecond = 0
             job.errorCode = code
             job.errorMessage = message?.take(240)
             persistLocked()
@@ -1044,6 +1153,7 @@ object OfflineDownloads {
         job.playlistReceiptToken != null ||
             (job.kind == "playlist" && job.tracks.isEmpty() && job.status != "preparing") ||
             (job.tracks.isNotEmpty() &&
+                job.status != "preparing" &&
                 job.tracks.all { it.importedTrackId != null || it.status == "failed" })
 
     private fun needsLocalRecovery(job: StoredDownloadJob): Boolean {
@@ -1244,7 +1354,7 @@ object OfflineDownloads {
         private enum class CommitGateState { OPEN, CLAIMED, CANCELLED }
     }
 
-    private enum class ProcessOutcome { DONE, RETRY, NO_PROGRESS, REMOTE_REQUIRED }
+    private enum class ProcessOutcome { DONE, PREPARING, RETRY, NO_PROGRESS, REMOTE_REQUIRED }
 }
 
 internal data class OfflineNetworkState(

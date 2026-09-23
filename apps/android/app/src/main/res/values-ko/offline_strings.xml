@@ -94,6 +94,7 @@
     <string name="offline_confirm_switch">저장된 음악으로 전환</string>
     <string name="offline_download_empty">활성 또는 최근 다운로드가 없습니다.</string>
     <string name="offline_download_progress">%1$d/%2$d곡 · %3$s/%4$s</string>
+    <string name="offline_download_progress_speed">%1$s · %2$s/s</string>
     <string name="offline_download_failed_count">실패 %1$d개</string>
     <string name="offline_download_pause">다운로드 일시 정지</string>
     <string name="offline_download_resume">다운로드 계속</string>
@@ -101,6 +102,13 @@
     <string name="offline_download_change_destination">저장 위치 변경</string>
     <string name="offline_download_cancel_message">“%1$s”을(를) 취소할까요? 완료된 로컬 음악은 삭제되지 않습니다.</string>
     <string name="offline_view_saved_music">저장된 음악에서 보기</string>
+    <string name="offline_download_remove_history">다운로드 기록 제거</string>
+    <string name="offline_download_remove_history_accessibility">%1$s 다운로드 기록 제거</string>
+    <string name="offline_download_remove_history_title">이 다운로드 기록을 제거할까요?</string>
+    <string name="offline_download_remove_history_message">“%1$s” 다운로드 기록을 제거할까요? 저장된 음악, 폴더, 플레이리스트 및 대기열은 이 기기에 그대로 남습니다.</string>
+    <string name="offline_download_clear_history">완료된 기록 지우기</string>
+    <string name="offline_download_clear_history_title">완료된 다운로드 기록을 지울까요?</string>
+    <string name="offline_download_clear_history_message">완료됨, 일부 저장됨, 취소됨 및 실패한 다운로드 기록을 모두 제거할까요? 저장된 음악, 폴더, 플레이리스트 및 대기열은 이 기기에 그대로 남습니다. 진행 중이거나 일시 정지된 다운로드는 유지됩니다.</string>
     <string name="offline_destination">저장 위치: %1$s</string>
     <string name="offline_destination_unavailable">저장 위치를 선택하세요</string>
     <string name="offline_network_policy">다운로드 네트워크</string>

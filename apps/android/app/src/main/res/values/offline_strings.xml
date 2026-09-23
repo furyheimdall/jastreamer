@@ -94,6 +94,7 @@
     <string name="offline_confirm_switch">Switch to saved music</string>
     <string name="offline_download_empty">No active or recent downloads.</string>
     <string name="offline_download_progress">%1$d of %2$d tracks · %3$s of %4$s</string>
+    <string name="offline_download_progress_speed">%1$s · %2$s/s</string>
     <string name="offline_download_failed_count">%1$d failed</string>
     <string name="offline_download_pause">Pause download</string>
     <string name="offline_download_resume">Resume download</string>
@@ -101,6 +102,13 @@
     <string name="offline_download_change_destination">Change destination</string>
     <string name="offline_download_cancel_message">Cancel “%1$s”? Completed local music is not removed.</string>
     <string name="offline_view_saved_music">View in saved music</string>
+    <string name="offline_download_remove_history">Remove download record</string>
+    <string name="offline_download_remove_history_accessibility">Remove download record for %1$s</string>
+    <string name="offline_download_remove_history_title">Remove this download record?</string>
+    <string name="offline_download_remove_history_message">Remove the “%1$s” download record? Saved music, folders, playlists, and the queue stay on this device.</string>
+    <string name="offline_download_clear_history">Clear finished records</string>
+    <string name="offline_download_clear_history_title">Clear finished download records?</string>
+    <string name="offline_download_clear_history_message">Remove all completed, partially saved, cancelled, and failed download records? Saved music, folders, playlists, and the queue stay on this device. Active and paused downloads remain.</string>
     <string name="offline_destination">Destination: %1$s</string>
     <string name="offline_destination_unavailable">Choose a destination</string>
     <string name="offline_network_policy">Download network</string>

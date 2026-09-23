@@ -18,7 +18,6 @@ English is the default interface language; Korean is also supported.
 - [한국어 README](README.ko.md)
 - [한국어 설치 안내](INSTALL.ko.md)
 - [한국어 사용자 안내서](INSTRUCTION.ko.md)
-- [Android independent offline player implementation and qualification](ANDROID_OFFLINE_PLAN.md)
 
 ## What it does
 
