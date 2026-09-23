@@ -322,6 +322,14 @@ final class JastreamerUITests: XCTestCase {
             XCUIApplication().keyboards.buttons["Go"].waitForExistence(timeout: 5),
             "The native URL keyboard must be ready before entering a Server address"
         )
+        let keyboardIntroduction = XCUIApplication().otherElements["UIContinuousPathIntroductionView"]
+        if keyboardIntroduction.exists {
+            keyboardIntroduction.buttons["Continue"].tap()
+            XCTAssertTrue(
+                keyboardIntroduction.waitForNonExistence(timeout: 5),
+                "Dismiss only the system's first-use slide-to-type introduction before using the keyboard"
+            )
+        }
         field.press(forDuration: 1)
         let existing = field.value as? String ?? ""
         if !existing.isEmpty, existing != field.placeholderValue {
