@@ -1,5 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <item name="server_playback_button" type="id" />
+    <item name="manual_address_button" type="id" />
+    <item name="manual_cancel_button" type="id" />
+    <item name="server_chooser_back_button" type="id" />
     <item name="server_address" type="id" />
     <item name="connect_button" type="id" />
     <item name="change_server_button" type="id" />

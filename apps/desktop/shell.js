@@ -11,6 +11,11 @@ const elements = {
   workspaceScreen: document.querySelector("#workspace-screen"),
   manualForm: document.querySelector("#manual-form"),
   manualInput: document.querySelector("#manual-form input"),
+  manualDialog: document.querySelector("#manual-dialog"),
+  openManual: document.querySelector("#open-manual"),
+  cancelManual: document.querySelector("#cancel-manual"),
+  manualSubmit: document.querySelector("#manual-form button[type=submit]"),
+  manualError: document.querySelector("#manual-error"),
   inlineError: document.querySelector("#inline-error"),
   language: document.querySelector("#language"),
   refresh: document.querySelector("#selection-screen #refresh"),
@@ -40,13 +45,16 @@ function applyStaticTranslations() {
 }
 
 function showLocalError(error) {
-  elements.inlineError.textContent = error?.message || t("shell.requestFailed");
-  elements.inlineError.hidden = false;
+  const target = elements.manualDialog.open ? elements.manualError : elements.inlineError;
+  target.textContent = error?.message || t("shell.requestFailed");
+  target.hidden = false;
 }
 
 function clearLocalError() {
-  elements.inlineError.hidden = true;
-  elements.inlineError.textContent = "";
+  for (const target of [elements.inlineError, elements.manualError]) {
+    target.hidden = true;
+    target.textContent = "";
+  }
 }
 
 function availabilityLabel(value) {
@@ -70,7 +78,7 @@ function createServerCard(server, kind) {
 
   const address = document.createElement("p");
   address.className = "server-meta server-address";
-  address.textContent = `${server.origin}\n${t("shell.version", { version: server.version })}`;
+  address.textContent = server.origin;
 
   const message = document.createElement("p");
   message.className = "server-meta";
@@ -85,7 +93,13 @@ function createServerCard(server, kind) {
   button.disabled = actionPending || server.availability === "checking" || (kind === "discovered" && !server.connectable);
   button.addEventListener("click", () => runAction(() => api.connect(server.origin, server.id)));
 
-  card.append(header, address, message, button);
+  const footer = document.createElement("div");
+  footer.className = "server-card-footer";
+  const version = document.createElement("span");
+  version.className = "server-meta";
+  version.textContent = t("shell.version", { version: server.version });
+  footer.append(version, button);
+  card.append(header, address, message, footer);
   return card;
 }
 
@@ -113,6 +127,7 @@ function render(nextState) {
   elements.language.value = language;
   applyStaticTranslations();
   const selecting = state.mode === "selection";
+  if (!selecting && elements.manualDialog.open) elements.manualDialog.close();
   elements.selectionScreen.hidden = !selecting;
   elements.workspaceScreen.hidden = selecting;
   elements.loading.hidden = state.mode !== "connecting";
@@ -138,6 +153,9 @@ function render(nextState) {
   elements.retry.disabled = actionPending;
   elements.refresh.disabled = actionPending || state.refreshing;
   elements.language.disabled = actionPending;
+  elements.openManual.disabled = actionPending;
+  elements.cancelManual.disabled = actionPending;
+  elements.manualSubmit.disabled = actionPending;
   elements.refresh.textContent = state.refreshing ? t("shell.refreshing") : t("shell.refresh");
 
   renderServerList(elements.discovered, state.discovered || [], "discovered");
@@ -159,6 +177,16 @@ async function runAction(action) {
     if (state) render(state);
   }
 }
+
+elements.openManual.addEventListener("click", () => {
+  clearLocalError();
+  elements.manualDialog.showModal();
+  elements.manualInput.focus();
+});
+elements.cancelManual.addEventListener("click", () => elements.manualDialog.close());
+elements.manualDialog.addEventListener("cancel", (event) => {
+  if (actionPending) event.preventDefault();
+});
 
 elements.manualForm.addEventListener("submit", (event) => {
   event.preventDefault();

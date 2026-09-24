@@ -112,18 +112,21 @@ class OfflineNativeUiTest {
     fun noServerLaunchKeepsSavedMusicAndDownloadsReachable() {
         scenario = ActivityScenario.launch(MainActivity::class.java)
 
-        waitFor("native chooser entries") {
+        waitFor("native home entries") {
             var ready = false
             scenario.onActivity { activity ->
-                ready = activity.findViewById<View>(R.id.saved_music_button) != null &&
+                ready = activity.findViewById<View>(R.id.server_playback_button) != null &&
+                    activity.findViewById<View>(R.id.saved_music_button) != null &&
                     activity.findViewById<View>(R.id.downloads_button) != null
             }
             ready
         }
         scenario.onActivity { activity ->
+            assertMinimumTouchTarget(activity.findViewById(R.id.server_playback_button), activity)
             assertMinimumTouchTarget(activity.findViewById(R.id.saved_music_button), activity)
             assertMinimumTouchTarget(activity.findViewById(R.id.downloads_button), activity)
             assertNotNull(activity.findViewById<View>(R.id.saved_music_summary))
+            assertTrue(activity.findViewById<View>(R.id.server_address) == null)
             activity.findViewById<View>(R.id.saved_music_button).performClick()
         }
 
@@ -146,6 +149,83 @@ class OfflineNativeUiTest {
             var visible = false
             scenario.onActivity { visible = it.findViewById<View>(R.id.offline_music_root)?.isShown == true }
             visible
+        }
+    }
+
+    @Test
+    fun homeChooserAndManualAddressKeepDistinctBackAndCancelBoundaries() {
+        scenario = ActivityScenario.launch(MainActivity::class.java)
+        waitFor("playback home") {
+            var visible = false
+            scenario.onActivity {
+                visible = it.findViewById<View>(R.id.server_playback_button)?.isShown == true
+            }
+            visible
+        }
+        screenshot("entry-home")
+        scenario.onActivity { activity ->
+            activity.findViewById<View>(R.id.server_playback_button).performClick()
+            assertTrue(activity.findViewById<View>(R.id.saved_music_button) == null)
+        }
+        waitFor("server chooser layout") {
+            var laidOut = false
+            scenario.onActivity {
+                laidOut = it.findViewById<View>(R.id.manual_address_button)?.isLaidOut == true
+            }
+            laidOut
+        }
+        screenshot("entry-server-chooser")
+        scenario.onActivity { activity ->
+            assertMinimumTouchTarget(activity.findViewById(R.id.manual_address_button), activity)
+            assertTrue(activity.findViewById<View>(R.id.server_address) == null)
+            activity.findViewById<View>(R.id.manual_address_button).performClick()
+            activity.findViewById<EditText>(R.id.server_address).setText("draft.example:8080")
+        }
+
+        scenario.recreate()
+        waitFor("restored manual address draft") {
+            var restored = false
+            scenario.onActivity {
+                restored = it.findViewById<EditText>(R.id.server_address)?.let { field ->
+                    field.isLaidOut && field.text.toString() == "draft.example:8080"
+                } == true
+            }
+            restored
+        }
+        screenshot("entry-manual-address")
+        scenario.onActivity { activity ->
+            assertMinimumTouchTarget(activity.findViewById(R.id.connect_button), activity)
+            assertMinimumTouchTarget(activity.findViewById(R.id.manual_cancel_button), activity)
+            activity.findViewById<View>(R.id.manual_cancel_button).performClick()
+        }
+        waitFor("manual cancel returns to chooser") {
+            var chooser = false
+            scenario.onActivity {
+                chooser = it.findViewById<View>(R.id.manual_address_button)?.isShown == true &&
+                    it.findViewById<View>(R.id.server_address) == null
+            }
+            chooser
+        }
+        scenario.onActivity { activity ->
+            activity.findViewById<View>(R.id.manual_address_button).performClick()
+            activity.onBackPressedDispatcher.onBackPressed()
+        }
+        waitFor("back closes manual address first") {
+            var chooser = false
+            scenario.onActivity {
+                chooser = it.findViewById<View>(R.id.manual_address_button)?.isShown == true &&
+                    it.findViewById<View>(R.id.server_address) == null
+            }
+            chooser
+        }
+        scenario.onActivity { it.onBackPressedDispatcher.onBackPressed() }
+        waitFor("chooser back returns home") {
+            var home = false
+            scenario.onActivity {
+                home = it.findViewById<View>(R.id.server_playback_button)?.isShown == true &&
+                    it.findViewById<View>(R.id.saved_music_button)?.isShown == true
+            }
+            home
         }
     }
 

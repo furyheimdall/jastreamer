@@ -2,7 +2,7 @@
 
 [README](README.md) · [User guide](INSTRUCTION.md) · [한국어 설치 안내](INSTALL.ko.md)
 
-Choose the branch below for the package and platform you actually use. The Server hosts the Web interface; optional desktop, native mobile, and phone PWA clients can connect to it. Server-mode local playback uses browser audio except on native Android, where a Media3 service remains an output of the Server queue. Android **Saved music** uses the same service under separate local ownership, with an independent device queue and no Server requirement; see the [user guide](INSTRUCTION.md#android-controls).
+Choose the branch below for the package and platform you actually use. The Server hosts the Web interface; optional desktop, native mobile, and phone PWA clients can connect to it. Server-mode local playback uses browser audio in browsers/Desktop, or the native Android Media3 service as an output of the Server queue. The native iOS client is controller-only and blocks media loads. Android **Saved music** uses the same service under separate local ownership, with an independent device queue and no Server requirement; see the [user guide](INSTRUCTION.md#android-controls).
 
 Public previews are unsigned and not production-qualified. Read the selected release's limitations, verify every downloaded artifact, and confirm operation on your own network and receivers.
 
@@ -167,7 +167,7 @@ Use the unsigned `jastreamer-desktop_0.2.0_windows-x64.zip` from the selected pr
 Get-FileHash .\jastreamer-desktop_0.2.0_windows-x64.zip -Algorithm SHA256
 ```
 
-Extract the complete ZIP to a new writable local folder and run `jastreamer-desktop.exe`; do not run inside the ZIP or copy only the EXE. Select a discovered Server or enter its complete HTTP(S) root URL. The app verifies the Server before connecting, and connection or discovery does not start playback.
+Extract the complete ZIP to a new writable local folder and run `jastreamer-desktop.exe`; do not run inside the ZIP or copy only the EXE. The Server playback screen separates discovered and recent Server cards. Select a card's connection action, or choose **Connect by address** to enter a complete HTTP(S) root URL in its dialog. The app verifies the Server before connecting, and connection or discovery does not start playback.
 
 Server discovery searches each active IPv4 network adapter every five seconds, including when adapters change. Firewall and multicast restrictions can still require entering the Server URL manually.
 
@@ -225,7 +225,7 @@ See [Android controls](INSTRUCTION.md#android-controls) for Server mode, saved m
 <a id="ios"></a>
 ## Native iOS source and CI
 
-The SwiftUI/WKWebView client in `apps/ios` discovers `_jastreamer._tcp` Servers, verifies `/api/v1/discovery`, and reuses the selected Server's Web UI. The minimum is **iOS/iPadOS 18.4**, including the public WebKit API used to deny native file-picker requests. It adds no standalone native audio engine; shared Web audio remains subject to WebKit restrictions.
+The SwiftUI/WKWebView client in `apps/ios` discovers `_jastreamer._tcp` Servers, verifies `/api/v1/discovery`, and reuses the selected Server's Web UI. The minimum is **iOS/iPadOS 18.4**, including the public WebKit API used to deny native file-picker requests. It is controller-only: its WebView blocks media loads, and there is no standalone native audio engine, saved-music player, or Local playback entry.
 
 Current scope is **source, unsigned device builds and simulator CI only**. Successful [iOS CI runs](https://github.com/furyheimdall/jastreamer/actions/workflows/ios.yml) provide `jastreamer-ios-development-unsigned-and-simulator-<revision>`. Check `SHA256SUMS`, `provenance.json`, source revision, bundle identifier and platform before using a development artifact. A PR artifact records its tested merge revision and is not a protected-main release.
 
