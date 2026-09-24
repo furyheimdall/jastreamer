@@ -145,6 +145,7 @@ h2 {
   padding: 0.65rem 1rem;
   border-radius: 0.7rem;
   font-weight: 700;
+  white-space: nowrap;
 }
 
 .button-primary {
@@ -373,6 +374,15 @@ html[data-client] .app-shell .mobile-header {
 .inline-error {
   color: var(--danger);
   background: #3b2022;
+}
+
+.inline-error > span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.inline-error > .button {
+  flex: none;
 }
 
 .restart-banner {
@@ -1630,20 +1640,12 @@ body:has([aria-modal="true"]) {
     width: 100%;
   }
 
-  .scan-actions {
-    display: grid;
+  .scan-actions,
+  .scan-confirmation-actions,
+  .settings-save-actions {
+    display: flex;
+    flex-wrap: wrap;
     width: 100%;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .scan-actions .button,
-  .scan-confirmation-actions .button {
-    width: 100%;
-  }
-
-  .scan-confirmation-actions {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .settings-save-row {
@@ -1651,10 +1653,11 @@ body:has([aria-modal="true"]) {
     flex-direction: column;
   }
 
-  .settings-save-actions {
-    display: grid;
-    width: 100%;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+
+  .scan-actions > .button,
+  .scan-confirmation-actions > .button,
+  .settings-save-actions > .button {
+    flex: 1 0 auto;
   }
 
   .airplay-help-row {

@@ -202,6 +202,26 @@ func TestLibraryPlayedQueryParsing(t *testing.T) {
 	}
 }
 
+func TestLibraryRecursiveQueryParsingAndValidation(t *testing.T) {
+	fixture := startAPI(t, false)
+	fixture.setup(t)
+	expectStatus(t, fixture.request(t, http.MethodGet, "/api/v1/library/tracks?root_id=music&recursive=true", "", nil), http.StatusOK)
+	expectStatus(t, fixture.request(t, http.MethodGet, "/api/v1/library/albums?recursive=false", "", nil), http.StatusOK)
+	for _, test := range []struct {
+		path string
+		code string
+	}{
+		{path: "/api/v1/library/tracks?root_id=music&recursive=not-a-boolean", code: "INVALID_QUERY"},
+		{path: "/api/v1/library/tracks?recursive=true", code: "INVALID_REQUEST"},
+		{path: "/api/v1/library/albums?root_id=music&recursive=true", code: "INVALID_REQUEST"},
+	} {
+		response := fixture.request(t, http.MethodGet, test.path, "", nil)
+		if code := responseErrorCode(t, response); code != test.code {
+			t.Fatalf("%s error=%q, want %s", test.path, code, test.code)
+		}
+	}
+}
+
 func TestLibraryScanModeRequestDefaultsAndValidation(t *testing.T) {
 	fixture := startAPI(t, false)
 	fixture.setup(t)

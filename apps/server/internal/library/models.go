@@ -77,18 +77,19 @@ type Folder struct {
 }
 
 type Query struct {
-	Kind    string
-	Search  string
-	AlbumID string
-	Artist  string
-	Genre   string
-	RootID  string
-	Path    string
-	Liked   bool
-	Played  bool
-	Sort    string
-	Offset  int
-	Limit   int
+	Kind      string
+	Search    string
+	AlbumID   string
+	Artist    string
+	Genre     string
+	RootID    string
+	Path      string
+	Recursive bool
+	Liked     bool
+	Played    bool
+	Sort      string
+	Offset    int
+	Limit     int
 }
 
 type Page struct {

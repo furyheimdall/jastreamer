@@ -241,6 +241,7 @@ export default function Library({ revision, onNotice, onQueueChange, downloads }
     let total = 1;
     while (nextOffset < total) {
       const params = paramsFor("tracks", search, nextOffset, 200, scope);
+      if (scope.kind === "folder") params.set("recursive", "true");
       const result = await api<Page<Track>>(`/library/tracks?${params}`);
       collected.push(...result.items.filter((track) => track.available));
       total = result.total;
@@ -437,6 +438,7 @@ export default function Library({ revision, onNotice, onQueueChange, downloads }
   }
 
   const total = page?.total ?? 0;
+  const scopeHasTracks = total > 0 || (scope?.kind === "folder" && childFolders.some((folder) => folder.track_count > 0));
   const limit = page?.limit || (scope || kind === "tracks" || kind === "most_played" ? trackPageSize : pageSize);
   const start = total ? offset + 1 : 0;
   const end = Math.min(offset + (page?.items.length ?? 0), total);
@@ -476,10 +478,10 @@ export default function Library({ revision, onNotice, onQueueChange, downloads }
         <div className="library-detail-header">
           <div className="library-detail-toolbar" role="toolbar" aria-label={t("library.currentListActions")}>
             <button className="button button-ghost" type="button" onClick={leaveScope}><Icon name="back" /> {t(scope.kind === "folder" && scope.path ? "library.parentFolder" : "library.backToList")}</button>
-            <button className="button button-primary" type="button" disabled={actionBusy || (!loading && !page?.total)} onClick={() => runScopeQueue("play")}><Icon name="play" /> {t("library.playAll")}</button>
-            <button className="button button-ghost" type="button" disabled={actionBusy || (!loading && !page?.total)} onClick={() => runScopeQueue("next")}><Icon name="next" /> {t("library.playNext")}</button>
-            <button className="button button-ghost" type="button" disabled={actionBusy || (!loading && !page?.total)} onClick={() => runScopeQueue("append")}><Icon name="append" /> {t("library.addToEnd")}</button>
-            <button className="button button-ghost" type="button" disabled={actionBusy || (!loading && !page?.total)} onClick={openScopePicker}><Icon name="playlist" /> {t("library.addToSaved")}</button>
+            <button className="button button-primary" type="button" disabled={actionBusy || loading || !scopeHasTracks} onClick={() => runScopeQueue("play")}><Icon name="play" /> {t("library.playAll")}</button>
+            <button className="button button-ghost" type="button" title={t("library.playNextTitle")} disabled={actionBusy || loading || !scopeHasTracks} onClick={() => runScopeQueue("next")}><Icon name="next" /> {t("library.playNext")}</button>
+            <button className="button button-ghost" type="button" disabled={actionBusy || loading || !scopeHasTracks} onClick={() => runScopeQueue("append")}><Icon name="append" /> {t("library.addToEnd")}</button>
+            <button className="button button-ghost" type="button" disabled={actionBusy || loading || !scopeHasTracks} onClick={openScopePicker}><Icon name="playlist" /> {t("library.addToSaved")}</button>
             {scope.kind === "album" && <NativeDownloadAction downloads={downloads} target={{ kind: "album", id: scope.id }} title={scope.title} />}
             {scope.kind === "folder" && <NativeDownloadAction downloads={downloads} target={{ kind: "folder", root_id: scope.rootID, path: scope.path }} title={scope.title} />}
           </div>
@@ -496,6 +498,7 @@ export default function Library({ revision, onNotice, onQueueChange, downloads }
               <h2>{scope.title}</h2>
               {scope.kind === "album" && <p>{scope.subtitle}</p>}
               {scope.kind === "folder" && <p className="library-path">{scope.path || t("library.rootFolder")}</p>}
+              {scope.kind === "folder" && <p>{t("library.folderActionsHelp")}</p>}
             </div>
           </div>
         </div>

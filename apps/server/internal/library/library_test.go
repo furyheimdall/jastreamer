@@ -10,6 +10,7 @@ import (
 	"image/jpeg"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -265,6 +266,113 @@ func TestPlaylistPreservesDuplicatesUnknownTracksAndRevisionConflicts(t *testing
 	var public *fault.Error
 	if !errors.As(err, &public) || public.Status != 409 || public.Code != "REVISION_CONFLICT" {
 		t.Fatalf("stale save error = %#v", err)
+	}
+}
+
+func TestBrowseTracksRecursiveSubtreeBoundariesAndDirectDefault(t *testing.T) {
+	firstRoot := t.TempDir()
+	secondRoot := t.TempDir()
+	writeTestWAV(t, filepath.Join(firstRoot, "Selected%_", "direct.wav"), 4_000)
+	writeTestWAV(t, filepath.Join(firstRoot, "Selected%_", "Child", "nested.wav"), 4_000)
+	writeTestWAV(t, filepath.Join(firstRoot, "Selected%_", "Child", "Deep", "deep.wav"), 4_000)
+	writeTestWAV(t, filepath.Join(firstRoot, "Selected%_Else", "prefix-sibling.wav"), 4_000)
+	writeTestWAV(t, filepath.Join(secondRoot, "Selected%_", "other-root.wav"), 4_000)
+	service := newTestService(t, []Root{
+		{ID: "first", Name: "First", Path: firstRoot},
+		{ID: "second", Name: "Second", Path: secondRoot},
+	})
+	job, err := service.StartScan(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if job = waitScan(t, service, job.ID); job.Status != "complete" {
+		t.Fatalf("scan = %+v", job)
+	}
+
+	direct, err := service.Browse(t.Context(), Query{Kind: "tracks", RootID: "first", Path: "Selected%_", Sort: "path", Limit: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	directTracks := direct.Items.([]Track)
+	if direct.Total != 1 || len(directTracks) != 1 || directTracks[0].Path != "Selected%_/direct.wav" {
+		t.Fatalf("direct folder page = %+v", direct)
+	}
+
+	recursive, err := service.Browse(t.Context(), Query{Kind: "tracks", RootID: "first", Path: "Selected%_", Recursive: true, Sort: "path", Limit: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	recursiveTracks := recursive.Items.([]Track)
+	got := make([]string, len(recursiveTracks))
+	for index, track := range recursiveTracks {
+		got[index] = track.Path
+		if track.RootID != "first" {
+			t.Fatalf("recursive track escaped selected root: %+v", track)
+		}
+	}
+	want := []string{"Selected%_/Child/Deep/deep.wav", "Selected%_/Child/nested.wav", "Selected%_/direct.wav"}
+	if recursive.Total != len(want) || !slices.Equal(got, want) {
+		t.Fatalf("recursive folder paths = %#v, total=%d, want %#v", got, recursive.Total, want)
+	}
+}
+
+func TestBrowseTracksRecursiveRootFiltersAndPaginates(t *testing.T) {
+	firstRoot := t.TempDir()
+	secondRoot := t.TempDir()
+	for _, path := range []string{"root.wav", "Nested/Deep/last.wav", "Nested/match.wav", "Nested/other.wav", "unavailable.wav"} {
+		writeTestWAV(t, filepath.Join(firstRoot, filepath.FromSlash(path)), 4_000)
+	}
+	writeTestWAV(t, filepath.Join(secondRoot, "other-root.wav"), 4_000)
+	service := newTestService(t, []Root{
+		{ID: "first", Name: "First", Path: firstRoot},
+		{ID: "second", Name: "Second", Path: secondRoot},
+	})
+	job, err := service.StartScan(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if job = waitScan(t, service, job.ID); job.Status != "complete" {
+		t.Fatalf("scan = %+v", job)
+	}
+	if _, err = service.db.ExecContext(t.Context(), `UPDATE library_tracks SET available=0 WHERE root_id=? AND relative_path=?`, "first", "unavailable.wav"); err != nil {
+		t.Fatal(err)
+	}
+
+	page, err := service.Browse(t.Context(), Query{Kind: "tracks", RootID: "first", Recursive: true, Sort: "path", Offset: 1, Limit: 2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	tracks := page.Items.([]Track)
+	got := make([]string, len(tracks))
+	for index, track := range tracks {
+		got[index] = track.Path
+	}
+	want := []string{"Nested/match.wav", "Nested/other.wav"}
+	if page.Total != 4 || page.Offset != 1 || page.Limit != 2 || !slices.Equal(got, want) {
+		t.Fatalf("recursive root page = %+v, paths=%#v", page, got)
+	}
+	if _, err = service.SetLiked(t.Context(), tracks[0].ID, true); err != nil {
+		t.Fatal(err)
+	}
+	filtered, err := service.Browse(t.Context(), Query{Kind: "tracks", RootID: "first", Recursive: true, Search: "match", Liked: true, Sort: "path", Limit: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	filteredTracks := filtered.Items.([]Track)
+	if filtered.Total != 1 || len(filteredTracks) != 1 || filteredTracks[0].Path != "Nested/match.wav" {
+		t.Fatalf("filtered recursive root page = %+v", filtered)
+	}
+}
+
+func TestBrowseRejectsInvalidRecursiveQueries(t *testing.T) {
+	service := newTestService(t, nil)
+	for _, query := range []Query{
+		{Kind: "tracks", Recursive: true, Limit: 10},
+		{Kind: "albums", RootID: "music", Recursive: true, Limit: 10},
+	} {
+		if _, err := service.Browse(t.Context(), query); !isInvalidRequest(err) {
+			t.Fatalf("recursive query %+v error = %#v", query, err)
+		}
 	}
 }
 

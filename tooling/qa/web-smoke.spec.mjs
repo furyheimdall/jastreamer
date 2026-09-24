@@ -782,3 +782,96 @@ test("nested folders return to each parent without changing playback or queue", 
   expect(playerAfter.state).toBe(playerBefore.state);
   expect(playerAfter.renderer_id).toBe(playerBefore.renderer_id);
 });
+
+test("intermediate folder actions collect every descendant page without including sibling folders", async ({ page }) => {
+  const setup = await control(page, "/setup");
+  await control(page, setup.required ? "/setup" : "/login", "POST", {
+    username: "browser-smoke", password: "browser-smoke-password",
+  });
+  const selected = resolve(work, "music", "Recursive selection", "Artist", "Disc");
+  const sibling = resolve(work, "music", "Recursive selection-other");
+  await mkdir(selected, { recursive: true });
+  await mkdir(sibling, { recursive: true });
+  const sample = wave(0.01);
+  await Promise.all(Array.from({ length: 201 }, (_, index) =>
+    writeFile(resolve(selected, `${String(index).padStart(3, "0")}.wav`), sample)));
+  await writeFile(resolve(sibling, "outside.wav"), sample);
+  const scan = await control(page, "/library/scans", "POST", {});
+  await expect.poll(async () =>
+    (await control(page, "/library/scans")).items.find((item) => item.id === scan.id)?.status,
+  ).toBe("complete");
+  const tracks = (await control(page, "/library/tracks?sort=path&limit=500")).items;
+  const selectedIDs = tracks.filter((track) => track.path.startsWith("Recursive selection/")).map((track) => track.id);
+  expect(selectedIDs).toHaveLength(201);
+  const seed = tracks.find((track) => track.path === "long.wav").id;
+  const initialQueue = await control(page, "/queue");
+  await control(page, "/queue", "POST", { action: "replace", track_ids: [seed, seed], revision: initialQueue.revision });
+  await page.goto(origin, { waitUntil: "domcontentloaded" });
+  await page.getByRole("button", { name: "Folders", exact: true }).click();
+  await page.locator(".library-folder-row").filter({ hasText: "Smoke music" }).click();
+  await page.locator(".library-child-folders .library-folder-row").filter({
+    has: page.locator("strong", { hasText: /^Recursive selection$/ }),
+  }).click();
+  await expect(page.locator(".library-detail-header h2")).toHaveText("Recursive selection");
+  await expect(page.locator(".library-track-list")).toHaveCount(0);
+  await page.getByRole("button", { name: "Add to queue end", exact: true }).click();
+  const appendedIDs = [seed, seed, ...selectedIDs];
+  await expect.poll(async () => (await control(page, "/queue")).entries.map((entry) => entry.track_id)).toEqual(appendedIDs);
+  expect((await control(page, "/player")).state).toBe("stopped");
+  await page.getByRole("button", { name: "Play next", exact: true }).click();
+  const nextIDs = [...selectedIDs, ...appendedIDs];
+  await expect.poll(async () => (await control(page, "/queue")).entries.map((entry) => entry.track_id)).toEqual(nextIDs);
+  expect((await control(page, "/player")).state).toBe("stopped");
+  await page.getByRole("button", { name: "Add to saved playlist", exact: true }).click();
+  await page.getByLabel("New playlist name", { exact: true }).fill("Recursive selection saved");
+  await page.getByRole("button", { name: "Create and add", exact: true }).click();
+  await expect.poll(async () => {
+    const saved = (await control(page, "/playlists")).items.find((item) => item.name === "Recursive selection saved");
+    return saved ? (await control(page, `/playlists/${saved.id}`)).track_ids : [];
+  }).toEqual(selectedIDs);
+  expect((await control(page, "/queue")).entries.map((entry) => entry.track_id)).toEqual(nextIDs);
+});
+
+test("library action labels fit narrow English and Korean settings layouts", async ({ page, context }) => {
+  const setup = await control(page, "/setup");
+  await control(page, setup.required ? "/setup" : "/login", "POST", {
+    username: "browser-smoke", password: "browser-smoke-password",
+  });
+  for (const { language, width, fullRescan } of [
+    { language: "en", width: 320, fullRescan: "Full rescan" },
+    { language: "ko", width: 768, fullRescan: "전체 다시 스캔" },
+  ]) {
+    await context.addCookies([{ name: "jastreamer_language", value: language, url: origin }]);
+    await page.setViewportSize({ width, height: 900 });
+    await page.goto(origin, { waitUntil: "domcontentloaded" });
+    await page.getByRole("button", { name: "Settings", exact: true }).click();
+    await expect(page.locator(".settings-save-row")).toBeVisible();
+    await page.locator("#settings-tab-library").click();
+    await page.getByRole("button", { name: fullRescan, exact: true }).click();
+    await expect(page.locator(".scan-confirmation-actions")).toBeVisible();
+    const geometry = await page.evaluate(() => {
+      const buttons = [...document.querySelectorAll(
+        ".settings-save-actions button, .scan-confirmation-actions button, #settings-panel-library .diagnostics-refresh",
+      )];
+      return {
+        fitsPage: document.documentElement.scrollWidth <= innerWidth,
+        buttons: buttons.map((button) => {
+          const bounds = button.getBoundingClientRect();
+          const text = document.createRange();
+          text.selectNodeContents(button);
+          const lines = [...text.getClientRects()].filter((rect) => rect.width > 0);
+          return {
+            label: button.textContent.trim(),
+            singleLine: new Set(lines.map((rect) => Math.round(rect.top))).size === 1,
+            fitsButton: lines.every((rect) => rect.left >= bounds.left - 1 && rect.right <= bounds.right + 1),
+          };
+        }),
+      };
+    });
+    expect(geometry.fitsPage).toBe(true);
+    for (const button of geometry.buttons) {
+      expect(button.singleLine && button.fitsButton, `${language} ${width}: ${button.label}`).toBe(true);
+    }
+    await page.locator(".scan-confirmation-actions button").first().click();
+  }
+});
