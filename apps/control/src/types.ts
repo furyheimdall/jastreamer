@@ -179,6 +179,8 @@ export type PlaybackState =
   | "unavailable"
   | "error";
 
+export type RepeatMode = "off" | "all" | "one";
+
 export interface StatusWarning {
   id: number;
   message: string;
@@ -194,6 +196,8 @@ export interface PlayerState {
   duration_ms: number;
   observed_at: string;
   pending_command: string;
+  shuffle: boolean;
+  repeat_mode: RepeatMode;
   error: string;
   status_warning?: StatusWarning;
   capabilities: Capabilities;

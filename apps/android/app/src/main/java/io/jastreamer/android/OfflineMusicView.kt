@@ -88,6 +88,8 @@ class OfflineMusicView(
     private val playPause = Button(activity)
     private val miniStop = Button(activity)
     private val miniExpand = Button(activity)
+    private val miniShuffle = Button(activity)
+    private val miniRepeat = Button(activity)
     private var screen = savedState?.getString(STATE_SCREEN) ?: initialScreen
     private var libraryTab = savedState?.getString(STATE_TAB) ?: TAB_ALBUMS
     private var likedOnly = savedState?.getBoolean(STATE_LIKED) == true
@@ -313,12 +315,12 @@ class OfflineMusicView(
 
     private fun buildMiniPlayer() {
         miniPlayer.id = R.id.offline_mini_player
-        miniPlayer.orientation = HORIZONTAL
-        miniPlayer.gravity = Gravity.CENTER_VERTICAL
-        miniPlayer.minimumHeight = dp(68)
+        miniPlayer.orientation = VERTICAL
+        miniPlayer.minimumHeight = dp(116)
         miniPlayer.setPadding(dp(8), dp(8), dp(8), dp(8))
         miniPlayer.setBackgroundColor(PANEL)
 
+        val summary = row()
         miniArtwork.id = R.id.offline_mini_artwork
         miniArtwork.importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_YES
         miniArtwork.contentDescription = text(R.string.offline_open_queue)
@@ -326,7 +328,7 @@ class OfflineMusicView(
         miniArtwork.isFocusable = true
         miniArtwork.setOnClickListener { openQueueFromPlayer() }
         OfflineUi.styleArtwork(miniArtwork)
-        miniPlayer.addView(miniArtwork, LayoutParams(dp(48), dp(48)).apply { marginEnd = dp(8) })
+        summary.addView(miniArtwork, LayoutParams(dp(48), dp(48)).apply { marginEnd = dp(8) })
 
         miniSummary.apply {
             orientation = VERTICAL
@@ -347,7 +349,7 @@ class OfflineMusicView(
         playerArtist.ellipsize = TextUtils.TruncateAt.END
         miniSummary.addView(playerTitle, LayoutParams(MATCH_PARENT, WRAP_CONTENT))
         miniSummary.addView(playerArtist, LayoutParams(MATCH_PARENT, WRAP_CONTENT))
-        miniPlayer.addView(miniSummary, LayoutParams(0, MATCH_PARENT, 1f))
+        summary.addView(miniSummary, LayoutParams(0, MATCH_PARENT, 1f))
 
         playPause.id = R.id.offline_mini_play_pause
         updatePlayPauseButton(playPause)
@@ -355,19 +357,31 @@ class OfflineMusicView(
             if (playback.owner == "server") resumeOrRequestHandoff()
             else if (playback.playing) OfflinePlayback.pause() else resumeOrRequestHandoff()
         }
-        miniPlayer.addView(playPause, miniControlParams())
+        summary.addView(playPause, miniControlParams())
 
         miniStop.id = R.id.offline_mini_stop
         configurePlayerAction(miniStop, R.drawable.ic_offline_stop, text(R.string.offline_stop)) {
             OfflinePlayback.stop()
         }
-        miniPlayer.addView(miniStop, miniControlParams())
+        summary.addView(miniStop, miniControlParams())
 
         miniExpand.id = R.id.offline_mini_expand
         configurePlayerAction(miniExpand, R.drawable.ic_offline_expand, text(R.string.offline_expand_player)) {
             setFullPlayerOpen(!fullPlayerOpen)
         }
-        miniPlayer.addView(miniExpand, miniControlParams())
+        summary.addView(miniExpand, miniControlParams())
+        miniPlayer.addView(summary, LayoutParams(MATCH_PARENT, dp(48)))
+
+        val modes = row()
+        miniShuffle.id = R.id.offline_mini_shuffle
+        miniShuffle.maxLines = 1
+        miniShuffle.setOnClickListener { OfflinePlayback.setShuffle(!playback.queue.shuffle) }
+        modes.addView(miniShuffle, LayoutParams(0, dp(48), 1f).apply { marginEnd = dp(2) })
+        miniRepeat.id = R.id.offline_mini_repeat
+        miniRepeat.maxLines = 1
+        miniRepeat.setOnClickListener { cycleRepeat() }
+        modes.addView(miniRepeat, LayoutParams(0, dp(48), 1f).apply { marginStart = dp(2) })
+        miniPlayer.addView(modes, LayoutParams(MATCH_PARENT, dp(48)).apply { topMargin = dp(4) })
 
         addView(miniPlayer, LayoutParams(MATCH_PARENT, WRAP_CONTENT))
         updatePlayerChrome()
@@ -1171,7 +1185,7 @@ class OfflineMusicView(
 
         val options = row()
         addCenteredControl(options, playerAction(R.id.offline_player_shuffle, R.drawable.ic_offline_shuffle,
-            text(if (playback.queue.shuffle) R.string.offline_shuffle_on else R.string.offline_shuffle_off)) {
+            text(if (playback.queue.shuffle) R.string.offline_shuffle else R.string.offline_sequential)) {
             OfflinePlayback.setShuffle(!playback.queue.shuffle)
         }.apply { isSelected = playback.queue.shuffle })
         addCenteredControl(options, playerAction(R.id.offline_player_repeat,
@@ -1211,7 +1225,7 @@ class OfflineMusicView(
 
     private fun playerModeControls(): LinearLayout = row().apply {
         addIconAction(this, R.drawable.ic_offline_shuffle,
-            text(if (playback.queue.shuffle) R.string.offline_shuffle_on else R.string.offline_shuffle_off),
+            text(if (playback.queue.shuffle) R.string.offline_shuffle else R.string.offline_sequential),
             selected = playback.queue.shuffle) { OfflinePlayback.setShuffle(!playback.queue.shuffle) }
         addIconAction(this,
             if (playback.queue.repeatMode == Player.REPEAT_MODE_ONE) R.drawable.ic_offline_repeat_one else R.drawable.ic_offline_repeat,
@@ -1238,6 +1252,16 @@ class OfflineMusicView(
             }
         }
         miniStop.isEnabled = playback.owner == OfflinePlaybackPolicy.OWNER_LOCAL
+        updateMiniModeButton(
+            miniShuffle,
+            text(if (playback.queue.shuffle) R.string.offline_shuffle else R.string.offline_sequential),
+            playback.queue.shuffle,
+        )
+        updateMiniModeButton(
+            miniRepeat,
+            text(repeatLabel()),
+            playback.queue.repeatMode != Player.REPEAT_MODE_OFF,
+        )
         fullPlayerPosition?.text = durationValue(playback.queue.positionMs)
         fullPlayerDuration?.text = durationValue(current?.durationMs ?: 0L)
         if (miniArtworkPath != current?.artworkPath || miniArtwork.drawable == null) {
@@ -1252,6 +1276,12 @@ class OfflineMusicView(
             seek.isEnabled = playback.owner == OfflinePlaybackPolicy.OWNER_LOCAL && current != null && current.durationMs > 0
             updatingSeek = false
         }
+    }
+
+    private fun updateMiniModeButton(button: Button, label: String, selected: Boolean) {
+        if (button.text.toString() == label && button.isSelected == selected) return
+        button.text = label
+        OfflineUi.configureTab(button, selected)
     }
 
     private fun renderDownloads() {

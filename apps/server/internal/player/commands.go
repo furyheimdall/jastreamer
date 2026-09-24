@@ -366,10 +366,10 @@ func (s *Service) executePlay(ctx context.Context, command commandRecord, st sto
 		s.completeFailure(command, "The queue is empty.", false, "")
 		return nil
 	}
-	if st.playID != "" && st.currentURI != "" && !st.resumeRequired && target.id == st.currentEntryID && (st.state == StatePlaying || st.state == StateStarting) {
+	if command.action == "play" && st.playID != "" && st.currentURI != "" && !st.resumeRequired && target.id == st.currentEntryID && (st.state == StatePlaying || st.state == StateStarting) {
 		return s.completeSuccess(command, successUpdate{queueEntryID: target.id, queueStatus: EntryPlaying})
 	}
-	if st.state == StatePaused && !st.resumeRequired && target.id == st.currentEntryID {
+	if command.action == "play" && st.state == StatePaused && !st.resumeRequired && target.id == st.currentEntryID {
 		var playAcknowledgedAt time.Time
 		if err := s.callRenderer(func() error {
 			err := s.devices.Play(ctx, device.ID)
@@ -426,7 +426,7 @@ func (s *Service) executePlay(ctx context.Context, command commandRecord, st sto
 }
 
 func (s *Service) executeNext(ctx context.Context, command commandRecord, st storedState, device output.Device) error {
-	target, found, err := s.adjacentEntry(ctx, st.currentEntryID, 1)
+	target, found, err := s.adjacentEntry(ctx, st.currentEntryID, 1, true)
 	if err != nil {
 		return err
 	}
@@ -474,7 +474,7 @@ func (s *Service) executePrevious(ctx context.Context, command commandRecord, st
 		}
 		return s.completeSuccess(command, successUpdate{})
 	}
-	target, found, err := s.adjacentEntry(ctx, st.currentEntryID, -1)
+	target, found, err := s.adjacentEntry(ctx, st.currentEntryID, -1, false)
 	if err != nil {
 		return err
 	}
@@ -579,7 +579,12 @@ func rendererOutcomeUnknown(err error) bool {
 
 func isMediaFailure(err error) bool {
 	var actionErr *output.ActionError
-	return errors.As(err, &actionErr) && actionErr.Kind == output.ErrorMedia
+	if errors.As(err, &actionErr) && actionErr.Kind == output.ErrorMedia {
+		return true
+	}
+	var publicError *fault.Error
+	return errors.As(err, &publicError) &&
+		(publicError.Code == "TRACK_UNAVAILABLE" || publicError.Code == "NOT_FOUND")
 }
 
 type safeRendererError interface {
@@ -648,47 +653,12 @@ func (s *Service) resolvePlayTarget(ctx context.Context, requested, current stri
 			return entry, found, err
 		}
 	}
-	var entry queueRecord
-	err := s.db.QueryRowContext(ctx, "SELECT entry_id,track_id,status,position FROM player_queue ORDER BY position LIMIT 1").Scan(&entry.id, &entry.trackID, &entry.status, &entry.position)
-	if err == sql.ErrNoRows {
-		return queueRecord{}, false, nil
-	}
-	if err != nil {
-		return queueRecord{}, false, err
-	}
-	return entry, true, nil
+	return s.adjacentEntry(ctx, "", 1, false)
 }
 
 func (s *Service) entryByID(ctx context.Context, entryID string) (queueRecord, bool, error) {
 	var entry queueRecord
 	err := s.db.QueryRowContext(ctx, "SELECT entry_id,track_id,status,position FROM player_queue WHERE entry_id=?", entryID).Scan(&entry.id, &entry.trackID, &entry.status, &entry.position)
-	if err == sql.ErrNoRows {
-		return queueRecord{}, false, nil
-	}
-	if err != nil {
-		return queueRecord{}, false, err
-	}
-	return entry, true, nil
-}
-
-func (s *Service) adjacentEntry(ctx context.Context, current string, direction int) (queueRecord, bool, error) {
-	if current == "" {
-		return s.resolvePlayTarget(ctx, "", "")
-	}
-	var position int
-	if err := s.db.QueryRowContext(ctx, "SELECT position FROM player_queue WHERE entry_id=?", current).Scan(&position); err != nil {
-		if err == sql.ErrNoRows {
-			return queueRecord{}, false, nil
-		}
-		return queueRecord{}, false, err
-	}
-	operator, order := ">", "ASC"
-	if direction < 0 {
-		operator, order = "<", "DESC"
-	}
-	query := fmt.Sprintf("SELECT entry_id,track_id,status,position FROM player_queue WHERE position%s? ORDER BY position %s LIMIT 1", operator, order)
-	var entry queueRecord
-	err := s.db.QueryRowContext(ctx, query, position).Scan(&entry.id, &entry.trackID, &entry.status, &entry.position)
 	if err == sql.ErrNoRows {
 		return queueRecord{}, false, nil
 	}
@@ -821,6 +791,9 @@ func (s *Service) completeStart(command commandRecord, oldEntryID, oldStatus str
 	s.opMu.Lock()
 	tx, err := s.db.BeginTx(context.Background(), nil)
 	st := command.initialState
+	if err == nil {
+		err = recordTraversalSelectionTx(context.Background(), tx, oldEntryID, started.entry.id)
+	}
 	if err == nil && oldEntryID != "" && oldEntryID != started.entry.id {
 		_, err = tx.ExecContext(context.Background(), "UPDATE player_queue SET status=? WHERE entry_id=?", oldStatus, oldEntryID)
 	}
@@ -867,8 +840,11 @@ func (s *Service) completeMediaStartFailure(command commandRecord, target queueR
 	st := command.initialState
 	queueChanged := false
 	if err == nil {
+		err = recordTraversalSelectionTx(context.Background(), tx, st.currentEntryID, target.id)
+	}
+	if err == nil {
 		oldStatus := EntryPending
-		if command.action == "next" {
+		if command.action == "next" || command.action == "natural_next" {
 			oldStatus = EntryCompleted
 		}
 		result, updateErr := tx.ExecContext(context.Background(), "UPDATE player_queue SET status=? WHERE status='playing' AND entry_id<>?", oldStatus, target.id)
@@ -890,9 +866,10 @@ func (s *Service) completeMediaStartFailure(command commandRecord, target queueR
 	}
 	var nextEntryID string
 	if err == nil {
-		queryErr := tx.QueryRowContext(context.Background(), "SELECT entry_id FROM player_queue WHERE position>? ORDER BY position LIMIT 1", target.position).Scan(&nextEntryID)
-		if queryErr != nil && queryErr != sql.ErrNoRows {
-			err = queryErr
+		next, found, selectErr := s.adjacentEntryTx(context.Background(), tx, target.id, 1, false)
+		err = selectErr
+		if found {
+			nextEntryID = next.id
 		}
 	}
 	var nextCommandID string
@@ -950,6 +927,9 @@ func (s *Service) completeAdvanceFailure(command commandRecord, oldEntryID, targ
 	s.opMu.Lock()
 	tx, err := s.db.BeginTx(context.Background(), nil)
 	st := command.initialState
+	if err == nil {
+		err = recordTraversalSelectionTx(context.Background(), tx, oldEntryID, targetEntryID)
+	}
 	if err == nil && oldEntryID != "" {
 		_, err = tx.ExecContext(context.Background(), "UPDATE player_queue SET status='completed' WHERE entry_id=?", oldEntryID)
 	}
@@ -1058,6 +1038,9 @@ func (s *Service) completeFailure(command commandRecord, message string, unavail
 		if entryID == "" {
 			entryID = st.currentEntryID
 		}
+	}
+	if err == nil && explicitEntry {
+		err = recordTraversalSelectionTx(context.Background(), tx, st.currentEntryID, entryID)
 	}
 	if err == nil {
 		result, updateErr := tx.ExecContext(context.Background(), "UPDATE player_queue SET status='pending' WHERE status='playing'")

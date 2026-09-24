@@ -272,6 +272,8 @@ Folder-download support extends the Server's `download_jobs.kind` constraint. St
 
 Play-count support adds the `track_play_counts` table on startup without rewriting existing tables, configuration, or audio files. Review and explicitly approve this additive schema change before deploying the feature. Counts begin at zero; existing diagnostic history and queue-completion records are not backfilled. Older builds leave the added table unused and cannot record listening that occurs while running them; this does not override the separate downgrade restrictions for download-job schemas.
 
+Shared playback modes add `player_mode` and `player_shuffle` tables on startup, without rewriting the existing player state, queue, configuration, or music. Review and explicitly approve these additive tables before deployment. They preserve shuffle/repeat settings and entry-based traversal without autoplay. Older Servers ignore the mode tables; returning to a mode-capable build reconciles queue entries added or removed in the meantime. This does not remove the separate download-schema downgrade restrictions.
+
 Use the **existing** Compose project name, project directory, Compose files, and environment file for every operation. Do not create a second installation with new default storage paths.
 
 The existing config/data and music directories stay at their current paths and are reused through the same mounts. Do not copy or archive these directories during an image update.

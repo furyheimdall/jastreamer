@@ -578,13 +578,13 @@ func (s *Service) commitMediaFailureAdvance(ctx context.Context, tx *sql.Tx, st 
 		return observationResult{}
 	}
 	result.queueChanged = changed
-	var currentPosition int
-	if err := tx.QueryRowContext(ctx, "SELECT position FROM player_queue WHERE entry_id=?", st.currentEntryID).Scan(&currentPosition); err != nil {
+	var nextEntryID string
+	next, found, err := s.adjacentEntryTx(ctx, tx, st.currentEntryID, 1, false)
+	if err != nil {
 		return observationResult{}
 	}
-	var nextEntryID string
-	if err := tx.QueryRowContext(ctx, "SELECT entry_id FROM player_queue WHERE position>? ORDER BY position LIMIT 1", currentPosition).Scan(&nextEntryID); err != nil && err != sql.ErrNoRows {
-		return observationResult{}
+	if found {
+		nextEntryID = next.id
 	}
 	state := StateError
 	controlAction := ""
@@ -654,13 +654,31 @@ func (s *Service) commitTerminalAdvance(ctx context.Context, tx *sql.Tx, st stor
 	if err != nil || inserted == 0 {
 		return observationResult{}
 	}
+	mode, err := loadPlaybackModeTx(ctx, tx)
+	if err != nil {
+		return observationResult{}
+	}
+	var next queueRecord
+	var found bool
+	if mode.repeatMode == RepeatOne {
+		next, found, err = entryByIDTx(ctx, tx, st.currentEntryID)
+	} else {
+		next, found, err = s.adjacentEntryTx(ctx, tx, st.currentEntryID, 1, true)
+	}
+	if err != nil {
+		return observationResult{}
+	}
 	commandID, err := randomID("command")
 	if err != nil {
 		return observationResult{}
 	}
-	// Keep the current entry and binding until the ordinary Next worker has
-	// acknowledged Stop. A failed Stop must not complete or replay the track.
-	if _, err := tx.ExecContext(ctx, `INSERT INTO player_commands(command_id,service_epoch,action,entry_id,position_ms,status,error,created_at,started_at,completed_at) VALUES(?,?, 'next','',0,'pending','',?,'','')`, commandID, s.epoch, observedAt); err != nil {
+	action, nextEntryID := "next", ""
+	if found {
+		action, nextEntryID = "natural_next", next.id
+	}
+	// Keep the current entry and binding until the worker has acknowledged
+	// Stop. A failed Stop must not complete or replay the track.
+	if _, err := tx.ExecContext(ctx, `INSERT INTO player_commands(command_id,service_epoch,action,entry_id,position_ms,status,error,created_at,started_at,completed_at) VALUES(?,?,?,?,0,'pending','',?,'','')`, commandID, s.epoch, action, nextEntryID, observedAt); err != nil {
 		return observationResult{}
 	}
 	if _, err := tx.ExecContext(ctx, "UPDATE player_state SET revision=revision+1 WHERE singleton=1"); err != nil {
@@ -670,8 +688,8 @@ func (s *Service) commitTerminalAdvance(ctx context.Context, tx *sql.Tx, st stor
 		return observationResult{}
 	}
 	s.listening = listeningEvidence{}
-	s.logNaturalTransition(st, observation, commandID, "next", "", st.state, "terminal_position", st.positionMS)
-	s.logCommandAccepted(commandID, "next", st.rendererID, st.playID, st.currentEntryID, "", "terminal_position", st.state, st.revision+1, 0)
+	s.logNaturalTransition(st, observation, commandID, action, nextEntryID, st.state, "terminal_position", st.positionMS)
+	s.logCommandAccepted(commandID, action, st.rendererID, st.playID, st.currentEntryID, nextEntryID, "terminal_position", st.state, st.revision+1, 0)
 	return observationResult{playerChanged: true, commandQueued: true, libraryChanged: libraryChanged}
 }
 
@@ -688,14 +706,23 @@ func (s *Service) commitNaturalEnd(ctx context.Context, tx *sql.Tx, st storedSta
 	if _, err := tx.ExecContext(ctx, "UPDATE player_queue SET status='completed' WHERE entry_id=?", st.currentEntryID); err != nil {
 		return observationResult{}
 	}
-	var currentPosition int
-	if err := tx.QueryRowContext(ctx, "SELECT position FROM player_queue WHERE entry_id=?", st.currentEntryID).Scan(&currentPosition); err != nil {
+	mode, err := loadPlaybackModeTx(ctx, tx)
+	if err != nil {
 		return observationResult{}
 	}
-	var nextEntryID string
-	err = tx.QueryRowContext(ctx, "SELECT entry_id FROM player_queue WHERE position>? ORDER BY position LIMIT 1", currentPosition).Scan(&nextEntryID)
-	if err != nil && err != sql.ErrNoRows {
+	var next queueRecord
+	var found bool
+	if mode.repeatMode == RepeatOne {
+		next, found, err = entryByIDTx(ctx, tx, st.currentEntryID)
+	} else {
+		next, found, err = s.adjacentEntryTx(ctx, tx, st.currentEntryID, 1, true)
+	}
+	if err != nil {
 		return observationResult{}
+	}
+	nextEntryID := ""
+	if found {
+		nextEntryID = next.id
 	}
 	state := StateStopped
 	var commandID string
@@ -774,17 +801,18 @@ func normalizeObservedState(state string) string {
 
 func loadStateTx(ctx context.Context, tx *sql.Tx) (storedState, error) {
 	var st storedState
-	var seekable, hasPosition, resume int
-	err := tx.QueryRowContext(ctx, `SELECT revision,queue_revision,renderer_id,current_entry_id,play_id,current_uri,current_seekable,state,position_ms,duration_ms,observed_at,last_observed_state,last_observed_uri,last_observed_position_ms,last_observed_duration_ms,last_observed_has_position,last_observed_at,resume_required,error,control_action,control_at FROM player_state WHERE singleton=1`).Scan(
+	var seekable, hasPosition, resume, shuffle int
+	err := tx.QueryRowContext(ctx, `SELECT ps.revision,ps.queue_revision,ps.renderer_id,ps.current_entry_id,ps.play_id,ps.current_uri,ps.current_seekable,ps.state,ps.position_ms,ps.duration_ms,ps.observed_at,ps.last_observed_state,ps.last_observed_uri,ps.last_observed_position_ms,ps.last_observed_duration_ms,ps.last_observed_has_position,ps.last_observed_at,ps.resume_required,ps.error,ps.control_action,ps.control_at,pm.shuffle,pm.repeat_mode FROM player_state ps JOIN player_mode pm ON pm.singleton=ps.singleton WHERE ps.singleton=1`).Scan(
 		&st.revision, &st.queueRevision, &st.rendererID, &st.currentEntryID, &st.playID, &st.currentURI,
 		&seekable, &st.state, &st.positionMS, &st.durationMS, &st.observedAt, &st.lastObservedState,
 		&st.lastObservedURI, &st.lastObservedPositionMS, &st.lastObservedDurationMS, &hasPosition,
-		&st.lastObservedAt, &resume, &st.errorMessage, &st.controlAction, &st.controlAt,
+		&st.lastObservedAt, &resume, &st.errorMessage, &st.controlAction, &st.controlAt, &shuffle, &st.repeatMode,
 	)
 	if err != nil {
 		return storedState{}, fmt.Errorf("player: load transactional state: %w", err)
 	}
 	st.currentSeekable = seekable != 0
+	st.shuffle = shuffle != 0
 	st.lastObservedHasPosition = hasPosition != 0
 	st.resumeRequired = resume != 0
 	return st, nil

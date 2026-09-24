@@ -606,7 +606,7 @@ class OfflineNativeUiTest {
     }
 
     @Test
-    fun offlinePlayerUsesAccessibleIconControlsWithoutNarrowOrLandscapeOverflow() {
+    fun offlineMiniPlayerModesStayAccessibleSynchronizedAndTransportNeutral() {
         val context = instrumentation.targetContext
         // Earlier playback tests may leave a system-bound service owning a stopped
         // local queue. Release that test-owned engine before installing this fixture.
@@ -649,7 +649,8 @@ class OfflineNativeUiTest {
         )
         createdTrackIds += track.id
         val entry = OfflineQueueEntry("ui-$marker", track.id)
-        val fixtureQueue = OfflineQueue(listOf(entry), entry.id, 31_000)
+        val nextEntry = OfflineQueueEntry("ui-next-$marker", track.id)
+        val fixtureQueue = OfflineQueue(listOf(entry, nextEntry), entry.id, 31_000)
         var originalRequestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
 
         try {
@@ -687,6 +688,22 @@ class OfflineNativeUiTest {
                 ).forEach { control ->
                     assertIconControl(control, activity)
                 }
+                listOf(
+                    activity.findViewById<Button>(R.id.offline_mini_shuffle),
+                    activity.findViewById<Button>(R.id.offline_mini_repeat),
+                ).forEach { control ->
+                    assertMinimumTouchTarget(control, activity)
+                    assertEquals("Mini-player mode labels must stay on one line", 1, control.layout.lineCount)
+                    assertTrue(
+                        "Mini-player mode labels must fit without clipping",
+                        control.layout.getLineWidth(0) <= control.layout.width.toFloat(),
+                    )
+                    assertEquals("Mini-player mode labels must not be ellipsized", 0, control.layout.getEllipsisCount(0))
+                }
+                assertEquals(activity.getStringForTest(R.string.offline_sequential),
+                    activity.findViewById<Button>(R.id.offline_mini_shuffle).text.toString())
+                assertEquals(activity.getStringForTest(R.string.offline_repeat_off),
+                    activity.findViewById<Button>(R.id.offline_mini_repeat).text.toString())
                 assertNoHorizontalOverflow(mini)
                 assertAdaptiveNavigation(activity)
                 val title = activity.findViewById<TextView>(R.id.offline_player_title)
@@ -694,6 +711,33 @@ class OfflineNativeUiTest {
                 assertTrue((title.parent as View).contentDescription.toString().contains(title.text))
             }
             screenshot("offline-player-mini")
+
+            scenario.onActivity {
+                it.findViewById<View>(R.id.offline_mini_shuffle).performClick()
+            }
+            waitFor("mini-player shuffle updates the stopped local queue") {
+                OfflinePlayback.state.value.queue.shuffle && library.loadQueue().shuffle
+            }
+            var modeState = OfflinePlayback.state.value
+            assertEquals(fixtureQueue.entries, modeState.queue.entries)
+            assertEquals(fixtureQueue.currentEntryId, modeState.queue.currentEntryId)
+            assertEquals(fixtureQueue.positionMs, modeState.queue.positionMs)
+            assertEquals(OfflinePlaybackPolicy.OWNER_NONE, modeState.owner)
+            assertEquals(false, modeState.playing)
+
+            scenario.onActivity {
+                it.findViewById<View>(R.id.offline_mini_repeat).performClick()
+            }
+            waitFor("mini-player repeat updates the stopped local queue") {
+                OfflinePlayback.state.value.queue.repeatMode == androidx.media3.common.Player.REPEAT_MODE_ALL &&
+                    library.loadQueue().repeatMode == androidx.media3.common.Player.REPEAT_MODE_ALL
+            }
+            modeState = OfflinePlayback.state.value
+            assertEquals(fixtureQueue.entries, modeState.queue.entries)
+            assertEquals(fixtureQueue.currentEntryId, modeState.queue.currentEntryId)
+            assertEquals(fixtureQueue.positionMs, modeState.queue.positionMs)
+            assertEquals(OfflinePlaybackPolicy.OWNER_NONE, modeState.owner)
+            assertEquals(false, modeState.playing)
 
             scenario.onActivity { it.findViewById<View>(R.id.offline_mini_expand).performClick() }
             waitFor("expanded offline player") {
@@ -722,6 +766,10 @@ class OfflineNativeUiTest {
                 assertMinimumTouchTarget(activity.findViewById<SeekBar>(R.id.offline_player_seek), activity)
                 assertNoHorizontalOverflow(activity.findViewById(R.id.offline_content))
                 assertAdaptiveNavigation(activity)
+                assertEquals(activity.getStringForTest(R.string.offline_shuffle),
+                    activity.findViewById<Button>(R.id.offline_player_shuffle).text.toString())
+                assertEquals(activity.getStringForTest(R.string.offline_repeat_all),
+                    activity.findViewById<Button>(R.id.offline_player_repeat).text.toString())
             }
             val coveredSearch = Rect()
             scenario.onActivity { activity ->
@@ -747,15 +795,27 @@ class OfflineNativeUiTest {
             scenario.onActivity {
                 it.findViewById<View>(R.id.offline_player_shuffle).performClick()
             }
-            waitFor("shuffle icon updates the local queue") {
-                OfflinePlayback.state.value.queue.shuffle && library.loadQueue().shuffle
+            waitFor("expanded shuffle stays synchronized with the mini player") {
+                !OfflinePlayback.state.value.queue.shuffle && !library.loadQueue().shuffle
             }
             scenario.onActivity {
                 it.findViewById<View>(R.id.offline_player_repeat).performClick()
             }
-            waitFor("repeat icon updates the local queue") {
-                OfflinePlayback.state.value.queue.repeatMode == androidx.media3.common.Player.REPEAT_MODE_ALL &&
-                    library.loadQueue().repeatMode == androidx.media3.common.Player.REPEAT_MODE_ALL
+            waitFor("expanded repeat stays synchronized with the mini player") {
+                OfflinePlayback.state.value.queue.repeatMode == androidx.media3.common.Player.REPEAT_MODE_ONE &&
+                    library.loadQueue().repeatMode == androidx.media3.common.Player.REPEAT_MODE_ONE
+            }
+            modeState = OfflinePlayback.state.value
+            assertEquals(fixtureQueue.entries, modeState.queue.entries)
+            assertEquals(fixtureQueue.currentEntryId, modeState.queue.currentEntryId)
+            assertEquals(fixtureQueue.positionMs, modeState.queue.positionMs)
+            assertEquals(OfflinePlaybackPolicy.OWNER_NONE, modeState.owner)
+            assertEquals(false, modeState.playing)
+            scenario.onActivity { activity ->
+                assertEquals(activity.getStringForTest(R.string.offline_sequential),
+                    activity.findViewById<Button>(R.id.offline_mini_shuffle).text.toString())
+                assertEquals(activity.getStringForTest(R.string.offline_repeat_one),
+                    activity.findViewById<Button>(R.id.offline_mini_repeat).text.toString())
             }
 
             screenshot("offline-player-expanded")
@@ -780,6 +840,8 @@ class OfflineNativeUiTest {
                     R.id.offline_mini_play_pause,
                     R.id.offline_mini_stop,
                     R.id.offline_mini_expand,
+                    R.id.offline_mini_shuffle,
+                    R.id.offline_mini_repeat,
                     R.id.offline_player_previous,
                     R.id.offline_player_next,
                     R.id.offline_player_shuffle,

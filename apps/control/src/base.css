@@ -594,6 +594,61 @@ html[data-client] .app-shell .mobile-header {
   gap: 0.4rem;
 }
 
+.player-mode-button {
+  position: relative;
+}
+
+.player-mode-button.is-active {
+  border-color: #c8edb266;
+  color: var(--accent);
+  background: #c8edb212;
+}
+
+.player-mode-icon {
+  position: relative;
+  display: inline-grid;
+  place-items: center;
+}
+
+.repeat-one-indicator {
+  position: absolute;
+  right: -0.35rem;
+  bottom: -0.3rem;
+  display: grid;
+  min-width: 0.85rem;
+  height: 0.85rem;
+  padding: 0 0.15rem;
+  border-radius: 999px;
+  color: var(--accent-ink);
+  background: var(--accent);
+  font-size: 0.58rem;
+  font-weight: 800;
+  line-height: 1;
+  place-items: center;
+}
+
+.player-mode-controls {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+}
+
+.player-mode-button-labeled {
+  width: auto;
+  min-width: 0;
+  height: auto;
+  min-height: 44px;
+  padding: 0.5rem 0.75rem;
+  border-radius: 0.7rem;
+  font-size: 0.8rem;
+  font-weight: 700;
+  white-space: nowrap;
+  grid-auto-flow: column;
+  gap: 0.5rem;
+}
+
 .player-primary-control {
   width: 2.95rem;
   height: 2.95rem;

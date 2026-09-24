@@ -81,6 +81,8 @@ type storedState struct {
 	playID                  string
 	currentURI              string
 	currentSeekable         bool
+	shuffle                 bool
+	repeatMode              string
 	state                   string
 	positionMS              int64
 	durationMS              int64
@@ -168,6 +170,15 @@ CREATE TABLE IF NOT EXISTS player_queue (
   status TEXT NOT NULL CHECK (status IN ('pending','playing','completed','error'))
 );
 CREATE INDEX IF NOT EXISTS player_queue_position ON player_queue(position);
+CREATE TABLE IF NOT EXISTS player_mode (
+  singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
+  shuffle INTEGER NOT NULL CHECK (shuffle IN (0,1)),
+  repeat_mode TEXT NOT NULL CHECK (repeat_mode IN ('off','all','one'))
+);
+CREATE TABLE IF NOT EXISTS player_shuffle (
+  entry_id TEXT PRIMARY KEY REFERENCES player_queue(entry_id) ON DELETE CASCADE,
+  ordinal INTEGER NOT NULL UNIQUE
+);
 CREATE TABLE IF NOT EXISTS player_commands (
   command_id TEXT PRIMARY KEY,
   service_epoch TEXT NOT NULL,
@@ -201,6 +212,9 @@ CREATE TABLE IF NOT EXISTS player_natural_ends (
 ) VALUES(1,0,0,'','','','',0,'stopped',0,0,'','','',0,0,0,'',0,'','','')`); err != nil {
 		return fmt.Errorf("player: initialize state: %w", err)
 	}
+	if _, err := tx.ExecContext(ctx, "INSERT OR IGNORE INTO player_mode(singleton,shuffle,repeat_mode) VALUES(1,0,'off')"); err != nil {
+		return fmt.Errorf("player: initialize playback mode: %w", err)
+	}
 	var active int
 	if err := tx.QueryRowContext(ctx, "SELECT COUNT(*) FROM player_commands WHERE status IN ('pending','running')").Scan(&active); err != nil {
 		return fmt.Errorf("player: inspect interrupted commands: %w", err)
@@ -214,6 +228,19 @@ CREATE TABLE IF NOT EXISTS player_natural_ends (
 	var state, rendererID, currentEntryID string
 	if err := tx.QueryRowContext(ctx, "SELECT state,renderer_id,current_entry_id FROM player_state WHERE singleton=1").Scan(&state, &rendererID, &currentEntryID); err != nil {
 		return fmt.Errorf("player: read recovery state: %w", err)
+	}
+	var shuffle int
+	if err := tx.QueryRowContext(ctx, "SELECT shuffle FROM player_mode WHERE singleton=1").Scan(&shuffle); err != nil {
+		return fmt.Errorf("player: read playback mode: %w", err)
+	}
+	if shuffle != 0 {
+		records, loadErr := loadQueueRecords(ctx, tx)
+		if loadErr != nil {
+			return loadErr
+		}
+		if err := ensureShuffleTraversalTx(ctx, tx, records, currentEntryID); err != nil {
+			return fmt.Errorf("player: recover shuffle traversal: %w", err)
+		}
 	}
 	if state == StatePlaying || state == StatePaused || state == StateStarting || active > 0 {
 		message := "Playback requires explicit resume after server restart."
@@ -296,9 +323,9 @@ func (s *Service) Snapshot(ctx context.Context) (State, error) {
 	}
 	result := State{
 		Revision: st.revision, State: st.state, RendererID: st.rendererID,
-		CurrentEntryID: st.currentEntryID, PositionMS: st.positionMS,
-		DurationMS: st.durationMS, ObservedAt: st.observedAt, Error: st.errorMessage,
-		StatusWarning: warning,
+		CurrentEntryID: st.currentEntryID, Shuffle: st.shuffle, RepeatMode: st.repeatMode,
+		PositionMS: st.positionMS, DurationMS: st.durationMS, ObservedAt: st.observedAt,
+		Error: st.errorMessage, StatusWarning: warning,
 	}
 	if st.rendererID != "" {
 		if device, ok := s.devices.Device(st.rendererID); ok {
@@ -456,19 +483,21 @@ func pairingError(err error) error {
 
 func (s *Service) loadState(ctx context.Context) (storedState, error) {
 	var st storedState
-	var seekable, hasPosition, resume int
-	err := s.db.QueryRowContext(ctx, `SELECT revision,queue_revision,renderer_id,current_entry_id,play_id,current_uri,current_seekable,state,
-position_ms,duration_ms,observed_at,last_observed_state,last_observed_uri,last_observed_position_ms,last_observed_duration_ms,
-last_observed_has_position,last_observed_at,resume_required,error,control_action,control_at FROM player_state WHERE singleton=1`).Scan(
+	var seekable, hasPosition, resume, shuffle int
+	err := s.db.QueryRowContext(ctx, `SELECT ps.revision,ps.queue_revision,ps.renderer_id,ps.current_entry_id,ps.play_id,ps.current_uri,ps.current_seekable,ps.state,
+ps.position_ms,ps.duration_ms,ps.observed_at,ps.last_observed_state,ps.last_observed_uri,ps.last_observed_position_ms,ps.last_observed_duration_ms,
+ps.last_observed_has_position,ps.last_observed_at,ps.resume_required,ps.error,ps.control_action,ps.control_at,pm.shuffle,pm.repeat_mode
+FROM player_state ps JOIN player_mode pm ON pm.singleton=ps.singleton WHERE ps.singleton=1`).Scan(
 		&st.revision, &st.queueRevision, &st.rendererID, &st.currentEntryID, &st.playID, &st.currentURI,
 		&seekable, &st.state, &st.positionMS, &st.durationMS, &st.observedAt, &st.lastObservedState,
 		&st.lastObservedURI, &st.lastObservedPositionMS, &st.lastObservedDurationMS, &hasPosition,
-		&st.lastObservedAt, &resume, &st.errorMessage, &st.controlAction, &st.controlAt,
+		&st.lastObservedAt, &resume, &st.errorMessage, &st.controlAction, &st.controlAt, &shuffle, &st.repeatMode,
 	)
 	if err != nil {
 		return storedState{}, fmt.Errorf("player: load state: %w", err)
 	}
 	st.currentSeekable = seekable != 0
+	st.shuffle = shuffle != 0
 	st.lastObservedHasPosition = hasPosition != 0
 	st.resumeRequired = resume != 0
 	return st, nil

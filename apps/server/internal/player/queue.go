@@ -134,6 +134,17 @@ func (s *Service) mutateQueueLocked(ctx context.Context, mutation QueueMutation)
 	if err != nil {
 		return err
 	}
+	var beforeRecords []queueRecord
+	mode, err := loadPlaybackModeTx(ctx, tx)
+	if err != nil {
+		return fmt.Errorf("player: load playback mode for queue mutation: %w", err)
+	}
+	if mode.shuffle {
+		beforeRecords = append([]queueRecord(nil), records...)
+		if err := ensureShuffleTraversalTx(ctx, tx, records, currentEntryID); err != nil {
+			return fmt.Errorf("player: prepare shuffle queue mutation: %w", err)
+		}
+	}
 	if len(records)+len(mutation.TrackIDs) > 10000 && mutation.Action != "replace" {
 		return fault.New(409, "QUEUE_LIMIT", "The queue cannot contain more than 10,000 entries.")
 	}
@@ -210,6 +221,9 @@ func (s *Service) mutateQueueLocked(ctx context.Context, mutation QueueMutation)
 	}
 	if err := rewriteQueuePositions(ctx, tx, records); err != nil {
 		return err
+	}
+	if err := syncShuffleQueueMutationTx(ctx, tx, mutation.Action, currentEntryID, beforeRecords, records); err != nil {
+		return fmt.Errorf("player: update shuffle traversal: %w", err)
 	}
 	if _, err := tx.ExecContext(ctx, "UPDATE player_state SET queue_revision=queue_revision+1 WHERE singleton=1"); err != nil {
 		return fmt.Errorf("player: advance queue revision: %w", err)

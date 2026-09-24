@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -2279,4 +2280,360 @@ func TestIsPlaybackActiveUsesDurableActivityOnly(t *testing.T) {
 		t.Fatal(err)
 	}
 	assertActive(false)
+}
+
+func TestPlaybackModesPersistWithoutTransportOrAutoplay(t *testing.T) {
+	service, db, devices := newPlayerTestService(t)
+	ctx := t.Context()
+	before := service.mustState(t)
+	devices.mu.Lock()
+	beforeCalls := len(devices.calls)
+	devices.mu.Unlock()
+
+	shuffle := true
+	repeatAll := RepeatAll
+	updated, err := service.UpdateMode(ctx, ModeUpdate{Shuffle: &shuffle, RepeatMode: &repeatAll})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !updated.Shuffle || updated.RepeatMode != RepeatAll || updated.Revision != before.Revision+1 {
+		t.Fatalf("combined mode update=%#v", updated)
+	}
+	repeatOne := RepeatOne
+	updated, err = service.UpdateMode(ctx, ModeUpdate{RepeatMode: &repeatOne})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !updated.Shuffle || updated.RepeatMode != RepeatOne {
+		t.Fatalf("partial mode update lost shuffle: %#v", updated)
+	}
+	selected, err := service.SelectOutput(ctx, "renderer")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !selected.Shuffle || selected.RepeatMode != RepeatOne {
+		t.Fatalf("output selection lost playback modes: %#v", selected)
+	}
+	if _, err := db.ExecContext(ctx, `INSERT INTO player_commands(command_id,service_epoch,action,entry_id,position_ms,status,error,created_at,started_at,completed_at) VALUES('mode-active',?,'play','',0,'pending','',?,'','')`, service.epoch, time.Now().UTC().Format(time.RFC3339Nano)); err != nil {
+		t.Fatal(err)
+	}
+	repeatOff := RepeatOff
+	if _, err := service.UpdateMode(ctx, ModeUpdate{RepeatMode: &repeatOff}); faultCode(err) != "COMMAND_IN_PROGRESS" {
+		t.Fatalf("mode update during command error=%v", err)
+	}
+	if _, err := db.ExecContext(ctx, "UPDATE player_commands SET status='failed' WHERE command_id='mode-active'"); err != nil {
+		t.Fatal(err)
+	}
+
+	recovered, err := newService(ctx, db, service.lib, devices, service.media, time.Second, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	state, err := recovered.Snapshot(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	devices.mu.Lock()
+	afterCalls := len(devices.calls)
+	devices.mu.Unlock()
+	if !state.Shuffle || state.RepeatMode != RepeatOne || state.State != StateStopped || state.PendingCommand != "" {
+		t.Fatalf("recovered mode state=%#v", state)
+	}
+	if afterCalls != beforeCalls {
+		t.Fatalf("mode update or recovery issued transport calls: before=%d after=%d", beforeCalls, afterCalls)
+	}
+}
+
+func TestPlaybackModeChangePreservesActiveBindingAndQueue(t *testing.T) {
+	service, _, devices := newPlayerTestService(t)
+	ctx := t.Context()
+	queue, err := service.MutateQueue(ctx, QueueMutation{Action: "append", TrackIDs: []string{"a", "b"}, Revision: 0})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.Command(ctx, Command{Action: "play", EntryID: queue.Entries[0].ID}); err != nil {
+		t.Fatal(err)
+	}
+	runAcceptedCommand(t, service)
+	beforeState, err := service.loadState(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	beforeQueue, err := service.Queue(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	devices.mu.Lock()
+	beforeCalls := append([]string(nil), devices.calls...)
+	devices.mu.Unlock()
+
+	shuffle := true
+	repeat := RepeatAll
+	if _, err := service.UpdateMode(ctx, ModeUpdate{Shuffle: &shuffle, RepeatMode: &repeat}); err != nil {
+		t.Fatal(err)
+	}
+	afterState, err := service.loadState(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	afterQueue, err := service.Queue(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	devices.mu.Lock()
+	afterCalls := append([]string(nil), devices.calls...)
+	devices.mu.Unlock()
+	if afterState.currentEntryID != beforeState.currentEntryID || afterState.playID != beforeState.playID ||
+		afterState.currentURI != beforeState.currentURI || afterState.state != beforeState.state ||
+		afterState.positionMS != beforeState.positionMS {
+		t.Fatalf("mode change interrupted playback: before=%#v after=%#v", beforeState, afterState)
+	}
+	if !reflect.DeepEqual(afterQueue, beforeQueue) {
+		t.Fatalf("mode change mutated queue: before=%#v after=%#v", beforeQueue, afterQueue)
+	}
+	if !reflect.DeepEqual(afterCalls, beforeCalls) {
+		t.Fatalf("mode change sent transport calls: before=%v after=%v", beforeCalls, afterCalls)
+	}
+}
+
+func TestShuffleTraversalUsesQueueEntryIdentityAndPlayNextPrecedence(t *testing.T) {
+	service, _, _ := newPlayerTestService(t)
+	ctx := t.Context()
+	queue, err := service.MutateQueue(ctx, QueueMutation{Action: "append", TrackIDs: []string{"a", "a", "b"}, Revision: 0})
+	if err != nil {
+		t.Fatal(err)
+	}
+	shuffle := true
+	if _, err := service.UpdateMode(ctx, ModeUpdate{Shuffle: &shuffle}); err != nil {
+		t.Fatal(err)
+	}
+	displayed, err := service.Queue(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(displayed.Entries) != len(queue.Entries) {
+		t.Fatalf("shuffle changed displayed queue length: before=%#v after=%#v", queue.Entries, displayed.Entries)
+	}
+	for index := range queue.Entries {
+		if displayed.Entries[index].ID != queue.Entries[index].ID {
+			t.Fatalf("shuffle rearranged displayed queue: before=%#v after=%#v", queue.Entries, displayed.Entries)
+		}
+	}
+	if _, err := service.Command(ctx, Command{Action: "play"}); err != nil {
+		t.Fatal(err)
+	}
+	runAcceptedCommand(t, service)
+	firstEntryID := service.mustState(t).CurrentEntryID
+
+	queue, err = service.Queue(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	queue, err = service.MutateQueue(ctx, QueueMutation{Action: "next", TrackIDs: []string{"b"}, Revision: queue.Revision})
+	if err != nil {
+		t.Fatal(err)
+	}
+	currentIndex := -1
+	for index, entry := range queue.Entries {
+		if entry.ID == firstEntryID {
+			currentIndex = index
+			break
+		}
+	}
+	if currentIndex < 0 || currentIndex+1 >= len(queue.Entries) {
+		t.Fatalf("current queue entry missing after play-next: %#v", queue.Entries)
+	}
+	playNextID := queue.Entries[currentIndex+1].ID
+	if _, err := service.MutateQueue(ctx, QueueMutation{Action: "append", TrackIDs: []string{"a", "b"}, Revision: queue.Revision}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.Command(ctx, Command{Action: "next"}); err != nil {
+		t.Fatal(err)
+	}
+	runAcceptedCommand(t, service)
+	if current := service.mustState(t).CurrentEntryID; current != playNextID {
+		t.Fatalf("shuffle next selected %q, want explicit play-next %q", current, playNextID)
+	}
+	if _, err := service.Command(ctx, Command{Action: "previous"}); err != nil {
+		t.Fatal(err)
+	}
+	runAcceptedCommand(t, service)
+	if current := service.mustState(t).CurrentEntryID; current != firstEntryID {
+		t.Fatalf("shuffle previous selected %q, want visited %q", current, firstEntryID)
+	}
+}
+
+func TestShuffleTraversalVisitsEveryDuplicateEntryBeforeStopping(t *testing.T) {
+	service, _, _ := newPlayerTestService(t)
+	ctx := t.Context()
+	queue, err := service.MutateQueue(ctx, QueueMutation{Action: "append", TrackIDs: []string{"a", "a", "b", "a"}, Revision: 0})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(queue.Entries) != 4 {
+		t.Fatalf("queue lost duplicate track entries: %#v", queue.Entries)
+	}
+	remaining := make(map[string]bool, len(queue.Entries))
+	for _, entry := range queue.Entries {
+		remaining[entry.ID] = true
+	}
+	shuffle := true
+	if _, err := service.UpdateMode(ctx, ModeUpdate{Shuffle: &shuffle}); err != nil {
+		t.Fatal(err)
+	}
+	var lastEntryID string
+	if _, err := service.Command(ctx, Command{Action: "play"}); err != nil {
+		t.Fatal(err)
+	}
+	runAcceptedCommand(t, service)
+	for index := range queue.Entries {
+		if index > 0 {
+			if _, err := service.Command(ctx, Command{Action: "next"}); err != nil {
+				t.Fatal(err)
+			}
+			runAcceptedCommand(t, service)
+		}
+		current := service.mustState(t).CurrentEntryID
+		if !remaining[current] {
+			t.Fatalf("shuffle step %d repeated or invented queue entry %q", index, current)
+		}
+		delete(remaining, current)
+		lastEntryID = current
+	}
+	if _, err := service.Command(ctx, Command{Action: "next"}); err != nil {
+		t.Fatal(err)
+	}
+	runAcceptedCommand(t, service)
+	state := service.mustState(t)
+	if state.State != StateStopped || state.CurrentEntryID != lastEntryID {
+		t.Fatalf("shuffle traversal end=%#v", state)
+	}
+}
+
+func TestNaturalRepeatModesAndMediaFailureBoundary(t *testing.T) {
+	t.Run("repeat one is natural completion only", func(t *testing.T) {
+		service, _, _ := newPlayerTestService(t)
+		ctx := t.Context()
+		queue, err := service.MutateQueue(ctx, QueueMutation{Action: "append", TrackIDs: []string{"a", "b"}, Revision: 0})
+		if err != nil {
+			t.Fatal(err)
+		}
+		repeat := RepeatOne
+		if _, err := service.UpdateMode(ctx, ModeUpdate{RepeatMode: &repeat}); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := service.Command(ctx, Command{Action: "play", EntryID: queue.Entries[0].ID}); err != nil {
+			t.Fatal(err)
+		}
+		runAcceptedCommand(t, service)
+		stored, err := service.loadState(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		service.applyObservation(ctx, output.Observation{
+			State: "stopped", URI: stored.currentURI, HasURI: true,
+			CompletionKnown: true, Completed: true, ObservedAt: time.Now().UTC(),
+		})
+		runAcceptedCommand(t, service)
+		if current := service.mustState(t).CurrentEntryID; current != queue.Entries[0].ID {
+			t.Fatalf("repeat one advanced natural completion to %q", current)
+		}
+		if _, err := service.Command(ctx, Command{Action: "next"}); err != nil {
+			t.Fatal(err)
+		}
+		runAcceptedCommand(t, service)
+		if current := service.mustState(t).CurrentEntryID; current != queue.Entries[1].ID {
+			t.Fatalf("repeat one intercepted explicit next: %q", current)
+		}
+	})
+
+	t.Run("repeat all wraps a completed traversal", func(t *testing.T) {
+		service, _, _ := newPlayerTestService(t)
+		ctx := t.Context()
+		queue, err := service.MutateQueue(ctx, QueueMutation{Action: "append", TrackIDs: []string{"a", "b"}, Revision: 0})
+		if err != nil {
+			t.Fatal(err)
+		}
+		repeat := RepeatAll
+		if _, err := service.UpdateMode(ctx, ModeUpdate{RepeatMode: &repeat}); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := service.Command(ctx, Command{Action: "play", EntryID: queue.Entries[1].ID}); err != nil {
+			t.Fatal(err)
+		}
+		runAcceptedCommand(t, service)
+		stored, err := service.loadState(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		result := service.applyObservation(ctx, output.Observation{
+			State: "stopped", URI: stored.currentURI, HasURI: true,
+			CompletionKnown: true, Completed: true, ObservedAt: time.Now().UTC(),
+		})
+		if !result.commandQueued {
+			t.Fatal("repeat all did not queue the new traversal")
+		}
+		runAcceptedCommand(t, service)
+		if current := service.mustState(t).CurrentEntryID; current != queue.Entries[0].ID {
+			t.Fatalf("repeat all wrapped to %q, want %q", current, queue.Entries[0].ID)
+		}
+	})
+
+	t.Run("unavailable entry advances within traversal", func(t *testing.T) {
+		service, _, _ := newPlayerTestService(t)
+		ctx := t.Context()
+		queue, err := service.MutateQueue(ctx, QueueMutation{Action: "append", TrackIDs: []string{"a", "b"}, Revision: 0})
+		if err != nil {
+			t.Fatal(err)
+		}
+		lib := service.lib.(*fakeLibrary)
+		unavailable := lib.tracks["a"]
+		unavailable.Available = false
+		lib.tracks["a"] = unavailable
+		if _, err := service.Command(ctx, Command{Action: "play", EntryID: queue.Entries[0].ID}); err != nil {
+			t.Fatal(err)
+		}
+		runAcceptedCommand(t, service)
+		runAcceptedCommand(t, service)
+		state := service.mustState(t)
+		if state.CurrentEntryID != queue.Entries[1].ID || state.State != StateStarting || state.PendingCommand != "" {
+			t.Fatalf("unavailable entry did not advance: %#v", state)
+		}
+		updated, err := service.Queue(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if updated.Entries[0].Status != EntryError || updated.Entries[1].Status != EntryPlaying {
+			t.Fatalf("unavailable entry traversal statuses=%#v", updated.Entries)
+		}
+	})
+
+	t.Run("media failures never repeat wrap", func(t *testing.T) {
+		service, _, _ := newPlayerTestService(t)
+		ctx := t.Context()
+		if _, err := service.MutateQueue(ctx, QueueMutation{Action: "append", TrackIDs: []string{"a", "b"}, Revision: 0}); err != nil {
+			t.Fatal(err)
+		}
+		repeat := RepeatAll
+		if _, err := service.UpdateMode(ctx, ModeUpdate{RepeatMode: &repeat}); err != nil {
+			t.Fatal(err)
+		}
+		service.media = &failingPreparation{err: output.NewActionError(output.ErrorMedia, "Prepare", 0, errors.New("unavailable media"))}
+		if _, err := service.Command(ctx, Command{Action: "play"}); err != nil {
+			t.Fatal(err)
+		}
+		runAcceptedCommand(t, service)
+		runAcceptedCommand(t, service)
+		state := service.mustState(t)
+		if state.State != StateError || state.PendingCommand != "" {
+			t.Fatalf("all-error traversal did not terminate: %#v", state)
+		}
+		queue, err := service.Queue(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(queue.Entries) != 2 || queue.Entries[0].Status != EntryError || queue.Entries[1].Status != EntryError {
+			t.Fatalf("all-error queue=%#v", queue.Entries)
+		}
+	})
 }
