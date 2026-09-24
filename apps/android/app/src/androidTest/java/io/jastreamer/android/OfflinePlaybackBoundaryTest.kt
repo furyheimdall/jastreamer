@@ -247,7 +247,9 @@ class OfflinePlaybackBoundaryTest {
                             NativePlayback.setVolume(first.endpoint, 0.25)
                         }
                         assertEquals(0.25, state.getDouble("volume"), 0.0001)
-                        assertEquals(0.25f, onMain { controller.volume }, 0.0001f)
+                        await("system controller observes local volume") {
+                            onMain { controller.volume == 0.25f }
+                        }
                         assertFalse(onMain { controller.isPlaying })
 
                         val existing = onMainSuspend {
@@ -274,6 +276,7 @@ class OfflinePlaybackBoundaryTest {
                         assertEquals(OfflinePlaybackPolicy.OWNER_NONE, OfflinePlayback.state.value.owner)
                         assertEquals(1, first.registrationDeletes())
                     } finally {
+                        onMainSuspend { NativePlayback.disconnect(first.endpoint) }
                         releaseController()
                     }
                 }
