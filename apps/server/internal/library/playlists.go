@@ -19,67 +19,6 @@ func validatePlaylistName(name string) (string, error) {
 	return name, nil
 }
 
-func (service *Service) PlaylistFromLikes(ctx context.Context, name string) (Playlist, error) {
-	name, err := validatePlaylistName(name)
-	if err != nil {
-		return Playlist{}, err
-	}
-	tx, err := service.db.BeginTx(ctx, nil)
-	if err != nil {
-		return Playlist{}, fmt.Errorf("begin liked playlist save: %w", err)
-	}
-	defer tx.Rollback()
-
-	rows, err := tx.QueryContext(ctx, `SELECT library_tracks.id FROM library_track_likes JOIN library_tracks ON library_tracks.id=library_track_likes.track_id WHERE library_tracks.available=1 ORDER BY random() LIMIT ?`, maximumPlaylistTracks+1)
-	if err != nil {
-		return Playlist{}, fmt.Errorf("load liked tracks: %w", err)
-	}
-	trackIDs := make([]string, 0)
-	for rows.Next() {
-		var trackID string
-		if err := rows.Scan(&trackID); err != nil {
-			rows.Close()
-			return Playlist{}, fmt.Errorf("read liked track: %w", err)
-		}
-		trackIDs = append(trackIDs, trackID)
-	}
-	if err := rows.Err(); err != nil {
-		rows.Close()
-		return Playlist{}, fmt.Errorf("load liked tracks: %w", err)
-	}
-	if err := rows.Close(); err != nil {
-		return Playlist{}, fmt.Errorf("close liked tracks: %w", err)
-	}
-	if len(trackIDs) == 0 {
-		return Playlist{}, invalid("no available liked tracks")
-	}
-	if len(trackIDs) > maximumPlaylistTracks {
-		return Playlist{}, invalid("playlist has too many tracks")
-	}
-	id, err := randomID()
-	if err != nil {
-		return Playlist{}, fmt.Errorf("create playlist id: %w", err)
-	}
-	now := timestamp(time.Now())
-	if _, err = tx.ExecContext(ctx, `INSERT INTO library_playlists(id,name,revision,updated_at) VALUES(?,?,1,?)`, id, name, now); err != nil {
-		return Playlist{}, fmt.Errorf("save liked playlist: %w", err)
-	}
-	for position, trackID := range trackIDs {
-		if _, err = tx.ExecContext(ctx, `INSERT INTO library_playlist_items(playlist_id,position,track_id) VALUES(?,?,?)`, id, position, trackID); err != nil {
-			return Playlist{}, fmt.Errorf("save liked playlist item: %w", err)
-		}
-	}
-	tracks, err := service.playlistTracks(ctx, tx, trackIDs)
-	if err != nil {
-		return Playlist{}, err
-	}
-	if err = tx.Commit(); err != nil {
-		return Playlist{}, fmt.Errorf("commit liked playlist save: %w", err)
-	}
-	service.notify("playlists")
-	return Playlist{ID: id, Name: name, Revision: 1, TrackIDs: trackIDs, Tracks: tracks, UpdatedAt: now}, nil
-}
-
 func (service *Service) Playlists(ctx context.Context) ([]Playlist, error) {
 	rows, err := service.db.QueryContext(ctx, `SELECT id,name,revision,updated_at FROM library_playlists ORDER BY lower(name),id`)
 	if err != nil {

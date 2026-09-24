@@ -775,13 +775,6 @@
   margin-bottom: 0;
   font-size: 0.75rem;
 }
-.playlist-liked-create > p {
-  margin: -0.1rem 0 0.55rem;
-  color: var(--muted, #9aa3a6);
-  font-size: 0.72rem;
-  line-height: 1.4;
-}
-
 
 .playlist-list {
   display: grid;

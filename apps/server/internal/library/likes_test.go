@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	"github.com/jastreamer/jastreamer-server/internal/fault"
@@ -90,13 +89,10 @@ func TestLikesPersistAcrossIdempotentUpdatesRescanAndRestart(t *testing.T) {
 	}
 }
 
-func TestPlaylistFromLikesUsesEveryAvailableLikedTrackAndPreservesSnapshot(t *testing.T) {
+func TestShuffledLikedTrackIDsSnapshotsEveryAvailableLikeWithoutPersistence(t *testing.T) {
 	service := newTestService(t, nil)
-	if _, err := service.PlaylistFromLikes(t.Context(), "Empty"); !isInvalidRequest(err) {
-		t.Fatalf("empty likes error = %#v", err)
-	}
-	if _, err := service.PlaylistFromLikes(t.Context(), strings.Repeat("x", 201)); !isInvalidRequest(err) {
-		t.Fatalf("long name error = %#v", err)
+	if trackIDs, err := service.ShuffledLikedTrackIDs(t.Context()); !isInvalidRequest(err) || trackIDs != nil {
+		t.Fatalf("empty likes result=%v error=%#v", trackIDs, err)
 	}
 
 	tx, err := service.db.BeginTx(t.Context(), nil)
@@ -129,6 +125,10 @@ func TestPlaylistFromLikesUsesEveryAvailableLikedTrackAndPreservesSnapshot(t *te
 	if err = tx.Commit(); err != nil {
 		t.Fatal(err)
 	}
+	saved, err := service.SavePlaylist(t.Context(), "", "Existing", []string{"track-0000", "track-0000"}, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	firstPage, err := service.Browse(t.Context(), Query{Kind: "tracks", Liked: true, Limit: 500})
 	if err != nil {
@@ -137,43 +137,74 @@ func TestPlaylistFromLikesUsesEveryAvailableLikedTrackAndPreservesSnapshot(t *te
 	if firstPage.Total != likedCount || len(firstPage.Items.([]Track)) != 500 {
 		t.Fatalf("liked first page total=%d items=%d", firstPage.Total, len(firstPage.Items.([]Track)))
 	}
-	playlist, err := service.PlaylistFromLikes(t.Context(), "All likes")
+	snapshot, err := service.ShuffledLikedTrackIDs(t.Context())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(playlist.TrackIDs) != likedCount || len(playlist.Tracks) != likedCount {
-		t.Fatalf("playlist tracks=%d hydrated=%d", len(playlist.TrackIDs), len(playlist.Tracks))
+	if len(snapshot) != likedCount {
+		t.Fatalf("snapshot tracks=%d, want %d", len(snapshot), likedCount)
 	}
 	seen := make(map[string]bool, likedCount)
-	for index, id := range playlist.TrackIDs {
-		track := playlist.Tracks[index]
-		if !expected[id] || seen[id] || track.ID != id || !track.Available || !track.Liked {
-			t.Fatalf("unexpected playlist item %d: id=%q track=%+v", index, id, track)
+	for index, id := range snapshot {
+		if !expected[id] || seen[id] {
+			t.Fatalf("unexpected snapshot item %d: %q", index, id)
 		}
 		seen[id] = true
 	}
 	if len(seen) != len(expected) {
-		t.Fatalf("playlist membership=%d, want %d", len(seen), len(expected))
+		t.Fatalf("snapshot membership=%d, want %d", len(seen), len(expected))
 	}
 
-	removedID := playlist.TrackIDs[0]
+	removedID := snapshot[0]
+	addedID := fmt.Sprintf("track-%04d", likedCount+1)
 	if _, err = service.SetLiked(t.Context(), removedID, false); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = service.SetLiked(t.Context(), fmt.Sprintf("track-%04d", likedCount+1), true); err != nil {
+	if _, err = service.SetLiked(t.Context(), addedID, true); err != nil {
 		t.Fatal(err)
 	}
-	saved, err := service.Playlist(t.Context(), playlist.ID)
+	reloaded, err := service.ShuffledLikedTrackIDs(t.Context())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(saved.TrackIDs) != len(playlist.TrackIDs) {
-		t.Fatalf("saved snapshot length=%d, want %d", len(saved.TrackIDs), len(playlist.TrackIDs))
+	current := make(map[string]bool, len(reloaded))
+	for _, id := range reloaded {
+		current[id] = true
 	}
-	for index := range saved.TrackIDs {
-		if saved.TrackIDs[index] != playlist.TrackIDs[index] {
-			t.Fatalf("saved snapshot changed at %d: %q != %q", index, saved.TrackIDs[index], playlist.TrackIDs[index])
-		}
+	if !seen[removedID] || seen[addedID] || current[removedID] || !current[addedID] || len(current) != likedCount {
+		t.Fatalf("snapshot changed or reload was stale: removed=%q added=%q snapshot=%v current=%v", removedID, addedID, seen, current)
+	}
+	playlists, err := service.Playlists(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(playlists) != 1 || playlists[0].ID != saved.ID || len(playlists[0].TrackIDs) != 2 || playlists[0].TrackIDs[0] != "track-0000" || playlists[0].TrackIDs[1] != "track-0000" {
+		t.Fatalf("liked snapshots changed saved playlists: %#v", playlists)
+	}
+}
+
+func TestShuffledLikedTrackIDsRejectsOverflowWithoutPartialResult(t *testing.T) {
+	service := newTestService(t, nil)
+	const insertTracks = `WITH digits(d) AS (VALUES(0),(1),(2),(3),(4),(5),(6),(7),(8),(9)),
+numbers(n) AS (SELECT ones.d + 10*tens.d + 100*hundreds.d + 1000*thousands.d FROM digits ones CROSS JOIN digits tens CROSS JOIN digits hundreds CROSS JOIN digits thousands UNION ALL SELECT 10000)
+INSERT INTO library_tracks(id,root_id,relative_path,title,artist,album,album_artist,album_id,disc,track_number,genres_json,duration_ms,format,mime,artwork_id,byte_size,modified_ns,modified_at,available,last_seen_scan)
+SELECT printf('track-%05d',n),'root',printf('track-%05d.wav',n),printf('track-%05d',n),'artist','album','artist','album',0,0,'[]',1000,'wav','audio/wav','',100,0,'2026-01-01T00:00:00Z',1,'scan' FROM numbers`
+	if _, err := service.db.ExecContext(t.Context(), insertTracks); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.db.ExecContext(t.Context(), `INSERT INTO library_track_likes(track_id,updated_at) SELECT id,'2026-01-01T00:00:00Z' FROM library_tracks`); err != nil {
+		t.Fatal(err)
+	}
+	trackIDs, err := service.ShuffledLikedTrackIDs(t.Context())
+	if !isInvalidRequest(err) || trackIDs != nil {
+		t.Fatalf("overflow result=%v error=%#v", trackIDs, err)
+	}
+	playlists, listErr := service.Playlists(t.Context())
+	if listErr != nil {
+		t.Fatal(listErr)
+	}
+	if len(playlists) != 0 {
+		t.Fatalf("overflow persisted playlists: %#v", playlists)
 	}
 }
 

@@ -8,6 +8,38 @@ import (
 	"time"
 )
 
+const maximumShuffledLikedTracks = 10_000
+
+func (service *Service) ShuffledLikedTrackIDs(ctx context.Context) ([]string, error) {
+	rows, err := service.db.QueryContext(ctx, `SELECT library_tracks.id FROM library_track_likes JOIN library_tracks ON library_tracks.id=library_track_likes.track_id WHERE library_tracks.available=1 ORDER BY random() LIMIT ?`, maximumShuffledLikedTracks+1)
+	if err != nil {
+		return nil, fmt.Errorf("load liked tracks: %w", err)
+	}
+	trackIDs := make([]string, 0)
+	for rows.Next() {
+		var trackID string
+		if err := rows.Scan(&trackID); err != nil {
+			rows.Close()
+			return nil, fmt.Errorf("read liked track: %w", err)
+		}
+		trackIDs = append(trackIDs, trackID)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return nil, fmt.Errorf("load liked tracks: %w", err)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, fmt.Errorf("close liked tracks: %w", err)
+	}
+	if len(trackIDs) == 0 {
+		return nil, invalid("no available liked tracks")
+	}
+	if len(trackIDs) > maximumShuffledLikedTracks {
+		return nil, invalid("too many liked tracks")
+	}
+	return trackIDs, nil
+}
+
 func (service *Service) SetLiked(ctx context.Context, id string, liked bool) (Track, error) {
 	if id == "" {
 		return Track{}, notFound("track was not found")
