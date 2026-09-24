@@ -50,6 +50,9 @@ func runVerificationHelper(mode string, arguments []string) {
 		case "corrupt":
 			fmt.Fprintln(os.Stderr, "Invalid data found when processing input")
 			os.Exit(2)
+		case "unsupported":
+			fmt.Fprintln(os.Stderr, "No decoder found for this codec")
+			os.Exit(2)
 		case "hold":
 			time.Sleep(24 * time.Hour)
 		default:
@@ -59,7 +62,7 @@ func runVerificationHelper(mode string, arguments []string) {
 	os.Exit(0)
 }
 
-func TestVerificationIsDeferredPausesAndRepeatsForUnchangedScan(t *testing.T) {
+func TestVerificationIsDeferredPausesAndFullScanRepeatsVerification(t *testing.T) {
 	root := t.TempDir()
 	writeTestWAV(t, filepath.Join(root, "song.wav"), 8_000)
 	service, playback := newVerificationTestService(t, []Root{{ID: "music", Name: "Music", Path: root}})
@@ -102,17 +105,17 @@ func TestVerificationIsDeferredPausesAndRepeatsForUnchangedScan(t *testing.T) {
 	}
 
 	t.Setenv(verificationHelperEnvironment, "corrupt")
-	second, err := service.StartScan(t.Context())
+	second, err := service.StartScanMode(t.Context(), ScanModeFull)
 	if err != nil {
 		t.Fatal(err)
 	}
 	second = waitScan(t, service, second.ID)
-	if second.Status != "complete" || second.Updated != 0 || second.Added != 0 {
-		t.Fatalf("unchanged metadata scan = %+v", second)
+	if second.Status != "complete" || second.Updated != 1 || second.Added != 0 {
+		t.Fatalf("full metadata scan = %+v", second)
 	}
 	status = waitVerificationRunState(t, service, second.ID, "complete")
 	if status.Failed != 1 || status.Verified != 0 {
-		t.Fatalf("fresh verification after unchanged scan = %+v", status)
+		t.Fatalf("fresh verification after full scan = %+v", status)
 	}
 	records := waitIntegrityHistory(t, history, 1)
 	if records.Total != 1 || len(records.Items) != 1 {
@@ -121,6 +124,215 @@ func TestVerificationIsDeferredPausesAndRepeatsForUnchangedScan(t *testing.T) {
 	event := records.Items[0]
 	if event.Outcome != "failed" || event.TrackID == "" || event.TrackTitle != "song" || event.RootName != "Music" || event.RelativePath != "song.wav" || event.Code != "AUDIO_DECODE_CORRUPT" {
 		t.Fatalf("integrity event = %+v", event)
+	}
+}
+
+func TestIncrementalVerificationReusesUnchangedAndChecksChangedNewAndDeletedFiles(t *testing.T) {
+	root := t.TempDir()
+	writeTestWAV(t, filepath.Join(root, "unchanged.wav"), 4_000)
+	writeTestWAV(t, filepath.Join(root, "changed.wav"), 4_000)
+	writeTestWAV(t, filepath.Join(root, "deleted.wav"), 4_000)
+	service, playback := newVerificationTestService(t, []Root{{ID: "music", Name: "Music", Path: root}})
+	t.Setenv(verificationHelperEnvironment, "valid")
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := service.StartVerification(VerificationOptions{FFmpegPath: executable, IsPlaybackActive: playback.Load}); err != nil {
+		t.Fatal(err)
+	}
+	first, err := service.StartScan(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if completed := waitScan(t, service, first.ID); completed.Status != "complete" {
+		t.Fatalf("initial scan = %+v", completed)
+	}
+	if status := waitVerificationRunState(t, service, first.ID, "complete"); status.Total != 3 || status.Verified != 3 {
+		t.Fatalf("initial verification = %+v", status)
+	}
+
+	writeTestWAV(t, filepath.Join(root, "changed.wav"), 8_000)
+	if err := os.Remove(filepath.Join(root, "deleted.wav")); err != nil {
+		t.Fatal(err)
+	}
+	writeTestWAV(t, filepath.Join(root, "new.wav"), 4_000)
+	t.Setenv(verificationHelperEnvironment, "corrupt")
+	second, err := service.StartScan(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if completed := waitScan(t, service, second.ID); completed.Status != "complete" || completed.Added != 1 || completed.Updated != 1 || completed.Unavailable != 1 {
+		t.Fatalf("incremental scan = %+v", completed)
+	}
+	status := waitVerificationRunState(t, service, second.ID, "complete")
+	if status.Total != 3 || status.Pending != 0 || status.Verified != 1 || status.Failed != 2 || status.Unverified != 0 {
+		t.Fatalf("incremental verification = %+v", status)
+	}
+	rows, err := service.db.QueryContext(t.Context(), `SELECT relative_path,status FROM library_verification_items ORDER BY relative_path`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	items := make(map[string]string)
+	for rows.Next() {
+		var path, itemStatus string
+		if err := rows.Scan(&path, &itemStatus); err != nil {
+			t.Fatal(err)
+		}
+		items[path] = itemStatus
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 3 || items["unchanged.wav"] != "verified" || items["changed.wav"] != "failed" || items["new.wav"] != "failed" {
+		t.Fatalf("verification items = %#v", items)
+	}
+	if _, exists := items["deleted.wav"]; exists {
+		t.Fatalf("deleted verification item was retained: %#v", items)
+	}
+}
+
+func TestIncrementalVerificationRetainsFailureAcrossRestart(t *testing.T) {
+	root := t.TempDir()
+	writeTestWAV(t, filepath.Join(root, "song.wav"), 4_000)
+	directory := t.TempDir()
+	databasePath := filepath.Join(directory, "library.sqlite")
+	cachePath := filepath.Join(directory, "artwork")
+	rootConfig := []Root{{ID: "music", Name: "Music", Path: root}}
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	firstContext, stopFirst := context.WithCancel(context.Background())
+	firstDB, err := sql.Open("sqlite", databasePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	firstDB.SetMaxOpenConns(1)
+	first, err := New(firstContext, firstDB, rootConfig, cachePath, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	firstHistory, err := errorhistory.New(firstContext, firstDB, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv(verificationHelperEnvironment, "corrupt")
+	if err := first.StartVerification(VerificationOptions{FFmpegPath: executable, History: firstHistory}); err != nil {
+		t.Fatal(err)
+	}
+	initial, err := first.StartScan(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if completed := waitScan(t, first, initial.ID); completed.Status != "complete" {
+		t.Fatalf("initial scan = %+v", completed)
+	}
+	if status := waitVerificationRunState(t, first, initial.ID, "complete"); status.Failed != 1 || status.Verified != 0 {
+		t.Fatalf("initial verification = %+v", status)
+	}
+	if records := waitIntegrityHistory(t, firstHistory, 1); records.Total != 1 {
+		t.Fatalf("initial integrity history = %+v", records)
+	}
+	stopFirst()
+	waitContext, cancelWait := context.WithTimeout(t.Context(), 2*time.Second)
+	if err := first.WaitVerification(waitContext); err != nil {
+		t.Fatal(err)
+	}
+	cancelWait()
+	if err := firstDB.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	secondContext, stopSecond := context.WithCancel(context.Background())
+	secondDB, err := sql.Open("sqlite", databasePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondDB.SetMaxOpenConns(1)
+	second, err := New(secondContext, secondDB, rootConfig, cachePath, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		stopSecond()
+		wait, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		_ = second.WaitVerification(wait)
+		cancel()
+		_ = secondDB.Close()
+	})
+	secondHistory, err := errorhistory.New(secondContext, secondDB, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv(verificationHelperEnvironment, "valid")
+	if err := second.StartVerification(VerificationOptions{FFmpegPath: executable, History: secondHistory}); err != nil {
+		t.Fatal(err)
+	}
+	incremental, err := second.StartScan(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if completed := waitScan(t, second, incremental.ID); completed.Status != "complete" || completed.Updated != 0 {
+		t.Fatalf("restart incremental scan = %+v", completed)
+	}
+	status := waitVerificationRunState(t, second, incremental.ID, "complete")
+	if status.Total != 1 || status.Pending != 0 || status.Verified != 0 || status.Failed != 1 || status.Unverified != 0 {
+		t.Fatalf("retained verification after restart = %+v", status)
+	}
+	records, err := secondHistory.List(t.Context(), errorhistory.ListOptions{Kind: "integrity", Limit: 10})
+	if err != nil || records.Total != 1 {
+		t.Fatalf("retained integrity history = %+v, %v", records, err)
+	}
+}
+
+func TestIncrementalVerificationRetainsUnverifiedOutcomeAndHistory(t *testing.T) {
+	root := t.TempDir()
+	writeTestWAV(t, filepath.Join(root, "song.wav"), 4_000)
+	service, playback := newVerificationTestService(t, []Root{{ID: "music", Name: "Music", Path: root}})
+	history, err := errorhistory.New(t.Context(), service.db, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv(verificationHelperEnvironment, "unsupported")
+	if err := service.StartVerification(VerificationOptions{FFmpegPath: executable, History: history, IsPlaybackActive: playback.Load}); err != nil {
+		t.Fatal(err)
+	}
+	first, err := service.StartScan(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if completed := waitScan(t, service, first.ID); completed.Status != "complete" {
+		t.Fatalf("initial scan = %+v", completed)
+	}
+	if status := waitVerificationRunState(t, service, first.ID, "complete"); status.Unverified != 1 || status.Verified != 0 || status.Failed != 0 {
+		t.Fatalf("initial verification = %+v", status)
+	}
+	if records := waitIntegrityHistory(t, history, 1); records.Items[0].Outcome != "unknown" || records.Items[0].Code != "FORMAT_UNSUPPORTED" {
+		t.Fatalf("initial integrity history = %+v", records)
+	}
+
+	t.Setenv(verificationHelperEnvironment, "valid")
+	second, err := service.StartScan(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if completed := waitScan(t, service, second.ID); completed.Status != "complete" || completed.Updated != 0 {
+		t.Fatalf("incremental scan = %+v", completed)
+	}
+	status := waitVerificationRunState(t, service, second.ID, "complete")
+	if status.Total != 1 || status.Pending != 0 || status.Verified != 0 || status.Failed != 0 || status.Unverified != 1 {
+		t.Fatalf("retained unverified result = %+v", status)
+	}
+	records, err := history.List(t.Context(), errorhistory.ListOptions{Kind: "integrity", Limit: 10})
+	if err != nil || records.Total != 1 {
+		t.Fatalf("retained integrity history = %+v, %v", records, err)
 	}
 }
 
@@ -167,7 +379,7 @@ func TestNewScanSupersedesRunningVerificationAndFencesReplacement(t *testing.T) 
 	}
 }
 
-func TestRootChangeInvalidatesPendingVerification(t *testing.T) {
+func TestConfiguredRootPathChangeInvalidatesPendingVerification(t *testing.T) {
 	firstRoot := t.TempDir()
 	secondRoot := t.TempDir()
 	writeTestWAV(t, filepath.Join(firstRoot, "song.wav"), 4_000)
@@ -186,7 +398,7 @@ func TestRootChangeInvalidatesPendingVerification(t *testing.T) {
 	}
 	waitScan(t, service, scan.ID)
 	waitVerificationState(t, service, "running")
-	if err := service.SetRoots([]Root{{ID: "other", Name: "Other", Path: secondRoot}}); err != nil {
+	if err := service.SetRoots([]Root{{ID: "music", Name: "Music", Path: secondRoot}}); err != nil {
 		t.Fatal(err)
 	}
 	status, err := service.VerificationStatus(t.Context())
@@ -202,6 +414,65 @@ func TestRootChangeInvalidatesPendingVerification(t *testing.T) {
 	}
 	if items != 0 {
 		t.Fatalf("verification items after root change = %d", items)
+	}
+}
+
+func TestAddingConfiguredRootPreservesCompletedVerification(t *testing.T) {
+	firstRoot := t.TempDir()
+	secondRoot := t.TempDir()
+	writeTestWAV(t, filepath.Join(firstRoot, "retained.wav"), 4_000)
+	writeTestWAV(t, filepath.Join(secondRoot, "new.wav"), 4_000)
+	service, playback := newVerificationTestService(t, []Root{{ID: "first", Name: "First", Path: firstRoot}})
+	t.Setenv(verificationHelperEnvironment, "valid")
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := service.StartVerification(VerificationOptions{FFmpegPath: executable, IsPlaybackActive: playback.Load}); err != nil {
+		t.Fatal(err)
+	}
+	first, err := service.StartScan(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if completed := waitScan(t, service, first.ID); completed.Status != "complete" {
+		t.Fatalf("initial scan = %+v", completed)
+	}
+	if status := waitVerificationRunState(t, service, first.ID, "complete"); status.Total != 1 || status.Verified != 1 {
+		t.Fatalf("initial verification = %+v", status)
+	}
+	if err := service.SetRoots([]Root{
+		{ID: "first", Name: "First renamed", Path: firstRoot},
+		{ID: "second", Name: "Second", Path: secondRoot},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	status, err := service.VerificationStatus(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status.State != "complete" || status.Total != 1 || status.Verified != 1 {
+		t.Fatalf("verification after adding root = %+v", status)
+	}
+	var rootName string
+	if err := service.db.QueryRowContext(t.Context(), `SELECT root_name FROM library_verification_items`).Scan(&rootName); err != nil {
+		t.Fatal(err)
+	}
+	if rootName != "First renamed" {
+		t.Fatalf("retained verification root name = %q", rootName)
+	}
+
+	t.Setenv(verificationHelperEnvironment, "corrupt")
+	second, err := service.StartScan(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if completed := waitScan(t, service, second.ID); completed.Status != "complete" || completed.Added != 1 || completed.Updated != 0 {
+		t.Fatalf("added-root scan = %+v", completed)
+	}
+	status = waitVerificationRunState(t, service, second.ID, "complete")
+	if status.Total != 2 || status.Verified != 1 || status.Failed != 1 || status.Unverified != 0 {
+		t.Fatalf("added-root verification = %+v", status)
 	}
 }
 

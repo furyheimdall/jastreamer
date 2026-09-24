@@ -202,6 +202,57 @@ func TestLibraryPlayedQueryParsing(t *testing.T) {
 	}
 }
 
+func TestLibraryScanModeRequestDefaultsAndValidation(t *testing.T) {
+	fixture := startAPI(t, false)
+	fixture.setup(t)
+	for _, body := range []string{`{"mode":"quick"}`, `{"mode":""}`, `{"mode":null}`, `{"mode":3}`} {
+		invalid := fixture.request(t, http.MethodPost, "/api/v1/library/scans", body, nil)
+		if code := responseErrorCode(t, invalid); code != "INVALID_REQUEST" {
+			t.Fatalf("invalid scan mode %s error=%q, want INVALID_REQUEST", body, code)
+		}
+	}
+
+	waitForScan := func(id string) {
+		t.Helper()
+		deadline := time.Now().Add(5 * time.Second)
+		for time.Now().Before(deadline) {
+			jobs, err := fixture.catalog.Scans(t.Context())
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, job := range jobs {
+				if job.ID == id && job.Status != "queued" && job.Status != "running" {
+					return
+				}
+			}
+			time.Sleep(5 * time.Millisecond)
+		}
+		t.Fatalf("scan %q did not finish", id)
+	}
+	for _, request := range []struct {
+		name string
+		body string
+	}{
+		{name: "empty body"},
+		{name: "empty object", body: `{}`},
+		{name: "explicit incremental", body: `{"mode":"incremental"}`},
+		{name: "explicit full", body: `{"mode":"full"}`},
+	} {
+		t.Run(request.name, func(t *testing.T) {
+			response := fixture.request(t, http.MethodPost, "/api/v1/library/scans", request.body, nil)
+			defer response.Body.Close()
+			var job library.ScanJob
+			if err := json.NewDecoder(response.Body).Decode(&job); err != nil {
+				t.Fatal(err)
+			}
+			if response.StatusCode != http.StatusAccepted || job.ID == "" || job.Status != "queued" {
+				t.Fatalf("start scan status=%d job=%+v", response.StatusCode, job)
+			}
+			waitForScan(job.ID)
+		})
+	}
+}
+
 func TestFirstSetupRejectsCrossOriginRebindingAndMissingCSRFHeader(t *testing.T) {
 	fixture := startAPI(t, false)
 	for _, attack := range []struct {

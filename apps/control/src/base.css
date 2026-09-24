@@ -1237,6 +1237,42 @@ html[data-client] .app-shell .mobile-header {
   gap: 0.75rem;
 }
 
+.scan-actions {
+  display: flex;
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.5rem;
+}
+
+.scan-actions .button {
+  white-space: nowrap;
+}
+
+.scan-confirmation {
+  display: grid;
+  padding: 0.85rem 1rem;
+  margin-top: 1rem;
+  border: 1px solid var(--border);
+  border-radius: 0.8rem;
+  background: #ffffff05;
+  gap: 0.75rem;
+}
+
+.scan-confirmation p {
+  margin: 0.3rem 0 0;
+  color: var(--muted);
+  font-size: 0.84rem;
+  line-height: 1.55;
+}
+
+.scan-confirmation-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.5rem;
+}
+
 .scan-list {
   padding: 0;
   margin: 1rem 0 0;
@@ -1592,6 +1628,22 @@ body:has([aria-modal="true"]) {
   .queue-heading-row > .button,
   .settings-card-heading > .button {
     width: 100%;
+  }
+
+  .scan-actions {
+    display: grid;
+    width: 100%;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .scan-actions .button,
+  .scan-confirmation-actions .button {
+    width: 100%;
+  }
+
+  .scan-confirmation-actions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .settings-save-row {

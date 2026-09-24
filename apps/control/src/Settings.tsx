@@ -1,8 +1,7 @@
-import { useCallback, useEffect, useRef, useState, type FormEvent, type KeyboardEvent as ReactKeyboardEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import { api, ApiError } from "./api";
 import { useI18n, type Language, type MessageKey } from "./i18n";
 import AirPlayHelpDialog from "./AirPlayHelpDialog";
-import InstallApp from "./InstallApp";
 import { HistoryPanel, VerificationStatus } from "./Diagnostics";
 import ServerPathPicker from "./ServerPathPicker";
 import type { ConfigDocument, ConfigRoot, FilesystemEntryKind, NetworkInterfacesDocument, RestartResponse, ScanJob, ServerConfig } from "./types";
@@ -43,6 +42,7 @@ type RestartStatus =
   | { kind: "success" }
   | { kind: "handoff"; url: string }
   | { kind: "error"; message: string };
+type ScanMode = "incremental" | "full";
 
 interface PathFieldProps {
   id: string;
@@ -123,14 +123,24 @@ function reconnectURL(value: string): URL | null {
   }
 }
 
+function formatScanDateTime(value: string, formatter: Intl.DateTimeFormat): string {
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? value : formatter.format(date);
+}
+
 export default function Settings({ configRevision, libraryRevision, historyRevision, verificationRevision, onNotice, onSignedOut }: SettingsProps) {
   const { language, locale, t, setLanguage } = useI18n();
+  const scanDateTime = useMemo(() => new Intl.DateTimeFormat(locale, {
+    dateStyle: "medium",
+    timeStyle: "short",
+  }), [locale]);
   const [document, setDocument] = useState<ConfigDocument | null>(null);
   const [draft, setDraft] = useState<ServerConfig | null>(null);
   const [scans, setScans] = useState<ScanJob[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [scanBusy, setScanBusy] = useState("");
+  const [fullScanArmed, setFullScanArmed] = useState(false);
   const [error, setError] = useState("");
   const [remoteConfigPending, setRemoteConfigPending] = useState(false);
   const [restartArmed, setRestartArmed] = useState(false);
@@ -587,13 +597,14 @@ export default function Settings({ configRevision, libraryRevision, historyRevis
     }));
   }
 
-  async function startScan() {
+  async function startScan(mode: ScanMode) {
     if (restartInFlightRef.current || restartStatus.kind === "handoff") return;
-    setScanBusy("new");
+    setScanBusy(mode);
+    setFullScanArmed(false);
     try {
       const job = await api<ScanJob>("/library/scans", {
         method: "POST",
-        body: JSON.stringify({}),
+        body: JSON.stringify({ mode }),
       });
       setScans((current) => [job, ...current.filter((item) => item.id !== job.id)]);
       onNotice(t("settings.scan.started"));
@@ -755,7 +766,6 @@ export default function Settings({ configRevision, libraryRevision, historyRevis
             <p>{t("settings.tabs.general.description")}</p>
           </header>
           {languageSettings}
-          <InstallApp />
         </div>
         {(["network", "library", "playback"] as SettingsTab[]).map((tab) => (
           <div
@@ -814,6 +824,9 @@ export default function Settings({ configRevision, libraryRevision, historyRevis
     : mediaOriginOptions.some((option) => option.value === draft.media.base_url)
       ? draft.media.base_url
       : "__manual__";
+  const scanActionsDisabled = restartMutationsDisabled
+    || Boolean(scanBusy)
+    || scans.some((scan) => scan.status === "queued" || scan.status === "running");
 
   const restartRequired = Boolean(document?.restart_required);
   const restartSupported = Boolean(document?.restart_supported);
@@ -940,7 +953,6 @@ export default function Settings({ configRevision, libraryRevision, historyRevis
           <p>{t("settings.tabs.general.description")}</p>
         </header>
         {languageSettings}
-        <InstallApp />
         <section className="settings-card">
           <h2>{t("settings.serverName.title")}</h2>
           <label className="field-label" htmlFor="server-name">{t("settings.serverName.label")}</label>
@@ -1408,20 +1420,60 @@ export default function Settings({ configRevision, libraryRevision, historyRevis
               <h2 id="scan-heading">{t("settings.scan.title")}</h2>
               <p className="muted">{t("settings.scan.description")}</p>
             </div>
-            <button
-              className="button button-primary"
-              type="button"
-              disabled={restartMutationsDisabled || Boolean(scanBusy) || scans.some((scan) => scan.status === "queued" || scan.status === "running")}
-              onClick={() => void startScan()}
-            >
-              {t(scanBusy === "new" ? "settings.scan.starting" : "settings.scan.start")}
-            </button>
+            <div className="scan-actions">
+              <button
+                className="button button-primary"
+                id="scan-now-button"
+                type="button"
+                disabled={scanActionsDisabled}
+                onClick={() => void startScan("incremental")}
+              >
+                {t(scanBusy === "incremental" ? "settings.scan.starting" : "settings.scan.start")}
+              </button>
+              <button
+                className="button button-ghost"
+                id="full-rescan-button"
+                type="button"
+                disabled={scanActionsDisabled || fullScanArmed}
+                onClick={() => setFullScanArmed(true)}
+              >
+                {t("settings.scan.full")}
+              </button>
+            </div>
           </div>
+          {fullScanArmed && (
+            <div
+              className="scan-confirmation"
+              role="group"
+              aria-labelledby="full-rescan-confirmation-title"
+              aria-describedby="full-rescan-confirmation-description"
+            >
+              <div>
+                <strong id="full-rescan-confirmation-title">{t("settings.scan.fullConfirmTitle")}</strong>
+                <p id="full-rescan-confirmation-description">{t("settings.scan.fullConfirmDescription")}</p>
+              </div>
+              <div className="scan-confirmation-actions">
+                <button className="button button-ghost" type="button" onClick={() => setFullScanArmed(false)}>
+                  {t("settings.scan.fullConfirmCancel")}
+                </button>
+                <button
+                  className="button button-primary"
+                  id="full-rescan-confirm-button"
+                  type="button"
+                  disabled={scanActionsDisabled}
+                  onClick={() => void startScan("full")}
+                >
+                  {t(scanBusy === "full" ? "settings.scan.starting" : "settings.scan.fullConfirmAction")}
+                </button>
+              </div>
+            </div>
+          )}
+          {scans.length > 0 && <h3>{t("settings.scan.recent")}</h3>}
           {scans.length === 0 ? (
             <p className="empty-inline">{t("settings.scan.empty")}</p>
           ) : (
             <ul className="scan-list">
-              {scans.map((scan) => {
+              {scans.slice(0, 5).map((scan) => {
                 const active = scan.status === "queued" || scan.status === "running";
                 return (
                   <li key={scan.id}>
@@ -1436,6 +1488,16 @@ export default function Settings({ configRevision, libraryRevision, historyRevis
                         updated: scan.updated.toLocaleString(locale),
                         unavailable: scan.unavailable.toLocaleString(locale),
                       })}</span>
+                      <span>
+                        {t("settings.scan.startedAt")}{" "}
+                        <time dateTime={scan.started_at}>{formatScanDateTime(scan.started_at, scanDateTime)}</time>
+                      </span>
+                      {!active && scan.finished_at && (
+                        <span>
+                          {t("settings.scan.finishedAt")}{" "}
+                          <time dateTime={scan.finished_at}>{formatScanDateTime(scan.finished_at, scanDateTime)}</time>
+                        </span>
+                      )}
                       {scan.error && <span className="error-text">{scan.error}</span>}
                     </div>
                     {active && (

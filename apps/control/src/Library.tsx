@@ -19,7 +19,7 @@ type Scope =
   | { kind: "album"; id: string; title: string; subtitle: string; artworkID: string }
   | { kind: "artist"; name: string; title: string }
   | { kind: "genre"; name: string; title: string }
-  | { kind: "folder"; rootID: string; path: string; title: string };
+  | { kind: "folder"; rootID: string; rootTitle: string; path: string; title: string };
 type QueueAction = "play" | "next" | "append";
 
 const tabs: Array<{ kind: LibraryKind; labelKey: MessageKey }> = [
@@ -76,8 +76,8 @@ function Icon({ name }: { name: "music" | "play" | "next" | "append" | "playlist
     music: <><path d="M9 18V5l11-2v13" /><circle cx="6" cy="18" r="3" /><circle cx="17" cy="16" r="3" /></>,
     play: <path d="m8 5 11 7-11 7z" />,
     next: <><path d="m5 5 10 7L5 19z" /><path d="M19 5v14" /></>,
-    append: <><path d="M4 6h10M4 12h10M4 18h7" /><path d="M18 14v7m-3.5-3.5h7" /></>,
-    playlist: <><path d="M4 6h12M4 11h12M4 16h7" /><path d="M18 14v7m-3.5-3.5h7" /></>,
+    append: <><path d="M4 6h9M4 12h7M4 18h9" /><path d="M18 4v14m-3-3 3 3 3-3" /></>,
+    playlist: <><path d="M6 3h12v18l-6-3.5L6 21z" /><path d="M12 7v6M9 10h6" /></>,
     folder: <path d="M3 6.5h7l2 2h9v10H3z" />,
     back: <path d="m15 18-6-6 6-6" />,
     search: <><circle cx="11" cy="11" r="7" /><path d="m20 20-4-4" /></>,
@@ -85,6 +85,11 @@ function Icon({ name }: { name: "music" | "play" | "next" | "append" | "playlist
     heart: <path d="M20.8 5.8a5.5 5.5 0 0 0-7.8 0L12 6.9l-1.1-1.1a5.5 5.5 0 0 0-7.8 7.8L12 22l8.8-8.4a5.5 5.5 0 0 0 0-7.8z" />,
   };
   return <svg className="library-icon" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">{paths[name]}</svg>;
+}
+
+function parentFolderPath(path: string): string {
+  const slash = path.lastIndexOf("/");
+  return slash < 0 ? "" : path.slice(0, slash);
 }
 
 function Artwork({ id, label, missingLabel, compact = false }: { id: string; label: string; missingLabel: string; compact?: boolean }) {
@@ -416,12 +421,18 @@ export default function Library({ revision, onNotice, onQueueChange, downloads }
       setScope({ kind: "genre", name: genre.name, title: genre.name });
     } else if (kind === "folders" && "root_id" in item) {
       const folder = item as Folder;
-      setScope({ kind: "folder", rootID: folder.root_id, path: folder.path, title: folder.name });
+      setScope({ kind: "folder", rootID: folder.root_id, rootTitle: folder.name, path: folder.path, title: folder.name });
     }
   }
 
   function leaveScope() {
-    setScope(null);
+    if (scope?.kind === "folder" && scope.path) {
+      const path = parentFolderPath(scope.path);
+      const title = path ? path.slice(path.lastIndexOf("/") + 1) : scope.rootTitle;
+      setScope({ ...scope, path, title });
+    } else {
+      setScope(null);
+    }
     setChildFolders([]);
   }
 
@@ -463,7 +474,15 @@ export default function Library({ revision, onNotice, onQueueChange, downloads }
 
       {scope && (
         <div className="library-detail-header">
-          <button className="button button-ghost" type="button" onClick={leaveScope}><Icon name="back" /> {t("library.backToList")}</button>
+          <div className="library-detail-toolbar" role="toolbar" aria-label={t("library.currentListActions")}>
+            <button className="button button-ghost" type="button" onClick={leaveScope}><Icon name="back" /> {t(scope.kind === "folder" && scope.path ? "library.parentFolder" : "library.backToList")}</button>
+            <button className="button button-primary" type="button" disabled={actionBusy || (!loading && !page?.total)} onClick={() => runScopeQueue("play")}><Icon name="play" /> {t("library.playAll")}</button>
+            <button className="button button-ghost" type="button" disabled={actionBusy || (!loading && !page?.total)} onClick={() => runScopeQueue("next")}><Icon name="next" /> {t("library.playNext")}</button>
+            <button className="button button-ghost" type="button" disabled={actionBusy || (!loading && !page?.total)} onClick={() => runScopeQueue("append")}><Icon name="append" /> {t("library.addToEnd")}</button>
+            <button className="button button-ghost" type="button" disabled={actionBusy || (!loading && !page?.total)} onClick={openScopePicker}><Icon name="playlist" /> {t("library.addToSaved")}</button>
+            {scope.kind === "album" && <NativeDownloadAction downloads={downloads} target={{ kind: "album", id: scope.id }} title={scope.title} />}
+            {scope.kind === "folder" && <NativeDownloadAction downloads={downloads} target={{ kind: "folder", root_id: scope.rootID, path: scope.path }} title={scope.title} />}
+          </div>
           <div className="library-detail-summary">
             {scope.kind === "album" ? (
               <Artwork
@@ -476,16 +495,8 @@ export default function Library({ revision, onNotice, onQueueChange, downloads }
               <span className="muted">{t(scopeTypeKeys[scope.kind])}</span>
               <h2>{scope.title}</h2>
               {scope.kind === "album" && <p>{scope.subtitle}</p>}
-              {scope.kind === "folder" && <p className="library-path">{scope.path}</p>}
+              {scope.kind === "folder" && <p className="library-path">{scope.path || t("library.rootFolder")}</p>}
             </div>
-          </div>
-          <div className="library-bulk-actions" aria-label={t("library.currentListActions")}>
-            <button className="button button-primary" type="button" disabled={actionBusy || (!loading && !page?.total)} onClick={() => runScopeQueue("play")}><Icon name="play" /> {t("library.playAll")}</button>
-            <button className="button button-ghost" type="button" disabled={actionBusy || (!loading && !page?.total)} onClick={() => runScopeQueue("next")}><Icon name="next" /> {t("library.playNext")}</button>
-            <button className="button button-ghost" type="button" disabled={actionBusy || (!loading && !page?.total)} onClick={() => runScopeQueue("append")}><Icon name="append" /> {t("library.addToEnd")}</button>
-            <button className="button button-ghost" type="button" disabled={actionBusy || (!loading && !page?.total)} onClick={openScopePicker}><Icon name="playlist" /> {t("library.addToSaved")}</button>
-            {scope.kind === "album" && <NativeDownloadAction downloads={downloads} target={{ kind: "album", id: scope.id }} title={scope.title} />}
-            {scope.kind === "folder" && <NativeDownloadAction downloads={downloads} target={{ kind: "folder", root_id: scope.rootID, path: scope.path }} title={scope.title} />}
           </div>
         </div>
       )}
@@ -550,7 +561,7 @@ export default function Library({ revision, onNotice, onQueueChange, downloads }
         <div className="library-child-folders" aria-label={t("library.childFolders")}>
           {childFolders.map((folder) => (
             <div className="library-folder-item" key={`${folder.root_id}:${folder.path}`}>
-              <button className="library-folder-row" type="button" onClick={() => setScope({ kind: "folder", rootID: folder.root_id, path: folder.path, title: folder.name })}><span className="library-folder-icon"><Icon name="folder" /></span><span><strong>{folder.name}</strong><small>{folder.path}</small></span><span className="library-folder-count">{t(folder.track_count === 1 ? "library.oneTrack" : "library.manyTracks", { count: numberFormatter.format(folder.track_count) })}</span></button>
+              <button className="library-folder-row" type="button" onClick={() => setScope({ kind: "folder", rootID: folder.root_id, rootTitle: scope.rootTitle, path: folder.path, title: folder.name })}><span className="library-folder-icon"><Icon name="folder" /></span><span><strong>{folder.name}</strong><small>{folder.path}</small></span><span className="library-folder-count">{t(folder.track_count === 1 ? "library.oneTrack" : "library.manyTracks", { count: numberFormatter.format(folder.track_count) })}</span></button>
               <NativeDownloadAction downloads={downloads} target={{ kind: "folder", root_id: folder.root_id, path: folder.path }} title={folder.name} disabled={folder.track_count === 0} />
             </div>
           ))}
@@ -583,7 +594,7 @@ export default function Library({ revision, onNotice, onQueueChange, downloads }
                 <button type="button" title={t("library.playNow")} aria-label={t("library.playNowTrack", { title: track.title })} disabled={!track.available || actionBusy} onClick={() => runQueue([track], "play")}><Icon name="play" /></button>
                 <button type="button" title={t("library.playNextTitle")} aria-label={t("library.playNextTrack", { title: track.title })} disabled={!track.available || actionBusy} onClick={() => runQueue([track], "next")}><Icon name="next" /></button>
                 <button type="button" title={t("library.addToEnd")} aria-label={t("library.addEndTrack", { title: track.title })} disabled={!track.available || actionBusy} onClick={() => runQueue([track], "append")}><Icon name="append" /></button>
-                <button type="button" title={t("library.addSavedTitle")} aria-label={t("library.addSavedTrack", { title: track.title })} disabled={!track.available || actionBusy} onClick={() => openTrackPicker(track)}><Icon name="playlist" /></button>
+                <button type="button" title={t("library.addToSaved")} aria-label={t("library.addSavedTrack", { title: track.title })} disabled={!track.available || actionBusy} onClick={() => openTrackPicker(track)}><Icon name="playlist" /></button>
                 <button type="button" title={t("library.trackInfo")} aria-label={t("library.viewTrackInfo", { title: track.title })} onClick={(event) => { event.stopPropagation(); setInfoTrackID(track.id); }}><Icon name="info" /></button>
               </div>
             </article>

@@ -80,6 +80,113 @@ func TestScanHydratesDurationArtworkAndRejectsSymlinkReplacement(t *testing.T) {
 	}
 }
 
+func TestFullScanBypassesUnchangedMetadataFastPath(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "song.wav")
+	writeTestWAV(t, path, 4_000)
+	service := newTestService(t, []Root{{ID: "music", Name: "Music", Path: root}})
+	initial, err := service.StartScan(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if completed := waitScan(t, service, initial.ID); completed.Status != "complete" {
+		t.Fatalf("initial scan = %+v", completed)
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	file, err := os.OpenFile(path, os.O_WRONLY, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = file.WriteAt([]byte("NOPE"), 0); err != nil {
+		file.Close()
+		t.Fatal(err)
+	}
+	if err = file.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err = os.Chtimes(path, info.ModTime(), info.ModTime()); err != nil {
+		t.Fatal(err)
+	}
+
+	incremental, err := service.StartScan(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if completed := waitScan(t, service, incremental.ID); completed.Status != "complete" || completed.Updated != 0 || completed.Errors != 0 {
+		t.Fatalf("incremental scan = %+v", completed)
+	}
+	full, err := service.StartScanMode(t.Context(), ScanModeFull)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if completed := waitScan(t, service, full.ID); completed.Status != "failed" || completed.Errors != 1 {
+		t.Fatalf("full scan = %+v", completed)
+	}
+}
+
+func TestChangedConfiguredRootPathCannotReuseMatchingFileIdentity(t *testing.T) {
+	firstRoot := t.TempDir()
+	firstPath := filepath.Join(firstRoot, "song.wav")
+	writeTestWAV(t, firstPath, 4_000)
+	service := newTestService(t, []Root{{ID: "music", Name: "Music", Path: firstRoot}})
+	initial, err := service.StartScan(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if completed := waitScan(t, service, initial.ID); completed.Status != "complete" {
+		t.Fatalf("initial scan = %+v", completed)
+	}
+	firstInfo, err := os.Stat(firstPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	secondRoot := t.TempDir()
+	secondPath := filepath.Join(secondRoot, "song.wav")
+	writeTestWAV(t, secondPath, 4_000)
+	file, err := os.OpenFile(secondPath, os.O_WRONLY, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = file.WriteAt([]byte("NOPE"), 0); err != nil {
+		file.Close()
+		t.Fatal(err)
+	}
+	if err = file.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err = os.Chtimes(secondPath, firstInfo.ModTime(), firstInfo.ModTime()); err != nil {
+		t.Fatal(err)
+	}
+	if err = service.SetRoots([]Root{{ID: "music", Name: "Music", Path: secondRoot}}); err != nil {
+		t.Fatal(err)
+	}
+	scan, err := service.StartScan(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if completed := waitScan(t, service, scan.ID); completed.Status != "failed" || completed.Errors != 1 || completed.Updated != 0 {
+		t.Fatalf("changed-root scan = %+v", completed)
+	}
+}
+
+func TestStartScanRejectsInvalidMode(t *testing.T) {
+	service := newTestService(t, nil)
+	if _, err := service.StartScanMode(t.Context(), ScanMode("invalid")); !isInvalidRequest(err) {
+		t.Fatalf("invalid scan mode error = %#v", err)
+	}
+	jobs, err := service.Scans(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(jobs) != 0 {
+		t.Fatalf("invalid mode created scan jobs: %+v", jobs)
+	}
+}
+
 func TestFailedRootScanPreservesExistingAvailability(t *testing.T) {
 	root := t.TempDir()
 	writeTestWAV(t, filepath.Join(root, "song.wav"), 4_000)

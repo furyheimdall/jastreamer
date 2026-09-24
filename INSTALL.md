@@ -252,12 +252,12 @@ See [iOS controls](INSTRUCTION.md#ios-controls) for selection, sessions, keyboar
 
 The installable phone Web app is another view of the Server-hosted interface, requires network access to that Server, and provides no service worker, cached library, or offline playback. The Windows and Linux desktop apps do not need this PWA.
 
-1. Open the Server's complete URL in the phone browser and sign in, then open **Settings** and find the optional **Install jastreamer** card.
-2. In a browser that supplies a real `beforeinstallprompt` event, choose the card's **Install app** button and approve the browser's native prompt. If the browser does not offer that event, follow its displayed browser-specific guidance instead.
+1. Open the Server's complete URL in the phone browser and sign in. There is no shortcut installation card in **Settings**.
+2. If supported, use the browser's own **Install app** or **Add to Home Screen** menu and approve its native prompt.
 3. On iPhone Safari, use **Share → Add to Home Screen**. iPad uses the existing tablet/desktop layout rather than the phone layout, but Safari can still show the Add to Home Screen guidance.
-4. Launch the saved app. When the browser reports standalone display mode, the Settings card reports that jastreamer is installed.
+4. Launch the saved shortcut. Existing shortcuts remain usable; jastreamer no longer displays an installation status card.
 
-PWA installation requires an HTTPS origin trusted by that phone and browser. Plain HTTP is accepted only for local development on `localhost`, `127.0.0.1`, or `::1`; a phone opening a private-LAN HTTP address sees the HTTPS requirement rather than an install action. Configure the Server's built-in HTTPS certificate, private key, and listener in **Settings**, save, restart when requested, and reopen the trusted HTTPS URL. Do not bypass certificate warnings, register an untrusted certificate as a workaround, expose the NAS publicly, or place a naive TLS-terminating proxy in front of the HTTP listener: the Server checks mutation request origins against its own listener scheme.
+PWA installation requires an HTTPS origin trusted by that phone and browser. Plain HTTP is accepted only for local development on `localhost`, `127.0.0.1`, or `::1`. Configure the Server's built-in HTTPS certificate, private key, and listener in **Settings**, save, restart when requested, and reopen the trusted HTTPS URL. Do not bypass certificate warnings, register an untrusted certificate as a workaround, expose the NAS publicly, or place a naive TLS-terminating proxy in front of the HTTP listener: the Server checks mutation request origins against its own listener scheme.
 
 The phone layout and normal browser controls do not require PWA installation. On a trusted private-LAN HTTP deployment, refresh the Server page and use it in the browser; installation remains unavailable until trusted HTTPS is configured. Moving to a different scheme, hostname, or port creates a different browser origin and may require signing in again.
 

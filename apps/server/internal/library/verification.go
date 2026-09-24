@@ -248,30 +248,105 @@ func (service *Service) configuredRootsMatch(ctx context.Context, roots []Root) 
 	return true, nil
 }
 
-func (service *Service) invalidateVerification() {
-	service.verifyMu.Lock()
-	cancel := service.verifyCancel
-	service.verifyCancel = nil
-	service.verifyMu.Unlock()
-	if cancel != nil {
-		cancel(errVerificationSuperseded)
-	}
+func (service *Service) reconcileVerificationRoots(roots []Root) error {
 	ctx, stop := context.WithTimeout(context.WithoutCancel(service.ctx), 5*time.Second)
 	defer stop()
+	configured := make(map[string]Root, len(roots))
+	for _, root := range roots {
+		configured[root.ID] = root
+	}
+	rows, err := service.db.QueryContext(ctx, `SELECT id,name,path FROM library_roots WHERE configured=1`)
+	if err != nil {
+		return fmt.Errorf("load verification roots: %w", err)
+	}
+	previous := make(map[string]Root)
+	for rows.Next() {
+		var root Root
+		if err = rows.Scan(&root.ID, &root.Name, &root.Path); err != nil {
+			rows.Close()
+			return fmt.Errorf("read verification root: %w", err)
+		}
+		previous[root.ID] = root
+	}
+	if err = rows.Err(); err != nil {
+		rows.Close()
+		return fmt.Errorf("read verification roots: %w", err)
+	}
+	if err = rows.Close(); err != nil {
+		return fmt.Errorf("close verification roots: %w", err)
+	}
+	invalidated := make([]string, 0)
+	for id, oldRoot := range previous {
+		root, exists := configured[id]
+		if !exists || root.Path != oldRoot.Path {
+			invalidated = append(invalidated, id)
+		}
+	}
+
 	tx, err := service.db.BeginTx(ctx, nil)
 	if err != nil {
-		return
+		return fmt.Errorf("begin verification root reconciliation: %w", err)
 	}
 	defer tx.Rollback()
-	if _, err = tx.ExecContext(ctx, `DELETE FROM library_verification_items`); err != nil {
-		return
+	if _, err = tx.ExecContext(ctx, `UPDATE library_verification_items SET status='pending' WHERE status='running'`); err != nil {
+		return fmt.Errorf("pause verification root reconciliation: %w", err)
 	}
-	if _, err = tx.ExecContext(ctx, `UPDATE library_verification_state SET run_id='',scan_id='',state=CASE WHEN state='unavailable' THEN 'unavailable' ELSE 'idle' END,reason=CASE WHEN state='unavailable' THEN reason ELSE '' END,total=0,pending=0,verified=0,failed=0,unverified=0,current_track_id='',current_track_title='',error=CASE WHEN state='unavailable' THEN error ELSE '' END,updated_at=? WHERE singleton=1`, timestamp(time.Now())); err != nil {
-		return
+	for _, id := range invalidated {
+		if _, err = tx.ExecContext(ctx, `DELETE FROM library_verification_items WHERE root_id=?`, id); err != nil {
+			return fmt.Errorf("invalidate verification root: %w", err)
+		}
 	}
-	if tx.Commit() == nil {
-		service.notify("verification")
+	for id, root := range configured {
+		if oldRoot, exists := previous[id]; exists && oldRoot.Path == root.Path && oldRoot.Name != root.Name {
+			if _, err = tx.ExecContext(ctx, `UPDATE library_verification_items SET root_name=? WHERE root_id=?`, root.Name, id); err != nil {
+				return fmt.Errorf("rename verification root: %w", err)
+			}
+		}
 	}
+	var runID, scanID, state, reason, stateError string
+	if err = tx.QueryRowContext(ctx, `SELECT run_id,scan_id,state,reason,error FROM library_verification_state WHERE singleton=1`).Scan(&runID, &scanID, &state, &reason, &stateError); err != nil {
+		return fmt.Errorf("load verification root state: %w", err)
+	}
+	var total, pending, verified, failed, unverified int64
+	if runID != "" {
+		if err = tx.QueryRowContext(ctx, `SELECT count(*),
+			coalesce(sum(status IN ('pending','running')),0),
+			coalesce(sum(status='verified'),0),
+			coalesce(sum(status='failed'),0),
+			coalesce(sum(status='unverified'),0)
+			FROM library_verification_items WHERE run_id=?`, runID).Scan(&total, &pending, &verified, &failed, &unverified); err != nil {
+			return fmt.Errorf("count reconciled verification items: %w", err)
+		}
+	}
+	engineUnavailable := state == "unavailable" && reason == "engine"
+	if len(invalidated) != 0 && total == 0 {
+		runID = ""
+		scanID = ""
+	}
+	switch {
+	case engineUnavailable:
+		state = "unavailable"
+	case runID == "":
+		state = "idle"
+		reason = ""
+		stateError = ""
+	case pending != 0:
+		state = "queued"
+		reason = ""
+		stateError = ""
+	default:
+		state = "complete"
+		reason = ""
+		stateError = ""
+	}
+	if _, err = tx.ExecContext(ctx, `UPDATE library_verification_state SET run_id=?,scan_id=?,state=?,reason=?,total=?,pending=?,verified=?,failed=?,unverified=?,current_track_id='',current_track_title='',error=?,updated_at=? WHERE singleton=1`, runID, scanID, state, reason, total, pending, verified, failed, unverified, stateError, timestamp(time.Now())); err != nil {
+		return fmt.Errorf("save verification root reconciliation: %w", err)
+	}
+	if err = tx.Commit(); err != nil {
+		return fmt.Errorf("commit verification root reconciliation: %w", err)
+	}
+	service.notify("verification")
+	return nil
 }
 
 func (service *Service) setVerificationScanning(active bool) {
@@ -285,7 +360,7 @@ func (service *Service) setVerificationScanning(active bool) {
 	service.wakeVerification()
 }
 
-func (service *Service) scheduleVerification(scanID string) error {
+func (service *Service) scheduleVerification(scanID string, full bool) error {
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(service.ctx), 10*time.Second)
 	defer cancel()
 	tx, err := service.db.BeginTx(ctx, nil)
@@ -293,21 +368,34 @@ func (service *Service) scheduleVerification(scanID string) error {
 		return fmt.Errorf("begin verification scheduling: %w", err)
 	}
 	defer tx.Rollback()
-	if _, err = tx.ExecContext(ctx, `DELETE FROM library_verification_items`); err != nil {
-		return fmt.Errorf("clear previous verification: %w", err)
-	}
 	if _, err = tx.ExecContext(ctx, `INSERT INTO library_verification_items(run_id,scan_id,track_id,root_id,root_name,relative_path,title,format,duration_ms,byte_size,modified_ns,status)
-		SELECT ?,?,tracks.id,tracks.root_id,roots.name,tracks.relative_path,tracks.title,tracks.format,tracks.duration_ms,tracks.byte_size,tracks.modified_ns,'pending'
-		FROM library_tracks AS tracks JOIN library_roots AS roots ON roots.id=tracks.root_id
-		WHERE tracks.available=1 AND tracks.last_seen_scan=? AND roots.configured=1`, scanID, scanID, scanID); err != nil {
+		SELECT ?,?,tracks.id,tracks.root_id,roots.name,tracks.relative_path,tracks.title,tracks.format,tracks.duration_ms,tracks.byte_size,tracks.modified_ns,
+			CASE WHEN ? THEN 'pending'
+				WHEN previous.status IN ('verified','failed','unverified')
+					AND previous.root_id=tracks.root_id AND previous.relative_path=tracks.relative_path
+					AND previous.byte_size=tracks.byte_size AND previous.modified_ns=tracks.modified_ns
+				THEN previous.status ELSE 'pending' END
+		FROM library_tracks AS tracks
+		JOIN library_roots AS roots ON roots.id=tracks.root_id
+		LEFT JOIN library_verification_state AS state ON state.singleton=1
+		LEFT JOIN library_verification_items AS previous ON previous.run_id=state.run_id AND previous.track_id=tracks.id
+		WHERE tracks.available=1 AND tracks.last_seen_scan=? AND roots.configured=1`, scanID, scanID, full, scanID); err != nil {
 		return fmt.Errorf("schedule verification items: %w", err)
 	}
-	var total int64
-	if err = tx.QueryRowContext(ctx, `SELECT count(*) FROM library_verification_items WHERE run_id=?`, scanID).Scan(&total); err != nil {
+	if _, err = tx.ExecContext(ctx, `DELETE FROM library_verification_items WHERE run_id<>?`, scanID); err != nil {
+		return fmt.Errorf("prune previous verification items: %w", err)
+	}
+	var total, pending, verified, failed, unverified int64
+	if err = tx.QueryRowContext(ctx, `SELECT count(*),
+		coalesce(sum(status IN ('pending','running')),0),
+		coalesce(sum(status='verified'),0),
+		coalesce(sum(status='failed'),0),
+		coalesce(sum(status='unverified'),0)
+		FROM library_verification_items WHERE run_id=?`, scanID).Scan(&total, &pending, &verified, &failed, &unverified); err != nil {
 		return fmt.Errorf("count verification items: %w", err)
 	}
 	state := "queued"
-	if total == 0 {
+	if pending == 0 {
 		state = "complete"
 	}
 	var previous, previousReason string
@@ -317,7 +405,7 @@ func (service *Service) scheduleVerification(scanID string) error {
 	if previous == "unavailable" && previousReason == "engine" {
 		state = "unavailable"
 	}
-	if _, err = tx.ExecContext(ctx, `UPDATE library_verification_state SET run_id=?,scan_id=?,state=?,reason=CASE WHEN ?='unavailable' THEN reason ELSE '' END,total=?,pending=?,verified=0,failed=0,unverified=0,current_track_id='',current_track_title='',error=CASE WHEN ?='unavailable' THEN error ELSE '' END,updated_at=? WHERE singleton=1`, scanID, scanID, state, state, total, total, state, timestamp(time.Now())); err != nil {
+	if _, err = tx.ExecContext(ctx, `UPDATE library_verification_state SET run_id=?,scan_id=?,state=?,reason=CASE WHEN ?='unavailable' THEN reason ELSE '' END,total=?,pending=?,verified=?,failed=?,unverified=?,current_track_id='',current_track_title='',error=CASE WHEN ?='unavailable' THEN error ELSE '' END,updated_at=? WHERE singleton=1`, scanID, scanID, state, state, total, pending, verified, failed, unverified, state, timestamp(time.Now())); err != nil {
 		return fmt.Errorf("save verification schedule: %w", err)
 	}
 	if err = tx.Commit(); err != nil {

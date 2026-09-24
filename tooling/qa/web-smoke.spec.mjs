@@ -748,3 +748,37 @@ test("unliking the last item on the last liked page returns to remaining tracks"
   expect((await control(page, "/library/tracks?liked=true")).total).toBe(100);
   await expect(page.getByRole("button", { name: "Liked", exact: true })).toHaveAttribute("aria-pressed", "true");
 });
+
+test("nested folders return to each parent without changing playback or queue", async ({ page }) => {
+  const setup = await control(page, "/setup");
+  await control(page, setup.required ? "/setup" : "/login", "POST", {
+    username: "browser-smoke", password: "browser-smoke-password",
+  });
+  const nested = resolve(work, "music", "Parent", "Child", "Grandchild");
+  await mkdir(nested, { recursive: true });
+  await writeFile(resolve(nested, "nested.wav"), wave(0.01));
+  const scan = await control(page, "/library/scans", "POST", {});
+  await expect.poll(async () =>
+    (await control(page, "/library/scans")).items.find((item) => item.id === scan.id)?.status,
+  ).toBe("complete");
+  const queueBefore = await control(page, "/queue");
+  const playerBefore = await control(page, "/player");
+  await page.setViewportSize({ width: 393, height: 852 });
+  await page.goto(origin, { waitUntil: "domcontentloaded" });
+  await page.getByRole("button", { name: "Folders", exact: true }).click();
+  await page.locator(".library-folder-row").filter({ hasText: "Smoke music" }).click();
+  for (const name of ["Parent", "Child", "Grandchild"]) {
+    await page.locator(".library-child-folders button").filter({ hasText: name }).click();
+    await expect(page.locator(".library-detail-header h2")).toHaveText(name);
+  }
+  for (const name of ["Child", "Parent", "Smoke music"]) {
+    await page.getByRole("button", { name: "Parent folder", exact: true }).click();
+    await expect(page.locator(".library-detail-header h2")).toHaveText(name);
+  }
+  await page.getByRole("button", { name: "Back to list", exact: true }).click();
+  await expect(page.locator(".library-folder-row").filter({ hasText: "Smoke music" })).toBeVisible();
+  expect((await control(page, "/queue")).entries).toEqual(queueBefore.entries);
+  const playerAfter = await control(page, "/player");
+  expect(playerAfter.state).toBe(playerBefore.state);
+  expect(playerAfter.renderer_id).toBe(playerBefore.renderer_id);
+});

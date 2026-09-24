@@ -14,7 +14,7 @@ Use the [installation guide](INSTALL.md) for requirements, release verification,
 2. English is the default. Open **Settings → General**, then choose **English** or **한국어** under **Language / 언어**. The menu name remains **Settings** in both languages. The change is immediate and remembered; it does not save Server configuration or send playback commands.
 3. In **Settings → Library**, confirm the music root (`/music` for the standard Linux container), save, then choose **Scan now**. A new sample-enabled installation places three bundled MP3s under `jastreamer-samples`; they appear only after this explicit scan. Scanning supports FLAC, MP3, WAV/WAVE, Ogg/Vorbis, Opus, and M4A without modifying source files. Samples are never queued or played automatically.
    If that host music folder is empty, there is nothing to play: put your audio files in the exact host path confirmed during installation, then scan again. Bundled samples, when present, are only test tracks and do not represent your personal library.
-   **Library scan**, including its start button, progress and history, is immediately below **Music folders** in the Library settings tab. Saving folder edits and starting a scan remain separate actions.
+   **Library scan**, immediately below **Music folders**, shows the latest five scans with local start and finish dates/times. Older records are not deleted by this display limit. Saving folder edits and starting a scan remain separate actions.
 4. To use Google Cast, enable **Google Cast output** in **Settings → Playback & outputs**, save, and restart the Server. It remains disabled when `cast.enabled` is false or absent from an older configuration. Do not enable it merely because a receiver is present.
 5. Browse Library or Playlists, add tracks or grouped views to Queue, and select an output while playback is stopped. Refresh outputs if a newly powered receiver is missing.
 6. Use the player controls for Play/Pause, Stop, Previous, Next, and Seek when supported by the receiver. AirPlay may require a PIN or password; pair only while stopped.
@@ -37,7 +37,11 @@ Switching tabs retains unsaved edits and does not save, restart, scan, or contro
 
 Open **Settings → Diagnostics → Playback and file-check history** to view the Server's shared, persistent history. Filter by result type or renderer. Renderer reports include the renderer name and ID, track, error code, playback position when supplied, and expandable structured diagnostics. Older imported records may identify a renderer only by ID. The newest 5,000 records are retained; viewing them never changes playback.
 
-**Scan now** first indexes metadata for browsing. After a successful scan, **Background audio verification** separately checks every indexed audio file, including unchanged files. It decodes one file at a time with the Server's configured FFmpeg and pauses during playback or another scan. FLAC checks also compare the decoded sample count and the STREAMINFO checksum when present. A completed index is not a passed integrity check.
+**Scan now** is incremental. The first scan reads all music; later scans enumerate folders to find additions and missing files, then reuse stored metadata and completed verification results when the root/path, size, and modification time match. New or changed files are analyzed, unfinished checks resume, and unchanged failures or inconclusive results remain visible rather than being reported as passed. Results survive Server restarts.
+
+Use the separate **Full rescan** button and confirmation to force metadata and audio verification for every file, including unchanged files. Use it when a file was replaced without changing its size or modification time, or when you explicitly want to repeat a completed check. It does not reset track IDs, likes, play counts, playlists, or Queue.
+
+After successful indexing, **Background audio verification** decodes the required files one at a time with the Server's configured FFmpeg and pauses during playback or another scan. Its totals include reused results. FLAC checks also compare the decoded sample count and the STREAMINFO checksum when present. A completed index is not a passed integrity check.
 
 Failed checks and files that could not be verified appear in the same history with the music-folder name and relative path. Missing engines, unsupported formats, timeouts, and changed or unreadable files are not reported as healthy. Progress resumes after a Server restart. These checks never repair, rewrite, delete, or automatically remove source files or queue entries.
 
@@ -46,6 +50,12 @@ In a PC or mobile web browser, select **File checks** to limit the report to aud
 This exports the existing failure/inconclusive history, not a complete pass certificate for every file. Exporting neither deletes history nor changes source files or playback. Android, iOS, and Desktop embedded clients keep their existing download restrictions and show guidance to open the same Server in a normal browser; sign in there separately if necessary.
 
 The queue is Server-wide, preserves order and duplicates, and survives restarts. A Server restart does not automatically resume playback. Cast uses that same single queue, loads media with Cast autoplay disabled, and sends Play explicitly. Receiver groups and gapless playback are not supported.
+
+### Folder navigation and music actions
+
+Inside **Library → Folders**, **Parent folder** moves up one directory within the same music root. At that root, **Back to list** returns to the music-root list; the **Folders** tab also goes directly to that list. Navigation never changes Queue or starts playback.
+
+Navigation and list actions share one toolbar. On narrow screens, scroll it horizontally to reach the remaining actions. **Add to queue end** uses a queue/down-arrow icon and changes the current playback queue. **Add to saved playlist** uses a bookmark-plus icon and opens the saved-playlist chooser; saving does not start playback.
 
 <a id="likes"></a>
 ### Likes and shuffled saved playlists
@@ -92,7 +102,7 @@ The compact player keeps Play/Pause and Stop immediately available. Use its expa
 
 Selecting another bottom tab collapses the expanded player without stopping playback. Escape also collapses it when keyboard focus is inside the player. The expanded panel scrolls on short or landscape screens; the covered page is not interactive until the panel is closed.
 
-The optional **Install jastreamer** card is in **Settings**. It does not change playback or Server configuration. See the [phone PWA installation branch](INSTALL.md#pwa) for browser, trusted-HTTPS, and network-only limitations.
+The in-app shortcut installation card has been removed from **Settings**. Existing shortcuts still work, and a supporting browser may offer installation through its own menu. See the [phone PWA installation branch](INSTALL.md#pwa) for trusted-HTTPS and network-only limitations.
 
 ### Desktop entry
 
