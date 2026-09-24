@@ -3,6 +3,7 @@ package io.jastreamer.android
 import android.app.AlertDialog
 import android.content.Context
 import android.content.res.ColorStateList
+import android.content.res.Configuration
 import android.graphics.Typeface
 import android.graphics.Rect
 import android.os.Bundle
@@ -81,6 +82,8 @@ class OfflineMusicView(
     private val content = LinearLayout(activity)
     private val expandedPlayer = FrameLayout(activity)
     private val miniPlayer = LinearLayout(activity)
+    private val miniPrimaryRow = LinearLayout(activity)
+    private val miniModeRow = LinearLayout(activity)
     private val miniSummary = LinearLayout(activity)
     private val playerTitle = TextView(activity)
     private val playerArtist = TextView(activity)
@@ -123,6 +126,7 @@ class OfflineMusicView(
     private var fullPlayerDuration: TextView? = null
     private var updatingSeek = false
     private var wideLayout: Boolean? = null
+    private var miniPlayerHorizontal: Boolean? = null
     private var moveInProgress = false
     private var miniArtworkPath: String? = null
     private var playlistSaveInProgress = false
@@ -320,7 +324,8 @@ class OfflineMusicView(
         miniPlayer.setPadding(dp(8), dp(8), dp(8), dp(8))
         miniPlayer.setBackgroundColor(PANEL)
 
-        val summary = row()
+        miniPrimaryRow.orientation = HORIZONTAL
+        miniPrimaryRow.gravity = Gravity.CENTER_VERTICAL
         miniArtwork.id = R.id.offline_mini_artwork
         miniArtwork.importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_YES
         miniArtwork.contentDescription = text(R.string.offline_open_queue)
@@ -328,7 +333,7 @@ class OfflineMusicView(
         miniArtwork.isFocusable = true
         miniArtwork.setOnClickListener { openQueueFromPlayer() }
         OfflineUi.styleArtwork(miniArtwork)
-        summary.addView(miniArtwork, LayoutParams(dp(48), dp(48)).apply { marginEnd = dp(8) })
+        miniPrimaryRow.addView(miniArtwork, LayoutParams(dp(48), dp(48)).apply { marginEnd = dp(8) })
 
         miniSummary.apply {
             orientation = VERTICAL
@@ -349,7 +354,7 @@ class OfflineMusicView(
         playerArtist.ellipsize = TextUtils.TruncateAt.END
         miniSummary.addView(playerTitle, LayoutParams(MATCH_PARENT, WRAP_CONTENT))
         miniSummary.addView(playerArtist, LayoutParams(MATCH_PARENT, WRAP_CONTENT))
-        summary.addView(miniSummary, LayoutParams(0, MATCH_PARENT, 1f))
+        miniPrimaryRow.addView(miniSummary, LayoutParams(0, MATCH_PARENT, 1f))
 
         playPause.id = R.id.offline_mini_play_pause
         updatePlayPauseButton(playPause)
@@ -357,31 +362,32 @@ class OfflineMusicView(
             if (playback.owner == "server") resumeOrRequestHandoff()
             else if (playback.playing) OfflinePlayback.pause() else resumeOrRequestHandoff()
         }
-        summary.addView(playPause, miniControlParams())
+        miniPrimaryRow.addView(playPause, miniControlParams())
 
         miniStop.id = R.id.offline_mini_stop
         configurePlayerAction(miniStop, R.drawable.ic_offline_stop, text(R.string.offline_stop)) {
             OfflinePlayback.stop()
         }
-        summary.addView(miniStop, miniControlParams())
+        miniPrimaryRow.addView(miniStop, miniControlParams())
 
         miniExpand.id = R.id.offline_mini_expand
         configurePlayerAction(miniExpand, R.drawable.ic_offline_expand, text(R.string.offline_expand_player)) {
             setFullPlayerOpen(!fullPlayerOpen)
         }
-        summary.addView(miniExpand, miniControlParams())
-        miniPlayer.addView(summary, LayoutParams(MATCH_PARENT, dp(48)))
+        miniPrimaryRow.addView(miniExpand, miniControlParams())
+        miniPlayer.addView(miniPrimaryRow, LayoutParams(MATCH_PARENT, dp(48)))
 
-        val modes = row()
+        miniModeRow.orientation = HORIZONTAL
+        miniModeRow.gravity = Gravity.CENTER_VERTICAL
         miniShuffle.id = R.id.offline_mini_shuffle
         miniShuffle.maxLines = 1
         miniShuffle.setOnClickListener { OfflinePlayback.setShuffle(!playback.queue.shuffle) }
-        modes.addView(miniShuffle, LayoutParams(0, dp(48), 1f).apply { marginEnd = dp(2) })
+        miniModeRow.addView(miniShuffle, LayoutParams(0, dp(48), 1f).apply { marginEnd = dp(2) })
         miniRepeat.id = R.id.offline_mini_repeat
         miniRepeat.maxLines = 1
         miniRepeat.setOnClickListener { cycleRepeat() }
-        modes.addView(miniRepeat, LayoutParams(0, dp(48), 1f).apply { marginStart = dp(2) })
-        miniPlayer.addView(modes, LayoutParams(MATCH_PARENT, dp(48)).apply { topMargin = dp(4) })
+        miniModeRow.addView(miniRepeat, LayoutParams(0, dp(48), 1f).apply { marginStart = dp(2) })
+        miniPlayer.addView(miniModeRow, LayoutParams(MATCH_PARENT, dp(48)).apply { topMargin = dp(4) })
 
         addView(miniPlayer, LayoutParams(MATCH_PARENT, WRAP_CONTENT))
         updatePlayerChrome()
@@ -424,6 +430,7 @@ class OfflineMusicView(
 
     private fun applyAdaptiveLayout(widthPixels: Int) {
         if (widthPixels <= 0) return
+        applyMiniPlayerLayout(widthPixels)
         val isWide = widthPixels / resources.displayMetrics.density > 980f
         if (wideLayout == isWide) return
         wideLayout = isWide
@@ -439,6 +446,26 @@ class OfflineMusicView(
             addView(navigation, LayoutParams(MATCH_PARENT, WRAP_CONTENT))
         }
         renderNavigation()
+    }
+
+    private fun applyMiniPlayerLayout(widthPixels: Int) {
+        val horizontal = resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE &&
+            widthPixels >= dp(600)
+        if (miniPlayerHorizontal == horizontal) return
+        miniPlayerHorizontal = horizontal
+        miniPlayer.orientation = if (horizontal) HORIZONTAL else VERTICAL
+        miniPlayer.gravity = if (horizontal) Gravity.CENTER_VERTICAL else Gravity.NO_GRAVITY
+        miniPlayer.minimumHeight = dp(if (horizontal) 64 else 116)
+        miniPrimaryRow.layoutParams = if (horizontal) {
+            LayoutParams(0, dp(48), 3f).apply { marginEnd = dp(2) }
+        } else {
+            LayoutParams(MATCH_PARENT, dp(48))
+        }
+        miniModeRow.layoutParams = if (horizontal) {
+            LayoutParams(0, dp(48), 2f).apply { marginStart = dp(2) }
+        } else {
+            LayoutParams(MATCH_PARENT, dp(48)).apply { topMargin = dp(4) }
+        }
     }
 
     private fun reloadLibrary() {
