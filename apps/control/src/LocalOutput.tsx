@@ -8,6 +8,9 @@ import type { Device } from "./types";
 
 export interface LocalOutputHandle {
   connect: () => Promise<Device>;
+  connectAutomatically: () => Promise<Device | null>;
+  disconnect: () => Promise<void>;
+  setVolume: (volume: number) => Promise<void>;
   rename: (name: string) => Promise<void>;
   retryPlayback?: () => void;
 }
@@ -37,6 +40,18 @@ const LocalOutput = forwardRef<LocalOutputHandle, LocalOutputProps>(function Loc
         ? output.connect()
         : Promise.reject(new Error(browserProps.registrationError));
     },
+    connectAutomatically() {
+      if (nativePresent) return nativeRef.current?.connectAutomatically() ?? Promise.resolve(null);
+      return browserRef.current?.connect() ?? Promise.resolve(null);
+    },
+    async disconnect() {
+      await (nativePresent ? nativeRef.current : browserRef.current)?.disconnect();
+    },
+    async setVolume(volume) {
+      const output = nativePresent ? nativeRef.current : browserRef.current;
+      if (!output) throw new Error(browserProps.actionError);
+      await output.setVolume(volume);
+    },
     rename(name) {
       const output = nativePresent ? nativeRef.current : browserRef.current;
       return output
@@ -44,7 +59,7 @@ const LocalOutput = forwardRef<LocalOutputHandle, LocalOutputProps>(function Loc
         : Promise.reject(new Error(browserProps.registrationError));
     },
     ...(nativePresent ? {} : { retryPlayback: () => browserRef.current?.retryPlayback() }),
-  }), [nativePresent, browserProps.registrationError]);
+  }), [nativePresent, browserProps.registrationError, browserProps.actionError]);
 
   if (nativePresent) {
     return (
@@ -57,6 +72,7 @@ const LocalOutput = forwardRef<LocalOutputHandle, LocalOutputProps>(function Loc
         onDeviceChange={browserProps.onDeviceChange}
         onRecoveryChange={onRecoveryChange}
         onError={browserProps.onError}
+        onVolumeChange={browserProps.onVolumeChange}
       />
     );
   }

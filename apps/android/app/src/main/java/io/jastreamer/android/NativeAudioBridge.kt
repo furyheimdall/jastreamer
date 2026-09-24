@@ -138,47 +138,36 @@ internal class NativeAudioBridge(
                     reply(replyProxy, generation, errorResponse(request.id, "unavailable", "Native playback is unavailable"))
                 }
             }
-            Action.CONNECT -> {
-                if (!hostInteractive || !canConnect()) {
-                    reply(
-                        replyProxy,
-                        generation,
-                        errorResponse(request.id, "not_foreground", "Open the app to connect native playback"),
-                    )
-                    return
+            Action.CONNECT,
+            Action.CONNECT_IF_AVAILABLE -> startConnect(request, generation, replyProxy)
+            Action.DISCONNECT -> scope.launch {
+                try {
+                    NativePlayback.disconnect(server)
+                    reply(replyProxy, generation, response(request.id, NativePlayback.state(server), includeError = false))
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (failure: NativePlaybackException) {
+                    reply(replyProxy, generation, nativeFailure(request.id, failure.code, failure.message))
+                } catch (_: Throwable) {
+                    reply(replyProxy, generation, errorResponse(request.id, "unavailable", "Native playback is unavailable"))
                 }
-                lateinit var job: Job
-                job = scope.launch(start = CoroutineStart.LAZY) {
-                    try {
-                        val device = connectWithHandoffConfirmation(generation, requireNotNull(request.name))
-                        if (hostInteractive && canConnect()) {
-                            reply(replyProxy, generation, deviceResponse(request.id, device))
-                        }
-                    } catch (cancelled: CancellationException) {
-                        throw cancelled
-                    } catch (failure: NativePlaybackException) {
-                        if (hostInteractive && canConnect()) {
-                            reply(replyProxy, generation, nativeFailure(request.id, failure.code, failure.message))
-                        }
-                    } catch (_: Throwable) {
-                        if (hostInteractive && canConnect()) {
-                            reply(
-                                replyProxy,
-                                generation,
-                                errorResponse(request.id, "unavailable", "Native playback is unavailable"),
-                            )
-                        }
-                    } finally {
-                        pendingConnectJobs.remove(job)
-                    }
+            }
+            Action.SET_VOLUME -> scope.launch {
+                try {
+                    val state = NativePlayback.setVolume(server, requireNotNull(request.volume))
+                    reply(replyProxy, generation, response(request.id, state, includeError = false))
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (failure: NativePlaybackException) {
+                    reply(replyProxy, generation, nativeFailure(request.id, failure.code, failure.message))
+                } catch (_: Throwable) {
+                    reply(replyProxy, generation, errorResponse(request.id, "unavailable", "Native playback is unavailable"))
                 }
-                pendingConnectJobs.add(job)
-                job.start()
             }
             Action.RENAME -> scope.launch {
                 try {
-                    val device = NativePlayback.rename(server, requireNotNull(request.name))
-                    reply(replyProxy, generation, deviceResponse(request.id, device))
+                    NativePlayback.rename(server, requireNotNull(request.name))
+                    reply(replyProxy, generation, response(request.id, NativePlayback.state(server), includeError = false))
                 } catch (cancelled: CancellationException) {
                     throw cancelled
                 } catch (failure: NativePlaybackException) {
@@ -188,6 +177,56 @@ internal class NativeAudioBridge(
                 }
             }
         }
+    }
+
+    private fun startConnect(
+        request: Request,
+        generation: Long,
+        replyProxy: JavaScriptReplyProxy,
+    ) {
+        if (!hostInteractive || !canConnect()) {
+            reply(
+                replyProxy,
+                generation,
+                errorResponse(request.id, "not_foreground", "Open the app to connect native playback"),
+            )
+            return
+        }
+        lateinit var job: Job
+        job = scope.launch(start = CoroutineStart.LAZY) {
+            try {
+                if (request.action == Action.CONNECT_IF_AVAILABLE) {
+                    NativePlayback.connectIfAvailable(webView.context, server, requireNotNull(request.name))
+                } else {
+                    connectWithHandoffConfirmation(generation, requireNotNull(request.name))
+                }
+                if (hostInteractive && canConnect()) {
+                    reply(
+                        replyProxy,
+                        generation,
+                        response(request.id, NativePlayback.state(server), includeError = false),
+                    )
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (failure: NativePlaybackException) {
+                if (hostInteractive && canConnect()) {
+                    reply(replyProxy, generation, nativeFailure(request.id, failure.code, failure.message))
+                }
+            } catch (_: Throwable) {
+                if (hostInteractive && canConnect()) {
+                    reply(
+                        replyProxy,
+                        generation,
+                        errorResponse(request.id, "unavailable", "Native playback is unavailable"),
+                    )
+                }
+            } finally {
+                pendingConnectJobs.remove(job)
+            }
+        }
+        pendingConnectJobs.add(job)
+        job.start()
     }
 
     private suspend fun connectWithHandoffConfirmation(generation: Long, name: String): JSONObject {
@@ -258,15 +297,33 @@ internal class NativeAudioBridge(
         val action = when (actionValue) {
             "status" -> Action.STATUS
             "connect" -> Action.CONNECT
+            "connect_if_available" -> Action.CONNECT_IF_AVAILABLE
+            "disconnect" -> Action.DISCONNECT
+            "set_volume" -> Action.SET_VOLUME
             "rename" -> Action.RENAME
             else -> throw RequestFailure(id, "Action is not supported")
         }
-        val allowedKeys = if (action == Action.STATUS) STATUS_KEYS else NAMED_ACTION_KEYS
+        val allowedKeys = when (action) {
+            Action.STATUS, Action.DISCONNECT -> STATUS_KEYS
+            Action.SET_VOLUME -> VOLUME_ACTION_KEYS
+            Action.CONNECT, Action.CONNECT_IF_AVAILABLE, Action.RENAME -> NAMED_ACTION_KEYS
+        }
         val keys = value.keys()
         while (keys.hasNext()) {
             if (keys.next() !in allowedKeys) throw RequestFailure(id, "Request contains unsupported fields")
         }
-        if (action == Action.STATUS) return Request(id, action, null)
+        if (action == Action.STATUS || action == Action.DISCONNECT) {
+            return Request(id, action, null, null)
+        }
+        if (action == Action.SET_VOLUME) {
+            val rawVolume = value.opt("volume") as? Number
+                ?: throw RequestFailure(id, "Volume is required")
+            val volume = rawVolume.toDouble()
+            if (!volume.isFinite() || volume !in 0.0..1.0) {
+                throw RequestFailure(id, "Volume must be between 0 and 1")
+            }
+            return Request(id, action, null, volume)
+        }
 
         val rawName = value.opt("name") as? String
             ?: throw RequestFailure(id, "Name is required")
@@ -278,39 +335,53 @@ internal class NativeAudioBridge(
         ) {
             throw RequestFailure(id, "Name is invalid")
         }
-        return Request(id, action, name)
+        return Request(id, action, name, null)
     }
 
-    private fun response(id: String, state: JSONObject): JSONObject = JSONObject().apply {
+    private fun response(
+        id: String,
+        state: JSONObject,
+        includeError: Boolean = true,
+    ): JSONObject = JSONObject().apply {
         put("id", id)
         put("device", sanitizeDevice(state.optJSONObject("device")))
         if (state.optBoolean("recovering", false)) put("recovering", true)
-        sanitizeError(state.optJSONObject("error"))?.let { put("error", it) }
+        put("volume", sanitizeVolume(state.opt("volume")))
+        if (includeError) sanitizeError(state.optJSONObject("error"))?.let { put("error", it) }
     }
 
     private fun stateEvent(state: JSONObject): JSONObject = JSONObject().apply {
         put("event", "state")
         put("device", sanitizeDevice(state.optJSONObject("device")))
         put("recovering", state.optBoolean("recovering", false))
+        put("volume", sanitizeVolume(state.opt("volume")))
         sanitizeError(state.optJSONObject("error"))?.let { put("error", it) }
     }
 
-    private fun deviceResponse(id: String, device: JSONObject): JSONObject = JSONObject().apply {
-        put("id", id)
-        put("device", sanitizeDevice(device))
-    }
-
-    private fun nativeFailure(id: String, code: String, message: String?): JSONObject = errorResponse(
-        id,
-        safeCode(code),
-        message?.takeIf { it.isNotBlank() }?.take(MAX_ERROR_MESSAGE_CHARACTERS)
-            ?: "Native playback request failed",
-    )
+    private fun nativeFailure(id: String, code: String, message: String?): JSONObject =
+        response(id, NativePlayback.state(server), includeError = false).apply {
+            put(
+                "error",
+                JSONObject()
+                    .put("code", safeCode(code))
+                    .put(
+                        "message",
+                        message?.takeIf { it.isNotBlank() }?.take(MAX_ERROR_MESSAGE_CHARACTERS)
+                            ?: "Native playback request failed",
+                    ),
+            )
+        }
 
     private fun errorResponse(id: String, code: String, message: String): JSONObject = JSONObject().apply {
         put("id", id)
         put("device", JSONObject.NULL)
+        put("volume", JSONObject.NULL)
         put("error", JSONObject().put("code", safeCode(code)).put("message", message.take(MAX_ERROR_MESSAGE_CHARACTERS)))
+    }
+
+    private fun sanitizeVolume(value: Any?): Any {
+        val volume = (value as? Number)?.toDouble() ?: return JSONObject.NULL
+        return volume.takeIf { it.isFinite() && it in 0.0..1.0 } ?: JSONObject.NULL
     }
 
     private fun sanitizeError(error: JSONObject?): JSONObject? {
@@ -383,9 +454,14 @@ internal class NativeAudioBridge(
         }
     }
 
-    private enum class Action { STATUS, CONNECT, RENAME }
+    private enum class Action { STATUS, CONNECT, CONNECT_IF_AVAILABLE, DISCONNECT, SET_VOLUME, RENAME }
 
-    private data class Request(val id: String, val action: Action, val name: String?)
+    private data class Request(
+        val id: String,
+        val action: Action,
+        val name: String?,
+        val volume: Double?,
+    )
 
     private class RequestFailure(val id: String, val safeMessage: String) : Exception()
 
@@ -397,6 +473,7 @@ internal class NativeAudioBridge(
         private const val MAX_ERROR_MESSAGE_CHARACTERS = 240
         private val STATUS_KEYS = setOf("id", "action")
         private val NAMED_ACTION_KEYS = setOf("id", "action", "name")
+        private val VOLUME_ACTION_KEYS = setOf("id", "action", "volume")
         private val SAFE_CODE = Regex("[a-z0-9_.-]{1,64}")
     }
 }

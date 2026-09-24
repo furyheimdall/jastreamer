@@ -76,6 +76,8 @@ type CommandExecution = {
 
 export interface BrowserOutputHandle {
   connect: () => Promise<Device>;
+  disconnect: () => Promise<void>;
+  setVolume: (volume: number) => Promise<void>;
   rename: (name: string) => Promise<void>;
   retryPlayback: () => void;
 }
@@ -88,6 +90,7 @@ export interface BrowserOutputProps {
   onDeviceChange: (device: Device | null) => void;
   onAutoplayBlocked: (blocked: boolean) => void;
   onError: (message: string) => void;
+  onVolumeChange: (volume: number | null) => void;
 }
 
 function apiMessage(error: unknown, fallback: string): string {
@@ -136,7 +139,7 @@ function waitForMediaEvent(
 }
 
 const BrowserOutput = forwardRef<BrowserOutputHandle, BrowserOutputProps>(function BrowserOutput(
-  { name, disconnectedError, registrationError, actionError, onDeviceChange, onAutoplayBlocked, onError },
+  { name, disconnectedError, registrationError, actionError, onDeviceChange, onAutoplayBlocked, onError, onVolumeChange },
   ref,
 ) {
   const audioRef = useRef<HTMLAudioElement>(null);
@@ -151,6 +154,7 @@ const BrowserOutput = forwardRef<BrowserOutputHandle, BrowserOutputProps>(functi
   const timeReportPendingRef = useRef(false);
   const mediaEventsRef = useRef<AbortController | null>(null);
   const connectRef = useRef<(() => Promise<Device>) | null>(null);
+  const disconnectRef = useRef<(() => void) | null>(null);
   const connectionAbortRef = useRef<AbortController | null>(null);
   const messagesRef = useRef({ name, disconnectedError, registrationError, actionError });
   messagesRef.current = { name, disconnectedError, registrationError, actionError };
@@ -393,6 +397,17 @@ const BrowserOutput = forwardRef<BrowserOutputHandle, BrowserOutputProps>(functi
         ? connectRef.current()
         : Promise.reject(new Error(messagesRef.current.registrationError));
     },
+    async disconnect() {
+      disconnectRef.current?.();
+    },
+    async setVolume(volume) {
+      const audio = audioRef.current;
+      if (!audio || !Number.isFinite(volume) || volume < 0 || volume > 1) {
+        throw new Error(messagesRef.current.actionError);
+      }
+      audio.volume = volume;
+      onVolumeChange(audio.volume);
+    },
     async rename(nextName) {
       const registration = registrationRef.current;
       if (!registration) return;
@@ -412,11 +427,14 @@ const BrowserOutput = forwardRef<BrowserOutputHandle, BrowserOutputProps>(functi
       const retry = execution.retry;
       void audio.play().then(() => retry()).catch(() => onAutoplayBlocked(true));
     },
-  }), [onAutoplayBlocked, onDeviceChange]);
+  }), [onAutoplayBlocked, onDeviceChange, onVolumeChange]);
 
   useEffect(() => {
     const audio = audioRef.current;
     if (!audio) return;
+    const volumeChanged = () => onVolumeChange(audio.volume);
+    audio.addEventListener("volumechange", volumeChanged);
+    volumeChanged();
     let disposed = false;
     let connecting: Promise<Device> | null = null;
     let pollTimer = 0;
@@ -543,14 +561,17 @@ const BrowserOutput = forwardRef<BrowserOutputHandle, BrowserOutputProps>(functi
     };
 
     connectRef.current = connect;
+    disconnectRef.current = disconnect;
     window.addEventListener("pagehide", disconnect);
     return () => {
       disposed = true;
       connectRef.current = null;
+      disconnectRef.current = null;
+      audio.removeEventListener("volumechange", volumeChanged);
       window.removeEventListener("pagehide", disconnect);
       disconnect();
     };
-  }, [onAutoplayBlocked, onDeviceChange, onError]);
+  }, [onAutoplayBlocked, onDeviceChange, onError, onVolumeChange]);
 
   return <audio ref={audioRef} data-jastreamer-browser-output="true" preload="auto" hidden />;
 });

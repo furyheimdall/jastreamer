@@ -266,10 +266,10 @@ async function prepareBrowserPlayback(page, paths) {
   await page.goto(origin, { waitUntil: "domcontentloaded" });
   const output = page.getByLabel("Output device", { exact: true });
   await expect(output).toBeVisible();
-  const localValue = await output.locator("option").evaluateAll((options) =>
-    options.find((option) => /this (device|browser)/i.test(option.textContent ?? ""))?.value);
-  expect(localValue).toBeTruthy();
-  await output.selectOption(localValue);
+  const localLabel = await output.locator("option").evaluateAll((options) =>
+    options.find((option) => /this (device|browser)/i.test(option.textContent ?? ""))?.label);
+  expect(localLabel).toBeTruthy();
+  await output.selectOption({ label: localLabel });
   await expect.poll(async () => {
     const player = await control(page, "/player");
     const devices = (await control(page, "/renderers")).items;
@@ -291,9 +291,20 @@ async function startBrowserPlayback(page, audio) {
 test("browser output performs real media actions and remains owned when another Control closes", async ({ page, context }) => {
   const { audio, trackIDs } = await prepareBrowserPlayback(page, ["long.wav"]);
   await startBrowserPlayback(page, audio);
+  const volume = page.getByRole("slider", { name: "Local volume", exact: true });
+  await volume.focus();
+  await volume.press("Home");
+  await expect.poll(() => audio.evaluate((element) => element.volume)).toBe(0);
+  await expect(volume).toBeFocused();
+  await page.keyboard.press("ArrowRight");
+  await expect.poll(() => audio.evaluate((element) => element.volume)).toBe(0.01);
+  await volume.press("End");
+  await expect.poll(() => audio.evaluate((element) => element.volume)).toBe(1);
   const other = await context.newPage();
   try {
     await other.goto(origin, { waitUntil: "domcontentloaded" });
+    await expect(other.getByRole("slider", { name: "Local volume", exact: true })).toHaveCount(0);
+    expect((await control(other, "/player")).renderer_id).toBe((await control(page, "/player")).renderer_id);
     await control(other, "/player", "POST", { action: "pause" });
     await expect.poll(async () => (await control(page, "/player")).state).toBe("paused");
     await expect.poll(() => audio.evaluate((element) => element.paused)).toBe(true);
@@ -317,6 +328,32 @@ test("browser output performs real media actions and remains owned when another 
   await expect.poll(async () => (await control(page, "/player")).state).toBe("stopped");
   await expect.poll(() => audio.evaluate((element) => element.paused)).toBe(true);
   expect((await control(page, "/queue")).entries.map((entry) => entry.track_id)).toEqual(trackIDs);
+});
+
+test("retained playback errors stay inspectable without reopening a request-failure dialog", async ({ page, context }) => {
+  const owner = await context.newPage();
+  await prepareBrowserPlayback(owner, ["long.wav"]);
+  const retainedError = "Retained renderer recovery failure";
+  await page.route("**/api/v1/player", async (route) => {
+    if (route.request().method() !== "GET") {
+      await route.fulfill({ status: 503, json: { error: { code: "OUTPUT_FAILED", message: "New playback request failed" } } });
+      return;
+    }
+    const response = await route.fetch();
+    await route.fulfill({ response, json: { ...await response.json(), error: retainedError } });
+  });
+  await page.goto(origin, { waitUntil: "domcontentloaded" });
+  await expect(page.locator(".player-error").first()).toBeVisible();
+  await expect(page.getByRole("alertdialog")).toHaveCount(0);
+  await page.locator(".player-error").first().click();
+  await expect(page.getByRole("alertdialog")).toContainText(retainedError);
+  await page.getByRole("alertdialog").getByRole("button", { name: "Close error", exact: true }).click();
+  await page.reload();
+  await expect(page.locator(".player-error").first()).toBeVisible();
+  await expect(page.getByRole("alertdialog")).toHaveCount(0);
+  await page.getByRole("button", { name: "Play", exact: true }).click();
+  await expect(page.getByRole("alertdialog")).toContainText("New playback request failed");
+  await owner.close();
 });
 
 test("Most Played displays counted browser playback without changing the queue", async ({ page }) => {
@@ -344,13 +381,23 @@ test("browser natural completion advances once and owner reload preserves the qu
   await expect.poll(async () => (await control(page, "/player")).track?.id).toBe(trackIDs[1]);
   await expect.poll(async () => (await control(page, "/queue")).entries.map((entry) => entry.status))
     .toEqual(["completed", "playing"]);
+  await control(page, "/player", "POST", { action: "seek", position_ms: 10000 });
+  await expect.poll(() => audio.evaluate((element) => element.currentTime)).toBeGreaterThanOrEqual(10);
+  const previousOutput = (await control(page, "/player")).renderer_id;
   await page.reload();
   await expect(page.getByLabel("Output device", { exact: true })).toBeVisible();
-  await expect.poll(async () => (await control(page, "/player")).state).toBe("unavailable");
+  await expect.poll(async () => {
+    const state = await control(page, "/player");
+    return state.renderer_id !== previousOutput && state.state === "stopped";
+  }).toBe(true);
+  expect((await control(page, "/player")).position_ms).toBeGreaterThanOrEqual(10000);
+  await expect(page.getByRole("alertdialog")).toHaveCount(0);
   await expect.poll(async () => (await control(page, "/queue")).entries.map((entry) => entry.status))
     .toEqual(["completed", "pending"]);
   expect((await control(page, "/queue")).entries.map((entry) => entry.track_id)).toEqual(trackIDs);
   await expect.poll(() => page.locator("audio").evaluate((element) => element.paused)).toBe(true);
+  await startBrowserPlayback(page, page.locator("audio"));
+  await expect.poll(() => page.locator("audio").evaluate((element) => element.currentTime)).toBeGreaterThanOrEqual(10);
   await control(page, "/player", "POST", { action: "stop" });
   await expect.poll(async () => (await control(page, "/player")).state).toBe("stopped");
 });
@@ -888,10 +935,16 @@ test("nested folders return to each parent without changing playback or queue", 
   await expect.poll(async () =>
     (await control(page, "/library/scans")).items.find((item) => item.id === scan.id)?.status,
   ).toBe("complete");
-  const queueBefore = await control(page, "/queue");
-  const playerBefore = await control(page, "/player");
   await page.setViewportSize({ width: 393, height: 852 });
   await page.goto(origin, { waitUntil: "domcontentloaded" });
+  const output = page.getByLabel("Output device", { exact: true });
+  await expect(output).toBeVisible();
+  const localLabel = await output.locator("option").evaluateAll((options) =>
+    options.find((option) => /this (device|browser)/i.test(option.textContent ?? ""))?.label);
+  expect(localLabel).toBeTruthy();
+  await output.selectOption({ label: localLabel });
+  const queueBefore = await control(page, "/queue");
+  const playerBefore = await control(page, "/player");
   await page.getByRole("button", { name: "Folders", exact: true }).click();
   await page.locator(".library-folder-row").filter({ hasText: "Smoke music" }).click();
   for (const name of ["Parent", "Child", "Grandchild"]) {

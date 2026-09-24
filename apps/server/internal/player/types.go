@@ -33,6 +33,12 @@ type QueueMutation struct {
 	Revision int64    `json:"revision"`
 }
 
+type OutputFallback struct {
+	RendererID         string
+	ExpectedRendererID string
+	ExpectedRevision   int64
+}
+
 type Entry struct {
 	ID      string        `json:"id"`
 	TrackID string        `json:"track_id"`

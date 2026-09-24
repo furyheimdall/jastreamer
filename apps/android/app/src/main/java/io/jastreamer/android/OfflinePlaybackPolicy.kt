@@ -8,6 +8,8 @@ internal object OfflinePlaybackRequestFence {
 
     fun beginRequest(): Long = generation.incrementAndGet()
 
+    fun currentRequest(): Long = generation.get()
+
     fun isCurrent(requestGeneration: Long): Boolean = generation.get() == requestGeneration
 }
 

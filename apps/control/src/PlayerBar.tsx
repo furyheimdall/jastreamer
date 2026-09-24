@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
-import { api } from "./api";
+import { api, ApiError } from "./api";
 import LocalOutput, { hasNativeAndroidAudio, type LocalOutputHandle } from "./LocalOutput";
 import { useI18n, type MessageKey } from "./i18n";
-import { isPhone, localOutputName } from "./device";
+import { embeddedClient, isPhone, localOutputName } from "./device";
 import type { Device, PairingRequest, PairingStatus, PlayerState, RepeatMode, StatusWarning } from "./types";
 
 interface PlayerBarProps {
@@ -101,6 +101,9 @@ export default function PlayerBar({ revision, phoneExpanded, onPhoneExpandedChan
   const [nameSaving, setNameSaving] = useState(false);
   const [nameError, setNameError] = useState("");
   const [localOutputRecovery, setLocalOutputRecovery] = useState({ recovering: false, message: "" });
+  const [localVolume, setLocalVolume] = useState<number | null>(null);
+  const automaticFallbackAttempted = useRef(false);
+  const [outputsLoaded, setOutputsLoaded] = useState(false);
   const browserName = browserAlias || defaultBrowserName;
 
   useEffect(() => {
@@ -162,12 +165,13 @@ export default function PlayerBar({ revision, phoneExpanded, onPhoneExpandedChan
     }
   }
 
-  const applyError = useCallback((message: string, playerRevision: number) => {
+  const applyError = useCallback((message: string, playerRevision: number, announce = true) => {
     setError(message);
     if (!message) {
       observedPlayerError.current = null;
       return;
     }
+    if (!announce) return;
     if (
       observedPlayerError.current?.revision === playerRevision
       && observedPlayerError.current.message === message
@@ -202,11 +206,16 @@ export default function PlayerBar({ revision, phoneExpanded, onPhoneExpandedChan
     }
     if (rendererResult.status === "fulfilled") {
       setDevices(rendererResult.value.items ?? []);
+      setOutputsLoaded(true);
     } else {
       const message = errorMessage(rendererResult.reason, t("common.requestFailed"));
       if (!messages.includes(message)) messages.push(message);
     }
-    applyError(messages.join("\n\n"), playerResult.status === "fulfilled" ? playerResult.value.revision : -1);
+    applyError(
+      messages.join("\n\n"),
+      playerResult.status === "fulfilled" ? playerResult.value.revision : -1,
+      playerResult.status === "rejected" || rendererResult.status === "rejected",
+    );
     setLoading(false);
   }, [applyError, onStatusWarning, t]);
 
@@ -258,6 +267,68 @@ export default function PlayerBar({ revision, phoneExpanded, onPhoneExpandedChan
     && (selectedDevice.pairing_required || selectedDevice.password_required),
   );
   const pairingAvailable = player?.state === "stopped" && !player.pending_command;
+
+  useEffect(() => {
+    if (automaticFallbackAttempted.current || loading || !outputsLoaded || !player || !nameStorageKey || busy) return;
+    if (embeddedClient === "ios" || !player.renderer_id || selectedDevice?.online) {
+      automaticFallbackAttempted.current = true;
+      return;
+    }
+    if (player.pending_command || !["stopped", "unavailable"].includes(player.state)) return;
+    automaticFallbackAttempted.current = true;
+
+    const output = localOutputRef.current;
+    if (!output) return;
+    const expected = player;
+    const alreadyConnected = localBrowserDevice !== null;
+    setBusy("output");
+    void (async () => {
+      let device: Device | null = null;
+      try {
+        device = await output.connectAutomatically();
+        if (!device) return;
+        const next = await api<PlayerState>("/player/output/fallback", {
+          method: "POST",
+          body: JSON.stringify({
+            renderer_id: device.id,
+            expected_renderer_id: expected.renderer_id,
+            expected_revision: expected.revision,
+          }),
+        });
+        setPlayer(next);
+        setPosition(next.position_ms);
+        onStatusWarning(next.status_warning ?? null);
+        applyError(next.error || "", next.revision, false);
+      } catch (caught) {
+        // Another Control or discovery may have selected/recovered an output.
+        // Reconcile even after a lost response: selection may have committed.
+        try {
+          const current = await api<PlayerState>("/player");
+          setPlayer(current);
+          setPosition(current.position_ms);
+          onStatusWarning(current.status_warning ?? null);
+          applyError(current.error || "", current.revision, false);
+          if (device && !alreadyConnected && current.renderer_id !== device.id) await output.disconnect();
+        } catch {
+          // Do not tear down a potentially selected native transport on ambiguity.
+        }
+        if (!(caught instanceof ApiError && caught.status === 409)) {
+          setError(errorMessage(caught, t("common.requestFailed")));
+        }
+      } finally {
+        setBusy("");
+      }
+    })();
+  }, [loading, outputsLoaded, player, nameStorageKey, busy, selectedDevice, localBrowserDevice, applyError, onStatusWarning, t]);
+
+  async function changeLocalVolume(value: number) {
+    if (!localOutputRef.current) return;
+    try {
+      await localOutputRef.current.setVolume(value);
+    } catch (caught) {
+      onNotice(errorMessage(caught, t("player.browser.actionFailed")), true);
+    }
+  }
 
   useEffect(() => {
     setPairingPIN("");
@@ -518,6 +589,7 @@ export default function PlayerBar({ revision, phoneExpanded, onPhoneExpandedChan
       onAutoplayBlocked={setBrowserAutoplayBlocked}
       onRecoveryChange={handleLocalOutputRecovery}
       onError={handleLocalOutputError}
+      onVolumeChange={setLocalVolume}
     />
   );
   const outputPicker = (
@@ -564,6 +636,23 @@ export default function PlayerBar({ revision, phoneExpanded, onPhoneExpandedChan
           <PlayerIcon name="edit" />
         </button>
       </div>
+      {localBrowserDevice && localBrowserDevice.id === player?.renderer_id && localVolume !== null && (
+        <label className="local-volume-control">
+          <span>{t("player.localVolume")}</span>
+          <input
+            type="range"
+            min={0}
+            max={100}
+            step={1}
+            value={Math.round(localVolume * 100)}
+            aria-label={t("player.localVolume")}
+            aria-valuetext={`${Math.round(localVolume * 100)}%`}
+            disabled={Boolean(busy)}
+            onChange={(event) => void changeLocalVolume(Number(event.target.value) / 100)}
+          />
+          <output>{Math.round(localVolume * 100)}%</output>
+        </label>
+      )}
       {nameEditorOpen && (
         <section className="pairing-panel browser-name-panel" id="browser-name-panel" aria-labelledby="browser-name-heading">
           <h2 id="browser-name-heading">{t("player.browser.editName")}</h2>

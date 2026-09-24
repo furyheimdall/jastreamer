@@ -111,6 +111,31 @@ func (service *server) output(w http.ResponseWriter, r *http.Request) {
 	reply(w, 200, result)
 }
 
+func (service *server) fallbackOutput(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		RendererID         string `json:"renderer_id"`
+		ExpectedRendererID string `json:"expected_renderer_id"`
+		ExpectedRevision   *int64 `json:"expected_revision"`
+	}
+	if !decode(w, r, &body) {
+		return
+	}
+	if body.ExpectedRevision == nil {
+		writeError(w, fault.New(http.StatusBadRequest, "REVISION_REQUIRED", "The expected player revision is required."))
+		return
+	}
+	result, err := service.options.Player.FallbackOutput(r.Context(), player.OutputFallback{
+		RendererID: body.RendererID, ExpectedRendererID: body.ExpectedRendererID, ExpectedRevision: *body.ExpectedRevision,
+	})
+	if err != nil {
+		status, reason := diagnosticFault(err)
+		service.logRequestRejection("fallback_output", body.RendererID, status, reason)
+		writeError(w, err)
+		return
+	}
+	reply(w, http.StatusOK, result)
+}
+
 func (service *server) queue(w http.ResponseWriter, r *http.Request) {
 	result, err := service.options.Player.Queue(r.Context())
 	if err != nil {

@@ -242,8 +242,9 @@ class WebViewBoundaryTest {
                 (() => {
                   const response = JSON.parse(nativeBridgeReplies[0]);
                   return response.id === 'status-1' && response.device === null &&
+                    response.volume === null &&
                     !JSON.stringify(response).includes('owner_token') &&
-                    Object.keys(response).every(key => ['id','device','recovering','error'].includes(key));
+                    Object.keys(response).every(key => ['id','device','recovering','volume','error'].includes(key));
                 })()
                 """.trimIndent(),
             ),
@@ -343,6 +344,109 @@ class WebViewBoundaryTest {
                 """.trimIndent(),
             ),
         )
+    }
+
+    @Test
+    fun nativeVolumeBridgeRejectsMalformedAndOutOfRangeValues() {
+        val fixture = fixture()
+        mount(endpoint(fixture.origin, UUID.randomUUID().toString()))
+
+        evaluate(
+            """
+            window.nativeVolumeReplies = [];
+            JastreamerAndroidAudio.addEventListener('message', event => nativeVolumeReplies.push(JSON.parse(event.data)));
+            JastreamerAndroidAudio.postMessage(JSON.stringify({id:'volume-low', action:'set_volume', volume:-0.01}));
+            JastreamerAndroidAudio.postMessage(JSON.stringify({id:'volume-high', action:'set_volume', volume:1.01}));
+            JastreamerAndroidAudio.postMessage(JSON.stringify({id:'volume-string', action:'set_volume', volume:'0.5'}));
+            'sent';
+            """.trimIndent(),
+        )
+        waitFor("invalid native volumes are rejected") {
+            evaluate("String(window.nativeVolumeReplies && window.nativeVolumeReplies.length === 3)") == "true"
+        }
+        assertEquals(
+            true,
+            evaluate(
+                """
+                (() => nativeVolumeReplies.every(response =>
+                  response.device === null &&
+                  response.volume === null &&
+                  response.error.code === 'invalid_request' &&
+                  !JSON.stringify(response).includes('owner_token')
+                ))()
+                """.trimIndent(),
+            ),
+        )
+    }
+
+    @Test
+    fun nativeBridgeConnectsWithoutAutoplayAndControlsOnlyAppVolume() {
+        val fixture = fixture()
+        val serverId = UUID.randomUUID().toString()
+        fixture.discoveryId = serverId
+        mount(endpoint(fixture.origin, serverId))
+
+        evaluate(
+            """
+            window.nativeLifecycleReplies = [];
+            JastreamerAndroidAudio.addEventListener('message', event => nativeLifecycleReplies.push(JSON.parse(event.data)));
+            JastreamerAndroidAudio.postMessage(JSON.stringify({
+              id:'automatic-connect', action:'connect_if_available', name:'Bridge phone'
+            }));
+            'sent';
+            """.trimIndent(),
+        )
+        waitFor("automatic native bridge connection") {
+            evaluate(
+                "String(nativeLifecycleReplies.some(value => value.id === 'automatic-connect' && value.device !== null))",
+            ) == "true"
+        }
+        assertEquals(OfflinePlaybackPolicy.OWNER_SERVER, OfflinePlayback.state.value.owner)
+        assertFalse(OfflinePlayback.state.value.playing)
+        assertEquals(1, fixture.registrationPosts())
+
+        evaluate(
+            """
+            JastreamerAndroidAudio.postMessage(JSON.stringify({id:'bridge-status', action:'status'}));
+            'sent';
+            """.trimIndent(),
+        )
+        waitFor("native bridge status includes actual app volume") {
+            evaluate(
+                "String(nativeLifecycleReplies.some(value => value.id === 'bridge-status' && typeof value.volume === 'number'))",
+            ) == "true"
+        }
+
+        evaluate(
+            """
+            JastreamerAndroidAudio.postMessage(JSON.stringify({
+              id:'bridge-volume', action:'set_volume', volume:0.35
+            }));
+            'sent';
+            """.trimIndent(),
+        )
+        waitFor("native bridge app volume response and state event") {
+            evaluate(
+                "String(" +
+                    "nativeLifecycleReplies.some(value => value.id === 'bridge-volume' && Math.abs(value.volume - 0.35) < 0.0001) && " +
+                    "nativeLifecycleReplies.some(value => value.event === 'state' && Math.abs(value.volume - 0.35) < 0.0001)" +
+                    ")",
+            ) == "true"
+        }
+
+        evaluate(
+            """
+            JastreamerAndroidAudio.postMessage(JSON.stringify({id:'bridge-disconnect', action:'disconnect'}));
+            'sent';
+            """.trimIndent(),
+        )
+        waitFor("native bridge scoped disconnect") {
+            evaluate(
+                "String(nativeLifecycleReplies.some(value => value.id === 'bridge-disconnect' && value.device === null && value.volume === null))",
+            ) == "true"
+        }
+        assertEquals(OfflinePlaybackPolicy.OWNER_NONE, OfflinePlayback.state.value.owner)
+        assertEquals(1, fixture.registrationDeletes())
     }
 
     @Test
@@ -635,6 +739,10 @@ class WebViewBoundaryTest {
         val rootRelease = CountDownLatch(1)
         val rootFinished = CountDownLatch(1)
         val registrationReceived = CountDownLatch(1)
+        private val registrationId = "registration-${UUID.randomUUID()}"
+        private val ownerToken = "owner-${UUID.randomUUID()}"
+        private val deviceId = "device-${UUID.randomUUID()}"
+        private val registrationRemoved = AtomicBoolean()
         @Volatile var blockDiscovery = false
         @Volatile var blockRoot = false
         @Volatile var discoveryId = UUID.randomUUID().toString()
@@ -648,9 +756,65 @@ class WebViewBoundaryTest {
                     requests.add(SeenRequest(request.method ?: "", request.path ?: ""))
                     if (
                         request.method == "POST" &&
-                        request.path?.startsWith("/api/v1/browser-output/registrations") == true
+                        request.path == "/api/v1/browser-output/registrations"
                     ) {
                         registrationReceived.countDown()
+                        return MockResponse()
+                            .setResponseCode(200)
+                            .setHeader("Content-Type", "application/json")
+                            .setBody(
+                                """
+                                {
+                                  "registration_id":"$registrationId",
+                                  "owner_token":"$ownerToken",
+                                  "lease_duration_ms":15000,
+                                  "poll_after_ms":1000,
+                                  "device":{
+                                    "id":"$deviceId",
+                                    "name":"Bridge phone",
+                                    "protocol":"browser",
+                                    "manufacturer":"Jastreamer",
+                                    "model":"Android",
+                                    "address":"local",
+                                    "online":true,
+                                    "last_seen":"2026-01-01T00:00:00Z",
+                                    "capabilities":{"play":true,"pause":true,"stop":true,"seek":true},
+                                    "protocol_info":[],
+                                    "pairing_required":false,
+                                    "password_required":false
+                                  }
+                                }
+                                """.trimIndent(),
+                            )
+                    }
+                    if (
+                        request.method == "GET" &&
+                        request.path == "/api/v1/browser-output/registrations/$registrationId/commands"
+                    ) {
+                        return if (registrationRemoved.get()) {
+                            MockResponse().setResponseCode(404)
+                        } else {
+                            MockResponse()
+                                .setResponseCode(200)
+                                .setHeader("Content-Type", "application/json")
+                                .setBody("""{"lease_duration_ms":15000,"poll_after_ms":1000}""")
+                        }
+                    }
+                    if (
+                        request.method == "PUT" &&
+                        request.path == "/api/v1/browser-output/registrations/$registrationId/lease"
+                    ) {
+                        return MockResponse()
+                            .setResponseCode(200)
+                            .setHeader("Content-Type", "application/json")
+                            .setBody("""{"lease_duration_ms":15000}""")
+                    }
+                    if (
+                        request.method == "DELETE" &&
+                        request.path == "/api/v1/browser-output/registrations/$registrationId"
+                    ) {
+                        registrationRemoved.set(true)
+                        return MockResponse().setResponseCode(204)
                     }
                     if (request.path == "/api/v1/discovery") {
                         if (blockDiscovery) {
@@ -702,6 +866,14 @@ class WebViewBoundaryTest {
 
         fun discoveryRequestCount(): Int =
             requests.count { it.method == "GET" && it.path == "/api/v1/discovery" }
+
+        fun registrationPosts(): Int = requests.count {
+            it.method == "POST" && it.path == "/api/v1/browser-output/registrations"
+        }
+
+        fun registrationDeletes(): Int = requests.count {
+            it.method == "DELETE" && it.path == "/api/v1/browser-output/registrations/$registrationId"
+        }
 
         override fun close() {
             discoveryRelease.countDown()

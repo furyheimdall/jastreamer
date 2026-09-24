@@ -40,6 +40,7 @@ import org.json.JSONObject
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -180,6 +181,104 @@ class OfflinePlaybackBoundaryTest {
         assertEquals(queued, library.loadQueue().entries)
         assertEquals(OfflinePlaybackPolicy.OWNER_NONE, OfflinePlayback.state.value.owner)
         assertFalse(OfflinePlayback.state.value.playing)
+    }
+
+    @Test
+    fun automaticServerConnectAndDisconnectLeaveSavedMusicOwnershipUntouched() {
+        RegistrationFixture().use { fixture ->
+            val track = importWav("Automatic connect local owner", 415.3)
+            addedServers += fixture.endpoint
+            ActivityScenario.launch(MainActivity::class.java).use {
+                runBlocking { OfflinePlayback.play(context, listOf(track.id)) }
+                await("saved music owns active playback") {
+                    OfflinePlayback.state.value.owner == OfflinePlaybackPolicy.OWNER_LOCAL &&
+                        OfflinePlayback.state.value.playing
+                }
+                val queue = OfflinePlayback.state.value.queue
+                val (controller, releaseController) = connectController()
+                try {
+                    val originalVolume = onMain { controller.volume }
+                    val volumeFailure = try {
+                        onMain { NativePlayback.setVolume(fixture.endpoint, 0.25) }
+                        null
+                    } catch (failure: NativePlaybackException) {
+                        failure
+                    }
+                    assertEquals("not_connected", volumeFailure?.code)
+                    assertEquals(originalVolume, onMain { controller.volume }, 0f)
+
+                    val pendingUserRequest = OfflinePlaybackRequestFence.beginRequest()
+                    val device = onMainSuspend {
+                        NativePlayback.connectIfAvailable(context, fixture.endpoint, "Boundary phone")
+                    }
+                    assertNull(device)
+                    assertTrue("Automatic fallback must not supersede an explicit playback request",
+                        OfflinePlaybackRequestFence.isCurrent(pendingUserRequest))
+                    onMainSuspend { NativePlayback.disconnect(fixture.endpoint) }
+
+                    assertEquals(OfflinePlaybackPolicy.OWNER_LOCAL, OfflinePlayback.state.value.owner)
+                    assertTrue(OfflinePlayback.state.value.playing)
+                    assertEquals(queue.entries, OfflinePlayback.state.value.queue.entries)
+                    assertEquals(queue.currentEntryId, OfflinePlayback.state.value.queue.currentEntryId)
+                    assertTrue(OfflinePlayback.state.value.queue.positionMs >= queue.positionMs)
+                    assertEquals(0, fixture.registrationPosts())
+                    assertEquals(0, fixture.registrationDeletes())
+                } finally {
+                    releaseController()
+                }
+            }
+        }
+    }
+
+    @Test
+    fun serverVolumeAutomaticConnectAndDisconnectStayWithTheRegisteredServer() {
+        RegistrationFixture().use { first ->
+            RegistrationFixture().use { second ->
+                addedServers += first.endpoint
+                addedServers += second.endpoint
+                ActivityScenario.launch(MainActivity::class.java).use {
+                    val connected = onMainSuspend {
+                        NativePlayback.connect(context, first.endpoint, "Boundary phone")
+                    }
+                    assertEquals(first.deviceId, connected.getString("id"))
+                    val (controller, releaseController) = connectController()
+                    try {
+                        val state = onMain {
+                            NativePlayback.setVolume(first.endpoint, 0.25)
+                        }
+                        assertEquals(0.25, state.getDouble("volume"), 0.0001)
+                        assertEquals(0.25f, onMain { controller.volume }, 0.0001f)
+                        assertFalse(onMain { controller.isPlaying })
+
+                        val existing = onMainSuspend {
+                            NativePlayback.connectIfAvailable(context, first.endpoint, "Boundary phone")
+                        }
+                        assertEquals(first.deviceId, existing?.getString("id"))
+                        assertEquals(1, first.registrationPosts())
+
+                        val other = onMainSuspend {
+                            NativePlayback.connectIfAvailable(context, second.endpoint, "Other boundary phone")
+                        }
+                        assertNull(other)
+                        assertEquals(0, second.registrationPosts())
+                        assertEquals(
+                            first.deviceId,
+                            onMain { NativePlayback.state(first.endpoint).getJSONObject("device").getString("id") },
+                        )
+
+                        onMainSuspend { NativePlayback.disconnect(second.endpoint) }
+                        assertEquals(OfflinePlaybackPolicy.OWNER_SERVER, OfflinePlayback.state.value.owner)
+                        assertEquals(0, first.registrationDeletes())
+
+                        onMainSuspend { NativePlayback.disconnect(first.endpoint) }
+                        assertEquals(OfflinePlaybackPolicy.OWNER_NONE, OfflinePlayback.state.value.owner)
+                        assertEquals(1, first.registrationDeletes())
+                    } finally {
+                        releaseController()
+                    }
+                }
+            }
+        }
     }
 
     @Test

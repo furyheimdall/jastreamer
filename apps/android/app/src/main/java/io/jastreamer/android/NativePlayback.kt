@@ -27,17 +27,7 @@ object NativePlayback {
         requireMainThread()
         val requestGeneration = OfflinePlaybackRequestFence.beginRequest()
         val safeName = NativePlaybackPolicy.requireName(name)
-        val appContext = context.applicationContext
-        try {
-            appContext.startService(Intent(appContext, NativePlaybackService::class.java))
-        } catch (error: RuntimeException) {
-            throw NativePlaybackException("service_unavailable", "Phone playback is unavailable.", error)
-        }
-        val service = try {
-            withTimeout(SERVICE_START_TIMEOUT_MILLIS) { NativePlaybackRegistry.awaitService() }
-        } catch (error: TimeoutCancellationException) {
-            throw NativePlaybackException("service_unavailable", "Phone playback is unavailable.", error)
-        }
+        val service = startService(context)
         val operationToken = service.prepareServerHandoff(confirmHandoff, requestGeneration)
         val verified = try {
             ServerProbe().probe(server.origin, server.id)
@@ -46,6 +36,46 @@ object NativePlayback {
         }
         val normalizedServer = server.copy(id = verified.id, origin = verified.origin)
         return service.connect(normalizedServer, safeName, operationToken)
+    }
+
+    @MainThread
+    suspend fun connectIfAvailable(
+        context: Context,
+        server: ServerEndpoint,
+        name: String,
+    ): JSONObject? {
+        requireMainThread()
+        val requestGeneration = OfflinePlaybackRequestFence.currentRequest()
+        if (OfflinePlayback.hasPendingMutation) return null
+        val safeName = NativePlaybackPolicy.requireName(name)
+        val service = startService(context)
+        val operationToken = try {
+            service.prepareServerHandoff(confirmHandoff = false, requestGeneration = requestGeneration)
+        } catch (failure: NativePlaybackException) {
+            if (failure.code == "handoff_required" || failure.code == "superseded") return null
+            throw failure
+        }
+        val verified = try {
+            ServerProbe().probe(server.origin, server.id)
+        } catch (error: ClientException) {
+            throw error.asNativePlaybackException()
+        }
+        val normalizedServer = server.copy(id = verified.id, origin = verified.origin)
+        return service.connectIfAvailable(normalizedServer, safeName, operationToken)
+    }
+
+    @MainThread
+    suspend fun disconnect(server: ServerEndpoint) {
+        requireMainThread()
+        NativePlaybackRegistry.service?.disconnect(server)
+    }
+
+    @MainThread
+    fun setVolume(server: ServerEndpoint, volume: Double): JSONObject {
+        requireMainThread()
+        val service = NativePlaybackRegistry.service
+            ?: throw NativePlaybackException("not_connected", "Phone playback is not connected.")
+        return service.setVolume(server, NativePlaybackPolicy.requireVolume(volume))
     }
 
     @MainThread
@@ -71,6 +101,21 @@ object NativePlayback {
     internal fun emptyState(): JSONObject = JSONObject()
         .put("device", JSONObject.NULL)
         .put("recovering", false)
+        .put("volume", JSONObject.NULL)
+
+    private suspend fun startService(context: Context): NativePlaybackService {
+        val appContext = context.applicationContext
+        try {
+            appContext.startService(Intent(appContext, NativePlaybackService::class.java))
+        } catch (error: RuntimeException) {
+            throw NativePlaybackException("service_unavailable", "Phone playback is unavailable.", error)
+        }
+        return try {
+            withTimeout(SERVICE_START_TIMEOUT_MILLIS) { NativePlaybackRegistry.awaitService() }
+        } catch (error: TimeoutCancellationException) {
+            throw NativePlaybackException("service_unavailable", "Phone playback is unavailable.", error)
+        }
+    }
 
     private fun requireMainThread() {
         check(Looper.myLooper() == Looper.getMainLooper()) { "NativePlayback must be used on the main thread" }

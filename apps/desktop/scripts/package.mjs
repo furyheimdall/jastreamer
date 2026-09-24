@@ -51,7 +51,9 @@ await writeFile(path.join(directory, 'START-HERE.txt'), [
   'Recent servers, language preference, and OS-protected Chromium sessions are stored beside the EXE in user-data.',
   'The folder must remain writable. No AppData fallback or administrator launch is required.',
   'Saved sessions are not guaranteed to move across Windows accounts or machines; sign in again there.',
-  'Closing this app or changing servers does not stop playback on a server.',
+  'On Windows, X hides the window in the notification tray while local playback continues.',
+  'Click the tray icon to reopen; right-click it and choose Exit to quit completely before updating.',
+  'Exiting or changing servers does not send Stop to other network outputs.',
   'This build is unsigned and is not production-qualified.',
   '',
 ].join('\r\n'));

@@ -586,6 +586,23 @@ func TestPairingRouteRequiresAuthenticationAndUsesOutputLookup(t *testing.T) {
 	}
 }
 
+func TestFallbackOutputRouteRequiresAuthenticationAndGuards(t *testing.T) {
+	fixture := startAPI(t, false)
+	path := "/api/v1/player/output/fallback"
+	request := `{"renderer_id":"browser","expected_renderer_id":"renderer","expected_revision":0}`
+	expectStatus(t, fixture.request(t, http.MethodPost, path, request, nil), http.StatusUnauthorized)
+	fixture.setup(t)
+
+	response := fixture.request(t, http.MethodPost, path, `{"renderer_id":"browser","expected_renderer_id":"renderer"}`, nil)
+	if code := responseErrorCode(t, response); code != "REVISION_REQUIRED" {
+		t.Fatalf("missing fallback revision error=%q, want REVISION_REQUIRED", code)
+	}
+	response = fixture.request(t, http.MethodPost, path, request, nil)
+	if code := responseErrorCode(t, response); code != "OUTPUT_FALLBACK_NOT_ALLOWED" {
+		t.Fatalf("guarded fallback error=%q, want OUTPUT_FALLBACK_NOT_ALLOWED", code)
+	}
+}
+
 func TestIncompleteJSONBodyIsBoundedWithoutBlockingOtherRequests(t *testing.T) {
 	fixture := startAPI(t, false)
 	address := strings.TrimPrefix(fixture.server.URL, "http://")

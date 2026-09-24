@@ -27,6 +27,7 @@ type startResult struct {
 	track              library.Track
 	playID             string
 	resource           output.Resource
+	positionMS         int64
 	playAcknowledgedAt time.Time
 }
 
@@ -73,7 +74,7 @@ func (s *Service) StopForRestart(ctx context.Context) error {
 		err = fault.New(409, "COMMAND_IN_PROGRESS", "Wait for the active playback command to finish.")
 	}
 	if err == nil && st.state == StateStopped {
-		if st.rendererID != "" && st.resumeRequired {
+		if st.rendererID != "" && st.resumeRequired && st.errorMessage != "" {
 			err = fmt.Errorf("player: previous renderer stop is unconfirmed: %s", st.errorMessage)
 		} else {
 			s.opMu.Unlock()
@@ -406,7 +407,11 @@ func (s *Service) executePlay(ctx context.Context, command commandRecord, st sto
 			controlAction = "switch"
 		}
 	}
-	started, err := s.startEntry(ctx, device, target)
+	resumePositionMS := int64(0)
+	if command.action == "play" && st.resumeRequired && target.id == st.currentEntryID {
+		resumePositionMS = st.positionMS
+	}
+	started, err := s.startEntry(ctx, device, target, resumePositionMS)
 	if err != nil {
 		if rendererOutcomeUnknown(err) {
 			return err
@@ -449,7 +454,7 @@ func (s *Service) executeNext(ctx context.Context, command commandRecord, st sto
 	if !found {
 		return s.completeSuccess(command, successUpdate{state: StateStopped, setState: true, resetPosition: true, queueEntryID: st.currentEntryID, queueStatus: EntryCompleted, controlAction: controlAction})
 	}
-	started, err := s.startEntry(ctx, device, target)
+	started, err := s.startEntry(ctx, device, target, 0)
 	if err != nil {
 		if rendererOutcomeUnknown(err) {
 			return err
@@ -504,7 +509,7 @@ func (s *Service) executePrevious(ctx context.Context, command commandRecord, st
 			controlAction = "previous"
 		}
 	}
-	started, err := s.startEntry(ctx, device, target)
+	started, err := s.startEntry(ctx, device, target, 0)
 	if err != nil {
 		if rendererOutcomeUnknown(err) {
 			return err
@@ -519,7 +524,7 @@ func (s *Service) executePrevious(ctx context.Context, command commandRecord, st
 	return s.completeStart(command, st.currentEntryID, EntryPending, started, controlAction)
 }
 
-func (s *Service) startEntry(ctx context.Context, device output.Device, entry queueRecord) (startResult, error) {
+func (s *Service) startEntry(ctx context.Context, device output.Device, entry queueRecord, resumePositionMS int64) (startResult, error) {
 	track, err := s.lib.Track(ctx, entry.trackID)
 	if err != nil {
 		return startResult{}, &playbackStartError{stage: "LoadTrack", cause: err}
@@ -535,12 +540,21 @@ func (s *Service) startEntry(ctx context.Context, device output.Device, entry qu
 	if err != nil {
 		return startResult{}, &playbackStartError{stage: "PrepareMedia", cause: err}
 	}
+	if resumePositionMS > 0 && (!device.Capabilities.Seek || !resource.Seekable) {
+		s.media.Revoke(playID)
+		return startResult{}, &playbackStartError{stage: "Resume", cause: fault.New(409, "SEEK_UNAVAILABLE", "The saved playback position cannot be resumed on this output.")}
+	}
 	var playAcknowledgedAt time.Time
 	err = func() error {
 		s.rendererMu.Lock()
 		defer s.rendererMu.Unlock()
 		if setErr := s.devices.SetURI(ctx, device.ID, resource); setErr != nil {
 			return &playbackStartError{stage: "SetURI", cause: setErr}
+		}
+		if resumePositionMS > 0 {
+			if seekErr := s.devices.Seek(ctx, device.ID, resumePositionMS); seekErr != nil {
+				return &playbackStartError{stage: "Seek", cause: seekErr}
+			}
 		}
 		if playErr := s.devices.Play(ctx, device.ID); playErr != nil {
 			stopCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
@@ -555,7 +569,7 @@ func (s *Service) startEntry(ctx context.Context, device output.Device, entry qu
 		s.media.Revoke(playID)
 		return startResult{}, err
 	}
-	return startResult{entry: entry, track: track, playID: playID, resource: resource, playAcknowledgedAt: playAcknowledgedAt}, nil
+	return startResult{entry: entry, track: track, playID: playID, resource: resource, positionMS: resumePositionMS, playAcknowledgedAt: playAcknowledgedAt}, nil
 }
 
 func (s *Service) callRenderer(call func() error) error {
@@ -801,7 +815,7 @@ func (s *Service) completeStart(command commandRecord, oldEntryID, oldStatus str
 		_, err = tx.ExecContext(context.Background(), "UPDATE player_queue SET status='playing' WHERE entry_id=?", started.entry.id)
 	}
 	if err == nil {
-		_, err = tx.ExecContext(context.Background(), `UPDATE player_state SET revision=revision+1,queue_revision=queue_revision+1,current_entry_id=?,play_id=?,current_uri=?,current_seekable=?,state='starting',position_ms=0,duration_ms=?,observed_at='',last_observed_state='',last_observed_uri='',last_observed_position_ms=0,last_observed_duration_ms=0,last_observed_has_position=0,last_observed_at='',resume_required=0,error='',control_action=?,control_at=? WHERE singleton=1`, started.entry.id, started.playID, started.resource.URL, boolInt(started.resource.Seekable), chooseDuration(started.resource.DurationMS, started.track.DurationMS), controlAction, controlAt)
+		_, err = tx.ExecContext(context.Background(), `UPDATE player_state SET revision=revision+1,queue_revision=queue_revision+1,current_entry_id=?,play_id=?,current_uri=?,current_seekable=?,state='starting',position_ms=?,duration_ms=?,observed_at='',last_observed_state='',last_observed_uri='',last_observed_position_ms=0,last_observed_duration_ms=0,last_observed_has_position=0,last_observed_at='',resume_required=0,error='',control_action=?,control_at=? WHERE singleton=1`, started.entry.id, started.playID, started.resource.URL, boolInt(started.resource.Seekable), started.positionMS, chooseDuration(started.resource.DurationMS, started.track.DurationMS), controlAction, controlAt)
 	}
 	if err == nil {
 		_, err = tx.ExecContext(context.Background(), "UPDATE player_commands SET status='succeeded',error='',completed_at=? WHERE command_id=? AND status='running'", now, command.id)
@@ -825,7 +839,7 @@ func (s *Service) completeStart(command commandRecord, oldEntryID, oldStatus str
 	if err != nil {
 		return err
 	}
-	s.logCommandTerminal(command, "succeeded", "renderer_acknowledged", st, started.playID, started.entry.id, StateStarting, 0, diagnosticErrorInfo{}, finished)
+	s.logCommandTerminal(command, "succeeded", "renderer_acknowledged", st, started.playID, started.entry.id, StateStarting, started.positionMS, diagnosticErrorInfo{}, finished)
 	s.notify("queue")
 	s.notify("player")
 	s.signalObserver()
@@ -1066,7 +1080,8 @@ func (s *Service) completeFailure(command commandRecord, message string, unavail
 		if queueChanged {
 			queueIncrement = 1
 		}
-		_, err = tx.ExecContext(context.Background(), `UPDATE player_state SET revision=revision+1,queue_revision=queue_revision+?,current_entry_id=CASE WHEN ?<>'' THEN ? ELSE current_entry_id END,state=?,resume_required=1,error=?,play_id=CASE WHEN ? THEN '' ELSE play_id END,current_uri=CASE WHEN ? THEN '' ELSE current_uri END,current_seekable=CASE WHEN ? THEN 0 ELSE current_seekable END,control_action='',control_at='' WHERE singleton=1`, queueIncrement, entryID, entryID, state, message, clearPlayback, clearPlayback, clearPlayback)
+		cursorChanged := entryID != "" && entryID != st.currentEntryID
+		_, err = tx.ExecContext(context.Background(), `UPDATE player_state SET revision=revision+1,queue_revision=queue_revision+?,current_entry_id=CASE WHEN ?<>'' THEN ? ELSE current_entry_id END,position_ms=CASE WHEN ? THEN 0 ELSE position_ms END,duration_ms=CASE WHEN ? THEN 0 ELSE duration_ms END,state=?,resume_required=1,error=?,play_id=CASE WHEN ? THEN '' ELSE play_id END,current_uri=CASE WHEN ? THEN '' ELSE current_uri END,current_seekable=CASE WHEN ? THEN 0 ELSE current_seekable END,control_action='',control_at='' WHERE singleton=1`, queueIncrement, entryID, entryID, cursorChanged, cursorChanged, state, message, clearPlayback, clearPlayback, clearPlayback)
 	}
 	if err == nil {
 		_, err = tx.ExecContext(context.Background(), "UPDATE player_commands SET status='failed',error=?,completed_at=? WHERE command_id=? AND status='running'", message, now, command.id)
