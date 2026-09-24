@@ -153,6 +153,57 @@ func TestHistoryFiltersAndRendererSnapshots(t *testing.T) {
 	}
 }
 
+func TestHistoryStreamExportsAllMatchingRowsWithoutPagination(t *testing.T) {
+	service, closeDB := openHistory(t, filepath.Join(t.TempDir(), "state.db"), nil)
+	defer closeDB()
+	ctx := context.Background()
+	base := time.Date(2026, 9, 20, 0, 0, 0, 0, time.UTC)
+	for index := range 125 {
+		event := sampleEvent(fmt.Sprintf("matching-%03d", index), base.Add(time.Duration(index)*time.Second))
+		event.Code = fmt.Sprintf("code-%03d", index)
+		if err := service.Record(ctx, event); err != nil {
+			t.Fatal(err)
+		}
+	}
+	otherRenderer := sampleEvent("other-renderer", base.Add(2*time.Hour))
+	otherRenderer.RendererID = "renderer-2"
+	if err := service.Record(ctx, otherRenderer); err != nil {
+		t.Fatal(err)
+	}
+	integrity := Event{Key: "integrity", ReceivedAt: base.Add(3 * time.Hour), Kind: "integrity", TrackID: "track-2", Stage: "decode", Code: "invalid_data", Message: "Audio verification failed.", Outcome: "failed"}
+	if err := service.Record(ctx, integrity); err != nil {
+		t.Fatal(err)
+	}
+
+	page, err := service.List(ctx, ListOptions{Kind: "renderer", RendererID: "renderer-1", Limit: 100})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if page.Total != 125 || len(page.Items) != 100 {
+		t.Fatalf("list page=%d/%d, want 100/125", len(page.Items), page.Total)
+	}
+
+	var exported []Event
+	err = service.Stream(ctx, Filter{Kind: "renderer", RendererID: "renderer-1"}, func(event Event) error {
+		exported = append(exported, event)
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(exported) != 125 {
+		t.Fatalf("exported %d matching records, want 125", len(exported))
+	}
+	if exported[0].Code != "code-124" || exported[len(exported)-1].Code != "code-000" {
+		t.Fatalf("export order first=%q last=%q", exported[0].Code, exported[len(exported)-1].Code)
+	}
+	for index, event := range exported {
+		if event.RendererID != "renderer-1" || event.Kind != "renderer" || event.Code != fmt.Sprintf("code-%03d", 124-index) {
+			t.Fatalf("exported[%d]=%#v", index, event)
+		}
+	}
+}
+
 func TestLongDisplayMetadataDoesNotDiscardAnError(t *testing.T) {
 	service, closeDB := openHistory(t, filepath.Join(t.TempDir(), "state.db"), nil)
 	defer closeDB()

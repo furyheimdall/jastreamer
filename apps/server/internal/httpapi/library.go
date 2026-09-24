@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"encoding/json"
 	"net/http"
 	"strconv"
 
@@ -29,7 +30,15 @@ func (service *server) browse(kind string) http.HandlerFunc {
 				return
 			}
 		}
-		page, err := service.options.Library.Browse(r.Context(), library.Query{Kind: kind, Search: values.Get("q"), AlbumID: values.Get("album_id"), Artist: values.Get("artist"), Genre: values.Get("genre"), RootID: values.Get("root_id"), Path: values.Get("path"), Liked: liked, Sort: values.Get("sort"), Offset: offset, Limit: limit})
+		played := false
+		if raw := values.Get("played"); raw != "" {
+			played, err = strconv.ParseBool(raw)
+			if err != nil {
+				writeError(w, fault.New(http.StatusBadRequest, "INVALID_QUERY", "재생 횟수 필터가 올바르지 않습니다."))
+				return
+			}
+		}
+		page, err := service.options.Library.Browse(r.Context(), library.Query{Kind: kind, Search: values.Get("q"), AlbumID: values.Get("album_id"), Artist: values.Get("artist"), Genre: values.Get("genre"), RootID: values.Get("root_id"), Path: values.Get("path"), Liked: liked, Played: played, Sort: values.Get("sort"), Offset: offset, Limit: limit})
 		if err != nil {
 			writeError(w, err)
 			return
@@ -87,7 +96,24 @@ func (service *server) scans(w http.ResponseWriter, r *http.Request) {
 }
 
 func (service *server) startScan(w http.ResponseWriter, r *http.Request) {
-	job, err := service.options.Library.StartScan(r.Context())
+	mode := library.ScanModeIncremental
+	if r.Body != nil && r.Body != http.NoBody {
+		var body struct {
+			Mode json.RawMessage `json:"mode"`
+		}
+		if !decode(w, r, &body) {
+			return
+		}
+		if body.Mode != nil {
+			var requested library.ScanMode
+			if err := json.Unmarshal(body.Mode, &requested); err != nil {
+				writeError(w, fault.New(http.StatusBadRequest, "INVALID_REQUEST", "스캔 모드가 올바르지 않습니다."))
+				return
+			}
+			mode = requested
+		}
+	}
+	job, err := service.options.Library.StartScanMode(r.Context(), mode)
 	if err != nil {
 		writeError(w, err)
 		return

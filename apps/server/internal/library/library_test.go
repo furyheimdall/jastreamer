@@ -80,6 +80,113 @@ func TestScanHydratesDurationArtworkAndRejectsSymlinkReplacement(t *testing.T) {
 	}
 }
 
+func TestFullScanBypassesUnchangedMetadataFastPath(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "song.wav")
+	writeTestWAV(t, path, 4_000)
+	service := newTestService(t, []Root{{ID: "music", Name: "Music", Path: root}})
+	initial, err := service.StartScan(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if completed := waitScan(t, service, initial.ID); completed.Status != "complete" {
+		t.Fatalf("initial scan = %+v", completed)
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	file, err := os.OpenFile(path, os.O_WRONLY, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = file.WriteAt([]byte("NOPE"), 0); err != nil {
+		file.Close()
+		t.Fatal(err)
+	}
+	if err = file.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err = os.Chtimes(path, info.ModTime(), info.ModTime()); err != nil {
+		t.Fatal(err)
+	}
+
+	incremental, err := service.StartScan(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if completed := waitScan(t, service, incremental.ID); completed.Status != "complete" || completed.Updated != 0 || completed.Errors != 0 {
+		t.Fatalf("incremental scan = %+v", completed)
+	}
+	full, err := service.StartScanMode(t.Context(), ScanModeFull)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if completed := waitScan(t, service, full.ID); completed.Status != "failed" || completed.Errors != 1 {
+		t.Fatalf("full scan = %+v", completed)
+	}
+}
+
+func TestChangedConfiguredRootPathCannotReuseMatchingFileIdentity(t *testing.T) {
+	firstRoot := t.TempDir()
+	firstPath := filepath.Join(firstRoot, "song.wav")
+	writeTestWAV(t, firstPath, 4_000)
+	service := newTestService(t, []Root{{ID: "music", Name: "Music", Path: firstRoot}})
+	initial, err := service.StartScan(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if completed := waitScan(t, service, initial.ID); completed.Status != "complete" {
+		t.Fatalf("initial scan = %+v", completed)
+	}
+	firstInfo, err := os.Stat(firstPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	secondRoot := t.TempDir()
+	secondPath := filepath.Join(secondRoot, "song.wav")
+	writeTestWAV(t, secondPath, 4_000)
+	file, err := os.OpenFile(secondPath, os.O_WRONLY, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = file.WriteAt([]byte("NOPE"), 0); err != nil {
+		file.Close()
+		t.Fatal(err)
+	}
+	if err = file.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err = os.Chtimes(secondPath, firstInfo.ModTime(), firstInfo.ModTime()); err != nil {
+		t.Fatal(err)
+	}
+	if err = service.SetRoots([]Root{{ID: "music", Name: "Music", Path: secondRoot}}); err != nil {
+		t.Fatal(err)
+	}
+	scan, err := service.StartScan(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if completed := waitScan(t, service, scan.ID); completed.Status != "failed" || completed.Errors != 1 || completed.Updated != 0 {
+		t.Fatalf("changed-root scan = %+v", completed)
+	}
+}
+
+func TestStartScanRejectsInvalidMode(t *testing.T) {
+	service := newTestService(t, nil)
+	if _, err := service.StartScanMode(t.Context(), ScanMode("invalid")); !isInvalidRequest(err) {
+		t.Fatalf("invalid scan mode error = %#v", err)
+	}
+	jobs, err := service.Scans(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(jobs) != 0 {
+		t.Fatalf("invalid mode created scan jobs: %+v", jobs)
+	}
+}
+
 func TestFailedRootScanPreservesExistingAvailability(t *testing.T) {
 	root := t.TempDir()
 	writeTestWAV(t, filepath.Join(root, "song.wav"), 4_000)
@@ -202,6 +309,105 @@ func TestDownloadFolderSnapshotIsRecursiveOrderedAndRootConfined(t *testing.T) {
 	}
 	if _, err := service.DownloadSnapshot(t.Context(), "folder", "", "first", "Empty"); err == nil {
 		t.Fatal("empty folder snapshot succeeded")
+	}
+}
+
+func TestPlayCountsRankGloballyAndSurviveRescan(t *testing.T) {
+	firstRoot := t.TempDir()
+	secondRoot := t.TempDir()
+	writeTestWAV(t, filepath.Join(firstRoot, "Alpha.wav"), 4_000)
+	writeTestWAV(t, filepath.Join(firstRoot, "Beta.wav"), 4_000)
+	writeTestWAV(t, filepath.Join(firstRoot, "Zero.wav"), 4_000)
+	writeTestWAV(t, filepath.Join(secondRoot, "Gamma.wav"), 4_000)
+	service := newTestService(t, []Root{
+		{ID: "first", Name: "First", Path: firstRoot},
+		{ID: "second", Name: "Second", Path: secondRoot},
+	})
+	job, err := service.StartScan(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if job = waitScan(t, service, job.ID); job.Status != "complete" {
+		t.Fatalf("scan = %+v", job)
+	}
+	page, err := service.Browse(t.Context(), Query{Kind: "tracks", Limit: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	byPath := make(map[string]Track)
+	for _, track := range page.Items.([]Track) {
+		byPath[track.Path] = track
+	}
+	alpha, beta, gamma, zero := byPath["Alpha.wav"], byPath["Beta.wav"], byPath["Gamma.wav"], byPath["Zero.wav"]
+	if alpha.ID == "" || beta.ID == "" || gamma.ID == "" || zero.ID == "" {
+		t.Fatalf("scanned tracks = %#v", byPath)
+	}
+	if zero.PlayCount != 0 {
+		t.Fatalf("uncounted track play count = %d, want 0", zero.PlayCount)
+	}
+	for _, track := range []Track{alpha, beta, gamma} {
+		if _, err = service.SetLiked(t.Context(), track.ID, true); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, count := range []struct {
+		track Track
+		plays int64
+	}{
+		{track: alpha, plays: 5},
+		{track: beta, plays: 5},
+		{track: gamma, plays: 9},
+	} {
+		if _, err = service.db.ExecContext(t.Context(), `INSERT INTO track_play_counts(track_id,play_count,last_play_id) VALUES(?,?,?)`, count.track.ID, count.plays, "play-"+count.track.ID); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	ranked, err := service.Browse(t.Context(), Query{Kind: "tracks", Played: true, Sort: "most_played", Offset: 1, Limit: 2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rankedTracks := ranked.Items.([]Track)
+	if ranked.Total != 3 || len(rankedTracks) != 2 || rankedTracks[0].ID != alpha.ID || rankedTracks[1].ID != beta.ID {
+		t.Fatalf("ranked page = %+v", ranked)
+	}
+	filtered, err := service.Browse(t.Context(), Query{Kind: "tracks", Search: "beta", RootID: "first", Liked: true, Played: true, Sort: "most_played", Limit: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	filteredTracks := filtered.Items.([]Track)
+	if filtered.Total != 1 || len(filteredTracks) != 1 || filteredTracks[0].ID != beta.ID {
+		t.Fatalf("filtered ranking = %+v", filtered)
+	}
+	loaded, err := service.Track(t.Context(), alpha.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	info, err := service.Info(t.Context(), alpha.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	playlist, err := service.SavePlaylist(t.Context(), "", "Played", []string{alpha.ID}, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded.PlayCount != 5 || info.Track.PlayCount != 5 || len(playlist.Tracks) != 1 || playlist.Tracks[0].PlayCount != 5 {
+		t.Fatalf("count exposure: track=%d info=%d playlist=%+v", loaded.PlayCount, info.Track.PlayCount, playlist.Tracks)
+	}
+
+	job, err = service.StartScan(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if job = waitScan(t, service, job.ID); job.Status != "complete" {
+		t.Fatalf("rescan = %+v", job)
+	}
+	loaded, err = service.Track(t.Context(), alpha.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded.PlayCount != 5 {
+		t.Fatalf("play count after rescan = %d, want 5", loaded.PlayCount)
 	}
 }
 

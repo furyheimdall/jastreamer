@@ -80,7 +80,6 @@ private struct ClientShell: View {
     }
 
     var body: some View {
-        let text = L10n(recentServers.language)
         VStack(spacing: 0) {
             ClientHeader(model: model, language: recentServers.language)
             Divider()
@@ -103,14 +102,6 @@ private struct ClientShell: View {
         }
         .background(Color(uiColor: .systemBackground))
         .tint(Color(red: 0.20, green: 0.42, blue: 0.29))
-        .alert(text("error.title"), isPresented: Binding(
-            get: { model.currentServer == nil && model.selectionError != nil },
-            set: { if !$0 { model.clearSelectionError() } }
-        )) {
-            Button(text("dismiss"), role: .cancel) {}
-        } message: {
-            Text(model.selectionError ?? "")
-        }
     }
 }
 

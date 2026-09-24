@@ -116,6 +116,13 @@
   fill: currentColor;
 }
 
+.library-most-played-help {
+  max-width: 60rem;
+  margin: -0.9rem 0 1.25rem;
+  color: var(--muted, #9aa3a6);
+  font-size: 0.82rem;
+  line-height: 1.5;
+}
 
 .library-tab:focus-visible,
 .library-album-card:focus-visible,
@@ -338,8 +345,36 @@
   background: linear-gradient(135deg, #ffffff07, transparent 55%), var(--panel, #1b1f22);
 }
 
-.library-detail-header > .button:first-child {
+.library-detail-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.45rem;
+  min-width: 0;
   margin-bottom: 1rem;
+}
+
+.library-detail-toolbar .button {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  padding-inline: 0.75rem;
+  white-space: nowrap;
+}
+
+.library-detail-toolbar > .native-download-action {
+  flex: none;
+}
+
+.library-detail-toolbar > .native-download-action.native-download-action-saved {
+  flex-wrap: nowrap;
+}
+
+.library-detail-toolbar .native-download-open-library {
+  max-width: none;
+  white-space: nowrap;
 }
 
 .library-detail-summary {
@@ -389,7 +424,6 @@
   font-size: 0.78rem;
 }
 
-.library-bulk-actions,
 .playlist-primary-actions {
   display: flex;
   flex-wrap: wrap;
@@ -397,8 +431,6 @@
   margin-top: 1rem;
 }
 
-
-.library-bulk-actions .button,
 .playlist-primary-actions .button,
 .playlist-create .button,
 .playlist-danger-button {
@@ -474,6 +506,12 @@
   margin-top: 0.18rem;
   color: var(--muted, #9aa3a6);
   font-size: 0.76rem;
+}
+
+.library-track-main .library-track-play-count {
+  color: var(--accent, #c8edb2);
+  font-variant-numeric: tabular-nums;
+  font-weight: 650;
 }
 
 .library-track-album small,
@@ -1381,18 +1419,13 @@
     height: 4.5rem;
   }
 
-  .library-bulk-actions {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .library-bulk-actions .button {
-    min-width: 0;
-    padding-inline: 0.5rem;
-  }
-  .library-bulk-actions > .native-download-action,
-  .library-bulk-actions > .native-download-action .native-download-button {
-    width: 100%;
+  .library-detail-toolbar {
+    flex-wrap: nowrap;
+    max-width: 100%;
+    padding-bottom: 0.35rem;
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    scrollbar-width: thin;
   }
 
 
@@ -1613,14 +1646,13 @@ html[data-device="phone"] :is(.library-track-actions, .playlist-entry-actions) >
   max-width: none;
 }
 
-html[data-device="phone"] .library-bulk-actions {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-}
-
-html[data-device="phone"] .library-bulk-actions .button {
-  min-width: 0;
-  padding-inline: 0.5rem;
+html[data-device="phone"] .library-detail-toolbar {
+  flex-wrap: nowrap;
+  max-width: 100%;
+  padding-bottom: 0.35rem;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scrollbar-width: thin;
 }
 
 html[data-device="phone"] .playlist-layout {
@@ -1677,7 +1709,7 @@ html[data-device="phone"] :is(.library-dialog-heading, .playlist-conflict, .play
     gap: 0.8rem 0.6rem;
   }
 
-  .library-bulk-actions .button {
+  .library-detail-toolbar .button {
     font-size: 0.78rem;
   }
 

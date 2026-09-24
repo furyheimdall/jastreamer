@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/jastreamer/jastreamer-server/internal/fault"
+	"github.com/jastreamer/jastreamer-server/internal/playstats"
 )
 
 const schema = `
@@ -164,6 +165,9 @@ func New(ctx context.Context, db *sql.DB, roots []Root, cacheDir string, notify 
 	if _, err := db.ExecContext(ctx, schema); err != nil {
 		return nil, fmt.Errorf("initialize library schema: %w", err)
 	}
+	if err := playstats.Initialize(ctx, db); err != nil {
+		return nil, fmt.Errorf("initialize play count schema: %w", err)
+	}
 	if notify == nil {
 		notify = func(string) {}
 	}
@@ -192,6 +196,7 @@ func (service *Service) SetRoots(roots []Root) error {
 	service.scanMu.Lock()
 	unchanged, err := service.configuredRootsMatch(service.ctx, validated)
 	var active int
+	verificationPaused := false
 	if err == nil {
 		if scanErr := service.db.QueryRowContext(service.ctx, `SELECT count(*) FROM library_scan_jobs WHERE status IN ('queued','running')`).Scan(&active); scanErr != nil {
 			err = fmt.Errorf("check active library scan: %w", scanErr)
@@ -201,10 +206,15 @@ func (service *Service) SetRoots(roots []Root) error {
 		err = conflict("SCAN_IN_PROGRESS", "library roots cannot change while a scan is running")
 	}
 	if err == nil && !unchanged {
-		service.invalidateVerification()
+		service.setVerificationScanning(true)
+		verificationPaused = true
+		err = service.reconcileVerificationRoots(validated)
 	}
 	if err == nil {
 		err = service.setRootsLocked(validated)
+	}
+	if verificationPaused {
+		service.setVerificationScanning(false)
 	}
 	service.scanMu.Unlock()
 	if err != nil {

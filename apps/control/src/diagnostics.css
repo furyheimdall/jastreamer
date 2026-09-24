@@ -24,7 +24,9 @@
 .diagnostics-heading-row p,
 .diagnostics-secondary,
 .verification-current,
-.history-retention {
+.history-retention,
+.history-export-scope,
+.history-export-guidance {
   color: var(--muted);
   font-size: 0.84rem;
 }
@@ -215,10 +217,23 @@
 
 .history-toolbar {
   display: grid;
-  grid-template-columns: minmax(10rem, 0.8fr) minmax(14rem, 1.2fr) auto;
+  grid-template-columns: minmax(10rem, 0.8fr) minmax(14rem, 1.2fr) auto auto;
   gap: 0.75rem;
   margin-top: 1rem;
   align-items: end;
+}
+
+.history-export-guidance {
+  max-width: 25rem;
+  margin: 0;
+  align-self: center;
+  grid-column: 3 / -1;
+  line-height: 1.45;
+}
+
+.history-export-scope {
+  margin: 0.65rem 0 0;
+  line-height: 1.45;
 }
 
 .history-list {
@@ -413,6 +428,11 @@
 
   .history-toolbar {
     grid-template-columns: 1fr;
+  }
+
+  .history-export-guidance {
+    max-width: none;
+    grid-column: 1;
   }
 
   .history-entry-state {

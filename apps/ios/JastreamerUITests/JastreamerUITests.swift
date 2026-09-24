@@ -38,8 +38,12 @@ final class JastreamerUITests: XCTestCase {
         app.launch()
         allowLocalNetworkAccessIfRequested()
 
+        let manualConnection = app.buttons["connect-by-address"]
+        XCTAssertTrue(manualConnection.waitForExistence(timeout: 10), "The native server chooser must be visible")
+        XCTAssertFalse(app.textFields["server-address"].exists, "Manual address entry must stay behind its dedicated action")
+        manualConnection.tap()
         let address = app.textFields["server-address"]
-        XCTAssertTrue(address.waitForExistence(timeout: 10), "The native server chooser must be visible")
+        XCTAssertTrue(address.waitForExistence(timeout: 10), "The manual Server sheet must expose the address field")
         replaceText(in: address, with: "https://user@example.invalid")
         attachScreenshot(name: "native-address-keyboard")
         app.keyboards.buttons["Go"].tap()
@@ -48,6 +52,19 @@ final class JastreamerUITests: XCTestCase {
         XCTAssertTrue(address.exists, "An invalid URL must remain on the chooser")
         XCTAssertFalse(app.descendants(matching: .any)["web-control"].exists, "An invalid URL must never create Web content")
         invalidAlert.buttons["Dismiss"].tap()
+        let dismissManualConnection = app.buttons["dismiss-manual-address"]
+        XCTAssertTrue(dismissManualConnection.exists)
+        dismissManualConnection.tap()
+        XCTAssertTrue(address.waitForNonExistence(timeout: 5), "Cancel must dismiss manual address entry")
+        XCTAssertTrue(manualConnection.waitForExistence(timeout: 10), "Cancel must return to the Server chooser")
+        XCTAssertFalse(app.descendants(matching: .any)["web-control"].exists, "Dismissing manual entry must not navigate")
+        manualConnection.tap()
+        XCTAssertTrue(address.waitForExistence(timeout: 10))
+        XCTAssertEqual(
+            address.value as? String,
+            "https://user@example.invalid",
+            "Dismissing manual entry must preserve its draft"
+        )
 
         connect(app, to: actualOrigin)
         let web = app.webViews.firstMatch
@@ -107,7 +124,7 @@ final class JastreamerUITests: XCTestCase {
         XCTAssertTrue(app.descendants(matching: .any)["current-server"].exists, "The current Server must remain reachable beside the Web UI")
         XCTAssertTrue(app.buttons["language-menu"].exists, "The native language menu must remain reachable beside the Web UI")
         app.buttons["switch-server"].tap()
-        XCTAssertTrue(app.textFields["server-address"].waitForExistence(timeout: 10), "Switch Server must return to the native chooser")
+        XCTAssertTrue(app.buttons["connect-by-address"].waitForExistence(timeout: 10), "Switch Server must return to the native chooser")
         XCTAssertTrue(app.buttons["language-menu"].exists, "The native language menu must remain reachable on the chooser")
         try assertServerStopped()
 
@@ -122,7 +139,12 @@ final class JastreamerUITests: XCTestCase {
         selectKoreanInWebSettings(app, web: web)
         XCTAssertTrue(web.buttons["보관함"].waitForExistence(timeout: 15), "The Web language setting must take effect")
         app.buttons["switch-server"].tap()
-        XCTAssertTrue(app.staticTexts["서버 선택"].waitForExistence(timeout: 10), "Leaving the Web UI must persist its language back to native state")
+        let koreanManualConnection = app.buttons["connect-by-address"]
+        XCTAssertTrue(koreanManualConnection.waitForExistence(timeout: 10), "Leaving the Web UI must return to the chooser in its persisted language")
+        XCTAssertTrue(
+            koreanManualConnection.label.contains("주소로 직접 연결"),
+            "The persisted Korean language must apply to the chooser's manual connection action"
+        )
         XCTAssertTrue(app.buttons["language-menu"].exists)
         connect(app, to: actualOrigin)
         XCTAssertTrue(web.buttons["보관함"].waitForExistence(timeout: 20), "The isolated profile must retain its Korean Web language")
@@ -267,6 +289,11 @@ final class JastreamerUITests: XCTestCase {
 
     private func connect(_ app: XCUIApplication, to origin: String) {
         let address = app.textFields["server-address"]
+        if !address.exists {
+            let manualConnection = app.buttons["connect-by-address"]
+            XCTAssertTrue(manualConnection.waitForExistence(timeout: 10), "The Server chooser must expose manual address entry")
+            manualConnection.tap()
+        }
         XCTAssertTrue(address.waitForExistence(timeout: 10))
         replaceText(in: address, with: origin)
         app.buttons["connect-server"].tap()
@@ -295,6 +322,14 @@ final class JastreamerUITests: XCTestCase {
             XCUIApplication().keyboards.buttons["Go"].waitForExistence(timeout: 5),
             "The native URL keyboard must be ready before entering a Server address"
         )
+        let keyboardIntroduction = XCUIApplication().otherElements["UIContinuousPathIntroductionView"]
+        if keyboardIntroduction.exists {
+            keyboardIntroduction.buttons["Continue"].tap()
+            XCTAssertTrue(
+                keyboardIntroduction.waitForNonExistence(timeout: 5),
+                "Dismiss only the system's first-use slide-to-type introduction before using the keyboard"
+            )
+        }
         field.press(forDuration: 1)
         let existing = field.value as? String ?? ""
         if !existing.isEmpty, existing != field.placeholderValue {

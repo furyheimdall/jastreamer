@@ -130,6 +130,9 @@ func (s *Service) observeSelected(ctx context.Context) {
 	if result.playerChanged || result.positionChanged {
 		s.notify("player")
 	}
+	if result.libraryChanged {
+		s.notify("library")
+	}
 	if result.commandQueued {
 		s.signalWorker()
 	}
@@ -140,6 +143,7 @@ type observationResult struct {
 	queueChanged    bool
 	positionChanged bool
 	commandQueued   bool
+	libraryChanged  bool
 	revokePlayID    string
 	historyRecord   *playerHistoryRecord
 }
@@ -157,6 +161,7 @@ type observationFailure struct {
 func (s *Service) applyObservationFailure(ctx context.Context, observationError error) (bool, *playerHistoryRecord) {
 	s.opMu.Lock()
 	defer s.opMu.Unlock()
+	s.resetListeningInterval(s.listening.playID)
 	s.terminal = terminalPositionEvidence{}
 	st, err := s.loadState(ctx)
 	if err != nil {
@@ -259,6 +264,7 @@ func (s *Service) applyRendererUnavailable(ctx context.Context, message string) 
 	if err := tx.Commit(); err != nil {
 		return "", false
 	}
+	s.listening = listeningEvidence{}
 	s.logRendererUnavailable(rendererID, playID, currentEntryID, state, "renderer_offline", revision+1)
 	s.startup = startupObservationEvidence{}
 	return playID, true
@@ -334,6 +340,7 @@ func (s *Service) applyObservation(ctx context.Context, observation output.Obser
 		if err != nil {
 			return observationResult{}
 		}
+		s.resetListeningInterval(st.playID)
 		return result
 	}
 
@@ -346,10 +353,12 @@ func (s *Service) applyObservation(ctx context.Context, observation output.Obser
 		if err != nil {
 			return observationResult{}
 		}
+		s.resetListeningInterval(st.playID)
 		return result
 	}
 
 	if observation.PlayID != "" && observation.PlayID != st.playID {
+		s.resetListeningInterval(st.playID)
 		return result
 	}
 
@@ -363,6 +372,7 @@ func (s *Service) applyObservation(ctx context.Context, observation output.Obser
 		if err != nil {
 			return observationResult{}
 		}
+		s.resetListeningInterval(st.playID)
 		return result
 	}
 
@@ -375,7 +385,11 @@ func (s *Service) applyObservation(ctx context.Context, observation output.Obser
 		return s.commitMediaFailureAdvance(ctx, tx, st, observation, position, duration, observedAt)
 	}
 	if terminalEnd {
-		return s.commitTerminalAdvance(ctx, tx, st, observation, observedAt)
+		_, libraryChanged, listenErr := s.prepareListening(ctx, tx, st, observation, true)
+		if listenErr != nil {
+			return observationResult{}
+		}
+		return s.commitTerminalAdvance(ctx, tx, st, observation, observedAt, libraryChanged)
 	}
 
 	if (normalized == "stopped" || normalized == "unknown") && (!observation.HasURI || ownedURI || uriCleared) {
@@ -388,6 +402,10 @@ func (s *Service) applyObservation(ctx context.Context, observation output.Obser
 			if err == nil {
 				err = tx.Commit()
 			}
+			if err != nil {
+				return observationResult{}
+			}
+			s.resetListeningInterval(st.playID)
 			return result
 		}
 		if normalized == "stopped" {
@@ -399,7 +417,11 @@ func (s *Service) applyObservation(ctx context.Context, observation output.Obser
 			}
 		}
 		if reliableNaturalEnd(st, observation) {
-			return s.commitNaturalEnd(ctx, tx, st, observation, position, duration, observedAt)
+			_, libraryChanged, listenErr := s.prepareListening(ctx, tx, st, observation, true)
+			if listenErr != nil {
+				return observationResult{}
+			}
+			return s.commitNaturalEnd(ctx, tx, st, observation, position, duration, observedAt, libraryChanged)
 		}
 		if normalized == "stopped" {
 			return s.commitInterruptedObservation(ctx, tx, st, observation, position, duration, observedAt, StateStopped, "renderer_stopped", "Playback stopped on the renderer. Press Play to resume.")
@@ -431,6 +453,10 @@ func (s *Service) applyObservation(ctx context.Context, observation output.Obser
 		if queueChanged {
 			queueIncrement = 1
 		}
+		nextListening, libraryChanged, listenErr := s.prepareListening(ctx, tx, st, observation, false)
+		if listenErr != nil {
+			return observationResult{}
+		}
 		_, err = tx.ExecContext(ctx, `UPDATE player_state SET revision=revision+?,queue_revision=queue_revision+?,state=?,position_ms=?,duration_ms=?,observed_at=?,last_observed_state=?,last_observed_uri=?,last_observed_position_ms=?,last_observed_duration_ms=?,last_observed_has_position=?,last_observed_at=?,error='',control_action='',control_at='' WHERE singleton=1`, boolInt(result.playerChanged || result.positionChanged), queueIncrement, state, position, duration, observedAt, observation.State, observation.URI, observation.PositionMS, observation.DurationMS, boolInt(observation.HasPosition), observedAt)
 		if err == nil {
 			err = tx.Commit()
@@ -438,10 +464,12 @@ func (s *Service) applyObservation(ctx context.Context, observation output.Obser
 		if err != nil {
 			return observationResult{}
 		}
+		s.listening = nextListening
 		if normalized != "transitioning" {
 			s.startup = startupObservationEvidence{}
 		}
 		result.queueChanged = queueChanged
+		result.libraryChanged = libraryChanged
 		return result
 	}
 
@@ -455,6 +483,7 @@ func (s *Service) applyObservation(ctx context.Context, observation output.Obser
 		if err != nil {
 			return observationResult{}
 		}
+		s.listening = listeningEvidence{}
 		return result
 	}
 
@@ -481,6 +510,7 @@ func (s *Service) commitStartupStoppedObservation(ctx context.Context, tx *sql.T
 	if err != nil {
 		return observationResult{}
 	}
+	s.resetListeningInterval(st.playID)
 	return result
 }
 
@@ -513,6 +543,7 @@ func (s *Service) commitInterruptedObservation(ctx context.Context, tx *sql.Tx, 
 	if err := tx.Commit(); err != nil {
 		return observationResult{}
 	}
+	s.listening = listeningEvidence{}
 	s.logObservationInterrupted(st, observation, state, reason, position)
 	s.startup = startupObservationEvidence{}
 	result.queueChanged = queueChanged
@@ -578,6 +609,7 @@ func (s *Service) commitMediaFailureAdvance(ctx context.Context, tx *sql.Tx, st 
 	if err := tx.Commit(); err != nil {
 		return observationResult{}
 	}
+	s.listening = listeningEvidence{}
 	s.logMediaFailureTransition(st, observation, commandID, nextEntryID, state, position)
 	if commandID != "" {
 		s.logCommandAccepted(commandID, "error_next", st.rendererID, st.playID, st.currentEntryID, nextEntryID, "media_failure", state, st.revision+1, 0)
@@ -613,7 +645,7 @@ func (s *Service) observeTerminalPosition(st storedState, observation output.Obs
 	return now.Sub(s.terminal.since) >= 2*time.Second
 }
 
-func (s *Service) commitTerminalAdvance(ctx context.Context, tx *sql.Tx, st storedState, observation output.Observation, observedAt string) observationResult {
+func (s *Service) commitTerminalAdvance(ctx context.Context, tx *sql.Tx, st storedState, observation output.Observation, observedAt string, libraryChanged bool) observationResult {
 	insert, err := tx.ExecContext(ctx, "INSERT OR IGNORE INTO player_natural_ends(play_id,entry_id,ended_at) VALUES(?,?,?)", st.playID, st.currentEntryID, observedAt)
 	if err != nil {
 		return observationResult{}
@@ -637,13 +669,14 @@ func (s *Service) commitTerminalAdvance(ctx context.Context, tx *sql.Tx, st stor
 	if err := tx.Commit(); err != nil {
 		return observationResult{}
 	}
+	s.listening = listeningEvidence{}
 	s.logNaturalTransition(st, observation, commandID, "next", "", st.state, "terminal_position", st.positionMS)
 	s.logCommandAccepted(commandID, "next", st.rendererID, st.playID, st.currentEntryID, "", "terminal_position", st.state, st.revision+1, 0)
-	return observationResult{playerChanged: true, commandQueued: true}
+	return observationResult{playerChanged: true, commandQueued: true, libraryChanged: libraryChanged}
 }
 
-func (s *Service) commitNaturalEnd(ctx context.Context, tx *sql.Tx, st storedState, observation output.Observation, position, duration int64, observedAt string) observationResult {
-	result := observationResult{playerChanged: true, queueChanged: true, revokePlayID: st.playID}
+func (s *Service) commitNaturalEnd(ctx context.Context, tx *sql.Tx, st storedState, observation output.Observation, position, duration int64, observedAt string, libraryChanged bool) observationResult {
+	result := observationResult{playerChanged: true, queueChanged: true, revokePlayID: st.playID, libraryChanged: libraryChanged}
 	insert, err := tx.ExecContext(ctx, "INSERT OR IGNORE INTO player_natural_ends(play_id,entry_id,ended_at) VALUES(?,?,?)", st.playID, st.currentEntryID, observedAt)
 	if err != nil {
 		return observationResult{}
@@ -684,6 +717,7 @@ func (s *Service) commitNaturalEnd(ctx context.Context, tx *sql.Tx, st storedSta
 	if err := tx.Commit(); err != nil {
 		return observationResult{}
 	}
+	s.listening = listeningEvidence{}
 	s.logNaturalTransition(st, observation, commandID, "natural_next", nextEntryID, state, "natural_end", position)
 	if commandID != "" {
 		s.logCommandAccepted(commandID, "natural_next", st.rendererID, st.playID, st.currentEntryID, nextEntryID, "natural_end", state, st.revision+1, 0)

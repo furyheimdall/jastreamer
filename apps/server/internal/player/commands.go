@@ -203,6 +203,7 @@ func (s *Service) acceptCommandLocked(ctx context.Context, commandID, now string
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("player: commit command intent: %w", err)
 	}
+	s.resetListeningInterval(st.playID)
 	s.logCommandAccepted(commandID, command.Action, st.rendererID, st.playID, st.currentEntryID, command.EntryID, "request", st.state, st.revision+1, command.PositionMS)
 	return nil
 }
@@ -772,6 +773,11 @@ func (s *Service) completeSuccess(command commandRecord, update successUpdate) e
 		} else if update.startup.playID != "" {
 			s.startup = update.startup
 		}
+		if update.setState && update.state == StateStopped {
+			s.listening = listeningEvidence{}
+		} else {
+			s.resetListeningInterval(st.playID)
+		}
 	}
 	if err != nil && tx != nil {
 		_ = tx.Rollback()
@@ -833,6 +839,10 @@ func (s *Service) completeStart(command commandRecord, oldEntryID, oldStatus str
 	if err == nil {
 		s.startup = startupObservationEvidence{
 			playID: started.playID, deadline: started.playAcknowledgedAt.Add(commandTimeout),
+		}
+		s.listening = listeningEvidence{
+			playID: started.playID, trackID: started.entry.trackID,
+			durationMS: chooseDuration(started.resource.DurationMS, started.track.DurationMS),
 		}
 	}
 	if err != nil && tx != nil {
@@ -911,6 +921,7 @@ func (s *Service) completeMediaStartFailure(command commandRecord, target queueR
 	}
 	if err == nil {
 		s.startup = startupObservationEvidence{}
+		s.listening = listeningEvidence{}
 	}
 	if err != nil && tx != nil {
 		_ = tx.Rollback()
@@ -956,6 +967,7 @@ func (s *Service) completeAdvanceFailure(command commandRecord, oldEntryID, targ
 	}
 	if err == nil {
 		s.startup = startupObservationEvidence{}
+		s.listening = listeningEvidence{}
 	}
 	if err != nil && tx != nil {
 		_ = tx.Rollback()
@@ -1003,6 +1015,7 @@ func (s *Service) completeUnconfirmedStop(command commandRecord, st storedState,
 	}
 	if err == nil {
 		s.startup = startupObservationEvidence{}
+		s.listening = listeningEvidence{}
 	}
 	if err != nil && tx != nil {
 		_ = tx.Rollback()
@@ -1080,6 +1093,11 @@ func (s *Service) completeFailure(command commandRecord, message string, unavail
 	}
 	if err == nil {
 		s.startup = startupObservationEvidence{}
+		if clearPlayback {
+			s.listening = listeningEvidence{}
+		} else {
+			s.resetListeningInterval(st.playID)
+		}
 	}
 	if err != nil && tx != nil {
 		_ = tx.Rollback()
@@ -1143,6 +1161,7 @@ func (s *Service) completeUnknown(command commandRecord, message string) {
 	}
 	if err == nil {
 		s.startup = startupObservationEvidence{}
+		s.listening = listeningEvidence{}
 	}
 	if err != nil && tx != nil {
 		_ = tx.Rollback()

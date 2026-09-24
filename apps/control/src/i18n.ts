@@ -5,12 +5,11 @@ import { diagnosticsMessages } from "./locales/diagnostics";
 import { downloadMessages } from "./locales/downloads";
 import { libraryMessages } from "./locales/library";
 import { playerMessages } from "./locales/player";
-import { pwaMessages } from "./locales/pwa";
 
 export type Language = "en" | "ko";
 const storageKey = "jastreamer.language";
 const cookieName = "jastreamer_language";
-const messages = { ...commonMessages, ...appMessages, ...diagnosticsMessages, ...downloadMessages, ...libraryMessages, ...playerMessages, ...pwaMessages };
+const messages = { ...commonMessages, ...appMessages, ...diagnosticsMessages, ...downloadMessages, ...libraryMessages, ...playerMessages };
 export type MessageKey = keyof typeof messages;
 
 function isLanguage(value: unknown): value is Language {

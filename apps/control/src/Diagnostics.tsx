@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { api, ApiError } from "./api";
+import { api, apiBlob, ApiError } from "./api";
+import { embeddedClient } from "./device";
 import { useI18n, type MessageKey } from "./i18n";
 import type { HistoryEvent, HistoryKind, HistoryPage, HistoryRenderer, VerificationState, VerificationStatus as VerificationStatusDocument } from "./types";
 import "./diagnostics.css";
@@ -191,6 +192,8 @@ export function HistoryPanel({ revision }: { revision: number }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [refresh, setRefresh] = useState(0);
+  const [exporting, setExporting] = useState(false);
+  const [exportError, setExportError] = useState("");
 
   const load = useCallback((signal: AbortSignal) => {
     const params = new URLSearchParams({ offset: String(offset), limit: String(historyPageSize) });
@@ -227,6 +230,34 @@ export function HistoryPanel({ revision }: { revision: number }) {
     const parsed = new Date(value);
     return Number.isNaN(parsed.getTime()) ? value : dateFormatter.format(parsed);
   }, [dateFormatter]);
+
+  const exportHistory = async () => {
+    const params = new URLSearchParams();
+    if (kind) params.set("kind", kind);
+    if (rendererID) params.set("renderer_id", rendererID);
+    setExporting(true);
+    setExportError("");
+    try {
+      const serialized = params.toString();
+      const blob = await apiBlob(`/history/export${serialized ? `?${serialized}` : ""}`);
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      try {
+        link.href = url;
+        link.download = "jastreamer-diagnostic-history.csv";
+        link.style.display = "none";
+        document.body.append(link);
+        link.click();
+      } finally {
+        link.remove();
+        window.setTimeout(() => URL.revokeObjectURL(url), 1_000);
+      }
+    } catch (caught) {
+      setExportError(requestMessage(caught, t("settings.history.exportFailed")));
+    } finally {
+      setExporting(false);
+    }
+  };
 
 
   const pageOffset = page?.offset ?? offset;
@@ -290,7 +321,23 @@ export function HistoryPanel({ revision }: { revision: number }) {
           >
             {t("common.refresh")}
           </button>
+          {embeddedClient ? (
+            <p className="history-export-guidance">{t("settings.history.exportBrowserOnly")}</p>
+          ) : (
+            <button
+              className="button button-ghost history-export"
+              type="button"
+              disabled={exporting}
+              aria-describedby="history-export-scope"
+              onClick={() => void exportHistory()}
+            >
+              {t(exporting ? "settings.history.exporting" : "settings.history.export")}
+            </button>
+          )}
         </div>
+        <p className="history-export-scope" id="history-export-scope">{t("settings.history.exportScope")}</p>
+        {exporting && <p className="diagnostics-loading-inline" role="status">{t("settings.history.exporting")}</p>}
+        {exportError && <div className="inline-error diagnostics-inline-error" role="alert"><span>{exportError}</span></div>}
         {error && (
           <div className="inline-error diagnostics-inline-error" role="alert">
             <span>{error}</span>

@@ -187,6 +187,50 @@ test("a later configuration change restores restart controls without remounting 
   }
 });
 
+test("settings preserve cross-tab drafts and reveal invalid fields before saving", async ({ page }) => {
+  const setup = await control(page, "/setup");
+  await control(page, setup.required ? "/setup" : "/login", "POST", {
+    username: "browser-smoke", password: "browser-smoke-password",
+  });
+  const original = await control(page, "/config");
+  const originalPlayer = await control(page, "/player");
+  let saves = 0;
+  page.on("request", (request) => {
+    if (request.method() === "PUT" && new URL(request.url()).pathname === "/api/v1/config") saves += 1;
+  });
+  try {
+    await page.goto(origin, { waitUntil: "domcontentloaded" });
+    await page.getByRole("button", { name: "Settings", exact: true }).click();
+    await page.locator("#server-name").fill("Cross-tab draft");
+    await page.getByRole("tab", { name: "Library", exact: true }).click();
+    await page.locator(".root-row .input").first().fill("Cross-tab music");
+    await page.getByRole("tab", { name: "Network", exact: true }).click();
+    await page.locator("#http-address").fill("");
+    await page.getByRole("tab", { name: "General", exact: true }).click();
+    await expect(page.locator("#server-name")).toHaveValue("Cross-tab draft");
+    await page.getByRole("button", { name: "Save settings", exact: true }).click();
+    await expect(page.getByRole("tab", { name: "Network", exact: true })).toHaveAttribute("aria-selected", "true");
+    await expect(page.locator("#http-address")).toBeFocused();
+    expect(saves).toBe(0);
+
+    await page.locator("#http-address").fill(original.config.http.address);
+    await page.getByRole("tab", { name: "Library", exact: true }).click();
+    await expect(page.locator(".root-row .input").first()).toHaveValue("Cross-tab music");
+    await page.getByRole("tab", { name: "General", exact: true }).click();
+    await page.getByRole("button", { name: "Save settings", exact: true }).click();
+    await expect.poll(async () => (await control(page, "/config")).config.server_name).toBe("Cross-tab draft");
+    const saved = await control(page, "/config");
+    expect(saved.config.library_roots[0].name).toBe("Cross-tab music");
+    expect(saves).toBe(1);
+    const player = await control(page, "/player");
+    expect(player.state).toBe(originalPlayer.state);
+    expect(player.renderer_id).toBe(originalPlayer.renderer_id);
+  } finally {
+    const current = await control(page, "/config");
+    await control(page, "/config", "PUT", { config: original.config, revision: current.revision });
+  }
+});
+
 async function control(page, path, method = "GET", data) {
   const response = await page.request.fetch(`${origin}/api/v1${path}`, {
     method,
@@ -267,6 +311,25 @@ test("browser output performs real media actions and remains owned when another 
   await expect.poll(async () => (await control(page, "/player")).state).toBe("stopped");
   await expect.poll(() => audio.evaluate((element) => element.paused)).toBe(true);
   expect((await control(page, "/queue")).entries.map((entry) => entry.track_id)).toEqual(trackIDs);
+});
+
+test("Most Played displays counted browser playback without changing the queue", async ({ page }) => {
+  const { audio, trackIDs } = await prepareBrowserPlayback(page, ["short.wav"]);
+  const before = (await control(page, "/library/tracks")).items.find((track) => track.id === trackIDs[0]).play_count;
+  await startBrowserPlayback(page, audio);
+  await expect.poll(async () =>
+    (await control(page, "/library/tracks")).items.find((track) => track.id === trackIDs[0]).play_count,
+  ).toBe(before + 1);
+  await expect.poll(async () => (await control(page, "/player")).state).toBe("stopped");
+  const queue = await control(page, "/queue");
+
+  await page.getByRole("button", { name: "Most Played", exact: true }).click();
+  const row = page.locator(".library-track-row").filter({
+    has: page.locator(".library-track-main strong", { hasText: /^short$/ }),
+  });
+  await expect(row.getByText(new RegExp(`^${before + 1} plays?$`))).toBeVisible();
+  expect((await control(page, "/queue")).entries).toEqual(queue.entries);
+  expect((await control(page, "/player")).state).toBe("stopped");
 });
 
 test("browser natural completion advances once and owner reload preserves the queue without autoplay", async ({ page }) => {
@@ -684,4 +747,38 @@ test("unliking the last item on the last liked page returns to remaining tracks"
   await expect(remainingTrack).toBeVisible();
   expect((await control(page, "/library/tracks?liked=true")).total).toBe(100);
   await expect(page.getByRole("button", { name: "Liked", exact: true })).toHaveAttribute("aria-pressed", "true");
+});
+
+test("nested folders return to each parent without changing playback or queue", async ({ page }) => {
+  const setup = await control(page, "/setup");
+  await control(page, setup.required ? "/setup" : "/login", "POST", {
+    username: "browser-smoke", password: "browser-smoke-password",
+  });
+  const nested = resolve(work, "music", "Parent", "Child", "Grandchild");
+  await mkdir(nested, { recursive: true });
+  await writeFile(resolve(nested, "nested.wav"), wave(0.01));
+  const scan = await control(page, "/library/scans", "POST", {});
+  await expect.poll(async () =>
+    (await control(page, "/library/scans")).items.find((item) => item.id === scan.id)?.status,
+  ).toBe("complete");
+  const queueBefore = await control(page, "/queue");
+  const playerBefore = await control(page, "/player");
+  await page.setViewportSize({ width: 393, height: 852 });
+  await page.goto(origin, { waitUntil: "domcontentloaded" });
+  await page.getByRole("button", { name: "Folders", exact: true }).click();
+  await page.locator(".library-folder-row").filter({ hasText: "Smoke music" }).click();
+  for (const name of ["Parent", "Child", "Grandchild"]) {
+    await page.locator(".library-child-folders button").filter({ hasText: name }).click();
+    await expect(page.locator(".library-detail-header h2")).toHaveText(name);
+  }
+  for (const name of ["Child", "Parent", "Smoke music"]) {
+    await page.getByRole("button", { name: "Parent folder", exact: true }).click();
+    await expect(page.locator(".library-detail-header h2")).toHaveText(name);
+  }
+  await page.getByRole("button", { name: "Back to list", exact: true }).click();
+  await expect(page.locator(".library-folder-row").filter({ hasText: "Smoke music" })).toBeVisible();
+  expect((await control(page, "/queue")).entries).toEqual(queueBefore.entries);
+  const playerAfter = await control(page, "/player");
+  expect(playerAfter.state).toBe(playerBefore.state);
+  expect(playerAfter.renderer_id).toBe(playerBefore.renderer_id);
 });

@@ -20,7 +20,21 @@ type scanCandidate struct {
 	modifiedAt string
 }
 
+type ScanMode string
+
+const (
+	ScanModeIncremental ScanMode = "incremental"
+	ScanModeFull        ScanMode = "full"
+)
+
 func (service *Service) StartScan(ctx context.Context) (ScanJob, error) {
+	return service.StartScanMode(ctx, ScanModeIncremental)
+}
+
+func (service *Service) StartScanMode(ctx context.Context, mode ScanMode) (ScanJob, error) {
+	if mode != ScanModeIncremental && mode != ScanModeFull {
+		return ScanJob{}, invalid("scan mode must be incremental or full")
+	}
 	if err := ctx.Err(); err != nil {
 		return ScanJob{}, err
 	}
@@ -44,7 +58,7 @@ func (service *Service) StartScan(ctx context.Context) (ScanJob, error) {
 	scanCtx, cancel := context.WithCancel(service.ctx)
 	service.cancels[id] = cancel
 	service.setVerificationScanning(true)
-	go service.runScan(scanCtx, job, service.rootsSnapshot())
+	go service.runScan(scanCtx, job, service.rootsSnapshot(), mode == ScanModeFull)
 	return job, nil
 }
 
@@ -61,7 +75,7 @@ func (service *Service) updateJob(ctx context.Context, job ScanJob) error {
 	return err
 }
 
-func (service *Service) runScan(ctx context.Context, job ScanJob, roots []Root) {
+func (service *Service) runScan(ctx context.Context, job ScanJob, roots []Root, full bool) {
 	service.scanMu.Lock()
 	job.Status = "running"
 	_ = service.updateJob(context.WithoutCancel(service.ctx), job)
@@ -73,7 +87,7 @@ func (service *Service) runScan(ctx context.Context, job ScanJob, roots []Root) 
 		if ctx.Err() != nil {
 			break
 		}
-		complete, err := service.scanRoot(ctx, root, &job)
+		complete, err := service.scanRoot(ctx, root, &job, full)
 		processedRoots++
 		if err != nil || !complete {
 			failedRoot = true
@@ -97,7 +111,7 @@ func (service *Service) runScan(ctx context.Context, job ScanJob, roots []Root) 
 	delete(service.cancels, job.ID)
 	service.scanMu.Unlock()
 	if job.Status == "complete" && persistErr == nil {
-		if err := service.scheduleVerification(job.ID); err != nil {
+		if err := service.scheduleVerification(job.ID, full); err != nil {
 			service.setVerificationSchedulingFailure()
 		}
 	}
@@ -105,7 +119,7 @@ func (service *Service) runScan(ctx context.Context, job ScanJob, roots []Root) 
 	service.notify("library")
 }
 
-func (service *Service) scanRoot(ctx context.Context, root Root, job *ScanJob) (bool, error) {
+func (service *Service) scanRoot(ctx context.Context, root Root, job *ScanJob, full bool) (bool, error) {
 	rootHandle, err := os.OpenRoot(root.Path)
 	if err != nil {
 		job.Errors++
@@ -183,7 +197,7 @@ func (service *Service) scanRoot(ctx context.Context, root Root, job *ScanJob) (
 		if err := ctx.Err(); err != nil {
 			return false, err
 		}
-		result, processErr := service.processCandidate(ctx, root, job.ID, candidate)
+		result, processErr := service.processCandidate(ctx, root, job.ID, candidate, full)
 		job.Processed++
 		switch result {
 		case "added":
@@ -221,7 +235,7 @@ func (service *Service) scanRoot(ctx context.Context, root Root, job *ScanJob) (
 	return true, nil
 }
 
-func (service *Service) processCandidate(ctx context.Context, root Root, scanID string, candidate scanCandidate) (string, error) {
+func (service *Service) processCandidate(ctx context.Context, root Root, scanID string, candidate scanCandidate, full bool) (string, error) {
 	var oldSize, oldModified int64
 	var available int
 	var oldArtwork string
@@ -230,13 +244,10 @@ func (service *Service) processCandidate(ctx context.Context, root Root, scanID 
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return "", err
 	}
-	if exists && oldSize == candidate.size && oldModified == candidate.modifiedNS && (oldArtwork == "" || service.cachedArtworkExists(oldArtwork)) {
+	if !full && exists && available != 0 && oldSize == candidate.size && oldModified == candidate.modifiedNS && (oldArtwork == "" || service.cachedArtworkExists(oldArtwork)) {
 		_, err = service.db.ExecContext(ctx, `UPDATE library_tracks SET available=1,last_seen_scan=? WHERE root_id=? AND relative_path=?`, scanID, root.ID, candidate.relative)
 		if err != nil {
 			return "", err
-		}
-		if available == 0 {
-			return "updated", nil
 		}
 		return "", nil
 	}

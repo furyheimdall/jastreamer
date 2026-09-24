@@ -30,6 +30,7 @@ type Track struct {
 	Path        string   `json:"path"`
 	Available   bool     `json:"available"`
 	Liked       bool     `json:"liked"`
+	PlayCount   int64    `json:"play_count"`
 	Size        int64    `json:"size"`
 	ModifiedAt  string   `json:"modified_at"`
 }
@@ -84,6 +85,7 @@ type Query struct {
 	RootID  string
 	Path    string
 	Liked   bool
+	Played  bool
 	Sort    string
 	Offset  int
 	Limit   int

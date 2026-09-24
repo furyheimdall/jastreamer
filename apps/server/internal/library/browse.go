@@ -30,7 +30,7 @@ func (service *Service) Browse(ctx context.Context, query Query) (Page, error) {
 			return Page{}, invalid("folder path is invalid")
 		}
 	}
-	tracks, err := service.browseTracks(ctx, query.RootID, query.AlbumID, query.Liked)
+	tracks, err := service.browseTracks(ctx, query.RootID, query.AlbumID, query.Liked, query.Played)
 	if err != nil {
 		return Page{}, err
 	}
@@ -104,7 +104,7 @@ func (service *Service) Browse(ctx context.Context, query Query) (Page, error) {
 	}
 }
 
-func (service *Service) browseTracks(ctx context.Context, rootID, albumID string, liked bool) ([]Track, error) {
+func (service *Service) browseTracks(ctx context.Context, rootID, albumID string, liked, played bool) ([]Track, error) {
 	statement := `SELECT ` + trackColumns + ` FROM library_tracks WHERE available=1`
 	args := []any{}
 	if rootID != "" {
@@ -117,6 +117,9 @@ func (service *Service) browseTracks(ctx context.Context, rootID, albumID string
 	}
 	if liked {
 		statement += ` AND EXISTS(SELECT 1 FROM library_track_likes WHERE track_id=library_tracks.id)`
+	}
+	if played {
+		statement += ` AND EXISTS(SELECT 1 FROM track_play_counts WHERE track_id=library_tracks.id AND play_count>0)`
 	}
 	rows, err := service.db.QueryContext(ctx, statement, args...)
 	if err != nil {
@@ -225,6 +228,16 @@ func sortTracks(tracks []Track, sortName string, albumDetail bool) error {
 				return -1
 			}
 			if a.DurationMS > b.DurationMS {
+				return 1
+			}
+			return compareTrackFields(a, b, a.Title, b.Title)
+		}
+	case "most_played":
+		compare = func(a, b Track) int {
+			if a.PlayCount > b.PlayCount {
+				return -1
+			}
+			if a.PlayCount < b.PlayCount {
 				return 1
 			}
 			return compareTrackFields(a, b, a.Title, b.Title)

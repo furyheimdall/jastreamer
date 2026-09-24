@@ -1,6 +1,6 @@
 export const diagnosticsMessages = {
   "settings.verification.title": { en: "Background audio verification", ko: "백그라운드 오디오 검증" },
-  "settings.verification.description": { en: "A library scan quickly indexes changed files. This separate check reads every available audio file from beginning to end.", ko: "보관함 스캔은 변경된 파일을 빠르게 색인합니다. 별도의 이 검사는 사용 가능한 모든 오디오 파일을 처음부터 끝까지 읽습니다." },
+  "settings.verification.description": { en: "New or changed audio is read from beginning to end. Completed results for unchanged files are retained, including failures and inconclusive checks. Full rescan checks every file again.", ko: "신규·변경 음원을 처음부터 끝까지 읽습니다. 변경 없는 파일의 완료된 결과는 실패·판정 불가를 포함해 보관합니다. 전체 다시 스캔을 선택하면 모든 파일을 다시 검사합니다." },
   "settings.verification.loading": { en: "Loading verification status…", ko: "검증 상태를 불러오는 중…" },
   "settings.verification.loadFailed": { en: "Verification status could not be loaded.", ko: "검증 상태를 불러오지 못했습니다." },
   "settings.verification.state.idle": { en: "Waiting for a completed scan", ko: "완료된 스캔 대기 중" },
@@ -12,7 +12,7 @@ export const diagnosticsMessages = {
   "settings.verification.indexingDistinct": { en: "Indexing and full-file verification are separate. A completed scan does not mean every file has passed verification.", ko: "색인과 전체 파일 검증은 별개입니다. 스캔이 완료되어도 모든 파일이 검증을 통과했다는 뜻은 아닙니다." },
   "settings.verification.playbackPaused": { en: "The background check is paused while music is playing and will resume afterward.", ko: "음악을 재생하는 동안 백그라운드 검사가 일시 중지되며 재생이 끝나면 다시 시작됩니다." },
   "settings.verification.scanPaused": { en: "The background check is paused while the library index is updated.", ko: "보관함 색인을 갱신하는 동안 백그라운드 검사가 일시 중지됩니다." },
-  "settings.verification.progress": { en: "{completed} checked / {total} scheduled", ko: "검사 {completed} / 예정 {total}" },
+  "settings.verification.progress": { en: "{completed} results / {total} files (includes retained results)", ko: "결과 {completed} / 파일 {total} (기존 결과 포함)" },
   "settings.verification.counts": { en: "{verified} verified · {failed} failed · {unverified} could not be verified · {pending} pending", ko: "검증됨 {verified} · 실패 {failed} · 검증 불가 {unverified} · 대기 {pending}" },
   "settings.verification.current": { en: "Now checking: {title}", ko: "현재 검사 중: {title}" },
   "settings.verification.engine": { en: "Engine: {engine}", ko: "검사 엔진: {engine}" },
@@ -47,4 +47,9 @@ export const diagnosticsMessages = {
   "settings.history.page": { en: "{start}–{end} of {total}", ko: "{total}개 중 {start}–{end}" },
   "settings.history.retention": { en: "The newest {limit} records are retained.", ko: "최신 기록 {limit}개를 보관합니다." },
   "settings.history.refresh": { en: "Refresh history", ko: "기록 새로 고침" },
+  "settings.history.export": { en: "Download CSV", ko: "CSV 다운로드" },
+  "settings.history.exporting": { en: "Preparing all matching records…", ko: "일치하는 모든 기록을 준비하는 중…" },
+  "settings.history.exportFailed": { en: "The history report could not be downloaded.", ko: "기록 보고서를 다운로드하지 못했습니다." },
+  "settings.history.exportScope": { en: "The CSV includes every retained record matching the current filters, not only this page. History records renderer errors and failed or inconclusive file checks; it does not show that all files passed.", ko: "CSV에는 현재 페이지만이 아니라 현재 필터와 일치하는 보관 기록 전체가 포함됩니다. 기록에는 재생 기기 오류와 실패 또는 판정 불가 파일 검사만 포함되며 모든 파일이 검증을 통과했다는 뜻은 아닙니다." },
+  "settings.history.exportBrowserOnly": { en: "To save a CSV report, open this Server in a PC or mobile web browser. Downloads are unavailable in the embedded app.", ko: "CSV 보고서를 저장하려면 이 서버를 PC 또는 모바일 웹 브라우저에서 여세요. 내장 앱에서는 다운로드할 수 없습니다." },
 } as const;

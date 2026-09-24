@@ -2,7 +2,7 @@
 
 [README](README.md) · [User guide](INSTRUCTION.md) · [한국어 설치 안내](INSTALL.ko.md)
 
-Choose the branch below for the package and platform you actually use. The Server hosts the Web interface; optional desktop, native mobile, and phone PWA clients can connect to it. Server-mode local playback uses browser audio except on native Android, where a Media3 service remains an output of the Server queue. Android **Saved music** uses the same service under separate local ownership, with an independent device queue and no Server requirement; see the [user guide](INSTRUCTION.md#android-controls).
+Choose the branch below for the package and platform you actually use. The Server hosts the Web interface; optional desktop, native mobile, and phone PWA clients can connect to it. Server-mode local playback uses browser audio in browsers/Desktop, or the native Android Media3 service as an output of the Server queue. The native iOS client is controller-only and blocks media loads. Android **Saved music** uses the same service under separate local ownership, with an independent device queue and no Server requirement; see the [user guide](INSTRUCTION.md#android-controls).
 
 Public previews are unsigned and not production-qualified. Read the selected release's limitations, verify every downloaded artifact, and confirm operation on your own network and receivers.
 
@@ -116,7 +116,7 @@ docker run --rm --network none --read-only \
 Use that command only after confirming the selected published image contains the documented helper and manifest. Inspect its result rather than deleting a conflicting user file. Seeding does not scan, queue, select an output, or start playback.
 An interrupted write may leave a newly created partial file. Inspect and report that failure before retrying; do not delete or overwrite a conflicting destination to force setup to succeed. Destination symlinks are rejected so samples do not escape the approved directory.
 
-During installation, show the exact host music path and explain: **an empty music folder has no tracks to play; put music in that folder, then run Settings → Scan now.** If the bundled samples were copied, identify the three test tracks separately from personal music. Additional music goes in the same approved root and requires another scan. Report an empty library honestly rather than claiming playback is ready.
+During installation, show the exact host music path and explain: **an empty music folder has no tracks to play; put music in that folder, then run Settings → Library → Scan now.** If the bundled samples were copied, identify the three test tracks separately from personal music. Additional music goes in the same approved root and requires another scan. Report an empty library honestly rather than claiming playback is ready.
 
 For a new installation, copy `deploy/docker/server/compose.synology.yaml` into the persistent project directory, copy `packaging/server/server.json` from the source revision matching the release into the empty config directory, and write a project `.env` containing resolved values for `JASTREAMER_SERVER_IMAGE`, `JASTREAMER_CONFIG_PATH`, `JASTREAMER_DATA_PATH`, and `JASTREAMER_MUSIC_PATH`. An assisting agent fills the real approved values and saves these files; do not leave placeholders or depend on temporary `export` commands. Never replace an existing `server.json`.
 
@@ -167,7 +167,7 @@ Use the unsigned `jastreamer-desktop_0.2.0_windows-x64.zip` from the selected pr
 Get-FileHash .\jastreamer-desktop_0.2.0_windows-x64.zip -Algorithm SHA256
 ```
 
-Extract the complete ZIP to a new writable local folder and run `jastreamer-desktop.exe`; do not run inside the ZIP or copy only the EXE. Select a discovered Server or enter its complete HTTP(S) root URL. The app verifies the Server before connecting, and connection or discovery does not start playback.
+Extract the complete ZIP to a new writable local folder and run `jastreamer-desktop.exe`; do not run inside the ZIP or copy only the EXE. The Server playback screen separates discovered and recent Server cards. Select a card's connection action, or choose **Connect by address** to enter a complete HTTP(S) root URL in its dialog. The app verifies the Server before connecting, and connection or discovery does not start playback.
 
 Server discovery searches each active IPv4 network adapter every five seconds, including when adapters change. Firewall and multicast restrictions can still require entering the Server URL manually.
 
@@ -225,7 +225,7 @@ See [Android controls](INSTRUCTION.md#android-controls) for Server mode, saved m
 <a id="ios"></a>
 ## Native iOS source and CI
 
-The SwiftUI/WKWebView client in `apps/ios` discovers `_jastreamer._tcp` Servers, verifies `/api/v1/discovery`, and reuses the selected Server's Web UI. The minimum is **iOS/iPadOS 18.4**, including the public WebKit API used to deny native file-picker requests. It adds no standalone native audio engine; shared Web audio remains subject to WebKit restrictions.
+The SwiftUI/WKWebView client in `apps/ios` discovers `_jastreamer._tcp` Servers, verifies `/api/v1/discovery`, and reuses the selected Server's Web UI. The minimum is **iOS/iPadOS 18.4**, including the public WebKit API used to deny native file-picker requests. It is controller-only: its WebView blocks media loads, and there is no standalone native audio engine, saved-music player, or Local playback entry.
 
 Current scope is **source, unsigned device builds and simulator CI only**. Successful [iOS CI runs](https://github.com/furyheimdall/jastreamer/actions/workflows/ios.yml) provide `jastreamer-ios-development-unsigned-and-simulator-<revision>`. Check `SHA256SUMS`, `provenance.json`, source revision, bundle identifier and platform before using a development artifact. A PR artifact records its tested merge revision and is not a protected-main release.
 
@@ -252,12 +252,12 @@ See [iOS controls](INSTRUCTION.md#ios-controls) for selection, sessions, keyboar
 
 The installable phone Web app is another view of the Server-hosted interface, requires network access to that Server, and provides no service worker, cached library, or offline playback. The Windows and Linux desktop apps do not need this PWA.
 
-1. Open the Server's complete URL in the phone browser and sign in, then open **Settings** and find the optional **Install jastreamer** card.
-2. In a browser that supplies a real `beforeinstallprompt` event, choose the card's **Install app** button and approve the browser's native prompt. If the browser does not offer that event, follow its displayed browser-specific guidance instead.
+1. Open the Server's complete URL in the phone browser and sign in. There is no shortcut installation card in **Settings**.
+2. If supported, use the browser's own **Install app** or **Add to Home Screen** menu and approve its native prompt.
 3. On iPhone Safari, use **Share → Add to Home Screen**. iPad uses the existing tablet/desktop layout rather than the phone layout, but Safari can still show the Add to Home Screen guidance.
-4. Launch the saved app. When the browser reports standalone display mode, the Settings card reports that jastreamer is installed.
+4. Launch the saved shortcut. Existing shortcuts remain usable; jastreamer no longer displays an installation status card.
 
-PWA installation requires an HTTPS origin trusted by that phone and browser. Plain HTTP is accepted only for local development on `localhost`, `127.0.0.1`, or `::1`; a phone opening a private-LAN HTTP address sees the HTTPS requirement rather than an install action. Configure the Server's built-in HTTPS certificate, private key, and listener in **Settings**, save, restart when requested, and reopen the trusted HTTPS URL. Do not bypass certificate warnings, register an untrusted certificate as a workaround, expose the NAS publicly, or place a naive TLS-terminating proxy in front of the HTTP listener: the Server checks mutation request origins against its own listener scheme.
+PWA installation requires an HTTPS origin trusted by that phone and browser. Plain HTTP is accepted only for local development on `localhost`, `127.0.0.1`, or `::1`. Configure the Server's built-in HTTPS certificate, private key, and listener in **Settings**, save, restart when requested, and reopen the trusted HTTPS URL. Do not bypass certificate warnings, register an untrusted certificate as a workaround, expose the NAS publicly, or place a naive TLS-terminating proxy in front of the HTTP listener: the Server checks mutation request origins against its own listener scheme.
 
 The phone layout and normal browser controls do not require PWA installation. On a trusted private-LAN HTTP deployment, refresh the Server page and use it in the browser; installation remains unavailable until trusted HTTPS is configured. Moving to a different scheme, hostname, or port creates a different browser origin and may require signing in again.
 
@@ -269,6 +269,8 @@ See [Phone controls](INSTRUCTION.md#phone-controls) for the automatic phone layo
 For the Linux container target, updating means replacing the Server container with a verified image, not running first-account setup again. The image includes the Web interface, FFmpeg, and the AirPlay runtime for its supported architecture. Do not mount the Docker socket into the Server or grant it host-management privileges to make it update itself. For native Windows, follow the [portable update procedure](#windows-server); do not apply the Compose steps below.
 
 Folder-download support extends the Server's `download_jobs.kind` constraint. Startup transactionally migrates the known legacy schema while preserving existing jobs, child rows, indexes, foreign keys, and artifact references; it does not move media or configuration. Review this schema change before an authorized update. Older builds do not implement folder jobs, so do not assume replacing only the executable/image is a compatible downgrade or drop jobs/data to force one.
+
+Play-count support adds the `track_play_counts` table on startup without rewriting existing tables, configuration, or audio files. Review and explicitly approve this additive schema change before deploying the feature. Counts begin at zero; existing diagnostic history and queue-completion records are not backfilled. Older builds leave the added table unused and cannot record listening that occurs while running them; this does not override the separate downgrade restrictions for download-job schemas.
 
 Use the **existing** Compose project name, project directory, Compose files, and environment file for every operation. Do not create a second installation with new default storage paths.
 

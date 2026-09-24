@@ -445,8 +445,10 @@ class WebViewBoundaryTest {
         fixture.rootResponseCode = 503
 
         scenario.onActivity { activity ->
-            activity.findViewById<EditText>(R.id.server_address).setText(fixture.origin)
-            activity.findViewById<View>(R.id.connect_button).performClick()
+            activity.findViewById<View>(R.id.server_playback_button).performClick()
+            activity.findViewById<View>(R.id.manual_address_button).performClick()
+            requireNotNull(activity.findViewById<EditText>(R.id.server_address)).setText(fixture.origin)
+            requireNotNull(activity.findViewById<View>(R.id.connect_button)).performClick()
         }
         assertTrue(
             "The failing root document was never requested",
