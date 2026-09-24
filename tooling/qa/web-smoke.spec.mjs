@@ -12,6 +12,7 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 let work;
 let server;
 let origin;
+let playbackCookies;
 
 const freePort = () => new Promise((resolvePort, reject) => {
   const listener = createServer();
@@ -242,10 +243,15 @@ async function control(page, path, method = "GET", data) {
 }
 
 async function prepareBrowserPlayback(page, paths) {
-  const setup = await control(page, "/setup");
-  await control(page, setup.required ? "/setup" : "/login", "POST", {
-    username: "browser-smoke", password: "browser-smoke-password",
-  });
+  if (playbackCookies) {
+    await page.context().addCookies(playbackCookies);
+  } else {
+    const setup = await control(page, "/setup");
+    await control(page, setup.required ? "/setup" : "/login", "POST", {
+      username: "browser-smoke", password: "browser-smoke-password",
+    });
+    playbackCookies = await page.context().cookies(origin);
+  }
   await control(page, "/library/scans", "POST", {});
   await expect.poll(async () => (await control(page, "/library/tracks")).total).toBe(2);
   const tracks = (await control(page, "/library/tracks")).items;
@@ -347,6 +353,128 @@ test("browser natural completion advances once and owner reload preserves the qu
   await expect.poll(() => page.locator("audio").evaluate((element) => element.paused)).toBe(true);
   await control(page, "/player", "POST", { action: "stop" });
   await expect.poll(async () => (await control(page, "/player")).state).toBe("stopped");
+});
+
+test("repeat one reloads real browser audio while manual next escapes and repeat all wraps", async ({ page }) => {
+  const { audio, trackIDs } = await prepareBrowserPlayback(page, ["short.wav", "long.wav"]);
+  const queued = await control(page, "/queue");
+  try {
+    await control(page, "/player/mode", "POST", { shuffle: false, repeat_mode: "one" });
+    expect((await control(page, "/player")).state).toBe("stopped");
+    await startBrowserPlayback(page, audio);
+    const initialSource = await audio.evaluate((element) => element.currentSrc);
+    await expect.poll(() => audio.evaluate((element, source) =>
+      element.currentSrc !== source && !element.paused && element.currentTime > 0,
+    initialSource)).toBe(true);
+    expect((await control(page, "/player")).current_entry_id).toBe(queued.entries[0].id);
+    expect((await control(page, "/queue")).entries.map((entry) => entry.id))
+      .toEqual(queued.entries.map((entry) => entry.id));
+
+    await page.getByRole("button", { name: "Next track", exact: true }).click();
+    await expect.poll(async () => {
+      const player = await control(page, "/player");
+      return player.state === "playing" && player.track?.id === trackIDs[1];
+    }).toBe(true);
+    const sourceBeforeModeChange = await audio.evaluate((element) => element.currentSrc);
+    const positionBeforeModeChange = await audio.evaluate((element) => element.currentTime);
+    await control(page, "/player/mode", "POST", { repeat_mode: "all" });
+    expect(await audio.evaluate((element) => element.currentSrc)).toBe(sourceBeforeModeChange);
+    await expect.poll(() => audio.evaluate((element) => element.currentTime)).toBeGreaterThan(positionBeforeModeChange);
+    await page.getByRole("button", { name: "Next track", exact: true }).click();
+    await expect.poll(async () => (await control(page, "/player")).current_entry_id).toBe(queued.entries[0].id);
+    await expect.poll(() => audio.evaluate((element) => !element.paused && element.currentTime > 0)).toBe(true);
+    expect((await control(page, "/queue")).entries.map((entry) => entry.id))
+      .toEqual(queued.entries.map((entry) => entry.id));
+  } finally {
+    await expect.poll(async () => (await control(page, "/player")).pending_command).toBe("");
+    await control(page, "/player", "POST", { action: "stop" });
+    await expect.poll(async () => (await control(page, "/player")).state).toBe("stopped");
+    await control(page, "/player/mode", "POST", { shuffle: false, repeat_mode: "off" });
+  }
+});
+
+test("player bar mode updates preserve audio and queue while synchronizing other controls", async ({ page, context }) => {
+  const { audio } = await prepareBrowserPlayback(page, ["long.wav", "long.wav", "short.wav"]);
+  await startBrowserPlayback(page, audio);
+  const queued = await control(page, "/queue");
+  const initialPlayer = await control(page, "/player");
+  const source = await audio.evaluate((element) => element.currentSrc);
+  const position = await audio.evaluate((element) => element.currentTime);
+  const other = await context.newPage();
+  let release;
+  const responseGate = new Promise((resolveResponse) => { release = resolveResponse; });
+  await page.route("**/api/v1/player/mode", async (route) => {
+    const response = await route.fetch();
+    await responseGate;
+    await route.fulfill({ response });
+  });
+  try {
+    const shuffle = page.locator('[data-player-mode="shuffle"]');
+    await shuffle.click();
+    await expect(shuffle).toHaveAttribute("aria-pressed", "true");
+    await expect(shuffle).toBeDisabled();
+    release();
+    await expect(shuffle).toBeEnabled();
+    await page.unroute("**/api/v1/player/mode");
+
+    await other.goto(origin, { waitUntil: "domcontentloaded" });
+    await expect(other.locator('[data-player-mode="shuffle"]')).toHaveAttribute("aria-pressed", "true");
+    await other.locator('[data-player-mode="repeat"]').click();
+    const repeat = page.locator('[data-player-mode="repeat"]');
+    await expect(repeat).toHaveAttribute("data-repeat-mode", "all");
+    await repeat.click();
+    await expect(repeat).toHaveAttribute("data-repeat-mode", "one");
+    await expect(repeat).toBeEnabled();
+    await repeat.click();
+    await expect(repeat).toHaveAttribute("data-repeat-mode", "off");
+    await expect(other.locator('[data-player-mode="repeat"]')).toHaveAttribute("data-repeat-mode", "off");
+    const current = await control(page, "/player");
+    expect(current.shuffle).toBe(true);
+    expect(current.current_entry_id).toBe(initialPlayer.current_entry_id);
+    expect(current.state).toBe("playing");
+    expect((await control(page, "/queue")).entries).toEqual(queued.entries);
+    expect(await audio.evaluate((element) => element.currentSrc)).toBe(source);
+    await expect.poll(() => audio.evaluate((element) => element.currentTime)).toBeGreaterThan(position);
+  } finally {
+    release();
+    await page.unroute("**/api/v1/player/mode");
+    await other.close();
+    await control(page, "/player", "POST", { action: "stop" });
+    await expect.poll(async () => (await control(page, "/player")).state).toBe("stopped");
+    await control(page, "/player/mode", "POST", { shuffle: false, repeat_mode: "off" });
+  }
+});
+
+test("a delayed mode response cannot undo a newer mode selected by another Control", async ({ page, context }) => {
+  await prepareBrowserPlayback(page, ["long.wav", "long.wav"]);
+  const other = await context.newPage();
+  let release;
+  const responseGate = new Promise((resolveResponse) => { release = resolveResponse; });
+  await page.route("**/api/v1/player/mode", async (route) => {
+    const response = await route.fetch();
+    await responseGate;
+    await route.fulfill({ response });
+  });
+  try {
+    const shuffle = page.locator('[data-player-mode="shuffle"]');
+    await shuffle.click();
+    await expect(shuffle).toHaveAttribute("aria-pressed", "true");
+    await expect(shuffle).toBeDisabled();
+    await other.goto(origin, { waitUntil: "domcontentloaded" });
+    await other.locator('[data-player-mode="repeat"]').click();
+    const repeat = page.locator('[data-player-mode="repeat"]');
+    await expect(repeat).toHaveAttribute("data-repeat-mode", "all");
+    release();
+    await expect(shuffle).toBeEnabled();
+    expect(await repeat.getAttribute("data-repeat-mode")).toBe("all");
+    expect((await control(page, "/player")).state).toBe("stopped");
+    expect((await control(page, "/player")).shuffle).toBe(true);
+  } finally {
+    release();
+    await page.unroute("**/api/v1/player/mode");
+    await other.close();
+    await control(page, "/player/mode", "POST", { shuffle: false, repeat_mode: "off" });
+  }
 });
 
 test("a terminal decode failure retains the failed entry and advances duplicate tracks exactly once", async ({ page }) => {

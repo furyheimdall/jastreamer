@@ -3,7 +3,7 @@ import { api } from "./api";
 import LocalOutput, { hasNativeAndroidAudio, type LocalOutputHandle } from "./LocalOutput";
 import { useI18n, type MessageKey } from "./i18n";
 import { isPhone, localOutputName } from "./device";
-import type { Device, PairingRequest, PairingStatus, PlayerState, StatusWarning } from "./types";
+import type { Device, PairingRequest, PairingStatus, PlayerState, RepeatMode, StatusWarning } from "./types";
 
 interface PlayerBarProps {
   revision: number;
@@ -49,7 +49,7 @@ function deviceLabel(device: Device, t: (key: MessageKey) => string, currentBrow
   return `${name} [${protocolLabel(device.protocol, t)}]`;
 }
 
-function PlayerIcon({ name }: { name: "play" | "pause" | "stop" | "next" | "previous" | "music" | "refresh" | "expand" | "collapse" | "edit" }) {
+function PlayerIcon({ name }: { name: "play" | "pause" | "stop" | "next" | "previous" | "music" | "refresh" | "expand" | "collapse" | "edit" | "shuffle" | "repeat" | "modes" }) {
   const paths = {
     play: <path d="m8 5 11 7-11 7Z" />,
     pause: <path d="M9 5v14M15 5v14" />,
@@ -61,6 +61,9 @@ function PlayerIcon({ name }: { name: "play" | "pause" | "stop" | "next" | "prev
     edit: <><path d="m15 5 4 4M4 20l4-1L20 7a2.8 2.8 0 0 0-4-4L4 15Z" /></>,
     expand: <path d="m7 14 5-5 5 5" />,
     collapse: <path d="m7 10 5 5 5-5" />,
+    shuffle: <><path d="M4 7h3c4 0 6 10 10 10h3" /><path d="m17 14 3 3-3 3" /><path d="M4 17h3c1.7 0 3-1.8 4.2-4" /><path d="M15 7h5" /><path d="m17 4 3 3-3 3" /></>,
+    repeat: <><path d="M17 2l3 3-3 3" /><path d="M3 11V9a4 4 0 0 1 4-4h13" /><path d="m7 22-3-3 3-3" /><path d="M21 13v2a4 4 0 0 1-4 4H4" /></>,
+    modes: <><path d="M4 7h10M18 7h2M4 17h2M10 17h10" /><circle cx="16" cy="7" r="2" /><circle cx="8" cy="17" r="2" /></>,
   };
   return <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">{paths[name]}</svg>;
 }
@@ -84,6 +87,9 @@ export default function PlayerBar({ revision, phoneExpanded, onPhoneExpandedChan
   const [pairingStarted, setPairingStarted] = useState(false);
   const phoneExpandRef = useRef<HTMLButtonElement>(null);
   const phoneCollapseRef = useRef<HTMLButtonElement>(null);
+  const modeChooserButtonRef = useRef<HTMLButtonElement>(null);
+  const modeChooserFirstButtonRef = useRef<HTMLButtonElement>(null);
+  const [modeChooserOpen, setModeChooserOpen] = useState(false);
   const observedPlayerError = useRef<{ revision: number; message: string } | null>(null);
   const localOutputRef = useRef<LocalOutputHandle>(null);
   const [usesNativeOutput] = useState(hasNativeAndroidAudio);
@@ -217,6 +223,12 @@ export default function PlayerBar({ revision, phoneExpanded, onPhoneExpandedChan
   }, [phoneExpanded]);
 
   useEffect(() => {
+    if (!isPhone || !modeChooserOpen || phoneExpanded) return;
+    const focusFrame = window.requestAnimationFrame(() => modeChooserFirstButtonRef.current?.focus());
+    return () => window.cancelAnimationFrame(focusFrame);
+  }, [modeChooserOpen, phoneExpanded]);
+
+  useEffect(() => {
     if (!player || player.state !== "playing" || seeking) return;
     const timer = window.setInterval(() => {
       setPosition((current) => Math.min(player.duration_ms || current + 1000, current + 1000));
@@ -267,6 +279,26 @@ export default function PlayerBar({ revision, phoneExpanded, onPhoneExpandedChan
       setPosition(next.position_ms);
       applyError(next.error || "", next.revision);
       onQueueChange();
+    } catch (requestError) {
+      const message = errorMessage(requestError, t("common.requestFailed"));
+      setError(message);
+      onNotice(message, true);
+    } finally {
+      setBusy("");
+    }
+  }
+
+  async function setMode(change: { shuffle: boolean } | { repeat_mode: RepeatMode }, operation: "shuffle" | "repeat") {
+    if (!player || player.pending_command || busy) return;
+    setBusy(`mode-${operation}`);
+    try {
+      const next = await api<PlayerState>("/player/mode", {
+        method: "POST",
+        body: JSON.stringify(change),
+      });
+      setPlayer((current) => current && current.revision > next.revision ? current : next);
+      onStatusWarning(next.status_warning ?? null);
+      applyError(next.error || "", next.revision);
     } catch (requestError) {
       const message = errorMessage(requestError, t("common.requestFailed"));
       setError(message);
@@ -406,6 +438,74 @@ export default function PlayerBar({ revision, phoneExpanded, onPhoneExpandedChan
   const browserRetry = !usesNativeOutput && browserAutoplayBlocked && selectedDevice?.id === localBrowserDevice?.id;
   const playing = player?.state === "playing" || player?.state === "starting";
   const duration = player?.duration_ms || player?.track?.duration_ms || 0;
+  const repeatMode = player?.repeat_mode ?? "off";
+  const shuffleLabel = t(player?.shuffle ? "player.mode.shuffle" : "player.mode.sequential");
+  const repeatLabel = t(
+    repeatMode === "all"
+      ? "player.mode.repeatAll"
+      : repeatMode === "one"
+        ? "player.mode.repeatOne"
+        : "player.mode.repeatOff",
+  );
+  const nextRepeatMode: RepeatMode = repeatMode === "off" ? "all" : repeatMode === "all" ? "one" : "off";
+  const modeDisabled = !player || Boolean(player.pending_command) || Boolean(busy);
+  const compactModeLabel = t("player.mode.open", { shuffle: shuffleLabel, repeat: repeatLabel });
+
+  function shuffleButton(labeled = false, compactChooser = false) {
+    return (
+      <button
+        ref={compactChooser ? modeChooserFirstButtonRef : undefined}
+        className={`icon-button player-mode-button player-mode-shuffle${player?.shuffle ? " is-active" : ""}${labeled ? " player-mode-button-labeled" : ""}`}
+        type="button"
+        data-player-mode="shuffle"
+        aria-label={shuffleLabel}
+        aria-pressed={player?.shuffle ?? false}
+        aria-busy={busy === "mode-shuffle"}
+        title={shuffleLabel}
+        disabled={modeDisabled}
+        onClick={() => void setMode({ shuffle: !player?.shuffle }, "shuffle")}
+      >
+        <span className="player-mode-icon"><PlayerIcon name="shuffle" /></span>
+        {labeled && <span>{shuffleLabel}</span>}
+      </button>
+    );
+  }
+
+  function repeatButton(labeled = false) {
+    return (
+      <button
+        className={`icon-button player-mode-button player-mode-repeat${repeatMode !== "off" ? " is-active" : ""}${labeled ? " player-mode-button-labeled" : ""}`}
+        type="button"
+        data-player-mode="repeat"
+        data-repeat-mode={repeatMode}
+        aria-label={repeatLabel}
+        aria-busy={busy === "mode-repeat"}
+        title={repeatLabel}
+        disabled={modeDisabled}
+        onClick={() => void setMode({ repeat_mode: nextRepeatMode }, "repeat")}
+      >
+        <span className="player-mode-icon">
+          <PlayerIcon name="repeat" />
+          {repeatMode === "one" && <span className="repeat-one-indicator" aria-hidden="true">1</span>}
+        </span>
+        {labeled && <span>{repeatLabel}</span>}
+      </button>
+    );
+  }
+
+  function modeControls(surface: "phone-expanded" | "phone-compact") {
+    return (
+      <div
+        className={`player-mode-controls player-mode-controls-${surface}`}
+        role="group"
+        aria-label={t("player.mode.heading")}
+        aria-busy={busy === "mode-shuffle" || busy === "mode-repeat"}
+      >
+        {shuffleButton(true, surface === "phone-compact")}
+        {repeatButton(true)}
+      </div>
+    );
+  }
   const localOutputAdapter = (
     <LocalOutput
       ref={localOutputRef}
@@ -576,7 +676,13 @@ export default function PlayerBar({ revision, phoneExpanded, onPhoneExpandedChan
     </div>
   );
 
+  function closeModeChooser() {
+    setModeChooserOpen(false);
+    window.requestAnimationFrame(() => modeChooserButtonRef.current?.focus());
+  }
+
   function collapsePhonePlayer() {
+    setModeChooserOpen(false);
     setPhoneExpanded(false);
     window.requestAnimationFrame(() => phoneExpandRef.current?.focus());
   }
@@ -588,9 +694,11 @@ export default function PlayerBar({ revision, phoneExpanded, onPhoneExpandedChan
         aria-label={t("player.nowPlaying")}
         onKeyDown={(event) => {
           if (event.key !== "Escape" || event.defaultPrevented) return;
+          if (!phoneExpanded && !modeChooserOpen) return;
           event.preventDefault();
           event.stopPropagation();
-          collapsePhonePlayer();
+          if (modeChooserOpen) closeModeChooser();
+          else collapsePhonePlayer();
         }}
       >
         {localOutputAdapter}
@@ -658,6 +766,7 @@ export default function PlayerBar({ revision, phoneExpanded, onPhoneExpandedChan
                   <PlayerIcon name="next" />
                 </button>
               </div>
+              {modeControls("phone-expanded")}
               <div className="seek-row">
                 <span>{timeLabel(position, locale)}</span>
                 <input
@@ -685,6 +794,28 @@ export default function PlayerBar({ revision, phoneExpanded, onPhoneExpandedChan
           </section>
         )}
 
+        {!phoneExpanded && modeChooserOpen && (
+          <section
+            className="phone-player-mode-panel"
+            id="phone-player-mode-panel"
+            aria-labelledby="phone-player-mode-heading"
+          >
+            <header>
+              <strong id="phone-player-mode-heading">{t("player.mode.heading")}</strong>
+              <button
+                className="icon-button"
+                type="button"
+                aria-label={t("player.mode.close")}
+                title={t("player.mode.close")}
+                onClick={closeModeChooser}
+              >
+                <PlayerIcon name="collapse" />
+              </button>
+            </header>
+            {modeControls("phone-compact")}
+          </section>
+        )}
+
         <div className="phone-player-compact">
           <div className="now-playing phone-player-summary">
             <button
@@ -694,6 +825,7 @@ export default function PlayerBar({ revision, phoneExpanded, onPhoneExpandedChan
               title={t("player.openQueue")}
               onClick={() => {
                 setPhoneExpanded(false);
+                setModeChooserOpen(false);
                 onShowQueue();
               }}
             >
@@ -732,6 +864,18 @@ export default function PlayerBar({ revision, phoneExpanded, onPhoneExpandedChan
 
           <div className="phone-player-primary-actions">
             <button
+              ref={modeChooserButtonRef}
+              className="icon-button phone-player-mode-trigger"
+              type="button"
+              aria-label={compactModeLabel}
+              title={compactModeLabel}
+              aria-controls="phone-player-mode-panel"
+              aria-expanded={!phoneExpanded && modeChooserOpen}
+              onClick={() => setModeChooserOpen((current) => !current)}
+            >
+              <PlayerIcon name="modes" />
+            </button>
+            <button
               className="icon-button player-primary-control"
               type="button"
               aria-label={browserRetry ? t("player.browser.allowPlayback") : canPause ? t("player.pause") : t("player.play")}
@@ -757,7 +901,10 @@ export default function PlayerBar({ revision, phoneExpanded, onPhoneExpandedChan
               title={phoneExpanded ? t("player.collapseControls") : t("player.expandControls")}
               aria-controls="phone-player-panel"
               aria-expanded={phoneExpanded}
-              onClick={phoneExpanded ? collapsePhonePlayer : () => setPhoneExpanded(true)}
+              onClick={phoneExpanded ? collapsePhonePlayer : () => {
+                setModeChooserOpen(false);
+                setPhoneExpanded(true);
+              }}
             >
               <PlayerIcon name={phoneExpanded ? "collapse" : "expand"} />
             </button>
@@ -801,6 +948,7 @@ export default function PlayerBar({ revision, phoneExpanded, onPhoneExpandedChan
 
       <div className="transport">
         <div className="transport-buttons">
+          {shuffleButton()}
           <button
             className="icon-button"
             type="button"
@@ -837,6 +985,7 @@ export default function PlayerBar({ revision, phoneExpanded, onPhoneExpandedChan
           >
             <PlayerIcon name="next" />
           </button>
+          {repeatButton()}
         </div>
         <div className="seek-row">
           <span>{timeLabel(position, locale)}</span>

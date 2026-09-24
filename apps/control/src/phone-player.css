@@ -64,6 +64,43 @@ html[data-device="phone"] .phone-player-primary-actions .player-primary-control 
   height: 2.75rem;
 }
 
+html[data-device="phone"] .phone-player-mode-panel {
+  position: fixed;
+  z-index: 2;
+  right: max(0.5rem, env(safe-area-inset-right));
+  bottom: calc(var(--phone-nav-height) + var(--player-height) + 0.5rem);
+  left: max(0.5rem, env(safe-area-inset-left));
+  display: grid;
+  padding: 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 0.8rem;
+  background: #1b1f22fc;
+  box-shadow: 0 1rem 3rem #0009;
+  gap: 0.65rem;
+}
+
+html[data-device="phone"] .phone-player-mode-panel > header {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+html[data-device="phone"] .phone-player-mode-panel > header .icon-button {
+  width: 2.75rem;
+  height: 2.75rem;
+}
+
+html[data-device="phone"] .player-mode-controls-phone-compact {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+html[data-device="phone"] .player-mode-controls-phone-compact .player-mode-button {
+  width: 100%;
+}
+
 html[data-device="phone"] .phone-player-expanded {
   position: fixed;
   z-index: 1;
@@ -165,6 +202,17 @@ html[data-device="phone"] .phone-player-expanded-transport .transport-buttons .i
   background: #ffffff08;
 }
 
+
+html[data-device="phone"] .phone-player-expanded-transport .player-mode-controls {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.5rem;
+}
+
+html[data-device="phone"] .phone-player-expanded-transport .player-mode-button {
+  width: 100%;
+  border-color: var(--border);
+}
 html[data-device="phone"] .phone-player-expanded-transport .seek-row {
   grid-column: auto;
   grid-row: auto;
@@ -314,4 +362,19 @@ html[data-device="phone"] .queue-page .save-queue > .button {
 
 html[data-device="phone"]:has(.phone-player-expanded) body {
   overflow: hidden;
+}
+
+@media (max-width: 350px) {
+  html[data-device="phone"] {
+    --player-height: 124px;
+  }
+
+  html[data-device="phone"] .phone-player-compact {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr) auto;
+  }
+
+  html[data-device="phone"] .phone-player-primary-actions {
+    justify-content: flex-end;
+  }
 }

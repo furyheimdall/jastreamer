@@ -47,8 +47,8 @@
     <string name="offline_track_information">곡 정보</string>
     <string name="offline_player_summary">%1$s, %2$s. %3$s</string>
     <string name="offline_seek">재생 위치</string>
-    <string name="offline_shuffle_on">셔플 켜짐</string>
-    <string name="offline_shuffle_off">셔플 꺼짐</string>
+    <string name="offline_sequential">순차 재생</string>
+    <string name="offline_shuffle">랜덤 재생</string>
     <string name="offline_repeat_off">반복 끔</string>
     <string name="offline_repeat_one">한 곡 반복</string>
     <string name="offline_repeat_all">전체 반복</string>

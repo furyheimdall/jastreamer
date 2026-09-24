@@ -55,6 +55,8 @@ type State struct {
 	State          string              `json:"state"`
 	RendererID     string              `json:"renderer_id"`
 	CurrentEntryID string              `json:"current_entry_id"`
+	Shuffle        bool                `json:"shuffle"`
+	RepeatMode     string              `json:"repeat_mode"`
 	Track          *library.Track      `json:"track"`
 	PositionMS     int64               `json:"position_ms"`
 	DurationMS     int64               `json:"duration_ms"`

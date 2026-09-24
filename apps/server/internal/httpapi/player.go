@@ -76,6 +76,23 @@ func (service *server) command(w http.ResponseWriter, r *http.Request) {
 	}
 	reply(w, 202, result)
 }
+func (service *server) playerMode(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Shuffle    *bool   `json:"shuffle"`
+		RepeatMode *string `json:"repeat_mode"`
+	}
+	if !decode(w, r, &body) {
+		return
+	}
+	result, err := service.options.Player.UpdateMode(r.Context(), player.ModeUpdate{
+		Shuffle: body.Shuffle, RepeatMode: body.RepeatMode,
+	})
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	reply(w, http.StatusOK, result)
+}
 
 func (service *server) output(w http.ResponseWriter, r *http.Request) {
 	var body struct {

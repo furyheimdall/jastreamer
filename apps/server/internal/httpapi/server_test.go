@@ -984,3 +984,47 @@ func TestAuthenticatedVerificationStatus(t *testing.T) {
 		t.Fatalf("verification status=%#v", status)
 	}
 }
+
+func TestPlayerModeAPIRequiresPartialValidUpdateAndPreservesOtherField(t *testing.T) {
+	fixture := startAPI(t, false)
+	fixture.setup(t)
+
+	response := fixture.request(t, http.MethodGet, "/api/v1/player", "", nil)
+	var initial player.State
+	if err := json.NewDecoder(response.Body).Decode(&initial); err != nil {
+		t.Fatal(err)
+	}
+	response.Body.Close()
+	if response.StatusCode != http.StatusOK || initial.Shuffle || initial.RepeatMode != player.RepeatOff {
+		t.Fatalf("initial player mode: status=%d state=%#v", response.StatusCode, initial)
+	}
+
+	response = fixture.request(t, http.MethodPost, "/api/v1/player/mode", `{"shuffle":true}`, nil)
+	var shuffled player.State
+	if err := json.NewDecoder(response.Body).Decode(&shuffled); err != nil {
+		t.Fatal(err)
+	}
+	response.Body.Close()
+	if response.StatusCode != http.StatusOK || !shuffled.Shuffle || shuffled.RepeatMode != player.RepeatOff || shuffled.Revision != initial.Revision+1 {
+		t.Fatalf("shuffle update: status=%d state=%#v", response.StatusCode, shuffled)
+	}
+
+	response = fixture.request(t, http.MethodPost, "/api/v1/player/mode", `{"repeat_mode":"all"}`, nil)
+	var repeated player.State
+	if err := json.NewDecoder(response.Body).Decode(&repeated); err != nil {
+		t.Fatal(err)
+	}
+	response.Body.Close()
+	if response.StatusCode != http.StatusOK || !repeated.Shuffle || repeated.RepeatMode != player.RepeatAll || repeated.Revision != shuffled.Revision+1 {
+		t.Fatalf("repeat update: status=%d state=%#v", response.StatusCode, repeated)
+	}
+
+	for _, body := range []string{`{}`, `{"repeat_mode":"track"}`, `{"shuffle":true,"extra":false}`} {
+		response = fixture.request(t, http.MethodPost, "/api/v1/player/mode", body, nil)
+		if response.StatusCode != http.StatusBadRequest {
+			response.Body.Close()
+			t.Fatalf("invalid mode body %s returned HTTP %d", body, response.StatusCode)
+		}
+		response.Body.Close()
+	}
+}
