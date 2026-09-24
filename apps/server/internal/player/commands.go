@@ -484,7 +484,7 @@ func (s *Service) executePrevious(ctx context.Context, command commandRecord, st
 		return err
 	}
 	if !found {
-		target, found, err = s.entryByID(ctx, st.currentEntryID)
+		target, found, err = s.currentEntry(ctx, st.currentEntryID)
 		if err != nil {
 			return err
 		}
@@ -663,11 +663,29 @@ func (s *Service) resolvePlayTarget(ctx context.Context, requested, current stri
 		return s.entryByID(ctx, requested)
 	}
 	if current != "" {
-		if entry, found, err := s.entryByID(ctx, current); found || err != nil {
+		if entry, found, err := s.currentEntry(ctx, current); found || err != nil {
 			return entry, found, err
 		}
 	}
 	return s.adjacentEntry(ctx, "", 1, false)
+}
+
+func (s *Service) currentEntry(ctx context.Context, entryID string) (queueRecord, bool, error) {
+	entry, found, err := s.entryByID(ctx, entryID)
+	if found || err != nil {
+		return entry, found, err
+	}
+	err = s.db.QueryRowContext(ctx, "SELECT entry_id,track_id,queue_index FROM player_current WHERE singleton=1 AND entry_id=?", entryID).Scan(
+		&entry.id, &entry.trackID, &entry.position,
+	)
+	if err == sql.ErrNoRows {
+		return queueRecord{}, false, nil
+	}
+	if err != nil {
+		return queueRecord{}, false, err
+	}
+	entry.status = EntryPending
+	return entry, true, nil
 }
 
 func (s *Service) entryByID(ctx context.Context, entryID string) (queueRecord, bool, error) {
@@ -805,17 +823,33 @@ func (s *Service) completeStart(command commandRecord, oldEntryID, oldStatus str
 	s.opMu.Lock()
 	tx, err := s.db.BeginTx(context.Background(), nil)
 	st := command.initialState
+	queueChanged := false
 	if err == nil {
 		err = recordTraversalSelectionTx(context.Background(), tx, oldEntryID, started.entry.id)
 	}
 	if err == nil && oldEntryID != "" && oldEntryID != started.entry.id {
-		_, err = tx.ExecContext(context.Background(), "UPDATE player_queue SET status=? WHERE entry_id=?", oldStatus, oldEntryID)
+		var result sql.Result
+		result, err = tx.ExecContext(context.Background(), "UPDATE player_queue SET status=? WHERE entry_id=? AND status<>?", oldStatus, oldEntryID, oldStatus)
+		if err == nil {
+			var changed int64
+			changed, err = result.RowsAffected()
+			queueChanged = changed > 0
+		}
 	}
 	if err == nil {
-		_, err = tx.ExecContext(context.Background(), "UPDATE player_queue SET status='playing' WHERE entry_id=?", started.entry.id)
+		var result sql.Result
+		result, err = tx.ExecContext(context.Background(), "UPDATE player_queue SET status='playing' WHERE entry_id=? AND status<>'playing'", started.entry.id)
+		if err == nil {
+			var changed int64
+			changed, err = result.RowsAffected()
+			queueChanged = queueChanged || changed > 0
+		}
 	}
 	if err == nil {
-		_, err = tx.ExecContext(context.Background(), `UPDATE player_state SET revision=revision+1,queue_revision=queue_revision+1,current_entry_id=?,play_id=?,current_uri=?,current_seekable=?,state='starting',position_ms=?,duration_ms=?,observed_at='',last_observed_state='',last_observed_uri='',last_observed_position_ms=0,last_observed_duration_ms=0,last_observed_has_position=0,last_observed_at='',resume_required=0,error='',control_action=?,control_at=? WHERE singleton=1`, started.entry.id, started.playID, started.resource.URL, boolInt(started.resource.Seekable), started.positionMS, chooseDuration(started.resource.DurationMS, started.track.DurationMS), controlAction, controlAt)
+		err = selectCurrentBindingTx(context.Background(), tx, started.entry.id)
+	}
+	if err == nil {
+		_, err = tx.ExecContext(context.Background(), `UPDATE player_state SET revision=revision+1,queue_revision=queue_revision+?,current_entry_id=?,play_id=?,current_uri=?,current_seekable=?,state='starting',position_ms=?,duration_ms=?,observed_at='',last_observed_state='',last_observed_uri='',last_observed_position_ms=0,last_observed_duration_ms=0,last_observed_has_position=0,last_observed_at='',resume_required=0,error='',control_action=?,control_at=? WHERE singleton=1`, boolInt(queueChanged), started.entry.id, started.playID, started.resource.URL, boolInt(started.resource.Seekable), started.positionMS, chooseDuration(started.resource.DurationMS, started.track.DurationMS), controlAction, controlAt)
 	}
 	if err == nil {
 		_, err = tx.ExecContext(context.Background(), "UPDATE player_commands SET status='succeeded',error='',completed_at=? WHERE command_id=? AND status='running'", now, command.id)
@@ -840,7 +874,9 @@ func (s *Service) completeStart(command commandRecord, oldEntryID, oldStatus str
 		return err
 	}
 	s.logCommandTerminal(command, "succeeded", "renderer_acknowledged", st, started.playID, started.entry.id, StateStarting, started.positionMS, diagnosticErrorInfo{}, finished)
-	s.notify("queue")
+	if queueChanged {
+		s.notify("queue")
+	}
 	s.notify("player")
 	s.signalObserver()
 	return nil
@@ -902,6 +938,13 @@ func (s *Service) completeMediaStartFailure(command commandRecord, target queueR
 		playerMessage = ""
 	}
 	if err == nil {
+		selectedEntryID := target.id
+		if nextEntryID != "" {
+			selectedEntryID = nextEntryID
+		}
+		err = selectCurrentBindingTx(context.Background(), tx, selectedEntryID)
+	}
+	if err == nil {
 		_, err = tx.ExecContext(context.Background(), `UPDATE player_state SET revision=revision+1,queue_revision=queue_revision+?,current_entry_id=CASE WHEN ?<>'' THEN ? ELSE ? END,play_id='',current_uri='',current_seekable=0,state=?,position_ms=0,duration_ms=0,resume_required=0,error=?,control_action=?,control_at=? WHERE singleton=1`, boolInt(queueChanged), nextEntryID, nextEntryID, target.id, state, playerMessage, controlAction, now)
 	}
 	if err == nil {
@@ -949,6 +992,9 @@ func (s *Service) completeAdvanceFailure(command commandRecord, oldEntryID, targ
 	}
 	if err == nil {
 		_, err = tx.ExecContext(context.Background(), "UPDATE player_queue SET status='error' WHERE entry_id=?", targetEntryID)
+	}
+	if err == nil {
+		err = selectCurrentBindingTx(context.Background(), tx, targetEntryID)
 	}
 	if err == nil {
 		_, err = tx.ExecContext(context.Background(), `UPDATE player_state SET revision=revision+1,queue_revision=queue_revision+1,current_entry_id=?,play_id='',current_uri='',current_seekable=0,state='error',position_ms=0,resume_required=1,error=?,control_action='next',control_at=? WHERE singleton=1`, targetEntryID, message, now)
@@ -1073,6 +1119,9 @@ func (s *Service) completeFailure(command commandRecord, message string, unavail
 			err = rowsErr
 			queueChanged = queueChanged || changed > 0
 		}
+	}
+	if err == nil && explicitEntry {
+		err = selectCurrentBindingTx(context.Background(), tx, entryID)
 	}
 	clearPlayback := unavailable || explicitEntry
 	if err == nil {

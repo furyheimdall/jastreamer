@@ -354,10 +354,13 @@ html[data-device="phone"] .queue-page .queue-heading-row {
   flex-direction: column;
 }
 
-html[data-device="phone"] .queue-page .queue-heading-row > .button,
+html[data-device="phone"] .queue-page .queue-global-management,
+html[data-device="phone"] .queue-page .queue-global-management > .button,
 html[data-device="phone"] .queue-page .save-queue > .button {
   width: 100%;
+  max-width: none;
   min-height: 2.75rem;
+  flex-basis: auto;
 }
 
 html[data-device="phone"]:has(.phone-player-expanded) body {

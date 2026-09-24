@@ -440,6 +440,103 @@ test("repeat one reloads real browser audio while manual next escapes and repeat
   }
 });
 
+test("removing the current queue row keeps browser audio loaded and Next advances to the remaining entry", async ({ page }) => {
+  const { audio, trackIDs } = await prepareBrowserPlayback(page, ["long.wav", "short.wav"]);
+  await startBrowserPlayback(page, audio);
+  const queuedBefore = await control(page, "/queue");
+  const playerBefore = await control(page, "/player");
+  const sourceBefore = await audio.evaluate((element) => element.currentSrc);
+  const positionBefore = await audio.evaluate((element) => element.currentTime);
+  try {
+    await page.getByRole("button", { name: "Queue", exact: true }).click();
+    const currentRow = page.locator(".queue-row.is-current");
+    await expect(currentRow).toHaveCount(1);
+    const removeCurrent = currentRow.getByRole("button", { name: "Remove from queue", exact: true });
+    await expect(removeCurrent).toBeEnabled();
+    await removeCurrent.click();
+
+    await expect(page.locator(".queue-row")).toHaveCount(1);
+    await expect.poll(async () => (await control(page, "/queue")).entries.map((entry) => entry.id))
+      .toEqual([queuedBefore.entries[1].id]);
+    const playerAfter = await control(page, "/player");
+    expect(playerAfter.current_entry_id).toBe(playerBefore.current_entry_id);
+    expect(playerAfter.track).toEqual(playerBefore.track);
+    expect(playerAfter.state).toBe("playing");
+    expect(await audio.evaluate((element) => element.currentSrc)).toBe(sourceBefore);
+    await expect.poll(() => audio.evaluate((element) => element.currentTime)).toBeGreaterThan(positionBefore);
+    await expect(page.locator("footer.player-bar .now-playing-copy strong")).toHaveText("long");
+
+    await page.getByRole("button", { name: "Next track", exact: true }).click();
+    await expect.poll(async () => {
+      const player = await control(page, "/player");
+      return player.state === "playing" ? player.track?.id : "";
+    }).toBe(trackIDs[1]);
+    expect((await control(page, "/player")).current_entry_id).toBe(queuedBefore.entries[1].id);
+    await expect.poll(() => audio.evaluate((element) => !element.paused && element.currentTime > 0)).toBe(true);
+  } finally {
+    await expect.poll(async () => (await control(page, "/player")).pending_command).toBe("");
+    await control(page, "/player", "POST", { action: "stop" });
+    await expect.poll(async () => (await control(page, "/player")).state).toBe("stopped");
+  }
+});
+
+test("clearing the queue leaves current browser audio and metadata intact, then stops at EOF and accepts a new entry", async ({ page }) => {
+  const { audio, trackIDs } = await prepareBrowserPlayback(page, ["long.wav", "short.wav"]);
+  await control(page, "/player/mode", "POST", { shuffle: false, repeat_mode: "all" });
+  await startBrowserPlayback(page, audio);
+  const playerBefore = await control(page, "/player");
+  const libraryBefore = await control(page, "/library/tracks");
+  const sourceBefore = await audio.evaluate((element) => element.currentSrc);
+  const positionBefore = await audio.evaluate((element) => element.currentTime);
+  try {
+    await page.getByRole("button", { name: "Queue", exact: true }).click();
+    await page.getByRole("button", { name: "Clear queue", exact: true }).click();
+    const confirmation = page.locator(".queue-clear-confirmation");
+    await expect(confirmation).toBeVisible();
+    await confirmation.getByRole("button", { name: "Clear queue", exact: true }).click();
+
+    await expect(page.locator(".queue-row")).toHaveCount(0);
+    await expect(page.getByRole("heading", { name: "The queue is empty", exact: true })).toBeVisible();
+    expect((await control(page, "/queue")).entries).toEqual([]);
+    const playerAfter = await control(page, "/player");
+    expect(playerAfter.current_entry_id).toBe(playerBefore.current_entry_id);
+    expect(playerAfter.track).toEqual(playerBefore.track);
+    expect(playerAfter.state).toBe("playing");
+    expect(await audio.evaluate((element) => element.currentSrc)).toBe(sourceBefore);
+    await expect.poll(() => audio.evaluate((element) => element.currentTime)).toBeGreaterThan(positionBefore);
+    await expect(page.locator("footer.player-bar .now-playing-copy strong")).toHaveText("long");
+    expect(await control(page, "/library/tracks")).toEqual(libraryBefore);
+
+    await control(page, "/player", "POST", { action: "seek", position_ms: 44_000 });
+    await expect.poll(async () => (await control(page, "/player")).state).toBe("stopped");
+    await expect.poll(() => audio.evaluate((element) => element.paused)).toBe(true);
+    expect((await control(page, "/queue")).entries).toEqual([]);
+
+    await page.getByRole("button", { name: "Library", exact: true }).click();
+    await page.getByRole("button", { name: "Tracks", exact: true }).click();
+    const shortRow = page.locator(".library-track-row").filter({
+      has: page.locator(".library-track-main strong", { hasText: /^short$/ }),
+    });
+    await shortRow.getByRole("button", { name: "Add short to the end of the queue", exact: true }).click();
+    await page.getByRole("button", { name: "Queue", exact: true }).click();
+    await expect(page.locator(".queue-row")).toHaveCount(1);
+    await page.getByRole("button", { name: "Play short", exact: true }).click();
+    await expect.poll(async () => {
+      const player = await control(page, "/player");
+      return player.state === "playing" ? player.track?.id : "";
+    }).toBe(trackIDs[1]);
+    await expect.poll(() => audio.evaluate((element) => !element.paused && element.currentTime > 0)).toBe(true);
+  } finally {
+    await expect.poll(async () => (await control(page, "/player")).pending_command).toBe("");
+    const player = await control(page, "/player");
+    if (player.state !== "stopped") {
+      await control(page, "/player", "POST", { action: "stop" });
+      await expect.poll(async () => (await control(page, "/player")).state).toBe("stopped");
+    }
+    await control(page, "/player/mode", "POST", { shuffle: false, repeat_mode: "off" });
+  }
+});
+
 test("player bar mode updates preserve audio and queue while synchronizing other controls", async ({ page, context }) => {
   const { audio } = await prepareBrowserPlayback(page, ["long.wav", "long.wav", "short.wav"]);
   await startBrowserPlayback(page, audio);

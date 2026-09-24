@@ -16,6 +16,15 @@ type queueRecord struct {
 	position int
 }
 
+// currentBinding snapshots the loaded entry. Its indexes name the entry while
+// queued and the same traversal gap after that entry is removed.
+type currentBinding struct {
+	entryID      string
+	trackID      string
+	queueIndex   int
+	shuffleIndex int
+}
+
 func (s *Service) Queue(ctx context.Context) (Queue, error) {
 	var revision int64
 	if err := s.db.QueryRowContext(ctx, "SELECT queue_revision FROM player_state WHERE singleton=1").Scan(&revision); err != nil {
@@ -135,14 +144,24 @@ func (s *Service) mutateQueueLocked(ctx context.Context, mutation QueueMutation)
 		return err
 	}
 	var beforeRecords []queueRecord
+	binding, err := ensureCurrentBindingTx(ctx, tx, currentEntryID, records)
+	if err != nil {
+		return fmt.Errorf("player: load current playback cursor: %w", err)
+	}
+	detached := binding != nil && queueRecordIndex(records, currentEntryID) < 0
 	mode, err := loadPlaybackModeTx(ctx, tx)
 	if err != nil {
 		return fmt.Errorf("player: load playback mode for queue mutation: %w", err)
 	}
+	var beforeShuffleIDs []string
 	if mode.shuffle {
 		beforeRecords = append([]queueRecord(nil), records...)
 		if err := ensureShuffleTraversalTx(ctx, tx, records, currentEntryID); err != nil {
 			return fmt.Errorf("player: prepare shuffle queue mutation: %w", err)
+		}
+		beforeShuffleIDs, err = loadShuffleIDsTx(ctx, tx)
+		if err != nil {
+			return fmt.Errorf("player: load shuffle queue mutation cursor: %w", err)
 		}
 	}
 	if len(records)+len(mutation.TrackIDs) > 10000 && mutation.Action != "replace" {
@@ -156,10 +175,19 @@ func (s *Service) mutateQueueLocked(ctx context.Context, mutation QueueMutation)
 		index := 0
 		if currentEntryID != "" {
 			index = queueRecordIndex(records, currentEntryID)
-			if index < 0 {
-				return fault.New(409, "QUEUE_CURSOR_INVALID", "The current queue entry is no longer present.")
+			if index >= 0 {
+				index++
+			} else if binding != nil {
+				index = binding.queueIndex
+			} else {
+				return fault.New(409, "QUEUE_CURSOR_INVALID", "The current playback cursor is unavailable.")
 			}
-			index++
+		}
+		if index < 0 {
+			index = 0
+		}
+		if index > len(records) {
+			index = len(records)
 		}
 		records, err = s.insertQueueRecords(ctx, tx, records, index, mutation.TrackIDs)
 	case "replace":
@@ -170,18 +198,22 @@ func (s *Service) mutateQueueLocked(ctx context.Context, mutation QueueMutation)
 			records, err = s.insertQueueRecords(ctx, tx, nil, 0, mutation.TrackIDs)
 		}
 		if err == nil {
+			_, err = tx.ExecContext(ctx, "DELETE FROM player_current WHERE singleton=1")
+		}
+		if err == nil {
 			_, err = tx.ExecContext(ctx, `UPDATE player_state SET revision=revision+1,current_entry_id='',play_id='',current_uri='',current_seekable=0,position_ms=0,duration_ms=0,observed_at='',resume_required=0,error='',control_action='',control_at='' WHERE singleton=1`)
 		}
+		binding = nil
 	case "remove":
-		if mutation.EntryID == currentEntryID {
-			return fault.New(409, "CURRENT_ENTRY_IMMUTABLE", "The current queue entry cannot be removed.")
-		}
 		index := queueRecordIndex(records, mutation.EntryID)
 		if index < 0 {
 			return fault.New(404, "QUEUE_ENTRY_NOT_FOUND", "The queue entry no longer exists.")
 		}
 		if _, err = tx.ExecContext(ctx, "DELETE FROM player_queue WHERE entry_id=?", mutation.EntryID); err == nil {
 			records = append(records[:index], records[index+1:]...)
+		}
+		if detached && index < binding.queueIndex {
+			binding.queueIndex--
 		}
 	case "move":
 		if mutation.EntryID == currentEntryID {
@@ -200,20 +232,25 @@ func (s *Service) mutateQueueLocked(ctx context.Context, mutation QueueMutation)
 		if destination > len(records) {
 			destination = len(records)
 		}
+		if detached {
+			cursor := binding.queueIndex
+			if index < cursor {
+				cursor--
+			}
+			if destination < cursor {
+				cursor++
+			}
+			binding.queueIndex = cursor
+		}
 		records = append(records, queueRecord{})
 		copy(records[destination+1:], records[destination:])
 		records[destination] = record
 	case "clear":
-		if currentEntryID == "" {
-			_, err = tx.ExecContext(ctx, "DELETE FROM player_queue")
-			records = nil
-		} else {
-			index := queueRecordIndex(records, currentEntryID)
-			if index < 0 {
-				return fault.New(409, "QUEUE_CURSOR_INVALID", "The current queue entry is no longer present.")
-			}
-			_, err = tx.ExecContext(ctx, "DELETE FROM player_queue WHERE position>?", records[index].position)
-			records = records[:index+1]
+		_, err = tx.ExecContext(ctx, "DELETE FROM player_queue")
+		records = nil
+		if binding != nil {
+			binding.queueIndex = 0
+			binding.shuffleIndex = 0
 		}
 	}
 	if err != nil {
@@ -222,8 +259,21 @@ func (s *Service) mutateQueueLocked(ctx context.Context, mutation QueueMutation)
 	if err := rewriteQueuePositions(ctx, tx, records); err != nil {
 		return err
 	}
-	if err := syncShuffleQueueMutationTx(ctx, tx, mutation.Action, currentEntryID, beforeRecords, records); err != nil {
+	if binding != nil {
+		if index := queueRecordIndex(records, currentEntryID); index >= 0 {
+			binding.queueIndex = index
+			binding.trackID = records[index].trackID
+		} else if binding.queueIndex > len(records) {
+			binding.queueIndex = len(records)
+		}
+	}
+	if err := syncShuffleQueueMutationTx(ctx, tx, mutation.Action, currentEntryID, beforeRecords, records, beforeShuffleIDs, binding); err != nil {
 		return fmt.Errorf("player: update shuffle traversal: %w", err)
+	}
+	if binding != nil {
+		if err := storeCurrentBindingTx(ctx, tx, *binding); err != nil {
+			return fmt.Errorf("player: store current playback cursor: %w", err)
+		}
 	}
 	if _, err := tx.ExecContext(ctx, "UPDATE player_state SET queue_revision=queue_revision+1 WHERE singleton=1"); err != nil {
 		return fmt.Errorf("player: advance queue revision: %w", err)
@@ -292,4 +342,85 @@ func queueRecordIndex(records []queueRecord, entryID string) int {
 		}
 	}
 	return -1
+}
+
+func ensureCurrentBindingTx(ctx context.Context, tx *sql.Tx, currentEntryID string, records []queueRecord) (*currentBinding, error) {
+	if currentEntryID == "" {
+		return nil, nil
+	}
+	var binding currentBinding
+	err := tx.QueryRowContext(ctx, "SELECT entry_id,track_id,queue_index,shuffle_index FROM player_current WHERE singleton=1").Scan(
+		&binding.entryID, &binding.trackID, &binding.queueIndex, &binding.shuffleIndex,
+	)
+	if err == nil && binding.entryID == currentEntryID {
+		return &binding, nil
+	}
+	if err != nil && err != sql.ErrNoRows {
+		return nil, err
+	}
+	index := queueRecordIndex(records, currentEntryID)
+	if index < 0 {
+		return nil, fault.New(409, "QUEUE_CURSOR_INVALID", "The current playback cursor is unavailable.")
+	}
+	binding = currentBinding{entryID: currentEntryID, trackID: records[index].trackID, queueIndex: index, shuffleIndex: index}
+	var ordinal int
+	if queryErr := tx.QueryRowContext(ctx, "SELECT ordinal FROM player_shuffle WHERE entry_id=?", currentEntryID).Scan(&ordinal); queryErr == nil {
+		binding.shuffleIndex = ordinal
+	} else if queryErr != sql.ErrNoRows {
+		return nil, queryErr
+	}
+	if err := storeCurrentBindingTx(ctx, tx, binding); err != nil {
+		return nil, err
+	}
+	return &binding, nil
+}
+
+func loadCurrentBindingTx(ctx context.Context, tx *sql.Tx, entryID string) (currentBinding, bool, error) {
+	var binding currentBinding
+	err := tx.QueryRowContext(ctx, "SELECT entry_id,track_id,queue_index,shuffle_index FROM player_current WHERE singleton=1 AND entry_id=?", entryID).Scan(
+		&binding.entryID, &binding.trackID, &binding.queueIndex, &binding.shuffleIndex,
+	)
+	if err == sql.ErrNoRows {
+		return currentBinding{}, false, nil
+	}
+	return binding, err == nil, err
+}
+
+func storeCurrentBindingTx(ctx context.Context, tx *sql.Tx, binding currentBinding) error {
+	_, err := tx.ExecContext(ctx, `INSERT INTO player_current(singleton,entry_id,track_id,queue_index,shuffle_index)
+VALUES(1,?,?,?,?)
+ON CONFLICT(singleton) DO UPDATE SET entry_id=excluded.entry_id,track_id=excluded.track_id,
+queue_index=excluded.queue_index,shuffle_index=excluded.shuffle_index`,
+		binding.entryID, binding.trackID, binding.queueIndex, binding.shuffleIndex)
+	return err
+}
+
+func selectCurrentBindingTx(ctx context.Context, tx *sql.Tx, entryID string) error {
+	if entryID == "" {
+		return nil
+	}
+	var entry queueRecord
+	err := tx.QueryRowContext(ctx, "SELECT entry_id,track_id,status,position FROM player_queue WHERE entry_id=?", entryID).Scan(
+		&entry.id, &entry.trackID, &entry.status, &entry.position,
+	)
+	if err == sql.ErrNoRows {
+		_, found, loadErr := loadCurrentBindingTx(ctx, tx, entryID)
+		if loadErr != nil {
+			return loadErr
+		}
+		if found {
+			return nil
+		}
+		return fmt.Errorf("current entry %q has no playback snapshot", entryID)
+	}
+	if err != nil {
+		return err
+	}
+	shuffleIndex := entry.position
+	if queryErr := tx.QueryRowContext(ctx, "SELECT ordinal FROM player_shuffle WHERE entry_id=?", entryID).Scan(&shuffleIndex); queryErr != nil && queryErr != sql.ErrNoRows {
+		return queryErr
+	}
+	return storeCurrentBindingTx(ctx, tx, currentBinding{
+		entryID: entry.id, trackID: entry.trackID, queueIndex: entry.position, shuffleIndex: shuffleIndex,
+	})
 }
