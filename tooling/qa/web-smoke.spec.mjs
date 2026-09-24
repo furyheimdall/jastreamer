@@ -488,60 +488,59 @@ test("blocked browser playback exposes a reachable permission button and starts 
   }
 });
 
-test("liked playlist creation reconciles an earlier event refresh and preserves its saved snapshot", async ({ page }) => {
-  const setup = await control(page, "/setup");
-  await control(page, setup.required ? "/setup" : "/login", "POST", {
-    username: "browser-smoke", password: "browser-smoke-password",
-  });
-  await control(page, "/library/scans", "POST", {});
-  await expect.poll(async () => (await control(page, "/library/tracks")).total).toBe(2);
-  await page.goto(origin, { waitUntil: "domcontentloaded" });
+test("liked shuffle appends a one-time queue snapshot without interrupting playback or saving a playlist", async ({ page }) => {
+  const { audio, trackIDs } = await prepareBrowserPlayback(page, ["long.wav", "short.wav", "long.wav"]);
+  await startBrowserPlayback(page, audio);
+  await control(page, "/playlists", "POST", { name: "Keep saved playlist", track_ids: trackIDs });
   await page.getByRole("button", { name: "Tracks", exact: true }).click();
   await page.getByRole("button", { name: "Like short", exact: true }).click();
   await expect(page.getByRole("button", { name: "Unlike short", exact: true })).toHaveAttribute("aria-pressed", "true");
-  let likedHeartFill = "";
-  await expect.poll(async () => {
-    likedHeartFill = await page.getByRole("button", { name: "Unlike short", exact: true })
-      .locator("svg").evaluate((icon) => getComputedStyle(icon).fill);
-    return likedHeartFill;
-  }).not.toMatch(/^(none)?$/);
   await page.getByRole("button", { name: "Like long", exact: true }).click();
   await expect(page.getByRole("button", { name: "Unlike long", exact: true })).toHaveAttribute("aria-pressed", "true");
-  await page.getByRole("button", { name: "Playlists", exact: true }).click();
-  await page.getByLabel("Shuffled liked playlist name", { exact: true }).fill("Liked event snapshot");
+  const likedIDs = (await control(page, "/library/tracks?liked=true")).items.map((track) => track.id);
+  const savedBefore = (await control(page, "/playlists")).items;
   const queueBefore = await control(page, "/queue");
+  const playerBefore = await control(page, "/player");
+  const positionBefore = await audio.evaluate((element) => element.currentTime);
+  await page.getByRole("button", { name: "Queue", exact: true }).click();
   let release;
   const responseGate = new Promise((resolveResponse) => { release = resolveResponse; });
-  await page.route("**/api/v1/playlists/from-likes", async (route) => {
+  await page.route("**/api/v1/queue", async (route) => {
+    const request = route.request();
+    if (request.method() !== "POST" || request.postDataJSON()?.action !== "append_liked_shuffled") {
+      await route.continue();
+      return;
+    }
     const response = await route.fetch();
     await responseGate;
     await route.fulfill({ response });
   });
   try {
-    await page.getByRole("button", { name: "Create shuffled liked playlist", exact: true }).click();
-    const savedList = page.getByRole("button", { name: /Liked event snapshot/ });
-    await expect(savedList).toHaveCount(1);
+    const shuffle = page.getByRole("button", { name: "Shuffle liked into queue", exact: true });
+    await shuffle.click();
+    await expect(page.locator(".queue-row")).toHaveCount(5);
+    await expect(shuffle).toBeDisabled();
     release();
-    await expect(page.getByRole("button", { name: "Create shuffled liked playlist", exact: true })).toBeEnabled();
-    await expect(savedList).toHaveCount(1);
-    const saved = (await control(page, "/playlists")).items.find((playlist) => playlist.name === "Liked event snapshot");
-    const likedIDs = (await control(page, "/library/tracks?liked=true")).items.map((track) => track.id);
-    expect([...saved.track_ids].sort()).toEqual([...likedIDs].sort());
-    expect((await control(page, "/queue")).entries).toEqual(queueBefore.entries);
-    await expect(page.getByRole("button", { name: "Unlike short", exact: true }).locator("svg"))
-      .toHaveCSS("fill", likedHeartFill);
-    await page.getByRole("button", { name: "Unlike short", exact: true }).click();
-    await expect(page.getByRole("button", { name: "Like short", exact: true })).toHaveAttribute("aria-pressed", "false");
-    await expect(page.getByRole("button", { name: "Like short", exact: true }).locator("svg"))
-      .toHaveCSS("fill", "none");
-    await page.getByRole("button", { name: "Like short", exact: true }).click();
-    await expect(page.getByRole("button", { name: "Unlike short", exact: true }).locator("svg"))
-      .toHaveCSS("fill", likedHeartFill);
-    await expect.poll(async () => (await control(page, "/library/tracks")).items.find((track) => track.title === "short")?.liked).toBe(true);
-    expect((await control(page, `/playlists/${saved.id}`)).track_ids).toEqual(saved.track_ids);
+    await expect(shuffle).toBeEnabled();
+    const queued = await control(page, "/queue");
+    expect(queued.entries.slice(0, 3).map((entry) => entry.id)).toEqual(queueBefore.entries.map((entry) => entry.id));
+    expect(queued.entries.slice(3).map((entry) => entry.track_id).sort()).toEqual([...likedIDs].sort());
+    expect((await control(page, "/playlists")).items).toEqual(savedBefore);
+    const playerAfter = await control(page, "/player");
+    expect(playerAfter.current_entry_id).toBe(playerBefore.current_entry_id);
+    expect(playerAfter.state).toBe("playing");
+    await expect.poll(() => audio.evaluate((element) => element.currentTime)).toBeGreaterThan(positionBefore);
+    await page.getByRole("button", { name: "Unlike short", exact: true }).first().click();
+    await expect(page.getByRole("button", { name: "Like short", exact: true })).toHaveCount(2);
+    const unlike = page.getByRole("button", { name: "Like short", exact: true });
+    await expect(unlike.first().locator("svg")).toHaveCSS("fill", "none");
+    expect((await control(page, "/queue")).entries.map((entry) => entry.track_id)).toEqual(queued.entries.map((entry) => entry.track_id));
+    expect((await control(page, "/playlists")).items).toEqual(savedBefore);
   } finally {
     release();
-    await page.unroute("**/api/v1/playlists/from-likes");
+    await page.unroute("**/api/v1/queue");
+    await control(page, "/player", "POST", { action: "stop" });
+    await expect.poll(async () => (await control(page, "/player")).state).toBe("stopped");
   }
 });
 

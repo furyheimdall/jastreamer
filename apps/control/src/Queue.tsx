@@ -83,7 +83,7 @@ export default function Queue({ revision, onNotice, onQueueChange, downloads }: 
       setError("");
       onQueueChange();
     } catch (requestError) {
-      const conflict = requestError instanceof ApiError && requestError.status === 409;
+      const conflict = requestError instanceof ApiError && requestError.code === "REVISION_CONFLICT";
       onNotice(
         conflict
           ? t("queue.conflictReloaded")
@@ -166,15 +166,30 @@ export default function Queue({ revision, onNotice, onQueueChange, downloads }: 
           <h1 id="queue-heading">{t("queue.heading")}</h1>
           <p className="muted">{t("queue.description")}</p>
         </div>
-        <button
-          className="button button-ghost"
-          type="button"
-          disabled={!queue?.entries.length || Boolean(busyEntry)}
-          onClick={() => void mutate("", "clear")}
-        >
-          {t("queue.clearUpcoming")}
-        </button>
       </header>
+
+      <div className="queue-bulk-panel">
+        <p className="muted" id="queue-shuffle-liked-description">{t("queue.shuffleLikedDescription")}</p>
+        <div className="queue-bulk-actions" role="group" aria-label={t("queue.actions")}>
+          <button
+            className="button button-primary"
+            type="button"
+            aria-describedby="queue-shuffle-liked-description"
+            disabled={!queue || Boolean(busyEntry)}
+            onClick={() => void mutate("", "append_liked_shuffled")}
+          >
+            {t("queue.shuffleLiked")}
+          </button>
+          <button
+            className="button button-ghost"
+            type="button"
+            disabled={!queue?.entries.length || Boolean(busyEntry)}
+            onClick={() => void mutate("", "clear")}
+          >
+            {t("queue.clearUpcoming")}
+          </button>
+        </div>
+      </div>
 
       {error && (
         <div className="inline-error" role="alert">

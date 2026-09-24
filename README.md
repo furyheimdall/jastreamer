@@ -25,7 +25,7 @@ English is the default interface language; Korean is also supported.
 - Browses and searches tracks, albums, artists, genres, and folders, and displays embedded artwork
 - Shows stored tags and verified audio/file information when needed
 - Maintains playlists and a Server-wide queue that preserves duplicate tracks
-- Saves track likes and creates a shuffled saved playlist from all available liked tracks
+- Saves track likes and appends all available liked tracks to Queue in shuffled order
 - Plays through **This device** using browser audio and the same Server queue
 - Controls playback and seeking on compatible network outputs
 - Discovers UPnP/DLNA, optional Google Cast, and Linux AirPlay outputs on the LAN

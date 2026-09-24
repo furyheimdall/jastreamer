@@ -65,12 +65,13 @@ A folder's **Play all**, **Play next**, **Add to queue end**, and **Add to saved
 Navigation and list actions share one toolbar. On narrow screens, scroll it horizontally to reach the remaining actions. **Add to queue end** uses a queue/down-arrow icon and changes the current playback queue. **Add to saved playlist** uses a bookmark-plus icon and opens the saved-playlist chooser; saving does not start playback.
 
 <a id="likes"></a>
-### Likes and shuffled saved playlists
+### Likes and one-time shuffled queues
 
 - Use a track's heart button in Library, Playlists, Queue, or Track information to add or remove its like. All four views show a filled heart when liked and an outlined heart when unliked, and update together, including duplicate queue entries and an open information dialog. Changing a like does not change queue order or playback. Likes are shared Server state, not private per-account lists, and survive rescans and Server restarts.
 - Select **Liked** in Library to browse liked tracks. Search and paging still apply to that view.
-- In **Playlists**, enter a name under **Liked shuffle** and select **Shuffle**. This saves all currently available liked tracks in random order, not just the current page or search results. Unavailable tracks are excluded; an empty selection or more than the normal 10,000-track playlist limit produces an error rather than a partial playlist.
-- The result is an ordinary saved snapshot: later like changes do not rewrite it. Creating it does not change Queue or start playback; use its normal playback or queue actions explicitly.
+- In **Queue**, select **Shuffle liked into queue** to append all currently available liked tracks in random order, not just the current page or search results. Existing queue order and duplicate entries remain intact, current playback is not interrupted, and stopped playback does not start automatically. Unavailable tracks are excluded; no available likes, more than 10,000 selected tracks, or an append exceeding the total 10,000-entry queue limit produces an error rather than a partial append.
+- This is a one-time selection for the shared queue, not a saved playlist or a live filter: later like changes do not rewrite the queued tracks. Queue still persists normally across Server restarts without autoplay.
+- No playlist name is required and no saved playlist is created. To keep the result, explicitly use Queue's normal **Save as playlist** action. Previously saved playlists, including older liked-shuffle snapshots, remain unchanged.
 
 <a id="most-played"></a>
 ### Play counts and Most Played

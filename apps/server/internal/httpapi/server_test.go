@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"database/sql"
 	"encoding/csv"
 	"encoding/json"
 	"fmt"
@@ -14,6 +15,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -42,6 +44,7 @@ type apiFixture struct {
 	configPath string
 	history    *errorhistory.Service
 	catalog    *library.Service
+	db         *sql.DB
 }
 
 func startAPI(t *testing.T, secure bool) apiFixture {
@@ -110,7 +113,7 @@ func startAPIWithRestart(t *testing.T, secure bool, restart *RestartHooks) apiFi
 	client := server.Client()
 	client.Timeout = 5 * time.Second
 	client.Jar, _ = cookiejar.New(nil)
-	return apiFixture{server: server, client: client, metadata: discoveryService.Metadata(), config: cfg, configPath: path, history: history, catalog: catalog}
+	return apiFixture{server: server, client: client, metadata: discoveryService.Metadata(), config: cfg, configPath: path, history: history, catalog: catalog, db: db}
 }
 
 func (fixture apiFixture) request(t *testing.T, method, path, body string, change func(*http.Request)) *http.Response {
@@ -157,6 +160,215 @@ func (fixture apiFixture) setup(t *testing.T) *http.Cookie {
 	}
 	t.Fatal("setup did not issue a session cookie")
 	return nil
+}
+
+func (fixture apiFixture) addTestTrack(t *testing.T, id string, liked bool) {
+	t.Helper()
+	if _, err := fixture.db.ExecContext(t.Context(), `INSERT INTO library_tracks(id,root_id,relative_path,title,artist,album,album_artist,album_id,disc,track_number,genres_json,duration_ms,format,mime,artwork_id,byte_size,modified_ns,modified_at,available,last_seen_scan) VALUES(?,?,?,?,?,?,?,?,0,0,'[]',1000,'wav','audio/wav','',100,0,'2026-01-01T00:00:00Z',1,'scan')`, id, "root", id+".wav", id, "artist", "album", "artist", "album"); err != nil {
+		t.Fatal(err)
+	}
+	if liked {
+		if _, err := fixture.catalog.SetLiked(t.Context(), id, true); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+func (fixture apiFixture) queueState(t *testing.T) player.Queue {
+	t.Helper()
+	response := fixture.request(t, http.MethodGet, "/api/v1/queue", "", nil)
+	defer response.Body.Close()
+	var queue player.Queue
+	if err := json.NewDecoder(response.Body).Decode(&queue); err != nil {
+		t.Fatal(err)
+	}
+	if response.StatusCode != http.StatusOK {
+		t.Fatalf("queue HTTP status=%d, want %d", response.StatusCode, http.StatusOK)
+	}
+	return queue
+}
+
+func (fixture apiFixture) appendTracks(t *testing.T, revision int64, trackIDs ...string) player.Queue {
+	t.Helper()
+	body, err := json.Marshal(player.QueueMutation{Action: "append", TrackIDs: trackIDs, Revision: revision})
+	if err != nil {
+		t.Fatal(err)
+	}
+	response := fixture.request(t, http.MethodPost, "/api/v1/queue", string(body), nil)
+	defer response.Body.Close()
+	var queue player.Queue
+	if err = json.NewDecoder(response.Body).Decode(&queue); err != nil {
+		t.Fatal(err)
+	}
+	if response.StatusCode != http.StatusOK {
+		t.Fatalf("append HTTP status=%d, want %d", response.StatusCode, http.StatusOK)
+	}
+	return queue
+}
+
+func TestAppendLikedShuffledPreservesQueueCursorDuplicatesAndSavedPlaylists(t *testing.T) {
+	fixture := startAPI(t, false)
+	fixture.setup(t)
+	fixture.addTestTrack(t, "existing", false)
+	fixture.addTestTrack(t, "liked-a", true)
+	fixture.addTestTrack(t, "liked-b", true)
+	saved, err := fixture.catalog.SavePlaylist(t.Context(), "", "Existing playlist", []string{"existing", "liked-a"}, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	initial := fixture.appendTracks(t, 0, "existing", "liked-a")
+	currentEntryID := initial.Entries[1].ID
+	if _, err = fixture.db.ExecContext(t.Context(), `UPDATE player_state SET state='paused',current_entry_id=?,position_ms=3210 WHERE singleton=1`, currentEntryID); err != nil {
+		t.Fatal(err)
+	}
+
+	response := fixture.request(t, http.MethodPost, "/api/v1/queue", fmt.Sprintf(`{"action":"append_liked_shuffled","revision":%d}`, initial.Revision), nil)
+	defer response.Body.Close()
+	var result player.Queue
+	if err = json.NewDecoder(response.Body).Decode(&result); err != nil {
+		t.Fatal(err)
+	}
+	if response.StatusCode != http.StatusOK {
+		t.Fatalf("liked append status=%d, want %d", response.StatusCode, http.StatusOK)
+	}
+	if len(result.Entries) != 4 || result.Revision != initial.Revision+1 {
+		t.Fatalf("liked append queue=%#v", result)
+	}
+	for index := range initial.Entries {
+		if result.Entries[index].ID != initial.Entries[index].ID || result.Entries[index].TrackID != initial.Entries[index].TrackID {
+			t.Fatalf("existing queue order changed at %d: before=%#v after=%#v", index, initial.Entries[index], result.Entries[index])
+		}
+	}
+	suffix := map[string]int{}
+	for _, entry := range result.Entries[len(initial.Entries):] {
+		suffix[entry.TrackID]++
+	}
+	if !reflect.DeepEqual(suffix, map[string]int{"liked-a": 1, "liked-b": 1}) {
+		t.Fatalf("liked suffix=%v", suffix)
+	}
+	if result.Entries[1].TrackID != "liked-a" || result.Entries[1].ID == result.Entries[2].ID || result.Entries[1].ID == result.Entries[3].ID {
+		t.Fatalf("pre-existing liked duplicate was not retained independently: %#v", result.Entries)
+	}
+
+	stateResponse := fixture.request(t, http.MethodGet, "/api/v1/player", "", nil)
+	defer stateResponse.Body.Close()
+	var state player.State
+	if err = json.NewDecoder(stateResponse.Body).Decode(&state); err != nil {
+		t.Fatal(err)
+	}
+	if stateResponse.StatusCode != http.StatusOK || state.State != player.StatePaused || state.CurrentEntryID != currentEntryID || state.PositionMS != 3210 {
+		t.Fatalf("liked append changed playback: status=%d state=%#v", stateResponse.StatusCode, state)
+	}
+	playlists, err := fixture.catalog.Playlists(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(playlists) != 1 || playlists[0].ID != saved.ID || !reflect.DeepEqual(playlists[0].TrackIDs, saved.TrackIDs) {
+		t.Fatalf("liked append changed saved playlists: %#v", playlists)
+	}
+}
+
+func TestAppendLikedShuffledEmptyAndStaleRequestsAreAtomic(t *testing.T) {
+	t.Run("empty likes", func(t *testing.T) {
+		fixture := startAPI(t, false)
+		fixture.setup(t)
+		fixture.addTestTrack(t, "existing", false)
+		saved, err := fixture.catalog.SavePlaylist(t.Context(), "", "Existing playlist", []string{"existing"}, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		beforeQueue := fixture.appendTracks(t, 0, "existing")
+		beforePlaylists, err := fixture.catalog.Playlists(t.Context())
+		if err != nil {
+			t.Fatal(err)
+		}
+		response := fixture.request(t, http.MethodPost, "/api/v1/queue", fmt.Sprintf(`{"action":"append_liked_shuffled","revision":%d}`, beforeQueue.Revision), nil)
+		status := response.StatusCode
+		code := responseErrorCode(t, response)
+		if status != http.StatusBadRequest || code != "INVALID_REQUEST" {
+			t.Fatalf("empty likes status=%d code=%q", status, code)
+		}
+		afterQueue := fixture.queueState(t)
+		afterPlaylists, err := fixture.catalog.Playlists(t.Context())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !reflect.DeepEqual(afterQueue, beforeQueue) || !reflect.DeepEqual(afterPlaylists, beforePlaylists) || len(afterPlaylists) != 1 || afterPlaylists[0].ID != saved.ID {
+			t.Fatalf("empty liked append mutated state: queue before=%#v after=%#v playlists=%#v", beforeQueue, afterQueue, afterPlaylists)
+		}
+	})
+
+	t.Run("stale revision", func(t *testing.T) {
+		fixture := startAPI(t, false)
+		fixture.setup(t)
+		fixture.addTestTrack(t, "existing", false)
+		fixture.addTestTrack(t, "liked", true)
+		if _, err := fixture.catalog.SavePlaylist(t.Context(), "", "Existing playlist", []string{"liked"}, 0); err != nil {
+			t.Fatal(err)
+		}
+		beforeQueue := fixture.appendTracks(t, 0, "existing")
+		beforePlaylists, err := fixture.catalog.Playlists(t.Context())
+		if err != nil {
+			t.Fatal(err)
+		}
+		response := fixture.request(t, http.MethodPost, "/api/v1/queue", `{"action":"append_liked_shuffled","revision":0}`, nil)
+		status := response.StatusCode
+		code := responseErrorCode(t, response)
+		if status != http.StatusConflict || code != "REVISION_CONFLICT" {
+			t.Fatalf("stale revision status=%d code=%q", status, code)
+		}
+		afterQueue := fixture.queueState(t)
+		afterPlaylists, err := fixture.catalog.Playlists(t.Context())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !reflect.DeepEqual(afterQueue, beforeQueue) || !reflect.DeepEqual(afterPlaylists, beforePlaylists) {
+			t.Fatalf("stale liked append mutated state: queue before=%#v after=%#v playlists before=%#v after=%#v", beforeQueue, afterQueue, beforePlaylists, afterPlaylists)
+		}
+	})
+}
+
+func TestAppendLikedShuffledCapacityFailureIsAtomic(t *testing.T) {
+	fixture := startAPI(t, false)
+	fixture.setup(t)
+	fixture.addTestTrack(t, "existing", false)
+	fixture.addTestTrack(t, "liked-a", true)
+	fixture.addTestTrack(t, "liked-b", true)
+	if _, err := fixture.catalog.SavePlaylist(t.Context(), "", "Existing playlist", []string{"existing"}, 0); err != nil {
+		t.Fatal(err)
+	}
+	beforePlaylists, err := fixture.catalog.Playlists(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	const fillQueue = `WITH digits(d) AS (VALUES(0),(1),(2),(3),(4),(5),(6),(7),(8),(9)),
+numbers(n) AS (SELECT ones.d + 10*tens.d + 100*hundreds.d + 1000*thousands.d FROM digits ones CROSS JOIN digits tens CROSS JOIN digits hundreds CROSS JOIN digits thousands ORDER BY 1 LIMIT 9999)
+INSERT INTO player_queue(entry_id,position,track_id,status) SELECT printf('capacity-%04d',n),n,'existing','pending' FROM numbers`
+	if _, err = fixture.db.ExecContext(t.Context(), fillQueue); err != nil {
+		t.Fatal(err)
+	}
+
+	response := fixture.request(t, http.MethodPost, "/api/v1/queue", `{"action":"append_liked_shuffled","revision":0}`, nil)
+	status := response.StatusCode
+	code := responseErrorCode(t, response)
+	if status != http.StatusConflict || code != "QUEUE_LIMIT" {
+		t.Fatalf("capacity status=%d code=%q", status, code)
+	}
+	var entries, capacityEntries, maxPosition int
+	if err = fixture.db.QueryRowContext(t.Context(), `SELECT COUNT(*),SUM(CASE WHEN entry_id LIKE 'capacity-%' THEN 1 ELSE 0 END),MAX(position) FROM player_queue`).Scan(&entries, &capacityEntries, &maxPosition); err != nil {
+		t.Fatal(err)
+	}
+	var revision int64
+	if err = fixture.db.QueryRowContext(t.Context(), `SELECT queue_revision FROM player_state WHERE singleton=1`).Scan(&revision); err != nil {
+		t.Fatal(err)
+	}
+	afterPlaylists, err := fixture.catalog.Playlists(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if entries != 9999 || capacityEntries != 9999 || maxPosition != 9998 || revision != 0 || !reflect.DeepEqual(afterPlaylists, beforePlaylists) {
+		t.Fatalf("capacity failure mutated state: entries=%d capacity=%d max=%d revision=%d playlists=%#v", entries, capacityEntries, maxPosition, revision, afterPlaylists)
+	}
 }
 
 func TestDiscoveryIsPublicAndReturnsOnlyConnectionMetadata(t *testing.T) {

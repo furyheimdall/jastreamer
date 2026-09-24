@@ -118,7 +118,18 @@ func (service *server) mutateQueue(w http.ResponseWriter, r *http.Request) {
 		writeError(w, fault.New(400, "REVISION_REQUIRED", "재생 대기열 버전이 필요합니다."))
 		return
 	}
-	result, err := service.options.Player.MutateQueue(r.Context(), player.QueueMutation{Action: body.Action, TrackIDs: body.TrackIDs, EntryID: body.EntryID, Index: body.Index, Revision: *body.Revision})
+	action := body.Action
+	trackIDs := body.TrackIDs
+	if action == "append_liked_shuffled" {
+		var err error
+		trackIDs, err = service.options.Library.ShuffledLikedTrackIDs(r.Context())
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		action = "append"
+	}
+	result, err := service.options.Player.MutateQueue(r.Context(), player.QueueMutation{Action: action, TrackIDs: trackIDs, EntryID: body.EntryID, Index: body.Index, Revision: *body.Revision})
 	if err != nil {
 		writeError(w, err)
 		return

@@ -42,7 +42,7 @@ function formatDuration(milliseconds: number): string {
     : `${minutes}:${String(seconds).padStart(2, "0")}`;
 }
 
-function Icon({ name }: { name: "playlist" | "play" | "append" | "up" | "down" | "remove" | "save" | "trash" | "plus" | "heart" | "shuffle" }) {
+function Icon({ name }: { name: "playlist" | "play" | "append" | "up" | "down" | "remove" | "save" | "trash" | "plus" | "heart" }) {
   const paths = {
     playlist: <><path d="M4 6h12M4 11h12M4 16h7" /><path d="M18 14v7m-3.5-3.5h7" /></>,
     play: <path d="m8 5 11 7-11 7z" />,
@@ -54,7 +54,6 @@ function Icon({ name }: { name: "playlist" | "play" | "append" | "up" | "down" |
     trash: <><path d="M4 7h16M9 7V4h6v3M7 7l1 13h8l1-13" /></>,
     plus: <path d="M12 5v14M5 12h14" />,
     heart: <path d="M20.8 5.8a5.5 5.5 0 0 0-7.8 0L12 6.9l-1.1-1.1a5.5 5.5 0 0 0-7.8 7.8L12 22l8.8-8.4a5.5 5.5 0 0 0 0-7.8z" />,
-    shuffle: <><path d="M4 7h3c5 0 5 10 10 10h3" /><path d="m17 14 3 3-3 3M4 17h3c2 0 3.2-1.5 4.3-3.3M17 4l3 3-3 3" /></>,
   };
   return <svg className="playlist-icon" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">{paths[name]}</svg>;
 }
@@ -81,7 +80,6 @@ export default function Playlists({ revision, onNotice, onQueueChange, downloads
   const [entries, setEntries] = useState<DraftEntry[]>([]);
   const [pendingRemote, setPendingRemote] = useState<Playlist | null>(null);
   const [newName, setNewName] = useState("");
-  const [likedName, setLikedName] = useState(() => t("playlists.likedDefaultName"));
   const [loadingList, setLoadingList] = useState(true);
   const [loadingDetail, setLoadingDetail] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -89,7 +87,6 @@ export default function Playlists({ revision, onNotice, onQueueChange, downloads
   const [listError, setListError] = useState("");
   const [detailError, setDetailError] = useState("");
   const [createError, setCreateError] = useState("");
-  const [likedCreateError, setLikedCreateError] = useState("");
   const [deleteArmed, setDeleteArmed] = useState(false);
   const [reload, setReload] = useState(0);
   const baselineRef = useRef<Playlist | null>(null);
@@ -212,31 +209,6 @@ export default function Playlists({ revision, onNotice, onQueueChange, downloads
       setBusy(false);
     }
   }
-  async function createLikedPlaylist() {
-    const name = likedName.trim();
-    if (!name) return;
-    if (dirty || pendingRemote) {
-      setLikedCreateError(t("playlists.finishBeforeCreate"));
-      return;
-    }
-    setBusy(true);
-    setLikedCreateError("");
-    try {
-      const created = await api<Playlist>("/playlists/from-likes", {
-        method: "POST",
-        body: JSON.stringify({ name }),
-      });
-      setPlaylists((current) => [...current.filter((playlist) => playlist.id !== created.id), created]);
-      setSelectedID(created.id);
-      applyAuthoritative(created);
-      onNotice(t("playlists.likedCreated", { name: created.name }));
-    } catch (caught) {
-      setLikedCreateError(errorMessage(caught, t("common.requestFailed")));
-    } finally {
-      setBusy(false);
-    }
-  }
-
 
   async function savePlaylist() {
     if (!baseline || pendingRemote) return;
@@ -379,13 +351,6 @@ export default function Playlists({ revision, onNotice, onQueueChange, downloads
             <div><input id="playlist-new-name" className="input" value={newName} onChange={(event) => setNewName(event.target.value)} maxLength={120} placeholder={t("playlists.namePlaceholder")} /><button className="button button-primary" type="submit" disabled={busy || !newName.trim()} aria-label={t("playlists.createLabel")}><Icon name="plus" /> {t("playlists.create")}</button></div>
             {createError && <p className="error-text" role="alert">{createError}</p>}
           </form>
-          <form className="playlist-create playlist-liked-create" onSubmit={(event) => { event.preventDefault(); void createLikedPlaylist(); }}>
-            <label htmlFor="playlist-liked-name">{t("playlists.fromLikes")}</label>
-            <p>{t("playlists.fromLikesDescription")}</p>
-            <div><input id="playlist-liked-name" className="input" value={likedName} onChange={(event) => setLikedName(event.target.value)} maxLength={120} aria-label={t("playlists.likedNameLabel")} /><button className="button button-ghost" type="submit" disabled={busy || !likedName.trim()} aria-label={t("playlists.createLikedLabel")}><Icon name="shuffle" /> {t("playlists.createLiked")}</button></div>
-            {likedCreateError && <p className="error-text" role="alert">{likedCreateError}</p>}
-          </form>
-
 
           {loadingList && <p className="playlist-loading" role="status">{t("playlists.loadingList")}</p>}
           {listError && <div className="playlist-inline-error" role="alert"><p className="error-text">{listError}</p><button className="button button-ghost" type="button" onClick={() => setReload((current) => current + 1)}>{t("common.retry")}</button></div>}
