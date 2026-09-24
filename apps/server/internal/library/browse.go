@@ -21,6 +21,9 @@ func (service *Service) Browse(ctx context.Context, query Query) (Page, error) {
 	if query.Kind == "" {
 		query.Kind = "tracks"
 	}
+	if query.Recursive && (query.Kind != "tracks" || query.RootID == "") {
+		return Page{}, invalid("recursive browsing requires tracks and root_id")
+	}
 	if query.Path != "" {
 		query.Path = filepath.ToSlash(filepath.Clean(filepath.FromSlash(query.Path)))
 		if query.Path == "." {
@@ -156,7 +159,11 @@ func filterTracks(tracks []Track, query Query, includeSearch bool) []Track {
 			if folder == "." {
 				folder = ""
 			}
-			if folder != query.Path {
+			if query.Recursive {
+				if query.Path != "" && folder != query.Path && !strings.HasPrefix(folder, query.Path+"/") {
+					continue
+				}
+			} else if folder != query.Path {
 				continue
 			}
 		}

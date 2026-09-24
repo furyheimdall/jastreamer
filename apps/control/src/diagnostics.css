@@ -9,6 +9,14 @@
   gap: 1rem;
 }
 
+.diagnostics-heading-row > div {
+  min-width: 0;
+}
+
+.diagnostics-heading-row > .button {
+  flex: none;
+}
+
 .diagnostics-heading-row h3,
 .diagnostics-heading-row p,
 .verification-body p,
@@ -217,6 +225,7 @@
 
 .history-toolbar {
   display: grid;
+  min-width: 0;
   grid-template-columns: minmax(10rem, 0.8fr) minmax(14rem, 1.2fr) auto auto;
   gap: 0.75rem;
   margin-top: 1rem;
@@ -411,6 +420,20 @@
 .history-retention {
   margin: 0.75rem 0 0;
   text-align: right;
+}
+
+@media (max-width: 800px) {
+  .history-toolbar {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .history-toolbar > .button {
+    width: 100%;
+  }
+
+  .history-export-guidance {
+    grid-column: 1 / -1;
+  }
 }
 
 @media (max-width: 700px) {

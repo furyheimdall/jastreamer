@@ -55,6 +55,13 @@ The queue is Server-wide, preserves order and duplicates, and survives restarts.
 
 Inside **Library → Folders**, **Parent folder** moves up one directory within the same music root. At that root, **Back to list** returns to the music-root list; the **Folders** tab also goes directly to that list. Navigation never changes Queue or starts playback.
 
+A folder's **Play all**, **Play next**, **Add to queue end**, and **Add to saved playlist** actions include available matching tracks from the current folder and every subfolder, in path order. They include descendants even when the intermediate folder has no direct tracks or the selection spans multiple pages, without including sibling folders or other music roots. Folder browsing itself still shows one level at a time.
+
+- **Play all** stops current playback, replaces Queue with the selection, and starts playback.
+- **Play next** inserts after the current track, or at the front of Queue when there is no current track.
+- **Add to queue end** appends after the existing queued tracks. Neither insertion action interrupts playback or starts it automatically.
+- **Add to saved playlist** appends to an existing saved list or creates a new one without changing Queue.
+
 Navigation and list actions share one toolbar. On narrow screens, scroll it horizontally to reach the remaining actions. **Add to queue end** uses a queue/down-arrow icon and changes the current playback queue. **Add to saved playlist** uses a bookmark-plus icon and opens the saved-playlist chooser; saving does not start playback.
 
 <a id="likes"></a>
