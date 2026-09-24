@@ -43,6 +43,7 @@ internal class OfflineImportSmoke(
         val initialIds = library.tracks().map { it.id }.toSet()
         val folders = mutableListOf<String>()
         val playlistIds = mutableListOf<String>()
+        val previousMeteredConsent = OfflineDownloads.allowMetered(context)
         try {
             val capabilities = request("/api/v1/downloads/capabilities")
             assertEquals(1, capabilities.getInt("version"))
@@ -62,20 +63,19 @@ internal class OfflineImportSmoke(
             val original = download(source, "original")
             val firstJobId = JSONObject(requireNotNull(evaluate("window.offlineSmokeAccepted")))
                 .getJSONObject("result").getString("job_id")
-            val previousMeteredConsent = OfflineDownloads.allowMetered(context)
-            try {
-                OfflineDownloads.setAllowMetered(context, false)
-                for (accept in listOf(false, true)) {
-                    bridge("configure_network", JSONObject().put("job_id", firstJobId)) {
-                        confirmNativeDialog(accept) {
-                            assertFalse("Opening network confirmation must not grant consent", OfflineDownloads.allowMetered(context))
-                        }
-                    }
-                    assertEquals("Only explicit native approval grants metered access", accept, OfflineDownloads.allowMetered(context))
+            OfflineDownloads.setAllowMetered(context, false)
+            bridge("configure_network", JSONObject().put("job_id", firstJobId)) {
+                confirmNativeDialog(accept = false) {
+                    assertFalse("Opening network confirmation must not grant consent", OfflineDownloads.allowMetered(context))
                 }
-            } finally {
-                OfflineDownloads.setAllowMetered(context, previousMeteredConsent)
             }
+            assertFalse("Cancelling native approval must keep metered access disabled", OfflineDownloads.allowMetered(context))
+            bridge("configure_network", JSONObject().put("job_id", firstJobId)) {
+                confirmNativeDialog {
+                    assertFalse("Opening network confirmation must not grant consent", OfflineDownloads.allowMetered(context))
+                }
+            }
+            assertTrue("Only explicit native approval grants metered access", OfflineDownloads.allowMetered(context))
             val compact = download(source, "aac_256")
             val shortAAC = download(shortSource, "aac_256")
             val playlistsBeforeFolder = library.playlists().map { it.id }
@@ -378,6 +378,7 @@ internal class OfflineImportSmoke(
             screenshot("offline-restored-without-server-login")
             library.deletePlaylist(playlist.id)
         } finally {
+            OfflineDownloads.setAllowMetered(context, previousMeteredConsent)
             main { OfflinePlayback.stop() }
             context.stopService(Intent(context, NativePlaybackService::class.java))
             playlistIds.forEach { id -> if (library.playlist(id) != null) library.deletePlaylist(id) }
