@@ -164,6 +164,7 @@ test("a later configuration change restores restart controls without remounting 
   if (needsSetup) await page.getByLabel("Confirm password", { exact: true }).fill("browser-smoke-password");
   await page.getByRole("button", { name: needsSetup ? "Create account" : "Sign in", exact: true }).click();
   await page.getByRole("button", { name: "Settings", exact: true }).click();
+  await expect(page.getByRole("button", { name: "View download status", exact: true })).not.toBeVisible();
   await page.locator("#server-name").fill("First restart");
   await page.getByRole("button", { name: "Save settings", exact: true }).click();
   await page.getByRole("button", { name: "Restart server", exact: true }).click();
@@ -774,9 +775,20 @@ test.describe("native download presentation", () => {
     }
   });
 
-  test("accepted downloads expose waiting reasons and reopenable live progress without leaving Server", async ({ page }) => {
+  test("download progress opens from Settings without a persistent Server header entry", async ({ page }) => {
     await installNativeDownloads(page);
     await openPhoneLibrary(page);
+    const navigation = page.locator(".mobile-nav");
+    const statusEntry = page.getByRole("button", { name: "View download status", exact: true });
+    await expect(statusEntry).not.toBeVisible();
+    await navigation.getByRole("button", { name: "Settings", exact: true }).click();
+    await expect(page.locator("#settings-panel-general").getByRole("button", { name: "View download status", exact: true })).toBeVisible();
+    await statusEntry.click();
+    await expect(page.locator(".native-download-status-dialog")).toContainText("Downloads requested from this Server page will appear here.");
+    await page.locator(".native-download-status-dialog").getByRole("button", { name: "Close", exact: true }).click();
+    await expect(statusEntry).toBeFocused();
+    await navigation.getByRole("button", { name: "Library", exact: true }).click();
+    await expect(statusEntry).not.toBeVisible();
     const queueBefore = await control(page, "/queue");
     const playerBefore = await control(page, "/player");
     const download = page.locator(".library-album-tile .native-download-button").first();
@@ -787,6 +799,7 @@ test.describe("native download presentation", () => {
     await expect(panel).toContainText(/unmetered|metered|network/i);
     await panel.getByRole("button", { name: "Close", exact: true }).click();
     await expect(panel).not.toBeVisible();
+    await expect(statusEntry).not.toBeVisible();
     await download.click();
     await expect(panel).toBeVisible();
     await page.evaluate(() => {
@@ -799,7 +812,8 @@ test.describe("native download presentation", () => {
     await expect(panel).toContainText("25%");
     await expect(panel.getByRole("progressbar")).toBeVisible();
     await panel.getByRole("button", { name: "Close", exact: true }).click();
-    await page.locator(".native-download-status-open").click();
+    await navigation.getByRole("button", { name: "Settings", exact: true }).click();
+    await statusEntry.click();
     await expect(panel).toBeVisible();
     await page.evaluate(() => {
       const job = window.refinementDownloadJobs["fixture-download"];
@@ -809,6 +823,9 @@ test.describe("native download presentation", () => {
     });
     await expect(panel).toContainText("Saved to device");
     await panel.getByRole("button", { name: "Close", exact: true }).click();
+    await expect(statusEntry).toBeFocused();
+    await navigation.getByRole("button", { name: "Library", exact: true }).click();
+    await expect(statusEntry).not.toBeVisible();
     await download.click();
     await expect(page.locator("[data-download-confirm=true]")).toBeVisible();
     expect((await control(page, "/queue")).entries).toEqual(queueBefore.entries);

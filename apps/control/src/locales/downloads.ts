@@ -37,6 +37,7 @@ export const downloadMessages = {
   "downloads.againFor": { en: "Download {title} again", ko: "{title} 다시 다운로드" },
   "downloads.panel.open": { en: "Downloads", ko: "다운로드" },
   "downloads.panel.openLabel": { en: "View download status", ko: "다운로드 상태 보기" },
+  "downloads.settings.description": { en: "Check download progress or open this device's download manager.", ko: "다운로드 진행 상태를 확인하거나 이 기기의 다운로드 관리자를 엽니다." },
   "downloads.panel.eyebrow": { en: "Saved on this device", ko: "이 기기에 저장" },
   "downloads.panel.heading": { en: "Downloads", ko: "다운로드" },
   "downloads.panel.empty": { en: "Downloads requested from this Server page will appear here.", ko: "이 서버 페이지에서 요청한 다운로드가 여기에 표시됩니다." },

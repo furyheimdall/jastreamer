@@ -986,14 +986,6 @@
 .playlist-sidebar > .empty-state {
   margin: 1rem;
 }
-.native-download-status-toolbar {
-  display: flex;
-  width: min(100%, 1120px);
-  min-width: 0;
-  margin: 0 auto 1rem;
-  justify-content: flex-end;
-}
-
 .native-download-status-open {
   display: inline-flex;
   max-width: 100%;

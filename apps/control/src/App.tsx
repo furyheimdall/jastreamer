@@ -555,6 +555,7 @@ export default function App() {
           libraryRevision={revisions.library}
           historyRevision={revisions.history}
           verificationRevision={revisions.verification}
+          downloads={downloads}
           onNotice={showNotice}
           onSignedOut={() => {
             setSession({ authenticated: false });

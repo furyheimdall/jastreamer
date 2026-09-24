@@ -698,6 +698,37 @@ function networkActionKey(code: string | undefined): MessageKey | null {
   return null;
 }
 
+export function NativeDownloadsSettings({ downloads }: { downloads: JastreamerDownloads }) {
+  const { t } = useI18n();
+  if (!downloads.available) return null;
+  const activeCount = downloads.jobs.filter((job) => !isTerminal(job.status)).length;
+  const countLabel = activeCount > 0
+    ? t("downloads.panel.activeCount", { count: activeCount })
+    : downloads.jobs.length > 0
+      ? t("downloads.panel.count", { count: downloads.jobs.length })
+      : "";
+
+  return (
+    <section className="settings-card" aria-labelledby="download-settings-heading">
+      <h2 id="download-settings-heading">{t("downloads.panel.open")}</h2>
+      <p className="muted">{t("downloads.settings.description")}</p>
+      <button
+        className="button button-ghost native-download-status-open"
+        type="button"
+        data-download-status="true"
+        aria-haspopup="dialog"
+        aria-expanded={downloads.statusOpen}
+        aria-label={t("downloads.panel.openLabel")}
+        onClick={downloads.openStatus}
+      >
+        <DownloadIcon />
+        <span>{t("downloads.viewStatus")}</span>
+        {countLabel && <span className="native-download-status-count" aria-live="polite">{countLabel}</span>}
+      </button>
+    </section>
+  );
+}
+
 export function NativeDownloadsStatus({ downloads }: { downloads: JastreamerDownloads }) {
   const { locale, t } = useI18n();
   const [networkBusy, setNetworkBusy] = useState("");
@@ -705,9 +736,7 @@ export function NativeDownloadsStatus({ downloads }: { downloads: JastreamerDown
   const [actionError, setActionError] = useState("");
   const dialogRef = useRef<HTMLElement | null>(null);
   const closeRef = useRef<HTMLButtonElement | null>(null);
-  const openRef = useRef<HTMLButtonElement | null>(null);
   const previousFocusRef = useRef<HTMLElement | null>(null);
-  const activeCount = downloads.jobs.filter((job) => !isTerminal(job.status)).length;
 
   useEffect(() => {
     if (!downloads.statusOpen) return;
@@ -752,7 +781,6 @@ export function NativeDownloadsStatus({ downloads }: { downloads: JastreamerDown
       const previousFocus = previousFocusRef.current;
       previousFocusRef.current = null;
       if (previousFocus?.isConnected) previousFocus.focus();
-      else openRef.current?.focus();
     };
   }, [downloads.closeStatus, downloads.statusOpen]);
 
@@ -786,31 +814,7 @@ export function NativeDownloadsStatus({ downloads }: { downloads: JastreamerDown
     }
   }
 
-  const countLabel = activeCount > 0
-    ? t("downloads.panel.activeCount", { count: activeCount })
-    : downloads.jobs.length > 0
-      ? t("downloads.panel.count", { count: downloads.jobs.length })
-      : "";
-
-  return (
-    <>
-      <div className="native-download-status-toolbar">
-        <button
-          ref={openRef}
-          className="button button-ghost native-download-status-open"
-          type="button"
-          data-download-status="true"
-          aria-haspopup="dialog"
-          aria-expanded={downloads.statusOpen}
-          aria-label={t("downloads.panel.openLabel")}
-          onClick={downloads.openStatus}
-        >
-          <DownloadIcon />
-          <span>{t("downloads.panel.open")}</span>
-          {countLabel && <span className="native-download-status-count" aria-live="polite">{countLabel}</span>}
-        </button>
-      </div>
-      {downloads.statusOpen && createPortal(
+  return downloads.statusOpen ? createPortal(
         <div className="library-dialog-backdrop native-download-status-backdrop" role="presentation" onMouseDown={(event) => {
           if (event.currentTarget === event.target) downloads.closeStatus();
         }}>
@@ -884,9 +888,7 @@ export function NativeDownloadsStatus({ downloads }: { downloads: JastreamerDown
           </section>
         </div>,
         document.body,
-      )}
-    </>
-  );
+  ) : null;
 }
 
 export function NativeDownloadAction({

@@ -4,6 +4,7 @@ import { useI18n, type Language, type MessageKey } from "./i18n";
 import AirPlayHelpDialog from "./AirPlayHelpDialog";
 import { HistoryPanel, VerificationStatus } from "./Diagnostics";
 import ServerPathPicker from "./ServerPathPicker";
+import { NativeDownloadsSettings, type JastreamerDownloads } from "./JastreamerDownloads";
 import type { ConfigDocument, ConfigRoot, FilesystemEntryKind, NetworkInterfacesDocument, RestartResponse, ScanJob, ServerConfig } from "./types";
 
 interface SettingsProps {
@@ -11,6 +12,7 @@ interface SettingsProps {
   libraryRevision: number;
   historyRevision: number;
   verificationRevision: number;
+  downloads: JastreamerDownloads;
   onNotice: (message: string, error?: boolean) => void;
   onSignedOut: () => void;
 }
@@ -128,7 +130,7 @@ function formatScanDateTime(value: string, formatter: Intl.DateTimeFormat): stri
   return Number.isNaN(date.getTime()) ? value : formatter.format(date);
 }
 
-export default function Settings({ configRevision, libraryRevision, historyRevision, verificationRevision, onNotice, onSignedOut }: SettingsProps) {
+export default function Settings({ configRevision, libraryRevision, historyRevision, verificationRevision, downloads, onNotice, onSignedOut }: SettingsProps) {
   const { language, locale, t, setLanguage } = useI18n();
   const scanDateTime = useMemo(() => new Intl.DateTimeFormat(locale, {
     dateStyle: "medium",
@@ -766,6 +768,7 @@ export default function Settings({ configRevision, libraryRevision, historyRevis
             <p>{t("settings.tabs.general.description")}</p>
           </header>
           {languageSettings}
+          <NativeDownloadsSettings downloads={downloads} />
         </div>
         {(["network", "library", "playback"] as SettingsTab[]).map((tab) => (
           <div
@@ -953,6 +956,7 @@ export default function Settings({ configRevision, libraryRevision, historyRevis
           <p>{t("settings.tabs.general.description")}</p>
         </header>
         {languageSettings}
+        <NativeDownloadsSettings downloads={downloads} />
         <section className="settings-card">
           <h2>{t("settings.serverName.title")}</h2>
           <label className="field-label" htmlFor="server-name">{t("settings.serverName.label")}</label>
