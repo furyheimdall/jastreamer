@@ -480,6 +480,30 @@ test("removing the current queue row keeps browser audio loaded and Next advance
   }
 });
 
+test("queue clearing requires fresh confirmation after another Control changes entries", async ({ page, context }) => {
+  const { trackIDs } = await prepareBrowserPlayback(page, ["long.wav"]);
+  const other = await context.newPage();
+  try {
+    await other.goto(origin, { waitUntil: "domcontentloaded" });
+    await page.getByRole("button", { name: "Queue", exact: true }).click();
+    await page.getByRole("button", { name: "Clear queue", exact: true }).click();
+    await expect(page.locator(".queue-clear-confirmation")).toBeVisible();
+    const before = await control(other, "/queue");
+    const changed = await control(other, "/queue", "POST", {
+      action: "append", track_ids: trackIDs, revision: before.revision,
+    });
+    await expect(page.locator(".queue-row")).toHaveCount(2);
+    await expect(page.locator(".queue-clear-confirmation")).toHaveCount(0);
+    expect((await control(page, "/queue")).entries.map((entry) => entry.id))
+      .toEqual(changed.entries.map((entry) => entry.id));
+    await page.getByRole("button", { name: "Clear queue", exact: true }).click();
+    await page.locator(".queue-clear-confirmation").getByRole("button", { name: "Clear queue", exact: true }).click();
+    await expect.poll(async () => (await control(page, "/queue")).entries).toEqual([]);
+  } finally {
+    await other.close();
+  }
+});
+
 test("clearing the queue leaves current browser audio and metadata intact, then stops at EOF and accepts a new entry", async ({ page }) => {
   const { audio, trackIDs } = await prepareBrowserPlayback(page, ["long.wav", "short.wav"]);
   await control(page, "/player/mode", "POST", { shuffle: false, repeat_mode: "all" });

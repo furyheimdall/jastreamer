@@ -46,10 +46,11 @@ export default function Queue({ revision, onNotice, onQueueChange, downloads }: 
   const [error, setError] = useState("");
   const [busyEntry, setBusyEntry] = useState("");
   const [saving, setSaving] = useState(false);
-  const [clearArmed, setClearArmed] = useState(false);
+  const [clearRevision, setClearRevision] = useState<number | null>(null);
   const [playlistName, setPlaylistName] = useState("");
   const [infoTrackID, setInfoTrackID] = useState<string | null>(null);
   const [likeBusy, setLikeBusy] = useState<Set<string>>(() => new Set());
+  const clearArmed = clearRevision !== null && clearRevision === queue?.revision;
 
   const loadQueue = useCallback(async () => {
     try {
@@ -82,7 +83,7 @@ export default function Queue({ revision, onNotice, onQueueChange, downloads }: 
       });
       setQueue(next);
       setError("");
-      if (action === "clear") setClearArmed(false);
+      if (action === "clear") setClearRevision(null);
       onQueueChange();
     } catch (requestError) {
       const conflict = requestError instanceof ApiError && requestError.code === "REVISION_CONFLICT";
@@ -180,7 +181,7 @@ export default function Queue({ revision, onNotice, onQueueChange, downloads }: 
               className="button button-ghost danger-button"
               type="button"
               disabled={!queue?.entries.length || Boolean(busyEntry)}
-              onClick={() => setClearArmed(true)}
+              onClick={() => setClearRevision(queue?.revision ?? null)}
             >
               {t("queue.clear")}
             </button>
@@ -192,7 +193,7 @@ export default function Queue({ revision, onNotice, onQueueChange, downloads }: 
                   className="button button-ghost"
                   type="button"
                   disabled={Boolean(busyEntry)}
-                  onClick={() => setClearArmed(false)}
+                  onClick={() => setClearRevision(null)}
                 >
                   {t("common.cancel")}
                 </button>
