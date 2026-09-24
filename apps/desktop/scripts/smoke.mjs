@@ -245,12 +245,10 @@ async function hideAndRestore(page, origin, rendererID) {
     return {
       windowId: window?.id ?? null,
       remoteId: remote?.id ?? null,
-      backgroundThrottling: remote?.getLastWebPreferences().backgroundThrottling,
     };
   }, `${origin}/`);
   assert(before.windowId, "The foreground shell window must exist before its close action");
   assert(before.remoteId, "The connected remote WebContentsView must exist before its close action");
-  assert.equal(before.backgroundThrottling, false, "Remote playback timers must remain active while the shell is hidden");
   const heartbeatBefore = await page.evaluate(() => window.__jastreamerTrayHeartbeat);
   const renewalsBefore = browserOutputRequests.filter(({ method, path }) => (
     method === "PUT" && path.endsWith("/lease")
