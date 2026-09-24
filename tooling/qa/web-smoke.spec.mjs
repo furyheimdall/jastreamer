@@ -942,7 +942,10 @@ test("nested folders return to each parent without changing playback or queue", 
   const localLabel = await output.locator("option").evaluateAll((options) =>
     options.find((option) => /this (device|browser)/i.test(option.textContent ?? ""))?.label);
   expect(localLabel).toBeTruthy();
+  const selection = page.waitForResponse((response) =>
+    response.url() === `${origin}/api/v1/player/output` && response.request().method() === "PUT");
   await output.selectOption({ label: localLabel });
+  expect((await selection).ok()).toBe(true);
   const queueBefore = await control(page, "/queue");
   const playerBefore = await control(page, "/player");
   await page.getByRole("button", { name: "Folders", exact: true }).click();
