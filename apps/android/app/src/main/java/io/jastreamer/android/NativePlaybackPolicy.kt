@@ -35,6 +35,13 @@ internal object NativePlaybackPolicy {
         return name
     }
 
+    fun requireVolume(input: Double): Float {
+        if (!input.isFinite() || input !in 0.0..1.0) {
+            throw NativePlaybackException("invalid_volume", "Volume must be between 0 and 1.")
+        }
+        return input.toFloat()
+    }
+
     fun mediaUrl(origin: String, value: String): HttpUrl? {
         if (value.any { it.isISOControl() || it.isWhitespace() || it == '\\' }) return null
         val base = EndpointPolicy.normalizeOrigin(origin).toHttpUrlOrNull() ?: return null

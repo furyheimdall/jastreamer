@@ -1020,17 +1020,33 @@ class NativePlaybackService : MediaSessionService(), Player.Listener {
         server: ServerEndpoint,
         name: String,
         operationToken: OfflinePlaybackPolicy.OwnershipRequestToken,
-    ): JSONObject {
+    ): JSONObject = connectInternal(server, name, operationToken, onlyIfAvailable = false)
+        ?: throw NativePlaybackException("superseded", "A newer playback action replaced this request.")
+
+    internal suspend fun connectIfAvailable(
+        server: ServerEndpoint,
+        name: String,
+        operationToken: OfflinePlaybackPolicy.OwnershipRequestToken,
+    ): JSONObject? = connectInternal(server, name, operationToken, onlyIfAvailable = true)
+
+    private suspend fun connectInternal(
+        server: ServerEndpoint,
+        name: String,
+        operationToken: OfflinePlaybackPolicy.OwnershipRequestToken,
+        onlyIfAvailable: Boolean,
+    ): JSONObject? {
         if (!OfflinePlaybackRequestFence.isCurrent(operationToken.requestGeneration) ||
-            operationToken.ownershipGeneration != ownershipGeneration || owner == PlaybackOwner.LOCAL
+            operationToken.ownershipGeneration != ownershipGeneration || owner == PlaybackOwner.LOCAL ||
+            (onlyIfAvailable && OfflinePlayback.hasPendingMutation)
         ) {
+            if (onlyIfAvailable) return null
             throw NativePlaybackException("handoff_required", "Saved music ownership changed.")
         }
         var commitGeneration = operationToken.ownershipGeneration
         val key = NativePlaybackPolicy.serverKey(server)
-        stateKey = key
         registration?.let { existing ->
             if (existing.key == key) return copyJson(existing.device)
+            if (onlyIfAvailable) return null
             if (currentResource?.terminalReported != true && currentResource != null) {
                 throw NativePlaybackException("stop_required", "Stop phone playback before changing servers.")
             }
@@ -1040,14 +1056,16 @@ class NativePlaybackService : MediaSessionService(), Player.Listener {
         if (!OfflinePlaybackRequestFence.isCurrent(operationToken.requestGeneration) ||
             commitGeneration != ownershipGeneration || owner == PlaybackOwner.LOCAL
         ) {
+            if (onlyIfAvailable) return null
             throw NativePlaybackException("handoff_required", "Saved music ownership changed.")
         }
+        if (!onlyIfAvailable) stateKey = key
 
         val client = try {
             AuthenticatedServerClient(server)
         } catch (error: Throwable) {
             val failure = NativePlaybackException("profile_unavailable", "The isolated server profile is unavailable.", error)
-            setError(failure.code, failure.message.orEmpty())
+            if (!onlyIfAvailable) setError(failure.code, failure.message.orEmpty())
             throw failure
         }
         val registrationStartedAt = SystemClock.elapsedRealtime()
@@ -1064,7 +1082,7 @@ class NativePlaybackService : MediaSessionService(), Player.Listener {
             throw error
         } catch (error: Throwable) {
             val failure = error.toPublicFailure("registration_failed", "Phone playback could not connect.")
-            setError(failure.code, failure.message.orEmpty())
+            if (!onlyIfAvailable) setError(failure.code, failure.message.orEmpty())
             throw failure
         }
         val parsed = try {
@@ -1085,11 +1103,12 @@ class NativePlaybackService : MediaSessionService(), Player.Listener {
                 }
             }
             val failure = error.toPublicFailure("invalid_response", "The Server returned an invalid playback response.")
-            setError(failure.code, failure.message.orEmpty())
+            if (!onlyIfAvailable) setError(failure.code, failure.message.orEmpty())
             throw failure
         }
         if (!OfflinePlaybackRequestFence.isCurrent(operationToken.requestGeneration) ||
-            commitGeneration != ownershipGeneration || owner == PlaybackOwner.LOCAL
+            commitGeneration != ownershipGeneration || owner == PlaybackOwner.LOCAL ||
+            (onlyIfAvailable && OfflinePlayback.hasPendingMutation)
         ) {
             try {
                 parsed.client.json(
@@ -1101,9 +1120,11 @@ class NativePlaybackService : MediaSessionService(), Player.Listener {
             } catch (_: Throwable) {
                 // The unclaimed short lease bounds a failed stale-registration release.
             }
+            if (onlyIfAvailable) return null
             throw NativePlaybackException("handoff_required", "Saved music ownership changed.")
         }
         registration = parsed
+        stateKey = key
         setOwner(PlaybackOwner.SERVER)
         player.setWakeMode(C.WAKE_MODE_NETWORK)
         player.repeatMode = Player.REPEAT_MODE_OFF
@@ -1139,6 +1160,43 @@ class NativePlaybackService : MediaSessionService(), Player.Listener {
         return copyJson(device)
     }
 
+    internal suspend fun disconnect(server: ServerEndpoint) {
+        val existing = registration ?: return
+        if (existing.key != NativePlaybackPolicy.serverKey(server)) return
+        cancelServerTransport()
+        registration = null
+        publicError = null
+        if (owner == PlaybackOwner.SERVER) {
+            setOwner(PlaybackOwner.NONE)
+            cancelMediaWork()
+        } else {
+            notifyState()
+        }
+        try {
+            existing.client.json(
+                method = "DELETE",
+                path = registrationPath(existing.id),
+                ownerToken = existing.ownerToken,
+                allowEmpty = true,
+            )
+        } catch (_: Throwable) {
+            // The lease bounds a registration that could not be released explicitly.
+        }
+    }
+
+    internal fun setVolume(server: ServerEndpoint, volume: Float): JSONObject {
+        if (!volume.isFinite() || volume !in 0f..1f) {
+            throw NativePlaybackException("invalid_volume", "Volume must be between 0 and 1.")
+        }
+        requireRegistration(server)
+        if (owner != PlaybackOwner.SERVER) {
+            throw NativePlaybackException("not_connected", "Phone playback is not owned by this server.")
+        }
+        player.volume = volume
+        notifyState()
+        return state(server)
+    }
+
     internal fun state(server: ServerEndpoint): JSONObject {
         val existing = registration
         val matches = try {
@@ -1150,6 +1208,10 @@ class NativePlaybackService : MediaSessionService(), Player.Listener {
         return JSONObject()
             .put("device", existing?.device?.let(::copyJson) ?: JSONObject.NULL)
             .put("recovering", recovering)
+            .put(
+                "volume",
+                if (existing != null && owner == PlaybackOwner.SERVER) player.volume.toDouble() else JSONObject.NULL,
+            )
             .also { value ->
                 publicError?.let { value.put("error", JSONObject().put("code", it.code).put("message", it.message)) }
             }

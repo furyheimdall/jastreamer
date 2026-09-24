@@ -20,7 +20,10 @@ declare global {
 
 export interface NativeAndroidOutputHandle {
   connect: () => Promise<Device>;
+  connectAutomatically: () => Promise<Device | null>;
+  disconnect: () => Promise<void>;
   rename: (name: string) => Promise<void>;
+  setVolume: (volume: number) => Promise<void>;
 }
 
 interface NativeAndroidOutputProps {
@@ -29,15 +32,19 @@ interface NativeAndroidOutputProps {
   registrationError: string;
   bridgeError: string;
   onDeviceChange: (device: Device | null) => void;
+  onVolumeChange: (volume: number | null) => void;
   onRecoveryChange: (recovering: boolean, message: string) => void;
   onError: (message: string) => void;
 }
 
-type BridgeAction = "status" | "connect" | "rename";
+type BridgeAction = "status" | "connect" | "connect_if_available" | "disconnect" | "rename" | "set_volume";
+
+type BridgeArgument = { name: string } | { volume: number } | undefined;
 
 type NativeState = {
   device: Device | null;
   recovering: boolean;
+  volume: number | null;
   error?: { code: string; message: string };
 };
 
@@ -107,13 +114,20 @@ function parseState(value: Record<string, unknown>, recoveringRequired: boolean)
   if (recoveringRequired && typeof value.recovering !== "boolean") return null;
   if (value.recovering !== undefined && typeof value.recovering !== "boolean") return null;
 
+  let volume: number | null = null;
+  if (value.volume !== undefined && value.volume !== null) {
+    if (typeof value.volume !== "number" || !Number.isFinite(value.volume)
+      || value.volume < 0 || value.volume > 1) return null;
+    volume = value.volume;
+  }
+
   let error: NativeState["error"];
   if (value.error !== undefined) {
     const candidate = record(value.error);
     if (!candidate || typeof candidate.code !== "string" || typeof candidate.message !== "string") return null;
     error = { code: candidate.code, message: candidate.message };
   }
-  return { device, recovering: value.recovering === true, ...(error ? { error } : {}) };
+  return { device, recovering: value.recovering === true, volume, ...(error ? { error } : {}) };
 }
 
 function messageData(event: Event): string | null {
@@ -138,10 +152,10 @@ export function nativeAndroidAudioBridge(): AndroidAudioBridge | null {
 }
 
 const NativeAndroidOutput = forwardRef<NativeAndroidOutputHandle, NativeAndroidOutputProps>(function NativeAndroidOutput(
-  { bridge, name, registrationError, bridgeError, onDeviceChange, onRecoveryChange, onError },
+  { bridge, name, registrationError, bridgeError, onDeviceChange, onRecoveryChange, onVolumeChange, onError },
   ref,
 ) {
-  const requestRef = useRef<((action: BridgeAction, requestName?: string) => Promise<NativeState>) | null>(null);
+  const requestRef = useRef<((action: BridgeAction, argument?: BridgeArgument) => Promise<NativeState>) | null>(null);
   const nameRef = useRef(name);
   const registrationErrorRef = useRef(registrationError);
   const bridgeErrorRef = useRef(bridgeError);
@@ -154,14 +168,33 @@ const NativeAndroidOutput = forwardRef<NativeAndroidOutputHandle, NativeAndroidO
       if (!validOutputName(nameRef.current)) throw new Error(registrationErrorRef.current);
       const request = requestRef.current;
       if (!request) throw new Error(bridgeErrorRef.current);
-      const state = await request("connect", nameRef.current);
+      const state = await request("connect", { name: nameRef.current });
       if (!state.device) throw new Error(state.error?.message || registrationErrorRef.current);
       return state.device;
+    },
+    async connectAutomatically() {
+      if (!validOutputName(nameRef.current)) throw new Error(registrationErrorRef.current);
+      const request = requestRef.current;
+      if (!request) throw new Error(bridgeErrorRef.current);
+      return (await request("connect_if_available", { name: nameRef.current })).device;
+    },
+    async disconnect() {
+      const request = requestRef.current;
+      if (!request) throw new Error(bridgeErrorRef.current);
+      await request("disconnect");
     },
     async rename(nextName) {
       if (!validOutputName(nextName)) throw new Error(registrationErrorRef.current);
       if (!requestRef.current) throw new Error(bridgeErrorRef.current);
-      await requestRef.current("rename", nextName);
+      await requestRef.current("rename", { name: nextName });
+    },
+    async setVolume(volume) {
+      if (!Number.isFinite(volume) || volume < 0 || volume > 1) {
+        throw new RangeError("Volume must be between 0 and 1.");
+      }
+      const request = requestRef.current;
+      if (!request) throw new Error(bridgeErrorRef.current);
+      await request("set_volume", { volume });
     },
   }), [bridgeError]);
 
@@ -169,6 +202,7 @@ const NativeAndroidOutput = forwardRef<NativeAndroidOutputHandle, NativeAndroidO
     if (!bridge) {
       onDeviceChange(null);
       onRecoveryChange(false, "");
+      onVolumeChange(null);
       onError(bridgeError);
       return;
     }
@@ -176,10 +210,12 @@ const NativeAndroidOutput = forwardRef<NativeAndroidOutputHandle, NativeAndroidO
     let terminalError = "";
     const pending = new Map<string, PendingRequest>();
 
+    const terminalErrorKey = (error: NativeState["error"] | undefined) =>
+      error && error.code !== "media_failed" ? `${error.code}\n${error.message}` : "";
     const reportTerminalError = (error: NativeState["error"] | undefined) => {
       // Item failures remain visible in the Server queue. A final Server error
       // still opens a notice, but successful continuation must stay usable.
-      const key = error && error.code !== "media_failed" ? `${error.code}\n${error.message}` : "";
+      const key = terminalErrorKey(error);
       if (!key) {
         terminalError = "";
         return;
@@ -191,9 +227,10 @@ const NativeAndroidOutput = forwardRef<NativeAndroidOutputHandle, NativeAndroidO
     const applyState = (state: NativeState, reportTerminal: boolean) => {
       onDeviceChange(state.device);
       onRecoveryChange(state.recovering, state.recovering ? state.error?.message ?? "" : "");
+      onVolumeChange(state.volume);
       if (state.recovering) terminalError = "";
       else if (reportTerminal) reportTerminalError(state.error);
-      else if (!state.error) terminalError = "";
+      else terminalError = terminalErrorKey(state.error);
     };
     const failPending = (id: string, pendingRequest: PendingRequest, message: string) => {
       pending.delete(id);
@@ -229,12 +266,12 @@ const NativeAndroidOutput = forwardRef<NativeAndroidOutputHandle, NativeAndroidO
         }
         pending.delete(payload.id);
         window.clearTimeout(pendingRequest.timer);
-        applyState(state, pendingRequest.action === "status");
+        applyState(state, false);
         const terminalActionError = state.error && !state.recovering && pendingRequest.action !== "status"
           ? state.error
           : null;
         if (terminalActionError) {
-          terminalError = `${terminalActionError.code}\n${terminalActionError.message}`;
+          terminalError = terminalErrorKey(terminalActionError);
           pendingRequest.reject(new Error(terminalActionError.message));
         } else {
           pendingRequest.resolve(state);
@@ -251,7 +288,7 @@ const NativeAndroidOutput = forwardRef<NativeAndroidOutputHandle, NativeAndroidO
       applyState(state, true);
     };
 
-    const request = (action: BridgeAction, requestName?: string): Promise<NativeState> => {
+    const request = (action: BridgeAction, argument?: BridgeArgument): Promise<NativeState> => {
       if (disposed) return Promise.reject(new DOMException("Native output detached.", "AbortError"));
       const id = `web-${++requestSequence}`;
       return new Promise<NativeState>((resolve, reject) => {
@@ -263,7 +300,7 @@ const NativeAndroidOutput = forwardRef<NativeAndroidOutputHandle, NativeAndroidO
         }, RESPONSE_TIMEOUT_MS);
         pending.set(id, { action, timer, resolve, reject });
         try {
-          bridge.postMessage(JSON.stringify({ id, action, ...(requestName === undefined ? {} : { name: requestName }) }));
+          bridge.postMessage(JSON.stringify({ id, action, ...(argument ?? {}) }));
         } catch {
           const pendingRequest = pending.get(id);
           if (pendingRequest) failPending(id, pendingRequest, bridgeError);
@@ -296,7 +333,7 @@ const NativeAndroidOutput = forwardRef<NativeAndroidOutputHandle, NativeAndroidO
       }
       pending.clear();
     };
-  }, [bridge, bridgeError, onDeviceChange, onError, onRecoveryChange]);
+  }, [bridge, bridgeError, onDeviceChange, onError, onRecoveryChange, onVolumeChange]);
 
   return null;
 });

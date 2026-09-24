@@ -26,6 +26,8 @@ object OfflinePlayback {
     private val queueMutationMutex = Mutex()
     private val mutableState = MutableStateFlow(OfflinePlaybackState())
     val state: StateFlow<OfflinePlaybackState> = mutableState.asStateFlow()
+    internal val hasPendingMutation: Boolean
+        get() = queueMutationMutex.isLocked
 
     suspend fun restore(context: Context) = queueMutationMutex.withLock {
         applicationContext = context.applicationContext

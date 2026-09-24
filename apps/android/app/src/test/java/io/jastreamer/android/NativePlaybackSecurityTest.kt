@@ -53,4 +53,17 @@ class NativePlaybackSecurityTest {
         assertThrows(NativePlaybackException::class.java) { NativePlaybackPolicy.requireName("가".repeat(27)) }
         assertThrows(NativePlaybackException::class.java) { NativePlaybackPolicy.requireName("phone\noutput") }
     }
+
+    @Test
+    fun `app volume accepts only finite normalized values`() {
+        assertEquals(0f, NativePlaybackPolicy.requireVolume(0.0), 0f)
+        assertEquals(0.25f, NativePlaybackPolicy.requireVolume(0.25), 0f)
+        assertEquals(1f, NativePlaybackPolicy.requireVolume(1.0), 0f)
+        listOf(-0.01, 1.01, Double.NaN, Double.NEGATIVE_INFINITY, Double.POSITIVE_INFINITY).forEach { value ->
+            val failure = assertThrows(NativePlaybackException::class.java) {
+                NativePlaybackPolicy.requireVolume(value)
+            }
+            assertEquals("invalid_volume", failure.code)
+        }
+    }
 }

@@ -109,6 +109,7 @@ func New(options Options) http.Handler {
 	mux.HandleFunc("POST /api/v1/player", service.require(service.mutating(service.command)))
 	mux.HandleFunc("POST /api/v1/player/mode", service.require(service.mutating(service.playerMode)))
 	mux.HandleFunc("PUT /api/v1/player/output", service.require(service.mutating(service.output)))
+	mux.HandleFunc("POST /api/v1/player/output/fallback", service.require(service.mutating(service.fallbackOutput)))
 	mux.HandleFunc("GET /api/v1/queue", service.require(service.queue))
 	mux.HandleFunc("POST /api/v1/queue", service.require(service.mutating(service.mutateQueue)))
 	mux.HandleFunc("GET /api/v1/events", service.require(service.live))

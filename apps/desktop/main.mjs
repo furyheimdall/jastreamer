@@ -8,6 +8,7 @@ import {
   ipcMain,
   Menu,
   session,
+  Tray,
   WebContentsView,
 } from "electron";
 import { LanDiscovery } from "./lib/discovery.mjs";
@@ -45,6 +46,8 @@ const REMOTE_TOP = 76;
 const RECENT_PROBE_INTERVAL_MS = 60_000;
 const MAX_PARALLEL_RECENT_PROBES = 3;
 const LANGUAGE_COOKIE_LIFETIME_SECONDS = 365 * 24 * 60 * 60;
+const IS_WINDOWS = process.platform === "win32";
+const TRAY_ICON_PATH = path.join(APP_DIRECTORY, "assets", "jastreamer.ico");
 
 const userDataPath = resolveUserDataPath({
   isPackaged: app.isPackaged,
@@ -71,6 +74,7 @@ const ownsSingleInstance = !bootstrapFailed && app.requestSingleInstanceLock();
 if (!bootstrapFailed && !ownsSingleInstance) app.quit();
 
 let shellWindow = null;
+let tray = null;
 let remoteView = null;
 let remoteAttached = false;
 let store = null;
@@ -125,6 +129,51 @@ function publicState() {
   };
 }
 
+function showShellWindow() {
+  if (!shellWindow || shellWindow.isDestroyed()) return;
+  if (shellWindow.isMinimized()) shellWindow.restore();
+  shellWindow.show();
+  shellWindow.focus();
+}
+
+function quitApplication() {
+  shuttingDown = true;
+  app.quit();
+}
+
+function refreshTrayMenu() {
+  if (!tray || tray.isDestroyed()) return;
+  const menu = Menu.buildFromTemplate([
+    { id: "tray-open", label: t("main.tray.open"), click: showShellWindow },
+    { type: "separator" },
+    { id: "tray-exit", label: t("main.tray.exit"), click: quitApplication },
+  ]);
+  tray.setContextMenu(menu);
+}
+
+
+function createTray() {
+  if (!IS_WINDOWS) return;
+  let candidate = null;
+  try {
+    candidate = new Tray(TRAY_ICON_PATH);
+    candidate.setToolTip("JASTREAMER");
+    candidate.on("click", showShellWindow);
+    candidate.on("double-click", showShellWindow);
+    tray = candidate;
+    refreshTrayMenu();
+  } catch {
+    candidate?.destroy();
+    tray = null;
+  }
+}
+
+function destroyTray() {
+  const current = tray;
+  tray = null;
+  if (current && !current.isDestroyed()) current.destroy();
+}
+
 function broadcastState() {
   if (!shellWindow || shellWindow.isDestroyed() || shellWindow.webContents.isDestroyed()) return;
   shellWindow.webContents.send("desktop:state", publicState());
@@ -170,6 +219,11 @@ async function persistLanguagePreference(value) {
   setLanguage(language);
   appState.language = language;
   broadcastState();
+  try {
+    refreshTrayMenu();
+  } catch {
+    destroyTray();
+  }
   return language;
 }
 
@@ -257,6 +311,7 @@ async function loadRemoteServer(server, token) {
       webviewTag: false,
       devTools: false,
       spellcheck: false,
+      backgroundThrottling: !IS_WINDOWS,
       safeDialogs: true,
     },
   });
@@ -542,6 +597,16 @@ function createShellWindow() {
   restrictLocalContents(window.webContents, SHELL_URL);
   window.webContents.on("will-attach-webview", (event) => event.preventDefault());
   window.on("resize", layoutRemoteView);
+  window.on("close", (event) => {
+    if (!IS_WINDOWS || shuttingDown || !tray || tray.isDestroyed()) return;
+    event.preventDefault();
+    window.hide();
+  });
+  if (IS_WINDOWS) {
+    window.on("session-end", () => {
+      shuttingDown = true;
+    });
+  }
   window.on("closed", () => {
     cancelConnection();
     closeRemoteView();
@@ -576,6 +641,7 @@ async function startApplication() {
   configureSession(session.defaultSession);
   registerIpc();
   createShellWindow();
+  createTray();
   discovery = new LanDiscovery({ onChange: broadcastState, probe: probeServer });
   discovery.start();
   void probeRecentServers();
@@ -583,16 +649,12 @@ async function startApplication() {
   recentProbeTimer.unref?.();
 }
 
-app.on("second-instance", () => {
-  if (!shellWindow) return;
-  if (shellWindow.isMinimized()) shellWindow.restore();
-  shellWindow.show();
-  shellWindow.focus();
-});
+app.on("second-instance", showShellWindow);
 
 app.on("window-all-closed", () => app.quit());
 app.on("before-quit", () => {
   shuttingDown = true;
+  destroyTray();
   clearInterval(recentProbeTimer);
   discovery?.stop();
   cancelConnection();

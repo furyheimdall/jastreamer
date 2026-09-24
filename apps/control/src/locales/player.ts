@@ -31,6 +31,7 @@ export const playerMessages = {
   "player.protocol.cast": { en: "Google Cast", ko: "Google Cast" },
   "player.protocol.browser": { en: "Local audio", ko: "로컬 오디오" },
   "player.browser.thisDevice": { en: "This device", ko: "이 기기" },
+  "player.localVolume": { en: "Local volume", ko: "로컬 음량" },
   "player.browser.editName": { en: "Name this local output", ko: "로컬 오디오 출력 이름 변경" },
   "player.browser.alias": { en: "Local output alias", ko: "로컬 출력 별칭" },
   "player.browser.nameHelp": { en: "Saved on this device for this Server. Other devices see the name without “This device”. Renaming does not change playback.", ko: "이 기기와 Server에 별칭을 저장합니다. 다른 기기에서는 ‘이 기기’ 표시 없이 이름만 보입니다. 이름을 바꿔도 재생은 변경되지 않습니다." },

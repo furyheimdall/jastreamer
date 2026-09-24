@@ -100,6 +100,10 @@ The browser instructions below apply to browsers, PWA, and Desktop, not the nati
 2. Choose a track or use the existing queue and press **Play**. If the browser blocks audio, select **Allow playback** on that page. If the pending request has already failed, dismiss the error and press Play again; commands are not silently replayed.
 3. Use Pause, Stop, Previous, Next and supported Seek normally. The browser is an output of the existing Server queue, not a separate local queue.
 
+On page entry, if the previously selected output is offline and playback is stopped or unavailable, **This device** is selected automatically once. The queue, current track and saved position remain intact; press **Play** explicitly. A concurrent output/state change or recovery of the old output prevents the switch. Android never takes ownership from Saved music or another Server. A later disconnection on the same open page does not trigger continual registration.
+
+When the selected **This device** belongs to this page/app, **Local volume** adjusts it from 0–100%. Expand the player on phones. This controls browser audio or Android's Server-mode Media3 volume, not system-wide volume, network renderers or other devices. Android needs the corresponding APK; older apps do not show this control.
+
 The default name describes the OS/browser information available to the page, not the computer's hostname or a phone's user-assigned name. Use the pencil button **Name this local output** beside the output selector to save an alias such as **Office PC**. **Use default name**, or saving an empty alias, restores the automatic name. Names are limited to 80 UTF-8 bytes; Korean characters can use several bytes each.
 
 The alias is saved in this browser profile for this Server UUID and exact origin (including port). It does not follow you to another browser/profile, private browsing session or replacement Server. Storage failures are reported rather than claimed as saved. Clearing browser storage removes the alias.
@@ -108,7 +112,7 @@ Only the page that registered and owns the output adds **(This device)**, for ex
 
 Control uses same-origin authenticated HTTP JSON; audio uses HTTP(S) GET/Range through the browser's audio element. This is not UPnP, HLS, DASH or WebRTC. The browser and operating system choose the physical speaker/headphones; there is no hardware-output picker, native WASAPI/ASIO engine, exclusive mode or bit-perfect guarantee. Supported formats depend on the browser decoder. Conversion requires enabled transcoding and configured FFmpeg; converted WAV streams cannot seek.
 
-Keep the owning browser page open. Closing or reloading it releases that browser output; loss of its live registration makes the output unavailable without discarding the queue. Stop if needed, reselect **This device**, then explicitly Play to resume. Closing another Control does not stop the owning browser, and network outputs remain independent of Control lifetime. Background/lock-screen playback in browsers, PWA, and Desktop Web content depends on the browser and OS and is not guaranteed. These clients have no offline playback or native background-audio service; the native Android app uses the service described below.
+Keep the owning browser page open. Closing or reloading it releases that browser output; loss of its live registration makes the output unavailable without discarding the queue. Re-entry can select the local output under the conditions above; otherwise Stop if needed, reselect **This device**, then explicitly Play. Closing another Control does not stop the owning browser, and network outputs remain independent of Control lifetime. Windows Desktop's X hides rather than closes the page, as described below. Background/lock-screen playback in ordinary browsers and PWA depends on the browser and OS and is not guaranteed. Desktop does not promise playback through computer sleep or logout; native Android uses the service described below.
 
 <a id="phone-controls"></a>
 ### Phone controls
@@ -126,6 +130,8 @@ The in-app shortcut installation card has been removed from **Settings**. Existi
 The Desktop app opens **Server playback**, with separate **Discovered now** and **Recent connections** card groups. Cards show the Server name, address, and checked availability; a saved entry is not proof that a Server is currently reachable. Select a card's connection action, or choose **Connect by address** to open the address dialog. Cancel or Escape closes it without connecting and retains the draft for reopening. Discovery, navigation, and connection do not start playback.
 
 Desktop has no independent saved-music player or Local playback home card. After connecting, its shared Web **This device** output still uses the Server library and queue.
+
+On Windows, **X** hides the window in the notification tray while retaining the connection and local playback. Click/double-click the tray icon or choose **Open JASTREAMER** from its context menu to restore the same window. Launching the app again also restores it. To quit completely, right-click the tray icon and choose **Exit**. This releases the app's local output without sending Stop to other network outputs. Exit this way before updating. If a tray cannot be created, X retains its normal quit behavior; Linux window-closing behavior is unchanged.
 
 <a id="android-controls"></a>
 ### Native Android controls
@@ -158,7 +164,7 @@ The native Kotlin app adds Server selection, Server-controlled phone output, and
 
 - One Media3 service owns this Android at a time: none, Server, or Saved music. Starting saved music while Server-owned, or assigning the phone to a Server while local music owns it, requires an explicit handoff confirmation. The previous owner is stopped before the next takes control; queues are not copied and late commands from the old owner cannot cross the handoff.
 - In Server mode, explicitly select **Android · jastreamer (This device) [Local audio]**, or its saved alias, then press **Play**. The Server owns that queue and commands; Android's system media controls report Play, Pause, Stop, Previous, Next, and supported Seek back to it. In Saved music mode those controls execute against local files and the device queue.
-- The native shell sends no Play or Stop merely because its screen closes, backgrounds, changes Servers, or reopens. Playback survives Activity/WebView recreation while its service remains alive. Process termination or terminal registration loss stops Server-owned playback. Local library, queue, and position are restored after restart, but neither owner registers, resumes, or autoplays without a new user action.
+- The native shell sends no Play or Stop merely because its screen closes, backgrounds, changes Servers, or reopens. Playback survives Activity/WebView recreation while its service remains alive. Process termination or terminal registration loss stops Server-owned playback. Local library, queue, and position are restored after restart without autoplay. Only a newly opened Server page may attempt the guarded offline-output fallback above; it cannot take Saved music ownership or supersede an in-flight user request.
 - Supported formats depend on Media3/Android decoders; original imports do not promise decoder compatibility, exclusive mode, or bit-perfect output. Transient Server-mode media failures use bounded recovery; terminal failures are shown rather than retried indefinitely.
 - Only the verified Server's current top-level document receives restricted native interfaces for Server output and explicit imports. They expose no cookies, credentials, arbitrary native calls, filesystem browsing, or arbitrary URL downloads. External navigation, new windows, file pickers, and unrelated Web downloads/native permission requests remain blocked. Desktop and ordinary browsers retain browser audio; the native iOS client gains neither Android interface nor local playback.
 
@@ -211,6 +217,8 @@ For an unchanged address, Control confirms reconnection to a new Server runtime 
 - The triangular Play button is the first action on the right of each Queue row. Only that button starts the entry.
 
 An isolated renderer-status query failure does not restart playback or open a popup. A status warning appears after three consecutive failed queries and closes automatically when a query succeeds. Dismissing it suppresses repeat popups during the same failure streak. Playback-command failures and confirmed disconnections are still reported immediately.
+
+A retained playback error from an earlier connection does not reopen a request-failure popup on every entry. It remains available through the player's error details. Failures of newly issued requests still open an error notice.
 
 Playback-start errors identify the failed stage (`LoadTrack`, `PrepareMedia`, `SetURI`, or `Play`) and include a safe error code when available. For UPnP rejections, retain the action name and numeric fault code when reporting the error; for Cast, retain the action, player state, idle reason, and error text. Do not reset the queue or disable the firewall to clear a generic failure; timeout/transport failures still mean the command outcome is unknown.
 

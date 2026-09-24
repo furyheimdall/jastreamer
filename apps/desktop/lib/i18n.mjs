@@ -73,6 +73,8 @@ const messages = {
   "main.ipc.denied": { en: "This IPC request is not allowed.", ko: "허용되지 않은 IPC 요청입니다." },
   "main.retry.none": { en: "There is no server to reconnect to.", ko: "다시 연결할 서버가 없습니다." },
   "main.language.saveFailed": { en: "The language preference could not be saved.", ko: "언어 설정을 저장할 수 없습니다." },
+  "main.tray.open": { en: "Open JASTREAMER", ko: "JASTREAMER 열기" },
+  "main.tray.exit": { en: "Exit", ko: "종료" },
 
   "status.checking": { en: "Checking the server.", ko: "서버를 확인하는 중입니다." },
   "status.rechecking": { en: "Checking the server again.", ko: "서버를 다시 확인하는 중입니다." },

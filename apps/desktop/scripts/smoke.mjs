@@ -15,6 +15,7 @@ const work = await mkdtemp(path.join(tmpdir(), 'jastreamer-desktop-smoke-'));
 const children = [];
 const proxies = [];
 const commands = [];
+const browserOutputRequests = [];
 const password = randomBytes(24).toString('base64url');
 let application;
 let portable = path.join(work, 'portable with spaces');
@@ -84,6 +85,9 @@ async function startServer(label) {
     if (incoming.method !== 'GET' && /^\/api\/v1\/(?:player|queue)(?:\/|$)/.test(incoming.url)) {
       commands.push({ method: incoming.method, path: incoming.url });
     }
+    if (/^\/api\/v1\/browser-output\/registrations(?:\/|$)/.test(incoming.url)) {
+      browserOutputRequests.push({ method: incoming.method, path: incoming.url });
+    }
     const upstream = request({ hostname: '127.0.0.1', port, path: incoming.url, method: incoming.method, headers: incoming.headers }, (response) => {
       outgoing.writeHead(response.statusCode, response.headers);
       response.pipe(outgoing);
@@ -98,12 +102,24 @@ async function startServer(label) {
   return `http://127.0.0.1:${proxy.address().port}`;
 }
 async function launch() {
-  application = await _electron.launch({ executablePath: path.join(portable, path.basename(desktopBinary)), timeout: 20000 });
+  application = await _electron.launch({
+    executablePath: path.join(portable, path.basename(desktopBinary)),
+    timeout: 20000,
+  });
   const shell = await application.firstWindow();
   await shell.locator('#open-manual').waitFor({ state: 'visible' });
   assert.equal(await shell.locator('#manual-origin').isVisible(), false, 'Address entry must require an explicit action');
   const dataPath = await application.evaluate(({ app }) => app.getPath('userData'));
   assert.equal(path.resolve(dataPath), path.join(portable, 'user-data'), 'Portable profile must follow the executable');
+  await application.evaluate(({ Tray }) => {
+    const setContextMenu = Tray.prototype.setContextMenu;
+    Tray.prototype.setContextMenu = function (menu) {
+      globalThis.__traySmoke = { tray: this, menu };
+      return setContextMenu.call(this, menu);
+    };
+  });
+  // Rebuild the actual menu through the trusted shell's existing language action.
+  await shell.evaluate((language) => window.jastreamerDesktop.setLanguage(language), await shell.locator("#language").inputValue());
   return shell;
 }
 async function connect(shell, origin) {
@@ -130,26 +146,176 @@ async function createAccount(page, username) {
 async function username(page) {
   return page.evaluate(async () => (await (await fetch('/api/v1/session')).json()).user?.username);
 }
-async function closeApplication() {
-  const processes = await application.evaluate(({ app }) => app.getAppMetrics().map(({ pid, type }) => ({ pid, type })));
-  await application.close();
-  application = null;
-  const remaining = () => processes.filter(({ pid }) => {
+function remainingProcesses(processes) {
+  return processes.filter(({ pid }) => {
     try {
       process.kill(pid, 0);
       return true;
     } catch (error) {
-      if (error.code === 'ESRCH') return false;
+      if (error.code === "ESRCH") return false;
       throw error;
     }
   });
-  const exiting = remaining();
+}
+async function waitForApplicationExit(processes) {
+  const exiting = remainingProcesses(processes);
   if (exiting.length) console.log(JSON.stringify({ desktopProcessesStillExiting: exiting }));
-  await until(() => remaining().length === 0, `Desktop processes did not exit: ${JSON.stringify(processes)}`);
+  await until(
+    () => remainingProcesses(processes).length === 0,
+    `Desktop processes did not exit: ${JSON.stringify(processes)}`,
+  );
+  application = null;
+}
+async function closeApplication() {
+  const processes = await application.evaluate(({ app }) => app.getAppMetrics().map(({ pid, type }) => ({ pid, type })));
+  await application.close();
+  await waitForApplicationExit(processes);
+}
+async function trayControl(action) {
+  return application.evaluate((_electron, nextAction) => {
+    const { tray, menu } = globalThis.__traySmoke ?? {};
+    if (!tray || !menu) throw new Error("The actual tray menu was not observed");
+    if (nextAction === "labels") return {
+      open: menu.getMenuItemById("tray-open")?.label,
+      exit: menu.getMenuItemById("tray-exit")?.label,
+    };
+    if (nextAction === "click" || nextAction === "double-click") return tray.emit(nextAction);
+    menu.getMenuItemById(`tray-${nextAction}`).click();
+  }, action);
+}
+async function exitFromTrayMenu() {
+  const processes = await application.evaluate(({ app }) => app.getAppMetrics().map(({ pid, type }) => ({ pid, type })));
+  await application.evaluate(() => {
+    const item = globalThis.__traySmoke?.menu.getMenuItemById("tray-exit");
+    if (!item) throw new Error("The actual tray Exit item was not observed");
+    setImmediate(() => item.click());
+  });
+  await waitForApplicationExit(processes);
+}
+async function browserOutputState(page) {
+  return page.evaluate(async () => {
+    const [playerResponse, renderersResponse] = await Promise.all([
+      fetch("/api/v1/player"),
+      fetch("/api/v1/renderers"),
+    ]);
+    if (!playerResponse.ok || !renderersResponse.ok) {
+      throw new Error(`Local output state failed: player=${playerResponse.status}, renderers=${renderersResponse.status}`);
+    }
+    const player = await playerResponse.json();
+    const renderers = await renderersResponse.json();
+    return {
+      rendererID: player.renderer_id,
+      playerState: player.state,
+      renderer: renderers.items.find((item) => item.id === player.renderer_id) ?? null,
+    };
+  });
+}
+async function selectLocalBrowserOutput(page) {
+  await page.locator("#player-output").selectOption("browser:local");
+  return until(async () => {
+    const state = await browserOutputState(page);
+    return state.rendererID?.startsWith("browser:") && state.renderer?.online ? state.rendererID : null;
+  }, "This device did not become the selected online browser output");
+}
+async function closeShellWindow(windowId) {
+  await application.evaluate(({ BrowserWindow }, id) => {
+    BrowserWindow.fromId(id)?.close();
+  }, windowId);
+  await until(async () => application.evaluate(({ BrowserWindow }, id) => {
+    const window = BrowserWindow.fromId(id);
+    return Boolean(window && !window.isDestroyed() && !window.isVisible());
+  }, windowId), "Windows close did not hide the shell");
+}
+async function assertShellRestored(windowId, message) {
+  await until(async () => application.evaluate(({ BrowserWindow }, id) => {
+    const window = BrowserWindow.fromId(id);
+    return Boolean(window && window.isVisible() && !window.isMinimized() && window.isFocused());
+  }, windowId), message);
+}
+async function hideAndRestore(page, origin, rendererID) {
+  await page.evaluate(() => {
+    window.__jastreamerTrayHeartbeat = 0;
+    window.__jastreamerTrayHeartbeatTimer = setInterval(() => {
+      window.__jastreamerTrayHeartbeat += 1;
+    }, 25);
+  });
+  const before = await application.evaluate(({ BrowserWindow, webContents }, remoteUrl) => {
+    const window = BrowserWindow.getAllWindows()[0];
+    const remote = webContents.getAllWebContents().find((contents) => contents.getURL() === remoteUrl);
+    return {
+      windowId: window?.id ?? null,
+      remoteId: remote?.id ?? null,
+    };
+  }, `${origin}/`);
+  assert(before.windowId, "The foreground shell window must exist before its close action");
+  assert(before.remoteId, "The connected remote WebContentsView must exist before its close action");
+  const heartbeatBefore = await page.evaluate(() => window.__jastreamerTrayHeartbeat);
+  const renewalsBefore = browserOutputRequests.filter(({ method, path }) => (
+    method === "PUT" && path.endsWith("/lease")
+  )).length;
+
+  // Windows may query logoff and then cancel it without a session-end event.
+  await application.evaluate(({ BrowserWindow }, windowId) => {
+    BrowserWindow.fromId(windowId)?.emit("query-session-end", { preventDefault() {} });
+  }, before.windowId);
+  await closeShellWindow(before.windowId);
+  await sleep(2_500);
+  assert.equal(page.isClosed(), false, "Hiding the shell must preserve the remote WebContentsView");
+  assert(
+    await page.evaluate(() => window.__jastreamerTrayHeartbeat) > heartbeatBefore,
+    "Remote browser timers must continue while the shell is hidden",
+  );
+  const hiddenOutput = await browserOutputState(page);
+  assert.equal(hiddenOutput.rendererID, rendererID, "Hiding the shell must preserve the selected local output");
+  assert.equal(hiddenOutput.renderer?.online, true, "The local audio registration must remain online while hidden");
+  assert(
+    browserOutputRequests.filter(({ method, path }) => method === "PUT" && path.endsWith("/lease")).length > renewalsBefore,
+    "The local audio lease heartbeat must continue while hidden",
+  );
+
+  await trayControl("open");
+  await assertShellRestored(before.windowId, "Tray Open did not restore and focus the hidden shell");
+  await closeShellWindow(before.windowId);
+  await trayControl("click");
+  await assertShellRestored(before.windowId, "Tray click did not restore and focus the hidden shell");
+  await closeShellWindow(before.windowId);
+  await trayControl("double-click");
+  await assertShellRestored(before.windowId, "Tray double-click did not restore and focus the hidden shell");
+  await closeShellWindow(before.windowId);
+
+  const relaunch = spawn(path.join(portable, path.basename(desktopBinary)), [], {
+    stdio: ["ignore", "ignore", "pipe"],
+    windowsHide: true,
+  });
+  children.push(relaunch);
+  let diagnostics = "";
+  relaunch.stderr.on("data", (chunk) => {
+    diagnostics = (diagnostics + chunk).slice(-8192);
+  });
+  await until(
+    () => relaunch.exitCode !== null,
+    `Second desktop instance did not exit after handing off to the resident instance: ${diagnostics}`,
+  );
+  assert.equal(relaunch.exitCode, 0, `Second desktop instance failed: ${diagnostics}`);
+  await assertShellRestored(before.windowId, "Single-instance relaunch did not restore and focus the hidden shell");
+  const restoredRemoteId = await application.evaluate(({ webContents }, remoteUrl) => (
+    webContents.getAllWebContents().find((contents) => contents.getURL() === remoteUrl)?.id ?? null
+  ), `${origin}/`);
+  assert.equal(restoredRemoteId, before.remoteId, "Restoring the shell must retain its existing remote WebContentsView");
+  return {
+    windowsCloseHides: true,
+    hiddenRemoteTimersContinue: true,
+    hiddenAudioRegistrationContinues: true,
+    trayMenuRestores: true,
+    trayClickRestores: true,
+    trayDoubleClickRestores: true,
+    secondInstanceRestores: true,
+  };
 }
 try {
   await cp(path.dirname(desktopBinary), portable, { recursive: true, filter: (source) => path.basename(source) !== 'user-data' });
   const [a, b] = await Promise.all([startServer('Desktop A'), startServer('Desktop B')]);
+  let trayLifecycle;
   let shell = await launch();
   await shell.locator("#open-manual").click();
   await shell.locator("#manual-origin").fill("http://127.0.0.1:1");
@@ -203,16 +369,38 @@ try {
   portable = moved;
   shell = await launch();
   assert.equal(await shell.locator("#language").inputValue(), "ko", "Portable restart must retain the language preference");
+  assert.deepEqual(await trayControl("labels"), { open: "JASTREAMER 열기", exit: "종료" }, "The tray menu must use the restored Korean preference");
   await shell.locator("#language").selectOption("en");
   await until(async () => (await shell.locator("html").getAttribute("lang")) === "en", "English selection did not apply to the accessible document language");
+  await until(async () => {
+    const labels = await trayControl("labels");
+    return labels.open === "Open JASTREAMER" && labels.exit === "Exit";
+  }, "The tray menu did not update after the language changed");
   assert.equal(application.context().pages().some((candidate) => candidate.url() === a + '/'), false, 'Restart must not auto-connect');
   page = await connect(shell, a);
   await page.getByLabel("Output device", { exact: true }).waitFor({ state: "visible" });
   assert.equal(await username(page), 'desktop-a', 'Moving the complete portable directory must retain the session on the same user/machine');
-  await closeApplication();
-  assert.deepEqual(commands, []);
+  const localRendererID = await selectLocalBrowserOutput(page);
+  assert.equal((await browserOutputState(page)).playerState, "stopped", "Selecting the local output must not start playback");
+  assert(browserOutputRequests.some(({ method }) => method === "POST"), "The browser audio output did not register");
+  trayLifecycle = await hideAndRestore(page, a, localRendererID);
+  const observerCookies = await application.evaluate(async ({ webContents }, remoteUrl) => {
+    const remote = webContents.getAllWebContents().find((contents) => contents.getURL() === remoteUrl);
+    return remote.session.cookies.get({ url: remoteUrl });
+  }, `${a}/`);
+  const observerHeaders = { Cookie: observerCookies.map(({ name, value }) => `${name}=${value}`).join("; ") };
+  await exitFromTrayMenu();
+  assert.deepEqual(commands, [{ method: "PUT", path: "/api/v1/player/output" }], "Hide, restore, and Exit must not send playback or queue commands");
+  // Process shutdown may outlive unload's best-effort DELETE. The 15-second lease
+  // must still retire the output; observe Server state without reopening a client.
+  await until(async () => {
+    const response = await fetch(`${a}/api/v1/renderers`, { headers: observerHeaders });
+    assert.equal(response.status, 200, "The independent output observer must remain authenticated");
+    const renderers = await response.json();
+    return !renderers.items.find(({ id }) => id === localRendererID)?.online;
+  }, "Tray Exit left the browser output online beyond its lease", 20_000);
   assert.equal((await fetch(a + '/healthz')).status, 200, 'Server must remain alive after desktop exits');
-  console.log(JSON.stringify({ packagedLaunch: true, platform: process.platform, twoServerSessionIsolation: true, portableMoveSessionRetained: true, portableLanguageRetained: true, remoteLanguageCookieObserved: true, noAutomaticConnection: true, remoteNodeBlocked: true, remoteDesktopBridgeBlocked: true, remotePopupBlocked: true, playbackCommandsOnSwitchOrExit: commands.length }));
+  console.log(JSON.stringify({ packagedLaunch: true, platform: process.platform, twoServerSessionIsolation: true, portableMoveSessionRetained: true, portableLanguageRetained: true, remoteLanguageCookieObserved: true, noAutomaticConnection: true, remoteNodeBlocked: true, remoteDesktopBridgeBlocked: true, remotePopupBlocked: true, ...trayLifecycle, trayExitTerminates: true, trayLanguageUpdates: true, playbackCommandsOnHideRestoreOrExit: commands.length - 1 }));
 } finally {
   if (application) await application.close().catch(() => {});
   for (const proxy of proxies) { proxy.closeAllConnections(); proxy.close(); }

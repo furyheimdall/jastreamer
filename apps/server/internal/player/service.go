@@ -423,6 +423,67 @@ func (s *Service) SelectOutput(ctx context.Context, rendererID string) (State, e
 	return s.Snapshot(ctx)
 }
 
+func (s *Service) FallbackOutput(ctx context.Context, fallback OutputFallback) (State, error) {
+	if fallback.RendererID == "" || fallback.ExpectedRendererID == "" || fallback.ExpectedRevision < 0 {
+		return State{}, fault.New(400, "INVALID_OUTPUT_FALLBACK", "The fallback output guard is invalid.")
+	}
+	s.rendererMu.Lock()
+	s.opMu.Lock()
+	st, err := s.loadState(ctx)
+	var destination output.Device
+	if err == nil && st.rendererID == "" {
+		err = fault.New(409, "OUTPUT_FALLBACK_NOT_ALLOWED", "There is no disconnected output to replace.")
+	}
+	if err == nil && (st.revision != fallback.ExpectedRevision || st.rendererID != fallback.ExpectedRendererID) {
+		err = fault.New(409, "PLAYER_STATE_CHANGED", "The selected output changed; refresh the player and try again.")
+	}
+	if err == nil && st.state != StateStopped && st.state != StateUnavailable {
+		err = fault.New(409, "PLAYER_NOT_STOPPED", "Fallback is available only while playback is stopped or unavailable.")
+	}
+	if err == nil {
+		var active int
+		err = s.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM player_commands WHERE service_epoch=? AND status IN ('pending','running')", s.epoch).Scan(&active)
+		if err == nil && active != 0 {
+			err = fault.New(409, "COMMAND_IN_PROGRESS", "Wait for the active playback command to finish.")
+		}
+	}
+	if err == nil {
+		if current, found := s.devices.Device(st.rendererID); found && current.Online {
+			err = fault.New(409, "OUTPUT_STILL_ONLINE", "The selected output is online and cannot be replaced automatically.")
+		}
+	}
+	if err == nil {
+		var found bool
+		destination, found = s.devices.Device(fallback.RendererID)
+		if !found || !destination.Online || destination.Protocol != output.ProtocolBrowser {
+			err = fault.New(409, "FALLBACK_OUTPUT_UNAVAILABLE", "The local fallback output is no longer available.")
+		}
+	}
+	if err == nil {
+		_, err = s.db.ExecContext(ctx, `UPDATE player_state SET revision=revision+1,renderer_id=?,play_id='',current_uri='',current_seekable=0,state='stopped',resume_required=CASE WHEN current_entry_id<>'' THEN 1 ELSE 0 END,error='',observed_at='',last_observed_state='',last_observed_uri='',last_observed_position_ms=0,last_observed_duration_ms=0,last_observed_has_position=0,last_observed_at='',control_action='',control_at='' WHERE singleton=1`, fallback.RendererID)
+		if err != nil {
+			err = fmt.Errorf("player: select fallback output: %w", err)
+		}
+	}
+	if err == nil {
+		s.terminal = terminalPositionEvidence{}
+		s.startup = startupObservationEvidence{}
+		s.listening = listeningEvidence{}
+		s.observationFailure = observationFailure{}
+	}
+	s.opMu.Unlock()
+	s.rendererMu.Unlock()
+	if err != nil {
+		return State{}, err
+	}
+	if st.playID != "" {
+		s.media.Revoke(st.playID)
+	}
+	s.logOutputSelected(st, fallback.RendererID, StateStopped, true)
+	s.notify("player")
+	return s.Snapshot(ctx)
+}
+
 func (s *Service) PairOutput(ctx context.Context, rendererID string, request output.PairingRequest) (output.PairingStatus, error) {
 	if rendererID == "" {
 		return output.PairingStatus{}, fault.New(400, "INVALID_OUTPUT", "A renderer is required.")

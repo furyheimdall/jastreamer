@@ -73,6 +73,16 @@ func (f *fakeDevices) Pair(_ context.Context, id string, _ output.PairingRequest
 	return output.PairingStatus{Required: false}, f.action("pair")
 }
 
+type fallbackDevices struct {
+	*fakeDevices
+	items map[string]output.Device
+}
+
+func (f *fallbackDevices) Device(id string) (output.Device, bool) {
+	device, found := f.items[id]
+	return device, found
+}
+
 type fakeMedia struct {
 	mu         sync.Mutex
 	revoked    []string
@@ -954,6 +964,190 @@ func TestOutputSelectionRequiresStoppedStateAndNoCommand(t *testing.T) {
 	if _, err := service.SelectOutput(ctx, "renderer"); faultCode(err) != "PLAYER_NOT_STOPPED" {
 		t.Fatalf("selection while starting error=%v", err)
 	}
+}
+
+func TestFallbackOutputPreservesCursorAndExplicitPlayResumesPosition(t *testing.T) {
+	service, db, transport := newPlayerTestService(t)
+	ctx := t.Context()
+	devices := &fallbackDevices{fakeDevices: transport, items: map[string]output.Device{
+		"renderer": {
+			ID: "renderer", Online: false, Protocol: output.ProtocolUPnP,
+			Capabilities: output.Capabilities{Play: true, Pause: true, Stop: true, Seek: true},
+		},
+		"browser": {
+			ID: "browser", Online: true, Protocol: output.ProtocolBrowser,
+			Capabilities: output.Capabilities{Play: true, Pause: true, Stop: true, Seek: true},
+		},
+	}}
+	service.devices = devices
+	queue, err := service.MutateQueue(ctx, QueueMutation{Action: "append", TrackIDs: []string{"a", "b"}, Revision: 0})
+	if err != nil {
+		t.Fatal(err)
+	}
+	shuffle := true
+	repeat := RepeatOne
+	if _, err = service.UpdateMode(ctx, ModeUpdate{Shuffle: &shuffle, RepeatMode: &repeat}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = db.ExecContext(ctx, `UPDATE player_state SET renderer_id='renderer',current_entry_id=?,play_id='stale-play',current_uri='http://old/media',current_seekable=1,state='unavailable',position_ms=32100,duration_ms=100000,observed_at='old',last_observed_state='playing',last_observed_uri='http://old/media',last_observed_position_ms=32100,last_observed_duration_ms=100000,last_observed_has_position=1,last_observed_at='old',resume_required=1,error='The selected renderer is offline.',control_action='play',control_at='old' WHERE singleton=1`, queue.Entries[0].ID); err != nil {
+		t.Fatal(err)
+	}
+	before, err := service.Snapshot(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	beforeQueue, err := service.Queue(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	fallback, err := service.FallbackOutput(ctx, OutputFallback{
+		RendererID: "browser", ExpectedRendererID: "renderer", ExpectedRevision: before.Revision,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fallback.RendererID != "browser" || fallback.State != StateStopped || fallback.Revision != before.Revision+1 ||
+		fallback.CurrentEntryID != before.CurrentEntryID || fallback.PositionMS != before.PositionMS ||
+		fallback.DurationMS != before.DurationMS || fallback.Error != "" ||
+		!fallback.Shuffle || fallback.RepeatMode != RepeatOne || fallback.PendingCommand != "" {
+		t.Fatalf("fallback state did not preserve the stopped cursor: before=%#v after=%#v", before, fallback)
+	}
+	afterQueue, err := service.Queue(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(afterQueue, beforeQueue) {
+		t.Fatalf("fallback changed queue: before=%#v after=%#v", beforeQueue, afterQueue)
+	}
+	stored, err := service.loadState(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.playID != "" || stored.currentURI != "" || stored.currentSeekable || !stored.resumeRequired ||
+		stored.observedAt != "" || stored.lastObservedState != "" || stored.lastObservedURI != "" ||
+		stored.lastObservedHasPosition || stored.controlAction != "" || stored.controlAt != "" {
+		t.Fatalf("fallback retained obsolete transport state: %#v", stored)
+	}
+	if err := service.StopForRestart(ctx); err != nil {
+		t.Fatalf("a stopped fallback output must not block restart: %v", err)
+	}
+	if after := service.mustState(t); after.PositionMS != fallback.PositionMS || after.PendingCommand != "" {
+		t.Fatalf("restart preparation changed the saved fallback position: %#v", after)
+	}
+	transport.mu.Lock()
+	calls := append([]string(nil), transport.calls...)
+	transport.mu.Unlock()
+	if len(calls) != 0 {
+		t.Fatalf("fallback sent playback commands: %v", calls)
+	}
+	media := service.media.(*fakeMedia)
+	media.mu.Lock()
+	revoked := append([]string(nil), media.revoked...)
+	media.mu.Unlock()
+	if !reflect.DeepEqual(revoked, []string{"stale-play"}) {
+		t.Fatalf("fallback did not revoke only the obsolete media grant: %v", revoked)
+	}
+
+	if _, err = service.Command(ctx, Command{Action: "play"}); err != nil {
+		t.Fatal(err)
+	}
+	runAcceptedCommand(t, service)
+	resumed := service.mustState(t)
+	transport.mu.Lock()
+	calls = append(calls[:0], transport.calls...)
+	transport.mu.Unlock()
+	if strings.Join(calls, ",") != "set_uri,seek:32100,play" {
+		t.Fatalf("explicit Play did not resume the saved position: %v", calls)
+	}
+	if resumed.State != StateStarting || resumed.RendererID != "browser" ||
+		resumed.CurrentEntryID != queue.Entries[0].ID || resumed.PositionMS != 32100 {
+		t.Fatalf("explicit Play did not retain the resumed cursor: %#v", resumed)
+	}
+}
+
+func TestRetryDifferentEntryDoesNotResumePreviousTracksPosition(t *testing.T) {
+	service, db, devices := newPlayerTestService(t)
+	ctx := t.Context()
+	queue, err := service.MutateQueue(ctx, QueueMutation{Action: "append", TrackIDs: []string{"a", "b"}, Revision: 0})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.Command(ctx, Command{Action: "play", EntryID: queue.Entries[0].ID}); err != nil {
+		t.Fatal(err)
+	}
+	runAcceptedCommand(t, service)
+	if _, err := db.ExecContext(ctx, "UPDATE player_state SET position_ms=42000 WHERE singleton=1"); err != nil {
+		t.Fatal(err)
+	}
+	devices.fail["set_uri"] = errors.New("renderer rejected the next media binding")
+	if _, err := service.Command(ctx, Command{Action: "play", EntryID: queue.Entries[1].ID}); err != nil {
+		t.Fatal(err)
+	}
+	runAcceptedCommand(t, service)
+	delete(devices.fail, "set_uri")
+	if _, err := service.Command(ctx, Command{Action: "play"}); err != nil {
+		t.Fatal(err)
+	}
+	runAcceptedCommand(t, service)
+	retried := service.mustState(t)
+	if retried.CurrentEntryID != queue.Entries[1].ID || retried.State != StateStarting || retried.PositionMS != 0 {
+		t.Fatalf("retry reused another track's playback position: %#v", retried)
+	}
+}
+
+func TestFallbackOutputRefusesConcurrentOrRecoveredOutputChanges(t *testing.T) {
+	newFallbackService := func(t *testing.T) (*Service, *sql.DB, *fallbackDevices, OutputFallback) {
+		t.Helper()
+		service, db, transport := newPlayerTestService(t)
+		devices := &fallbackDevices{fakeDevices: transport, items: map[string]output.Device{
+			"renderer": {ID: "renderer", Online: false, Protocol: output.ProtocolUPnP},
+			"browser": {
+				ID: "browser", Online: true, Protocol: output.ProtocolBrowser,
+				Capabilities: output.Capabilities{Play: true, Pause: true, Stop: true, Seek: true},
+			},
+		}}
+		service.devices = devices
+		state := service.mustState(t)
+		return service, db, devices, OutputFallback{
+			RendererID: "browser", ExpectedRendererID: "renderer", ExpectedRevision: state.Revision,
+		}
+	}
+	assertConflict := func(t *testing.T, err error, code string) {
+		t.Helper()
+		var known *fault.Error
+		if !errors.As(err, &known) || known.Status != 409 || known.Code != code {
+			t.Fatalf("fallback error=%v, want 409 %s", err, code)
+		}
+	}
+
+	t.Run("selected output recovered", func(t *testing.T) {
+		service, _, devices, request := newFallbackService(t)
+		current := devices.items["renderer"]
+		current.Online = true
+		devices.items["renderer"] = current
+		_, err := service.FallbackOutput(t.Context(), request)
+		assertConflict(t, err, "OUTPUT_STILL_ONLINE")
+		if state := service.mustState(t); state.RendererID != "renderer" || state.Revision != request.ExpectedRevision {
+			t.Fatalf("rejected fallback changed state: %#v", state)
+		}
+	})
+
+	t.Run("stale revision", func(t *testing.T) {
+		service, _, _, request := newFallbackService(t)
+		request.ExpectedRevision--
+		_, err := service.FallbackOutput(t.Context(), request)
+		assertConflict(t, err, "PLAYER_STATE_CHANGED")
+	})
+
+	t.Run("active command", func(t *testing.T) {
+		service, db, _, request := newFallbackService(t)
+		if _, err := db.ExecContext(t.Context(), `INSERT INTO player_commands(command_id,service_epoch,action,entry_id,position_ms,status,error,created_at,started_at,completed_at) VALUES('fallback-active',?,'play','',0,'pending','',?,'','')`, service.epoch, time.Now().UTC().Format(time.RFC3339Nano)); err != nil {
+			t.Fatal(err)
+		}
+		_, err := service.FallbackOutput(t.Context(), request)
+		assertConflict(t, err, "COMMAND_IN_PROGRESS")
+	})
 }
 
 func TestPairOutputRequiresStoppedState(t *testing.T) {

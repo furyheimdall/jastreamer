@@ -171,7 +171,7 @@ Extract the complete ZIP to a new writable local folder and run `jastreamer-desk
 
 Server discovery searches each active IPv4 network adapter every five seconds, including when adapters change. Firewall and multicast restrictions can still require entering the Server URL manually.
 
-Recent Servers, language, cookies, and sessions are stored beside the EXE in `user-data`. Closing the app does not stop Server playback. To upgrade, verify and extract the new ZIP to a separate temporary folder, exit the app completely, and replace only package-owned files in the existing installation folder. Leave `user-data` in place without copying or overwriting it. A different Windows account or PC may require login again.
+Recent Servers, language, cookies, and sessions are stored beside the EXE in `user-data`. On Windows, X hides the window while the tray-resident app retains its connection and local playback. Reopen it from the tray; right-click → **Exit** quits completely. Exiting does not send Stop to other network outputs. To upgrade, verify and extract the new ZIP to a separate temporary folder, exit the app through the tray, and replace only package-owned files in the existing installation folder. Leave `user-data` in place without copying or overwriting it. A different Windows account or PC may require login again.
 
 <a id="desktop-linux"></a>
 ## Optional Linux amd64 desktop
