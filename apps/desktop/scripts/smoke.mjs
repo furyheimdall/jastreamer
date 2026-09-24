@@ -384,9 +384,21 @@ try {
   assert.equal((await browserOutputState(page)).playerState, "stopped", "Selecting the local output must not start playback");
   assert(browserOutputRequests.some(({ method }) => method === "POST"), "The browser audio output did not register");
   trayLifecycle = await hideAndRestore(page, a, localRendererID);
+  const observerCookies = await application.evaluate(async ({ webContents }, remoteUrl) => {
+    const remote = webContents.getAllWebContents().find((contents) => contents.getURL() === remoteUrl);
+    return remote.session.cookies.get({ url: remoteUrl });
+  }, `${a}/`);
+  const observerHeaders = { Cookie: observerCookies.map(({ name, value }) => `${name}=${value}`).join("; ") };
   await exitFromTrayMenu();
   assert.deepEqual(commands, [{ method: "PUT", path: "/api/v1/player/output" }], "Hide, restore, and Exit must not send playback or queue commands");
-  assert(browserOutputRequests.some(({ method }) => method === "DELETE"), "Tray Exit must release the browser audio registration");
+  // Process shutdown may outlive unload's best-effort DELETE. The 15-second lease
+  // must still retire the output; observe Server state without reopening a client.
+  await until(async () => {
+    const response = await fetch(`${a}/api/v1/renderers`, { headers: observerHeaders });
+    assert.equal(response.status, 200, "The independent output observer must remain authenticated");
+    const renderers = await response.json();
+    return !renderers.items.find(({ id }) => id === localRendererID)?.online;
+  }, "Tray Exit left the browser output online beyond its lease", 20_000);
   assert.equal((await fetch(a + '/healthz')).status, 200, 'Server must remain alive after desktop exits');
   console.log(JSON.stringify({ packagedLaunch: true, platform: process.platform, twoServerSessionIsolation: true, portableMoveSessionRetained: true, portableLanguageRetained: true, remoteLanguageCookieObserved: true, noAutomaticConnection: true, remoteNodeBlocked: true, remoteDesktopBridgeBlocked: true, remotePopupBlocked: true, ...trayLifecycle, trayExitTerminates: true, trayLanguageUpdates: true, playbackCommandsOnHideRestoreOrExit: commands.length - 1 }));
 } finally {
