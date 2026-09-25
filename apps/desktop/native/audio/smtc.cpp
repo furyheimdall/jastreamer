@@ -202,7 +202,7 @@ RandomAccessStreamReference artwork_reference(const std::vector<std::uint8_t>& b
     winrt::com_ptr<IStream> memory_stream;
     memory_stream.attach(SHCreateMemStream(bytes.data(), static_cast<UINT>(bytes.size())));
     if (!memory_stream) {
-        throw winrt::hresult_out_of_memory();
+        throw winrt::hresult_error(E_OUTOFMEMORY);
     }
 
     IRandomAccessStream random_access_stream{nullptr};

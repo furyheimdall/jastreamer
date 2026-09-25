@@ -17,14 +17,15 @@
 #include <utility>
 
 #ifdef _WIN32
-#define NOMINMAX
 #include <windows.h>
+#include <initguid.h>
 #include <audioclient.h>
 #include <avrt.h>
 #include <ks.h>
 #include <ksmedia.h>
-#include <functiondiscoverykeys_devpkey.h>
 #include <mmdeviceapi.h>
+#include <propkeydef.h>
+#include <functiondiscoverykeys_devpkey.h>
 #include <propvarutil.h>
 #include <wrl/client.h>
 
