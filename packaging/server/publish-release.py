@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Fail-closed validation and staging for the public preview release workflow."""
+"""Fail-closed validation and staging for the public release workflow."""
 
 from __future__ import annotations
 
@@ -12,7 +12,6 @@ import re
 import shutil
 import ssl
 import stat
-import sys
 import subprocess
 import tempfile
 import urllib.error
@@ -27,10 +26,12 @@ REPOSITORY = "furyheimdall/jastreamer"
 REGISTRY_REPOSITORY = "furyheimdall/jastreamer-server"
 CI_WORKFLOW = ".github/workflows/ci.yml"
 CI_NAME = "Server, Web, and Desktop CI"
+ANDROID_WORKFLOW = ".github/workflows/android.yml"
+ANDROID_NAME = "Android CI"
 VERSION = "0.2.0"
 SHA = re.compile(r"[0-9a-f]{40}")
-PREVIEW_TAG = re.compile(r"v0\.2\.0-preview\.([1-9][0-9]*)")
-IMAGE_TAG = re.compile(r"0\.2\.0-preview\.([1-9][0-9]*)")
+RELEASE_TAG = re.compile(r"v(?P<version>[0-9]+\.[0-9]+\.[0-9]+)(?:-preview\.(?P<preview>[1-9][0-9]*))?")
+IMAGE_TAG = re.compile(r"(?P<version>[0-9]+\.[0-9]+\.[0-9]+)(?:-preview\.(?P<preview>[1-9][0-9]*))?")
 DIGEST = re.compile(r"sha256:[0-9a-f]{64}")
 EXPECTED_JOBS = {
     "Validate Server and Web",
@@ -47,6 +48,11 @@ EXPECTED_ARTIFACTS = {
     "jastreamer-desktop-windows-x64",
     "jastreamer-desktop-linux-amd64",
 }
+ANDROID_JOBS = {"Android build and real-Web-UI verification"}
+ANDROID_APK_ARTIFACT = "jastreamer-android-debug-test-signed-and-release-unsigned-{revision}"
+ANDROID_EVIDENCE_ARTIFACT = "jastreamer-android-api36-instrumentation-{revision}"
+ANDROID_ASSET_PREFIX = f"jastreamer-android_{VERSION}_release"
+DOCUMENTATION = f"https://github.com/{REPOSITORY}/blob"
 MANIFEST_ACCEPT = ", ".join((
     "application/vnd.oci.image.index.v1+json",
     "application/vnd.docker.distribution.manifest.list.v2+json",
@@ -86,18 +92,63 @@ def sha256_file(path: pathlib.Path) -> str:
     return digest.hexdigest()
 
 
-def validate_identity(source_revision: str, release_tag: str, image_tag: str) -> None:
+def expected_jobs(kind: str) -> set[str]:
+    return EXPECTED_JOBS if kind == "server" else ANDROID_JOBS
+
+
+def expected_artifacts(kind: str, source_revision: str) -> set[str]:
+    if kind == "server":
+        return set(EXPECTED_ARTIFACTS)
+    return {
+        ANDROID_APK_ARTIFACT.format(revision=source_revision),
+        ANDROID_EVIDENCE_ARTIFACT.format(revision=source_revision),
+    }
+
+
+def downloaded_artifacts(kind: str, source_revision: str) -> set[str]:
+    if kind == "server":
+        return set(EXPECTED_ARTIFACTS)
+    return {ANDROID_APK_ARTIFACT.format(revision=source_revision)}
+
+
+def workflow_identity(kind: str) -> tuple[str, str]:
+    return (CI_WORKFLOW, CI_NAME) if kind == "server" else (ANDROID_WORKFLOW, ANDROID_NAME)
+
+
+def parse_tag(value: str, pattern: re.Pattern[str], label: str) -> str | None:
+    match = pattern.fullmatch(value)
+    require(match is not None, f"{label} must be {VERSION} or {VERSION}-preview.N with N greater than zero")
+    require(match.group("version") == VERSION, f"{label} version must be the product version {VERSION}")
+    return match.group("preview")
+
+
+def validate_identity(source_revision: str, release_tag: str, image_tag: str) -> dict[str, Any]:
     require(SHA.fullmatch(source_revision) is not None, "source revision must be a lowercase full Git SHA-1")
-    release_match = PREVIEW_TAG.fullmatch(release_tag)
-    image_match = IMAGE_TAG.fullmatch(image_tag)
-    require(release_match is not None, "release tag must be v0.2.0-preview.N with N greater than zero")
-    require(image_match is not None, "image tag must be 0.2.0-preview.N with N greater than zero")
-    require(release_match.group(1) == image_match.group(1), "release and image preview numbers differ")
+    release_preview = parse_tag(release_tag, RELEASE_TAG, "release tag (vX.Y.Z or vX.Y.Z-preview.N)")
+    image_preview = parse_tag(image_tag, IMAGE_TAG, "image tag (X.Y.Z or X.Y.Z-preview.N)")
+    require(release_preview == image_preview, "release tag and image tag identify different channels or preview numbers")
+    channel = "preview" if release_preview else "stable"
+    return {
+        "channel": channel,
+        "previewNumber": int(release_preview) if release_preview else None,
+        "prerelease": channel == "preview",
+        "latest": channel == "stable",
+    }
+
+
+def emit_outputs(path: str | None, values: dict[str, str]) -> None:
+    if not path:
+        return
+    with pathlib.Path(path).open("a", encoding="utf-8") as output:
+        for key, value in values.items():
+            output.write(f"{key}={value}\n")
 
 
 def validate_run(args: argparse.Namespace) -> None:
     require(args.repository == REPOSITORY, f"release workflow is restricted to {REPOSITORY}")
     require(re.fullmatch(r"[1-9][0-9]*", args.run_id) is not None, "CI run ID must be a positive decimal integer")
+    kind = args.kind
+    workflow_path, workflow_name = workflow_identity(kind)
     run_id = int(args.run_id)
     run = load_json(pathlib.Path(args.run))
     workflow = load_json(pathlib.Path(args.workflow))
@@ -107,9 +158,9 @@ def validate_run(args: argparse.Namespace) -> None:
     artifacts_response = load_json(pathlib.Path(args.artifacts))
 
     require(run.get("id") == run_id, "GitHub returned a different workflow run")
-    require(run.get("name") == CI_NAME and run.get("path") == CI_WORKFLOW, "run did not execute the protected CI workflow")
+    require(run.get("name") == workflow_name and run.get("path") == workflow_path, f"run did not execute the protected {kind} CI workflow")
     require(run.get("workflow_id") == workflow.get("id"), "workflow identity mismatch")
-    require(workflow.get("path") == CI_WORKFLOW and workflow.get("name") == CI_NAME and workflow.get("state") == "active", "unexpected or inactive CI workflow")
+    require(workflow.get("path") == workflow_path and workflow.get("name") == workflow_name and workflow.get("state") == "active", "unexpected or inactive CI workflow")
     require(run.get("repository", {}).get("full_name") == REPOSITORY, "run repository mismatch")
     require(run.get("head_repository", {}).get("full_name") == REPOSITORY, "run originated from a fork")
     require(run.get("event") == "push" and run.get("head_branch") == "main", "release source must be a main push run")
@@ -120,10 +171,13 @@ def validate_run(args: argparse.Namespace) -> None:
     require(branch.get("name") == "main" and branch.get("protected") is True, "main is not reported as protected")
     require(comparison.get("status") in ("ahead", "identical"), "CI source is not an ancestor of protected main")
     require(comparison.get("base_commit", {}).get("sha") == source_revision, "comparison base is not the CI source")
+    if args.expect_source_revision:
+        require(source_revision == args.expect_source_revision, f"{kind} CI run was built from a different source revision than the Server CI run")
 
-    require(jobs_response.get("total_count") == len(EXPECTED_JOBS), "CI job count differs from the protected release contract")
+    required_jobs = expected_jobs(kind)
+    require(jobs_response.get("total_count") == len(required_jobs), "CI job count differs from the protected release contract")
     jobs = jobs_response.get("jobs")
-    require(isinstance(jobs, list) and len(jobs) == len(EXPECTED_JOBS), "CI jobs response is incomplete")
+    require(isinstance(jobs, list) and len(jobs) == len(required_jobs), "CI jobs response is incomplete")
     names: set[str] = set()
     for job in jobs:
         require(isinstance(job, dict), "invalid CI job record")
@@ -132,11 +186,13 @@ def validate_run(args: argparse.Namespace) -> None:
         names.add(name)
         require(job.get("status") == "completed" and job.get("conclusion") == "success", f"CI job was not successful: {name}")
         require(job.get("head_sha") == source_revision, f"CI job source mismatch: {name}")
-    require(names == EXPECTED_JOBS, "required CI jobs are missing or renamed")
+    require(names == required_jobs, "required CI jobs are missing or renamed")
 
-    require(artifacts_response.get("total_count") == len(EXPECTED_ARTIFACTS), "CI artifact count differs from the release contract")
+    required_artifacts = expected_artifacts(kind, source_revision)
+    downloads = downloaded_artifacts(kind, source_revision)
+    require(artifacts_response.get("total_count") == len(required_artifacts), "CI artifact count differs from the release contract")
     artifacts = artifacts_response.get("artifacts")
-    require(isinstance(artifacts, list) and len(artifacts) == len(EXPECTED_ARTIFACTS), "CI artifacts response is incomplete")
+    require(isinstance(artifacts, list) and len(artifacts) == len(required_artifacts), "CI artifacts response is incomplete")
     artifact_names: set[str] = set()
     artifact_records = []
     for artifact in artifacts:
@@ -151,13 +207,15 @@ def validate_run(args: argparse.Namespace) -> None:
         require(isinstance(artifact_digest, str) and DIGEST.fullmatch(artifact_digest) is not None, f"CI artifact wrapper digest is missing or invalid: {name}")
         workflow_run = artifact.get("workflow_run", {})
         require(workflow_run.get("id") == run_id and workflow_run.get("head_sha") == source_revision, f"CI artifact provenance mismatch: {name}")
-        artifact_records.append({"name": name, "id": artifact["id"], "sizeInBytes": artifact["size_in_bytes"], "digest": artifact_digest})
-    require(artifact_names == EXPECTED_ARTIFACTS, "required CI artifacts are missing or renamed")
+        if name in downloads:
+            artifact_records.append({"name": name, "id": artifact["id"], "sizeInBytes": artifact["size_in_bytes"], "digest": artifact_digest})
+    require(artifact_names == required_artifacts, "required CI artifacts are missing or renamed")
 
     provenance = {
         "schema": 1,
+        "kind": kind,
         "repository": REPOSITORY,
-        "workflow": CI_WORKFLOW,
+        "workflow": workflow_path,
         "workflowId": workflow["id"],
         "runId": run_id,
         "runAttempt": run.get("run_attempt"),
@@ -167,17 +225,20 @@ def validate_run(args: argparse.Namespace) -> None:
         "artifacts": sorted(artifact_records, key=lambda record: record["name"]),
     }
     canonical_json(pathlib.Path(args.output), provenance)
-    if args.github_output:
-        with pathlib.Path(args.github_output).open("a", encoding="utf-8") as output:
-            output.write(f"source_sha={source_revision}\n")
+    emit_outputs(args.github_output, {"source_sha": source_revision})
     print(json.dumps(provenance, sort_keys=True))
 
 
 def download_artifacts(args: argparse.Namespace) -> None:
     provenance = load_json(pathlib.Path(args.run_provenance))
     require(provenance.get("repository") == REPOSITORY, "artifact repository mismatch")
+    kind = provenance.get("kind")
+    require(kind in ("server", "android"), "run provenance does not identify a known CI workflow")
+    source_revision = provenance.get("sourceRevision")
+    require(isinstance(source_revision, str) and SHA.fullmatch(source_revision) is not None, "run provenance source revision is invalid")
     records = provenance.get("artifacts", [])
-    require(len(records) == len(EXPECTED_ARTIFACTS) and {item["name"] for item in records} == EXPECTED_ARTIFACTS, "artifact download inventory mismatch")
+    downloads = downloaded_artifacts(kind, source_revision)
+    require(len(records) == len(downloads) and {item["name"] for item in records} == downloads, "artifact download inventory mismatch")
     root = pathlib.Path(args.output_dir)
     root.mkdir(parents=True)
     for record in records:
@@ -188,7 +249,7 @@ def download_artifacts(args: argparse.Namespace) -> None:
                 subprocess.run(["gh", "api", f"repos/{REPOSITORY}/actions/artifacts/{record['id']}/zip"], stdout=output, check=True)
             require(archive.stat().st_size == record["sizeInBytes"], "artifact ZIP size differs from GitHub record")
             require(f"sha256:{sha256_file(archive)}" == record["digest"], "artifact ZIP digest differs from GitHub record")
-            destination = root / record["name"]
+            destination = root / (args.artifact_name or record["name"])
             destination.mkdir()
             with zipfile.ZipFile(archive) as bundle:
                 for member in bundle.infolist():
@@ -240,7 +301,7 @@ def validate_registry_image(path: pathlib.Path, server_manifest: dict[str, Any],
 def validate_index(index_path: pathlib.Path, image_paths: dict[str, pathlib.Path]) -> dict[str, Any]:
     payload, value = raw_payload(index_path)
     require(value.get("schemaVersion") == 2, "unsupported registry index schema")
-    require(value.get("mediaType") in ("application/vnd.oci.image.index.v1+json", "application/vnd.docker.distribution.manifest.list.v2+json"), "preview reference is not a multi-platform index")
+    require(value.get("mediaType") in ("application/vnd.oci.image.index.v1+json", "application/vnd.docker.distribution.manifest.list.v2+json"), "published reference is not a multi-platform index")
     manifests = value.get("manifests")
     require(isinstance(manifests, list) and len(manifests) == 2, "published index must contain exactly two manifests")
     found: dict[str, dict[str, Any]] = {}
@@ -289,12 +350,19 @@ def copy_regular(source: pathlib.Path, destination: pathlib.Path) -> None:
 
 
 def stage_release(args: argparse.Namespace) -> None:
-    validate_identity(args.source_revision, args.release_tag, args.image_tag)
+    identity = validate_identity(args.source_revision, args.release_tag, args.image_tag)
     root = pathlib.Path(args.artifact_root)
     provenance = load_json(pathlib.Path(args.run_provenance))
+    require(provenance.get("kind") == "server", "run provenance is not a Server CI run")
     require(provenance.get("repository") == REPOSITORY and provenance.get("workflow") == CI_WORKFLOW, "run provenance identity mismatch")
     require(provenance.get("runId") == int(args.run_id) and provenance.get("sourceRevision") == args.source_revision, "run provenance source mismatch")
     require({record.get("name") for record in provenance.get("artifacts", [])} == EXPECTED_ARTIFACTS, "run provenance artifact set mismatch")
+
+    android_provenance = load_json(pathlib.Path(args.android_run_provenance))
+    require(android_provenance.get("kind") == "android", "Android run provenance is not an Android CI run")
+    require(android_provenance.get("repository") == REPOSITORY and android_provenance.get("workflow") == ANDROID_WORKFLOW, "Android run provenance identity mismatch")
+    require(android_provenance.get("runId") == int(args.android_run_id), "Android run provenance run mismatch")
+    require(android_provenance.get("sourceRevision") == args.source_revision, "Android CI run source revision differs from the Server CI run")
 
     server_manifests = {
         architecture: ci_artifact.verify_server_artifact(root / f"server-image-{architecture}", architecture, args.source_revision)
@@ -308,6 +376,9 @@ def stage_release(args: argparse.Namespace) -> None:
         root / "jastreamer-server-windows-x64",
         args.source_revision,
     )
+    android_directory = pathlib.Path(args.android_dir)
+    android_manifest = ci_artifact.verify_android_release_artifact(android_directory, args.source_revision)
+    require(android_manifest["ci"]["runId"] == int(args.android_run_id), "signed Android APK was produced from a different Android CI run")
     image_paths = {"amd64": pathlib.Path(args.amd64_raw), "arm64": pathlib.Path(args.arm64_raw)}
     published_images = {
         architecture: validate_registry_image(image_paths[architecture], server_manifests[architecture], architecture)
@@ -335,11 +406,16 @@ def stage_release(args: argparse.Namespace) -> None:
         copy_regular(source / "verification.json", output / f"{prefix}.verification.json")
     for architecture in ("amd64", "arm64"):
         copy_regular(root / f"server-image-{architecture}" / "manifest.json", output / f"jastreamer-server_{VERSION}_linux-{architecture}.manifest.json")
+    android_apk = ci_artifact.ANDROID_RELEASE_APK
+    copy_regular(android_directory / android_apk, output / android_apk)
+    copy_regular(android_directory / f"{android_apk}.sha256", output / f"{android_apk}.sha256")
+    copy_regular(android_directory / "manifest.json", output / f"{ANDROID_ASSET_PREFIX}.manifest.json")
 
     server_publication = {
         "schema": 1,
         "product": "jastreamer-server",
         "version": VERSION,
+        "channel": identity["channel"],
         "releaseTag": args.release_tag,
         "imageTag": args.image_tag,
         "sourceRevision": args.source_revision,
@@ -365,6 +441,7 @@ def stage_release(args: argparse.Namespace) -> None:
     release_provenance = {
         "schema": 1,
         "repository": REPOSITORY,
+        "channel": identity["channel"],
         "releaseTag": args.release_tag,
         "imageTag": args.image_tag,
         "productVersion": VERSION,
@@ -372,18 +449,95 @@ def stage_release(args: argparse.Namespace) -> None:
         "ciRunId": int(args.run_id),
         "ciWorkflow": CI_WORKFLOW,
         "ciArtifacts": provenance["artifacts"],
+        "androidRunId": int(args.android_run_id),
+        "androidWorkflow": ANDROID_WORKFLOW,
+        "androidArtifacts": android_provenance["artifacts"],
         "serverPublicationManifest": {"path": publication_name, "sha256": sha256_file(output / publication_name)},
         "desktop": desktop_receipts,
         "windowsServer": windows_server_receipt,
-        "prerelease": True,
-        "latest": False,
+        "android": android_manifest,
+        "codeSigning": {
+            "windowsAuthenticode": False,
+            "linuxServerImages": False,
+            "androidApk": android_manifest["signerCertificateSha256"],
+        },
+        "prerelease": identity["prerelease"],
+        "latest": identity["latest"],
         "productionQualified": False,
     }
     canonical_json(output / "release-provenance.json", release_provenance)
     asset_names = sorted(entry.name for entry in output.iterdir())
     require("SHA256SUMS" not in asset_names, "unexpected checksum file before staging")
     (output / "SHA256SUMS").write_text("".join(f"{sha256_file(output / name)}  {name}\n" for name in asset_names), encoding="ascii")
-    print(json.dumps({"assets": asset_names + ["SHA256SUMS"], "index": index, "images": published_images}, sort_keys=True))
+    print(json.dumps({"channel": identity["channel"], "assets": asset_names + ["SHA256SUMS"], "index": index, "images": published_images}, sort_keys=True))
+
+
+def render_notes(args: argparse.Namespace) -> None:
+    staged = pathlib.Path(args.staged)
+    provenance = load_json(staged / "release-provenance.json")
+    identity = validate_identity(provenance["sourceRevision"], provenance["releaseTag"], provenance["imageTag"])
+    require(provenance.get("channel") == identity["channel"], "staged release channel mismatch")
+    publication = load_json(staged / provenance["serverPublicationManifest"]["path"])
+    tag = provenance["releaseTag"]
+    registry = publication["registry"]
+    android = provenance["android"]
+    assets = sorted(entry.name for entry in staged.iterdir() if entry.is_file())
+
+    lines: list[str] = []
+    if identity["channel"] == "stable":
+        lines += [
+            f"jastreamer {VERSION} is the stable release for this version. It is published as the latest release.",
+            "",
+        ]
+    else:
+        lines += [
+            f"jastreamer {tag} is a preview of {VERSION}. It is published as a prerelease, is never marked latest, and is not production qualified.",
+            "",
+        ]
+    lines += [
+        f"Every asset was published from the protected-main CI run {provenance['ciRunId']} and the Android CI run {provenance['androidRunId']}, both built from commit `{provenance['sourceRevision']}`.",
+        "",
+        "## Linux Server images",
+        "",
+        f"Multi-architecture index `{registry}:{provenance['imageTag']}`, immutable digest references:",
+        "",
+        f"- index: `{registry}@{publication['index']['digest']}`",
+    ]
+    for image in publication["images"]:
+        lines.append(f"- {image['platform']}: `{registry}@{image['manifestDigest']}`")
+    lines += [
+        "",
+        "Pull by digest to guarantee the exact bytes verified by this workflow. No mutable `latest` image tag is published.",
+        "Bundled AirPlay output is Linux Server-only; the Windows Server does not include it.",
+        "",
+        "## Windows packages are not Authenticode-signed",
+        "",
+        "The Windows Server ZIP and the Windows desktop ZIP carry no Authenticode signature, so Windows marks the downloads as coming from the internet.",
+        f"Verify the published SHA-256 sums and unblock the archive before extracting: [code signing policy]({DOCUMENTATION}/{tag}/README.md#code-signing-policy), [Windows unblock steps]({DOCUMENTATION}/{tag}/INSTALL.md#windows-unblock).",
+        "",
+        "## Android APK",
+        "",
+        f"`{android['apk']['path']}` is signed with the jastreamer Android release key (v2 and v3 signature schemes).",
+        f"Signer certificate SHA-256: `{android['signerCertificateSha256']}`",
+        "",
+        "Confirm the signer before installing:",
+        "",
+        "```",
+        f"apksigner verify --print-certs {android['apk']['path']}",
+        "```",
+        "",
+        "## Assets",
+        "",
+    ]
+    lines += [f"- `{name}`" for name in assets]
+    lines += [
+        "",
+        "`SHA256SUMS` lists the SHA-256 of every other asset; each package also ships an individual `.sha256` sidecar and a manifest describing its verified contents.",
+        "",
+    ]
+    text = "\n".join(lines)
+    pathlib.Path(args.output).write_text(text, encoding="utf-8")
+    print(text)
 
 
 def request(url: str, *, token: str | None = None, method: str = "GET", accept: str | None = None) -> tuple[bytes, dict[str, str]]:
@@ -496,15 +650,20 @@ def verify_anonymous(args: argparse.Namespace) -> None:
 
 
 def verify_public_release(args: argparse.Namespace) -> None:
-    validate_identity(args.source_revision, args.release_tag, args.image_tag)
+    identity = validate_identity(args.source_revision, args.release_tag, args.image_tag)
     release = load_json(pathlib.Path(args.release_json))
     require(release.get("tag_name") == args.release_tag, "public GitHub release tag mismatch")
     require(release.get("target_commitish") == args.source_revision, "public GitHub release source mismatch")
-    require(release.get("draft") is False and release.get("prerelease") is True, "GitHub release is not a published prerelease")
+    require(release.get("draft") is False, "public GitHub release is still a draft")
+    require(release.get("prerelease") is identity["prerelease"], f"GitHub release prerelease flag does not match the {identity['channel']} channel")
     require(release.get("url") == f"https://api.github.com/repos/{REPOSITORY}/releases/{release.get('id')}", "public GitHub release repository mismatch")
-    if args.latest_json:
+    if identity["latest"]:
+        require(bool(args.latest_json), "stable releases must be verified against the anonymous latest-release response")
         latest = load_json(pathlib.Path(args.latest_json))
-        require(latest.get("id") != release.get("id"), "preview release was incorrectly marked latest")
+        require(latest.get("id") == release.get("id") and latest.get("tag_name") == args.release_tag, "anonymous latest release does not resolve to this stable tag")
+    elif args.latest_json:
+        latest = load_json(pathlib.Path(args.latest_json))
+        require(latest.get("id") != release.get("id") and latest.get("tag_name") != args.release_tag, "preview release was incorrectly marked latest")
     staged = pathlib.Path(args.staged)
     expected = {entry.name: entry for entry in staged.iterdir() if entry.is_file()}
     assets = release.get("assets")
@@ -524,12 +683,18 @@ def verify_public_release(args: argparse.Namespace) -> None:
         require(downloaded_size == expected[name].stat().st_size, f"public release asset download size differs from CI-verified bytes: {name}")
         require(downloaded_digest == sha256_file(expected[name]), f"public release asset bytes differ from CI-verified bytes: {name}")
     require(seen == set(expected), "public GitHub release assets are incomplete")
-    print(json.dumps({"publicPrerelease": True, "latest": False, "assets": sorted(seen)}, sort_keys=True))
+    require(ci_artifact.ANDROID_RELEASE_APK in seen, "public GitHub release is missing the signed Android APK")
+    print(json.dumps({"channel": identity["channel"], "prerelease": identity["prerelease"], "latest": identity["latest"], "assets": sorted(seen)}, sort_keys=True))
 
 
 def check_identity(args: argparse.Namespace) -> None:
-    validate_identity(args.source_revision, args.release_tag, args.image_tag)
-    print(json.dumps({"sourceRevision": args.source_revision, "releaseTag": args.release_tag, "imageTag": args.image_tag}, sort_keys=True))
+    identity = validate_identity(args.source_revision, args.release_tag, args.image_tag)
+    emit_outputs(args.github_output, {
+        "channel": identity["channel"],
+        "prerelease": "true" if identity["prerelease"] else "false",
+        "latest": "true" if identity["latest"] else "false",
+    })
+    print(json.dumps({"sourceRevision": args.source_revision, "releaseTag": args.release_tag, "imageTag": args.image_tag, **identity}, sort_keys=True))
 
 
 def main() -> None:
@@ -540,17 +705,21 @@ def main() -> None:
     identity_parser.add_argument("--source-revision", required=True)
     identity_parser.add_argument("--release-tag", required=True)
     identity_parser.add_argument("--image-tag", required=True)
+    identity_parser.add_argument("--github-output")
     identity_parser.set_defaults(function=check_identity)
 
     run_parser = subparsers.add_parser("validate-run")
     for option in ("run", "workflow", "branch", "comparison", "jobs", "artifacts", "repository", "run-id", "output"):
         run_parser.add_argument(f"--{option}", required=True)
+    run_parser.add_argument("--kind", choices=("server", "android"), required=True)
+    run_parser.add_argument("--expect-source-revision")
     run_parser.add_argument("--github-output")
     run_parser.set_defaults(function=validate_run)
 
     download_parser = subparsers.add_parser("download-artifacts")
     download_parser.add_argument("--run-provenance", required=True)
     download_parser.add_argument("--output-dir", required=True)
+    download_parser.add_argument("--artifact-name")
     download_parser.set_defaults(function=download_artifacts)
 
     image_parser = subparsers.add_parser("validate-registry-image")
@@ -573,9 +742,28 @@ def main() -> None:
     missing_parser.set_defaults(function=registry_missing)
 
     stage_parser = subparsers.add_parser("stage-release")
-    for option in ("artifact-root", "run-provenance", "run-id", "source-revision", "release-tag", "image-tag", "amd64-raw", "arm64-raw", "index-raw", "output-dir"):
+    for option in (
+        "artifact-root",
+        "run-provenance",
+        "run-id",
+        "android-run-provenance",
+        "android-run-id",
+        "android-dir",
+        "source-revision",
+        "release-tag",
+        "image-tag",
+        "amd64-raw",
+        "arm64-raw",
+        "index-raw",
+        "output-dir",
+    ):
         stage_parser.add_argument(f"--{option}", required=True)
     stage_parser.set_defaults(function=stage_release)
+
+    notes_parser = subparsers.add_parser("render-notes")
+    notes_parser.add_argument("--staged", required=True)
+    notes_parser.add_argument("--output", required=True)
+    notes_parser.set_defaults(function=render_notes)
 
     anonymous_parser = subparsers.add_parser("verify-anonymous-registry")
     for option in ("artifact-root", "source-revision", "release-tag", "image-tag", "output-dir"):

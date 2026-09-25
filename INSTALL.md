@@ -4,7 +4,7 @@
 
 jastreamer is one Server plus optional clients. The Server owns the library, the shared queue, playback, and the Web interface; the desktop apps, the Android app, the iOS client, and the phone PWA are views of that Server on a trusted private LAN. Install the Server first, then add only the clients you need.
 
-Releases are published on [GitHub Releases](https://github.com/furyheimdall/jastreamer/releases) and are currently labelled prereleases (`v0.2.0-preview.N`). The Windows Server ZIP and the Windows desktop ZIP are not Authenticode-signed, Android APKs come from CI as development artifacts, and iOS is source and CI only. Verify every download, read the selected release's limitations, and confirm operation on your own network and receivers before relying on it.
+Releases are published on [GitHub Releases](https://github.com/furyheimdall/jastreamer/releases). A stable release is tagged `vX.Y.Z`, is marked as GitHub's **latest** release, and is the one to install; older `v0.2.0-preview.N` entries stay prereleases and are excluded from `/releases/latest`. The Windows Server ZIP and the Windows desktop ZIP are not Authenticode-signed, the Android APK is signed with the jastreamer Android release key, and iOS is source and CI only. Verify every download before you rely on it, and confirm operation on your own network and receivers.
 
 | What you want to do | Follow this branch |
 | --- | --- |
@@ -30,7 +30,7 @@ For agent-assisted installation or updates, start at [AGENTS.md](AGENTS.md); its
 | Windows Server | Windows x64 and a writable local folder, run by an ordinary account. Not installed as a Windows service | `jastreamer-server_0.2.0_windows-x64.zip` |
 | Windows desktop | Windows 10/11 x64; no ARM64 package | `jastreamer-desktop_0.2.0_windows-x64.zip` |
 | Linux desktop | Graphical Linux `amd64`; Ubuntu 24.04 amd64 is the qualification target; no ARM64 package | `jastreamer-desktop_0.2.0_linux-amd64.deb` |
-| Android client | Android 10 (API 29) or newer, plus an Android System WebView that supports `MULTI_PROFILE` | CI APK, development testing only |
+| Android client | Android 10 (API 29) or newer, plus an Android System WebView that supports `MULTI_PROFILE` | `jastreamer-android_0.2.0_release.apk`, signed with the release key |
 | iOS client | iOS/iPadOS 18.4 or newer; macOS with Xcode 16.4 and the iOS 18.5 simulator runtime for the pinned CI scenario | Source and CI only |
 | Phone PWA | A phone browser and an HTTPS origin the phone trusts | None; served by the Server |
 
@@ -70,13 +70,13 @@ AirPlay is available only in the Linux image, through its packaged helper. Do no
 
 ### Choose the release
 
-Inspect the complete [GitHub Releases listing](https://github.com/furyheimdall/jastreamer/releases), not only `/releases/latest`. Among published, non-draft **Server** releases, compare entries in publication-time order, include prereleases, and keep their Preview label. Choose the most recently published entry that supports your host architecture and the package you need; if the newest entry is incompatible, say why and use the newest compatible one.
+Prefer the newest stable release: on the [GitHub Releases listing](https://github.com/furyheimdall/jastreamer/releases) it is the `vX.Y.Z` entry without a Preview label, and `/releases/latest` resolves to it. Choose a `vX.Y.Z-preview.N` prerelease only when you are deliberately testing that preview, and remember that previews are never marked latest. Whichever you pick, confirm the entry supports your host architecture and the package you need; if the newest one is incompatible, say why and use the newest compatible entry.
 
-Verify the release provenance, source revision, package or image manifest, SHA-256 values, and architecture together, and download the Server image reference, Windows ZIPs, desktop packages, checksums, and manifests from that one release. Optional sample setup applies only when the selected release actually inventories `samples/manifest.json`, the three MP3 assets, and the seeding helper; repository files that were never published are not features of an older release.
+Verify the release provenance, source revision, package or image manifest, SHA-256 values, and architecture together, and download the Server image reference, Windows ZIPs, desktop packages, the Android APK, checksums, and manifests from that one release. `SHA256SUMS` covers every asset, and `release-provenance.json` records the release tag, channel, source revision, CI runs, and the Android signer certificate. Optional sample setup applies only when the selected release actually inventories `samples/manifest.json`, the three MP3 assets, and the seeding helper; repository files that were never published are not features of an older release.
 
 ### Public registry image
 
-The registry is `ghcr.io/furyheimdall/jastreamer-server` and public images pull without a GitHub token. Pin the complete immutable digest published for the `linux/amd64` or `linux/arm64` image; never use a floating `latest` tag or a guessed tag:
+The registry is `ghcr.io/furyheimdall/jastreamer-server` and public images pull without a GitHub token. A stable release publishes the multi-architecture index as tag `0.2.0` together with per-architecture digests, and no mutable `latest` image tag exists. Pin the complete immutable digest the release lists for the `linux/amd64` or `linux/arm64` image rather than any tag:
 
 ```sh
 export JASTREAMER_SERVER_IMAGE='ghcr.io/furyheimdall/jastreamer-server@sha256:<digest-from-release>'
@@ -257,16 +257,38 @@ Recent Servers, language, cookies, and sessions live in `$XDG_CONFIG_HOME/jastre
 
 The Kotlin app discovers `_jastreamer._tcp` Servers, checks `/api/v1/discovery`, and opens the selected Server's Web UI. Its **Local playback** entry opens an independent **Saved music** library with its own downloads, playlists, folders, device queue, and Media3 playback of app-owned files, which needs neither Server access nor sign-in. In Server mode the same Media3 service provides **This device** output while the Server owns the queue, and the Android system media controls report their commands back to it. No PWA installation, broad local-music permission, or location permission is required.
 
-**Current Android distribution is development and testing only.** A signed public release is planned but not published. A successful [Android CI run](https://github.com/furyheimdall/jastreamer/actions/workflows/android.yml) produces `jastreamer-android-debug-test-signed-and-release-unsigned-<revision>` for its tested source revision; a pull-request artifact is not a protected-main release. Verify `SHA256SUMS`, `provenance.json`, the revision, application ID, and signing certificate before any separately approved test installation.
+The stable release attaches a signed APK built by CI from the same commit as the Server:
+
+| Asset | What it is |
+| --- | --- |
+| `jastreamer-android_0.2.0_release.apk` | The installable app, signed with the jastreamer Android release key using the v2 and v3 signature schemes. Application ID `io.jastreamer.android`, version name 0.2.0, version code 20000 |
+| `jastreamer-android_0.2.0_release.apk.sha256` | Checksum sidecar for the exact published bytes; `SHA256SUMS` repeats the same value for every asset |
+| `jastreamer-android_0.2.0_release.manifest.json` | Receipt recording the source revision, application ID, SDK range, signature schemes, signer certificate SHA-256, and the unsigned CI APK that was signed |
+
+### Verify and install the APK
+
+1. Download the APK, its `.sha256` sidecar, and `SHA256SUMS` from the release.
+2. Compare the downloaded bytes and the signer certificate with the two commands below. `apksigner` ships with the Android SDK build-tools; on Windows use `Get-FileHash .\jastreamer-android_0.2.0_release.apk -Algorithm SHA256` for the checksum.
+3. Transfer the verified APK to the phone and open it. Grant **Install unknown apps** to the app you opened it with only when Android asks, and revoke that permission afterwards. With an already-authorized ADB connection you can run `adb install jastreamer-android_0.2.0_release.apk` instead.
+4. Play Protect may warn that the app did not come from Google Play. That warning describes the distribution channel, not a detected problem: continue only if step 2 matched, and never disable Play Protect, certificate checks, or device security.
+
+```sh
+sha256sum -c jastreamer-android_0.2.0_release.apk.sha256
+apksigner verify --print-certs jastreamer-android_0.2.0_release.apk
+```
+
+The reported `Signer #1 certificate SHA-256 digest` must be `53285c2c239aff2927ebe6f5c6aebb82fdbb50956ed84b1e9f0222b2d925943e`. Some tools print the same fingerprint in uppercase with colons (`53:28:5C:2C:…:25:94:3E`); compare it with the value shown on the release page. If it differs, stop — a different key means a different app, not an update.
+
+A later release signed with the same key installs over the existing app and keeps its data, because an in-place update needs the same application ID and signer plus a nondecreasing version code. Never uninstall the app or clear its storage to force an update; both erase the app-owned music and state described below. Google has announced developer-verification requirements for apps installed outside Google Play, rolling out country by country, so check the release page for the current distribution status if that already applies in your region.
+
+### Development CI builds
+
+CI artifacts stay development and testing material. A successful [Android CI run](https://github.com/furyheimdall/jastreamer/actions/workflows/android.yml) produces `jastreamer-android-debug-test-signed-and-release-unsigned-<revision>` for its tested source revision, and a pull-request artifact is not a protected-main release.
 
 | Artifact | Status |
 | --- | --- |
-| `*_debug-test-signed.apk` | Installable for development testing only. Application ID `io.jastreamer.android.debug`, generated debug certificate, separate from production `io.jastreamer.android` |
-| `*_release-unsigned.apk` | Not installable until signed. Signing-key custody, approved distribution, and a stable update certificate are separate prerequisites; no private key is included |
-
-Debug certificates can differ between CI runs. If an installed app has a different certificate, stop: never uninstall the app or clear its data to force an update, because either erases the app-owned music and state. A normal in-place update needs the same application ID and certificate plus a compatible, nondecreasing version code.
-
-For an approved test installation, transfer the verified debug APK to the device, open it, and grant the opening app's **Install unknown apps** permission only if needed, removing that permission afterwards. An already-authorized ADB connection can use `adb install -r <verified-debug-apk>` instead. Do not disable Play Protect, certificate checks, or device security, and do not authorize debugging or install host SDK tools implicitly.
+| `*_debug-test-signed.apk` | Development testing only. Application ID `io.jastreamer.android.debug` makes it a separate app: it cannot update the released app and shares none of its saved music, profiles, or preferences. Its debug certificate can change between CI runs |
+| `*_release-unsigned.apk` | Not installable as published. The release workflow signs exactly this file with the release key and records both digests in the release manifest |
 
 Feature coupling between components:
 
@@ -388,7 +410,7 @@ An upgrade preserves the current music, config, and data and adds no samples. On
 
 ### Desktop and client updates
 
-The desktop apps need no package replacement to show an updated Server-hosted Web interface, including the phone and PWA layouts. When a release also updates the desktop executable, follow the [Windows](#desktop-windows) or [Linux](#desktop-linux) procedure and preserve the Windows `user-data` folder or the Linux per-user profile. Android and iOS updates follow their own sections.
+The desktop apps need no package replacement to show an updated Server-hosted Web interface, including the phone and PWA layouts. When a release also updates the desktop executable, follow the [Windows](#desktop-windows) or [Linux](#desktop-linux) procedure and preserve the Windows `user-data` folder or the Linux per-user profile. A newer Android APK signed with the same release key installs over the existing app and keeps its data; iOS updates follow its own section.
 
 <a id="rollback"></a>
 ## Rollback
@@ -410,5 +432,5 @@ Removing software never requires deleting your music. Copy anything you want to 
 | Windows Server | Press Ctrl+C in the console. Move or back up `data`, and any music you keep inside the installation folder, before deleting the folder. Remove the Windows Firewall rule you allowed for `jastreamer-server.exe` |
 | Windows desktop | Quit through the tray (**Exit**), then delete the extracted folder. This also deletes `user-data`, so saved sessions and native-audio preferences are lost |
 | Linux desktop | `sudo apt remove jastreamer-desktop`, which also removes the AppArmor profile the package installed. Delete `~/.config/jastreamer-desktop` separately if you want its saved sessions gone |
-| Android | Uninstall from Android. This erases the entire app container, including saved music, artwork, local playlists, the device queue, folders, preferences, and Server profiles, none of which are in cloud backup |
+| Android | Uninstall from Android. This erases the entire app container, including saved music, artwork, local playlists, the device queue, folders, preferences, and Server profiles, none of which are in cloud backup. The released app (`io.jastreamer.android`) and a development CI build (`io.jastreamer.android.debug`) are separate apps and must be removed separately |
 | Phone PWA | Delete the home-screen shortcut; sign out in the Server UI first if you want the session ended |

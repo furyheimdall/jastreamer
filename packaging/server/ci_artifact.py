@@ -16,6 +16,7 @@ import windows_package
 
 VERSION = "0.2.0"
 SHA256 = re.compile(r"[0-9a-f]{64}")
+CERTIFICATE_SHA256 = re.compile(r"[0-9A-F]{64}")
 REVISION = re.compile(r"[0-9a-f]{40}")
 SERVER_TARGETS = {
     "amd64": ("linux/amd64", "jastreamer-server-ci:amd64", "server-image-amd64.tar"),
@@ -48,6 +49,12 @@ DESKTOP_TARGETS = {
 }
 
 WINDOWS_SERVER_ARCHIVE = windows_package.ARCHIVE_NAME
+ANDROID_APPLICATION_ID = "io.jastreamer.android"
+ANDROID_VERSION_CODE = 20000
+ANDROID_MIN_SDK = 29
+ANDROID_TARGET_SDK = 36
+ANDROID_RELEASE_APK = f"jastreamer-android_{VERSION}_release.apk"
+ANDROID_CERTIFICATE_PIN = pathlib.Path(__file__).resolve().parent.parent / "android" / "release-certificate-sha256.txt"
 
 
 def require(condition: bool, message: str) -> None:
@@ -343,6 +350,94 @@ def verify_windows_server_artifact(directory: pathlib.Path, source_revision: str
     return read_json(directory / "verification.json")
 
 
+def release_certificate_sha256() -> str:
+    regular(ANDROID_CERTIFICATE_PIN)
+    pinned = ANDROID_CERTIFICATE_PIN.read_text(encoding="ascii").strip()
+    require(CERTIFICATE_SHA256.fullmatch(pinned) is not None, "pinned Android release certificate must be 64 uppercase hexadecimal digits")
+    return pinned
+
+
+def android_ci_apk_names(source_revision: str) -> tuple[str, str]:
+    return (
+        f"jastreamer-android_{VERSION}_{source_revision}_debug-test-signed.apk",
+        f"jastreamer-android_{VERSION}_{source_revision}_release-unsigned.apk",
+    )
+
+
+def verify_android_ci_artifact(directory: pathlib.Path, source_revision: str) -> dict[str, Any]:
+    validate_revision(source_revision)
+    require(directory.is_dir(), f"Android CI artifact directory not found: {directory}")
+    debug_apk, release_apk = android_ci_apk_names(source_revision)
+    expected_files = {debug_apk, release_apk, "debug-manifest.xml", "release-manifest.xml", "SHA256SUMS", "provenance.json"}
+    require({entry.name for entry in directory.iterdir()} == expected_files, "Android CI artifact contains missing or unexpected files")
+    verify_sums(directory, {debug_apk, release_apk})
+    provenance = read_json(directory / "provenance.json")
+    require(isinstance(provenance, dict), "Android CI provenance must be an object")
+    require(provenance.get("sourceRevision") == source_revision, "Android CI provenance source revision mismatch")
+    require(provenance.get("version") == VERSION, "Android CI provenance version mismatch")
+    require(provenance.get("productionQualified") is False, "Android CI provenance must not claim production qualification")
+    records = provenance.get("artifacts")
+    require(isinstance(records, list) and len(records) == 2, "Android CI provenance must describe both APKs")
+    described: dict[str, dict[str, Any]] = {}
+    for record in records:
+        require(isinstance(record, dict), "invalid Android CI provenance record")
+        name = record.get("file")
+        require(isinstance(name, str) and name not in described, "duplicate or invalid Android CI provenance file")
+        described[name] = record
+    require(set(described) == {debug_apk, release_apk}, "Android CI provenance does not describe exactly the built APKs")
+    release_record = described[release_apk]
+    require("unsigned" in str(release_record.get("signing", "")), "Android CI release APK is not recorded as unsigned")
+    require("certificateSha256" not in release_record, "Android CI release APK must not carry a signing certificate")
+    apk = directory / release_apk
+    digest = sha256_file(apk)
+    require(release_record.get("size") == apk.stat().st_size, "Android CI release APK size differs from CI provenance")
+    require(release_record.get("sha256") == digest, "Android CI release APK SHA-256 differs from CI provenance")
+    return {"apk": release_apk, "sha256": digest, "bytes": apk.stat().st_size, "sourceRevision": source_revision}
+
+
+def validate_android_manifest(value: Any, directory: pathlib.Path, source_revision: str) -> dict[str, Any]:
+    require(isinstance(value, dict), "Android release manifest must be an object")
+    require(value.get("schema") == 1, "unsupported Android release manifest schema")
+    require(value.get("product") == "jastreamer-android" and value.get("version") == VERSION, "unexpected Android release identity")
+    require(value.get("versionName") == VERSION, "Android versionName differs from the product version")
+    require(value.get("versionCode") == ANDROID_VERSION_CODE, "unexpected Android versionCode")
+    require(value.get("applicationId") == ANDROID_APPLICATION_ID, "unexpected Android applicationId")
+    require(value.get("minSdk") == ANDROID_MIN_SDK and value.get("targetSdk") == ANDROID_TARGET_SDK, "unexpected Android SDK range")
+    require(value.get("sourceRevision") == source_revision, "Android release source revision mismatch")
+    require(value.get("signed") is True, "Android release APK must be signed")
+    schemes = value.get("signatureSchemes")
+    require(isinstance(schemes, dict) and schemes.get("v1") is False and schemes.get("v2") is True and schemes.get("v3") is True, "Android release APK must carry v2 and v3 signatures without v1 JAR signing")
+    certificate = value.get("signerCertificateSha256")
+    require(isinstance(certificate, str) and CERTIFICATE_SHA256.fullmatch(certificate) is not None, "Android signer certificate SHA-256 is missing or malformed")
+    require(certificate == release_certificate_sha256(), "Android signer certificate differs from the pinned release key")
+    apk = value.get("apk")
+    require(isinstance(apk, dict) and apk.get("path") == ANDROID_RELEASE_APK, "unexpected Android release APK name")
+    apk_path = directory / ANDROID_RELEASE_APK
+    require(apk.get("bytes") == apk_path.stat().st_size, "Android release APK size mismatch")
+    require(isinstance(apk.get("sha256"), str) and SHA256.fullmatch(apk["sha256"]) is not None, "Android release APK digest is malformed")
+    require(apk["sha256"] == sha256_file(apk_path), "Android release APK SHA-256 mismatch")
+    origin = value.get("ci")
+    require(isinstance(origin, dict), "Android release manifest must record its CI origin")
+    require(isinstance(origin.get("runId"), int) and origin["runId"] > 0, "Android CI run ID is missing or invalid")
+    unsigned = origin.get("unsignedApk")
+    require(isinstance(unsigned, dict), "Android release manifest must record the unsigned CI APK it signed")
+    require(unsigned.get("path") == android_ci_apk_names(source_revision)[1], "unexpected unsigned Android CI APK name")
+    require(isinstance(unsigned.get("sha256"), str) and SHA256.fullmatch(unsigned["sha256"]) is not None, "unsigned Android CI APK digest is malformed")
+    require(isinstance(unsigned.get("bytes"), int) and unsigned["bytes"] > 0, "unsigned Android CI APK size is missing or invalid")
+    sidecar = directory / f"{ANDROID_RELEASE_APK}.sha256"
+    regular(sidecar)
+    require(sidecar.read_text(encoding="ascii") == f"{apk['sha256']}  {ANDROID_RELEASE_APK}\n", "Android checksum sidecar mismatch")
+    return value
+
+
+def verify_android_release_artifact(directory: pathlib.Path, source_revision: str) -> dict[str, Any]:
+    validate_revision(source_revision)
+    require(directory.is_dir(), f"signed Android artifact directory not found: {directory}")
+    expected_files = {ANDROID_RELEASE_APK, f"{ANDROID_RELEASE_APK}.sha256", "manifest.json"}
+    require({entry.name for entry in directory.iterdir()} == expected_files, "signed Android artifact contains missing or unexpected files")
+    return validate_android_manifest(read_json(directory / "manifest.json"), directory, source_revision)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -375,6 +470,16 @@ def main() -> None:
     verify_windows_server_parser.add_argument("--artifact-dir", required=True)
     verify_windows_server_parser.add_argument("--source-revision", required=True)
     verify_windows_server_parser.set_defaults(function=lambda args: print(json.dumps(verify_windows_server_artifact(pathlib.Path(args.artifact_dir), args.source_revision), sort_keys=True)))
+
+    verify_android_ci_parser = subparsers.add_parser("verify-android-ci")
+    verify_android_ci_parser.add_argument("--artifact-dir", required=True)
+    verify_android_ci_parser.add_argument("--source-revision", required=True)
+    verify_android_ci_parser.set_defaults(function=lambda args: print(json.dumps(verify_android_ci_artifact(pathlib.Path(args.artifact_dir), args.source_revision), sort_keys=True)))
+
+    verify_android_release_parser = subparsers.add_parser("verify-android-release")
+    verify_android_release_parser.add_argument("--artifact-dir", required=True)
+    verify_android_release_parser.add_argument("--source-revision", required=True)
+    verify_android_release_parser.set_defaults(function=lambda args: print(json.dumps(verify_android_release_artifact(pathlib.Path(args.artifact_dir), args.source_revision), sort_keys=True)))
 
     args = parser.parse_args()
     if hasattr(args, "source_revision"):

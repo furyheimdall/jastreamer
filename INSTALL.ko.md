@@ -4,7 +4,7 @@
 
 jastreamer는 Server 하나와 선택 사항인 클라이언트들로 이루어집니다. 보관함, 공용 대기열, 재생과 Web 화면은 Server가 소유하고, 데스크톱 앱·Android 앱·iOS 앱·휴대전화 PWA는 신뢰할 수 있는 사설 LAN에서 그 Server를 바라보는 창입니다. Server를 먼저 설치한 뒤 필요한 클라이언트만 추가하세요.
 
-릴리즈는 [GitHub Releases](https://github.com/furyheimdall/jastreamer/releases)에 게시되며 현재는 모두 프리릴리즈(`v0.2.0-preview.N`)로 표시됩니다. Windows Server ZIP과 Windows 데스크톱 ZIP은 Authenticode 서명이 없고, Android APK는 CI가 만든 개발용 산출물이며, iOS는 소스와 CI만 제공합니다. 내려받은 파일을 모두 검증하고 선택한 릴리즈의 제한을 읽은 뒤, 실제 네트워크와 수신기에서 동작을 확인하고 사용하세요.
+릴리즈는 [GitHub Releases](https://github.com/furyheimdall/jastreamer/releases)에 게시됩니다. 정식 릴리즈는 `vX.Y.Z` 태그로 GitHub의 **latest** 릴리즈로 표시되며 설치 대상은 이 릴리즈입니다. 이전의 `v0.2.0-preview.N` 항목은 프리릴리즈로 남고 `/releases/latest`에 포함되지 않습니다. Windows Server ZIP과 Windows 데스크톱 ZIP에는 Authenticode 서명이 없고, Android APK는 jastreamer Android release 키로 서명하며, iOS는 소스와 CI만 제공합니다. 내려받은 파일은 모두 검증한 뒤 사용하고, 실제 네트워크와 수신기에서 동작을 확인하세요.
 
 | 하려는 작업 | 따라갈 분기 |
 | --- | --- |
@@ -30,7 +30,7 @@ jastreamer는 Server 하나와 선택 사항인 클라이언트들로 이루어�
 | Windows Server | Windows x64와 쓰기 가능한 로컬 폴더, 일반 사용자 계정으로 실행. Windows 서비스로 설치되지 않음 | `jastreamer-server_0.2.0_windows-x64.zip` |
 | Windows 데스크톱 앱 | Windows 10/11 x64. ARM64 패키지는 없음 | `jastreamer-desktop_0.2.0_windows-x64.zip` |
 | Linux 데스크톱 앱 | 그래픽 환경이 있는 Linux `amd64`. Ubuntu 24.04 amd64가 검증 대상이며 ARM64 패키지는 없음 | `jastreamer-desktop_0.2.0_linux-amd64.deb` |
-| Android 클라이언트 | Android 10(API 29) 이상과 `MULTI_PROFILE`을 지원하는 Android System WebView | CI APK, 개발·테스트 전용 |
+| Android 클라이언트 | Android 10(API 29) 이상과 `MULTI_PROFILE`을 지원하는 Android System WebView | release 키로 서명한 `jastreamer-android_0.2.0_release.apk` |
 | iOS 클라이언트 | iOS/iPadOS 18.4 이상. 고정된 CI 시나리오는 macOS의 Xcode 16.4와 iOS 18.5 시뮬레이터 런타임 사용 | 소스와 CI만 제공 |
 | 휴대전화 PWA | 휴대전화 브라우저와 그 기기가 신뢰하는 HTTPS origin | 별도 패키지 없음, Server가 제공 |
 
@@ -70,13 +70,13 @@ AirPlay는 Linux 이미지에 포함된 helper로만 제공됩니다. 위 포트
 
 ### 릴리즈 선택
 
-`/releases/latest`만 보지 말고 전체 [GitHub Releases 목록](https://github.com/furyheimdall/jastreamer/releases)을 확인하세요. 게시된 non-draft **Server** 릴리즈를 게시 시각 순으로 비교하되 프리릴리즈도 포함하고 Preview 표시는 그대로 유지합니다. 호스트 아키텍처와 필요한 패키지를 지원하는 항목 중 가장 최근에 게시된 릴리즈를 고르고, 최신 항목이 호환되지 않으면 이유를 밝힌 뒤 가장 최근의 호환 릴리즈를 사용합니다.
+가장 최근의 정식 릴리즈를 우선 사용하세요. [GitHub Releases 목록](https://github.com/furyheimdall/jastreamer/releases)에서 Preview 표시가 없는 `vX.Y.Z` 항목이며 `/releases/latest`도 이 릴리즈를 가리킵니다. `vX.Y.Z-preview.N` 프리릴리즈는 그 프리뷰를 일부러 시험할 때만 선택하고, 프리뷰는 결코 latest로 표시되지 않는다는 점을 기억하세요. 어느 쪽을 고르든 호스트 아키텍처와 필요한 패키지를 지원하는지 확인하고, 최신 항목이 호환되지 않으면 이유를 밝힌 뒤 가장 최근의 호환 항목을 사용합니다.
 
-릴리즈 provenance, source revision, 패키지·이미지 manifest, SHA-256, 아키텍처가 서로 맞는지 함께 검증하고, 이미지 참조와 Windows ZIP, 데스크톱 패키지, 체크섬, manifest를 모두 같은 릴리즈에서 받으세요. 선택 사항인 샘플 설정은 선택한 릴리즈가 `samples/manifest.json`, MP3 세 개, seeding helper를 실제로 목록에 포함할 때만 적용됩니다. 게시되지 않은 저장소 파일을 이전 릴리즈의 기능이라고 설명해서는 안 됩니다.
+릴리즈 provenance, source revision, 패키지·이미지 manifest, SHA-256, 아키텍처가 서로 맞는지 함께 검증하고, 이미지 참조와 Windows ZIP, 데스크톱 패키지, Android APK, 체크섬, manifest를 모두 같은 릴리즈에서 받으세요. `SHA256SUMS`는 모든 자산을 포함하고, `release-provenance.json`에는 릴리즈 태그·채널·소스 리비전·CI 실행과 Android 서명 인증서가 기록됩니다. 선택 사항인 샘플 설정은 선택한 릴리즈가 `samples/manifest.json`, MP3 세 개, seeding helper를 실제로 목록에 포함할 때만 적용됩니다. 게시되지 않은 저장소 파일을 이전 릴리즈의 기능이라고 설명해서는 안 됩니다.
 
 ### 공개 레지스트리 이미지
 
-레지스트리는 `ghcr.io/furyheimdall/jastreamer-server`이며 공개 이미지는 GitHub 토큰 없이 받을 수 있습니다. `linux/amd64` 또는 `linux/arm64` 이미지에 대해 릴리즈가 게시한 완전한 불변 다이제스트를 고정하고, 가변 `latest` 태그나 추측한 태그는 쓰지 마세요.
+레지스트리는 `ghcr.io/furyheimdall/jastreamer-server`이며 공개 이미지는 GitHub 토큰 없이 받을 수 있습니다. 정식 릴리즈는 멀티 아키텍처 index를 `0.2.0` 태그로 게시하고 아키텍처별 다이제스트도 함께 제공하며, 가변 `latest` 이미지 태그는 만들지 않습니다. 태그 대신 릴리즈가 명시한 `linux/amd64` 또는 `linux/arm64` 이미지의 완전한 불변 다이제스트를 고정하세요.
 
 ```sh
 export JASTREAMER_SERVER_IMAGE='ghcr.io/furyheimdall/jastreamer-server@sha256:<digest-from-release>'
@@ -257,16 +257,38 @@ sudo apt install ./jastreamer-desktop_0.2.0_linux-amd64.deb
 
 Kotlin 앱은 `_jastreamer._tcp` Server를 검색하고 `/api/v1/discovery`로 확인한 뒤 선택한 Server의 Web 화면을 엽니다. 홈 화면의 **로컬 재생**은 앱이 소유한 파일을 위한 독립 **저장된 음악** 보관함을 열며, 자체 다운로드·재생목록·폴더·기기 대기열과 Media3 재생을 갖추고 Server 접속이나 로그인이 필요 없습니다. Server 모드에서는 같은 Media3 서비스가 **이 기기** 출력을 제공하되 대기열은 Server가 소유하고, Android 시스템 미디어 제어의 명령도 Server로 보고됩니다. PWA 설치, 광범위한 로컬 음악 권한, 위치 권한은 필요하지 않습니다.
 
-**현재 Android 배포는 개발·테스트 전용입니다.** 서명된 공개 릴리즈는 계획되어 있을 뿐 아직 게시되지 않았습니다. 성공한 [Android CI 실행](https://github.com/furyheimdall/jastreamer/actions/workflows/android.yml)은 시험한 소스 리비전에 대해 `jastreamer-android-debug-test-signed-and-release-unsigned-<revision>` 산출물을 제공하며, PR 산출물은 보호된 main의 릴리즈가 아닙니다. 별도로 승인한 테스트 설치 전에 `SHA256SUMS`, `provenance.json`, 리비전, application ID, 서명 인증서를 검증하세요.
+정식 릴리즈에는 Server와 같은 커밋에서 CI가 빌드한 서명된 APK가 첨부됩니다.
+
+| 자산 | 내용 |
+| --- | --- |
+| `jastreamer-android_0.2.0_release.apk` | 설치용 앱 본체. jastreamer Android release 키로 v2·v3 서명 방식을 사용해 서명했고 application ID는 `io.jastreamer.android`, version name 0.2.0, version code 20000입니다 |
+| `jastreamer-android_0.2.0_release.apk.sha256` | 게시된 바이트에 대한 체크섬 사이드카. `SHA256SUMS`에도 모든 자산의 같은 값이 들어 있습니다 |
+| `jastreamer-android_0.2.0_release.manifest.json` | 소스 리비전, application ID, SDK 범위, 서명 방식, 서명 인증서 SHA-256, 서명 대상이 된 미서명 CI APK를 기록한 확인서 |
+
+### APK 검증과 설치
+
+1. 릴리즈에서 APK와 `.sha256` 사이드카, `SHA256SUMS`를 내려받습니다.
+2. 아래 두 명령으로 내려받은 바이트와 서명 인증서를 확인합니다. `apksigner`는 Android SDK build-tools에 들어 있으며, Windows에서는 체크섬 확인에 `Get-FileHash .\jastreamer-android_0.2.0_release.apk -Algorithm SHA256`을 사용하세요.
+3. 검증한 APK를 휴대전화로 옮겨 엽니다. Android가 물을 때만 파일을 연 앱에 **알 수 없는 앱 설치** 권한을 허용하고, 설치가 끝나면 그 권한을 해제하세요. 이미 승인된 ADB 연결이 있다면 `adb install jastreamer-android_0.2.0_release.apk`도 가능합니다.
+4. Play Protect가 Google Play에서 받은 앱이 아니라고 경고할 수 있습니다. 이는 배포 경로를 알리는 것이지 문제를 찾았다는 뜻이 아닙니다. 2단계가 일치할 때만 계속하고, Play Protect·인증서 검사·기기 보안은 끄지 마세요.
+
+```sh
+sha256sum -c jastreamer-android_0.2.0_release.apk.sha256
+apksigner verify --print-certs jastreamer-android_0.2.0_release.apk
+```
+
+출력된 `Signer #1 certificate SHA-256 digest` 값은 `53285c2c239aff2927ebe6f5c6aebb82fdbb50956ed84b1e9f0222b2d925943e`여야 합니다. 도구에 따라 같은 지문을 대문자와 콜론 형식(`53:28:5C:2C:…:25:94:3E`)으로 표시하므로 릴리즈 페이지에 적힌 값과 비교하세요. 값이 다르면 중단합니다. 키가 다르면 업데이트가 아니라 다른 앱입니다.
+
+같은 release 키로 서명한 다음 릴리즈는 기존 앱 위에 덮어쓰기 설치되어 데이터를 유지합니다. 덮어쓰기 업데이트에는 같은 application ID와 서명자, 낮아지지 않은 version code가 필요하기 때문입니다. 업데이트를 강행하려고 앱을 제거하거나 저장 공간을 지우지 마세요. 아래에서 설명하는 앱 소유 음악과 상태가 모두 사라집니다. Google은 Google Play 밖에서 설치하는 앱에 개발자 신원 확인을 요구하겠다고 발표했고 국가별로 순차 적용할 예정이므로, 해당 지역이라면 릴리즈 페이지에서 현재 배포 상태를 확인하세요.
+
+### 개발용 CI 빌드
+
+CI 산출물은 개발·테스트용입니다. 성공한 [Android CI 실행](https://github.com/furyheimdall/jastreamer/actions/workflows/android.yml)은 시험한 소스 리비전에 대해 `jastreamer-android-debug-test-signed-and-release-unsigned-<revision>`을 제공하며, PR 산출물은 보호된 main의 릴리즈가 아닙니다.
 
 | 산출물 | 상태 |
 | --- | --- |
-| `*_debug-test-signed.apk` | 개발 테스트로만 설치 가능. application ID `io.jastreamer.android.debug`, 생성된 debug 인증서이며 production ID `io.jastreamer.android`와 분리 |
-| `*_release-unsigned.apk` | 서명 전에는 설치 불가. 서명 키 보관, 승인된 배포 경로, 안정적인 업데이트 인증서는 별도 전제이며 개인 키는 포함되지 않음 |
-
-debug 인증서는 CI 실행마다 달라질 수 있습니다. 설치된 앱의 인증서가 다르면 중단하세요. 업데이트를 강행하려고 앱을 제거하거나 데이터를 지우면 앱 소유 음악과 상태가 모두 사라집니다. 일반적인 덮어쓰기 업데이트에는 같은 application ID와 인증서, 그리고 낮아지지 않은 호환 version code가 필요합니다.
-
-승인된 테스트 설치에서는 검증한 debug APK를 기기로 옮겨 열고, 필요할 때만 파일을 여는 앱에 **알 수 없는 앱 설치** 권한을 허용한 뒤 설치가 끝나면 그 권한을 해제하세요. 이미 승인된 ADB 연결이 있다면 `adb install -r <검증한-debug-apk>`도 가능합니다. Play Protect, 인증서 검사, 기기 보안을 끄지 말고 디버깅 허용이나 호스트 SDK 도구 설치를 임의로 진행하지 마세요.
+| `*_debug-test-signed.apk` | 개발 테스트 전용. application ID가 `io.jastreamer.android.debug`라 정식 앱과 별개의 앱이며, 정식 앱을 업데이트할 수 없고 저장된 음악·프로필·환경설정도 공유하지 않습니다. debug 인증서는 CI 실행마다 달라질 수 있습니다 |
+| `*_release-unsigned.apk` | 게시된 상태로는 설치할 수 없습니다. 릴리즈 워크플로가 바로 이 파일을 release 키로 서명하고 두 파일의 다이제스트를 릴리즈 확인서에 기록합니다 |
 
 구성 요소 간 의존 관계:
 
@@ -388,7 +410,7 @@ Linux Server 업데이트는 검증한 이미지로 컨테이너를 교체하는
 
 ### 데스크톱과 클라이언트 업데이트
 
-데스크톱 앱은 휴대전화·PWA 화면을 포함해 Server가 제공하는 최신 Web 화면을 보기 위해 패키지를 교체할 필요가 없습니다. 릴리즈가 데스크톱 실행 파일도 갱신한 경우에만 [Windows](#desktop-windows) 또는 [Linux](#desktop-linux) 절차를 따르고, Windows의 `user-data` 폴더나 Linux의 사용자 프로필을 보존하세요. Android와 iOS는 각자의 절에서 설명한 절차를 따릅니다.
+데스크톱 앱은 휴대전화·PWA 화면을 포함해 Server가 제공하는 최신 Web 화면을 보기 위해 패키지를 교체할 필요가 없습니다. 릴리즈가 데스크톱 실행 파일도 갱신한 경우에만 [Windows](#desktop-windows) 또는 [Linux](#desktop-linux) 절차를 따르고, Windows의 `user-data` 폴더나 Linux의 사용자 프로필을 보존하세요. 같은 release 키로 서명한 새 Android APK는 기존 앱 위에 덮어쓰기 설치되어 데이터를 유지하며, iOS는 해당 절의 절차를 따릅니다.
 
 <a id="rollback"></a>
 ## 롤백
@@ -410,5 +432,5 @@ Linux Server 업데이트는 검증한 이미지로 컨테이너를 교체하는
 | Windows Server | 콘솔에서 Ctrl+C로 정지합니다. 설치 폴더를 지우기 전에 `data`와 폴더 안에 둔 음악을 옮기거나 백업하세요. `jastreamer-server.exe`에 허용했던 Windows 방화벽 규칙도 정리합니다 |
 | Windows 데스크톱 앱 | 트레이에서 **종료**한 뒤 압축을 푼 폴더를 삭제합니다. `user-data`도 함께 지워지므로 저장된 세션과 네이티브 오디오 설정이 사라집니다 |
 | Linux 데스크톱 앱 | `sudo apt remove jastreamer-desktop`을 실행하면 패키지가 설치했던 AppArmor 프로파일도 제거됩니다. 저장된 세션까지 지우려면 `~/.config/jastreamer-desktop`을 따로 삭제하세요 |
-| Android | Android에서 앱을 제거하면 저장된 음악, 앨범 아트, 로컬 재생목록, 기기 대기열, 폴더, 환경설정, Server 프로필을 포함한 앱 컨테이너 전체가 사라지며 이 데이터는 클라우드 백업 대상이 아닙니다 |
+| Android | Android에서 앱을 제거하면 저장된 음악, 앨범 아트, 로컬 재생목록, 기기 대기열, 폴더, 환경설정, Server 프로필을 포함한 앱 컨테이너 전체가 사라지며 이 데이터는 클라우드 백업 대상이 아닙니다. 정식 앱(`io.jastreamer.android`)과 개발용 CI 빌드(`io.jastreamer.android.debug`)는 서로 다른 앱이므로 각각 제거해야 합니다 |
 | 휴대전화 PWA | 홈 화면 바로가기를 삭제합니다. 세션까지 끝내려면 먼저 Server 화면에서 로그아웃하세요 |
