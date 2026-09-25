@@ -57,7 +57,7 @@ export const playerMessages = {
   "player.windows.loading": { en: "Loading Windows audio status…", ko: "Windows 오디오 상태를 불러오는 중…" },
   "player.windows.statusFailed": { en: "Could not read Windows audio status. Local output is not started until the status is known.", ko: "Windows 오디오 상태를 읽지 못했습니다. 상태가 확인될 때까지 로컬 출력을 시작하지 않습니다." },
   "player.windows.actionFailed": { en: "Could not change Windows audio settings.", ko: "Windows 오디오 설정을 변경하지 못했습니다." },
-  "player.windows.configurationSaved": { en: "Windows audio settings changed. Select This device again to reconnect local output.", ko: "Windows 오디오 설정을 변경했습니다. 로컬 출력을 다시 연결하려면 이 기기를 다시 선택하세요." },
+  "player.windows.configurationSaved": { en: "Windows audio settings saved. They apply from the next track.", ko: "Windows 오디오 설정을 저장했습니다. 다음 곡부터 적용됩니다." },
   "player.windows.backend": { en: "Local audio backend", ko: "로컬 오디오 백엔드" },
   "player.windows.backend.browser": { en: "Browser (default)", ko: "브라우저(기본값)" },
   "player.windows.backend.native": { en: "Windows native (opt in)", ko: "Windows 네이티브(선택 사용)" },

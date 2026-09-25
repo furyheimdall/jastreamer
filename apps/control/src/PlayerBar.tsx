@@ -89,6 +89,11 @@ export default function PlayerBar({ revision, phoneExpanded, onPhoneExpandedChan
   const [devices, setDevices] = useState<Device[]>([]);
   const [localBrowserDevice, setLocalBrowserDevice] = useState<Device | null>(null);
   const [pendingLocalReconnect, setPendingLocalReconnect] = useState(false);
+  // The last registered local output survives the moment a backend switch releases it.
+  const lastLocalOutputID = useRef("");
+  useEffect(() => {
+    if (localBrowserDevice) lastLocalOutputID.current = localBrowserDevice.id;
+  }, [localBrowserDevice]);
   const [browserAutoplayBlocked, setBrowserAutoplayBlocked] = useState(false);
   const [position, setPosition] = useState(0);
   const [seeking, setSeeking] = useState(false);
@@ -117,7 +122,7 @@ export default function PlayerBar({ revision, phoneExpanded, onPhoneExpandedChan
   const [windowsSettingsOpen, setWindowsSettingsOpen] = useState(false);
   const [windowsConfigurationError, setWindowsConfigurationError] = useState("");
   const [windowsConfigurationBusy, setWindowsConfigurationBusy] = useState(false);
-  const [defaultBrowserName] = useState(() => localOutputName(usesNativeAndroid));
+  const [defaultBrowserName] = useState(() => localOutputName(usesNativeAndroid, windowsBridge !== null));
   const [browserAlias, setBrowserAlias] = useState("");
   const [nameDraft, setNameDraft] = useState("");
   const [nameStorageKey, setNameStorageKey] = useState<string | null>(null);
@@ -422,7 +427,8 @@ export default function PlayerBar({ revision, phoneExpanded, onPhoneExpandedChan
     // Endpoint/exclusive changes keep the same local output. Switching between browser and
     // native audio replaces it, so reselect this device when it was the selected output.
     const reconnect = configuration.enabled !== windowsAudioState.audio.enabled
-      && Boolean(localBrowserDevice && localBrowserDevice.id === player.renderer_id);
+      && Boolean(player.renderer_id)
+      && player.renderer_id === (localBrowserDevice?.id ?? lastLocalOutputID.current);
     setWindowsConfigurationBusy(true);
     setWindowsConfigurationError("");
     setBusy("windows-output");

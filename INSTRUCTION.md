@@ -112,7 +112,7 @@ On page entry, if the previously selected output is offline and playback is stop
 
 When the selected **This device** belongs to this page/app, **Local volume** adjusts it from 0–100%. Expand the player on phones. This controls browser audio, Windows native PCM gain, or Android's Server-mode Media3 volume, not system-wide volume, network renderers or other devices. Native controls require the corresponding Desktop/APK build.
 
-The default name describes the OS/browser information available to the page, not the computer's hostname or a phone's user-assigned name. Use the pencil button **Name this local output** beside the output selector to save an alias such as **Office PC**. **Use default name**, or saving an empty alias, restores the automatic name. Names are limited to 80 UTF-8 bytes; Korean characters can use several bytes each.
+In a browser the default name describes the OS/browser information available to the page, not the computer's hostname or a phone's user-assigned name. The native apps use fixed defaults: **Windows · jastreamer** and **Android · jastreamer**. Use the pencil button **Name this local output** beside the output selector to save an alias such as **Office PC**. **Use default name**, or saving an empty alias, restores the automatic name. Names are limited to 80 UTF-8 bytes; Korean characters can use several bytes each.
 
 The alias is saved in this browser profile for this Server UUID and exact origin (including port). It does not follow you to another browser/profile, private browsing session or replacement Server. Storage failures are reported rather than claimed as saved. Clearing browser storage removes the alias.
 
