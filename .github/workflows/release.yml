@@ -1,0 +1,617 @@
+name: Public Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      ci_run_id:
+        description: Successful Server, Web, and Desktop CI run ID from a protected-main push
+        required: true
+        type: string
+      android_run_id:
+        description: Successful Android CI run ID from the same protected-main push
+        required: true
+        type: string
+      release_tag:
+        description: Public GitHub release tag (vX.Y.Z for stable, vX.Y.Z-preview.N for a preview)
+        required: true
+        default: v0.2.0
+        type: string
+      image_tag:
+        description: GHCR image tag without a leading v (X.Y.Z or X.Y.Z-preview.N)
+        required: true
+        default: 0.2.0
+        type: string
+
+permissions:
+  actions: read
+  contents: read
+
+concurrency:
+  group: public-release
+  cancel-in-progress: false
+
+jobs:
+  sign-android:
+    name: Sign the verified Android release APK
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    environment: android-release-signing
+    permissions:
+      actions: read
+      contents: read
+    env:
+      GH_TOKEN: ${{ github.token }}
+      RUN_ID: ${{ inputs.ci_run_id }}
+      ANDROID_RUN_ID: ${{ inputs.android_run_id }}
+      RELEASE_TAG: ${{ inputs.release_tag }}
+      IMAGE_TAG: ${{ inputs.image_tag }}
+      ANDROID_ASSET: jastreamer-android_0.2.0_release.apk
+    steps:
+      - name: Restrict dispatch origin
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "${GITHUB_REPOSITORY}" = "furyheimdall/jastreamer"
+          test "${GITHUB_REF}" = "refs/heads/main"
+          test "${GITHUB_EVENT_NAME}" = "workflow_dispatch"
+          printf '%s\n' \
+            "METADATA_DIR=${RUNNER_TEMP}/jastreamer-android-metadata" \
+            "ARTIFACT_DIR=${RUNNER_TEMP}/jastreamer-android-ci" \
+            "SIGNING_DIR=${RUNNER_TEMP}/jastreamer-android-signing" \
+            "SIGNED_DIR=${RUNNER_TEMP}/jastreamer-android-signed" >> "${GITHUB_ENV}"
+      - name: Check out the protected release implementation
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Validate release input grammar
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "${RUN_ID}" != "${GITHUB_RUN_ID}"
+          test "${ANDROID_RUN_ID}" != "${GITHUB_RUN_ID}"
+          test "${ANDROID_RUN_ID}" != "${RUN_ID}"
+          python3 packaging/server/publish-release.py validate-identity \
+            --source-revision "${GITHUB_SHA}" \
+            --release-tag "${RELEASE_TAG}" \
+            --image-tag "${IMAGE_TAG}"
+          for candidate in "${RUN_ID}" "${ANDROID_RUN_ID}"; do
+            case "${candidate}" in
+              ''|*[!0-9]*) echo "run IDs must be positive decimal workflow run IDs" >&2; exit 64 ;;
+            esac
+            test "${candidate}" -gt 0
+          done
+      - name: Resolve the Server CI source revision
+        id: provenance
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "${METADATA_DIR}"
+          gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${RUN_ID}" > "${METADATA_DIR}/run.json"
+          workflow_id="$(jq -er '.workflow_id | select(type == "number" and . > 0)' "${METADATA_DIR}/run.json")"
+          source_sha="$(jq -er '.head_sha | select(test("^[0-9a-f]{40}$"))' "${METADATA_DIR}/run.json")"
+          gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/${workflow_id}" > "${METADATA_DIR}/workflow.json"
+          gh api "repos/${GITHUB_REPOSITORY}/branches/main" > "${METADATA_DIR}/branch.json"
+          gh api "repos/${GITHUB_REPOSITORY}/compare/${source_sha}...main" > "${METADATA_DIR}/comparison.json"
+          gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${RUN_ID}/jobs?filter=latest&per_page=100" > "${METADATA_DIR}/jobs.json"
+          gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${RUN_ID}/artifacts?per_page=100" > "${METADATA_DIR}/artifacts.json"
+          python3 packaging/server/publish-release.py validate-run \
+            --kind server \
+            --run "${METADATA_DIR}/run.json" \
+            --workflow "${METADATA_DIR}/workflow.json" \
+            --branch "${METADATA_DIR}/branch.json" \
+            --comparison "${METADATA_DIR}/comparison.json" \
+            --jobs "${METADATA_DIR}/jobs.json" \
+            --artifacts "${METADATA_DIR}/artifacts.json" \
+            --repository "${GITHUB_REPOSITORY}" \
+            --run-id "${RUN_ID}" \
+            --output "${METADATA_DIR}/run-provenance.json" \
+            --github-output "${GITHUB_OUTPUT}"
+      - name: Require an Android CI run from the same protected-main push
+        shell: bash
+        env:
+          SOURCE_SHA: ${{ steps.provenance.outputs.source_sha }}
+        run: |
+          set -euo pipefail
+          gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${ANDROID_RUN_ID}" > "${METADATA_DIR}/android-run.json"
+          workflow_id="$(jq -er '.workflow_id | select(type == "number" and . > 0)' "${METADATA_DIR}/android-run.json")"
+          gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/${workflow_id}" > "${METADATA_DIR}/android-workflow.json"
+          gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${ANDROID_RUN_ID}/jobs?filter=latest&per_page=100" > "${METADATA_DIR}/android-jobs.json"
+          gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${ANDROID_RUN_ID}/artifacts?per_page=100" > "${METADATA_DIR}/android-artifacts.json"
+          python3 packaging/server/publish-release.py validate-run \
+            --kind android \
+            --run "${METADATA_DIR}/android-run.json" \
+            --workflow "${METADATA_DIR}/android-workflow.json" \
+            --branch "${METADATA_DIR}/branch.json" \
+            --comparison "${METADATA_DIR}/comparison.json" \
+            --jobs "${METADATA_DIR}/android-jobs.json" \
+            --artifacts "${METADATA_DIR}/android-artifacts.json" \
+            --repository "${GITHUB_REPOSITORY}" \
+            --run-id "${ANDROID_RUN_ID}" \
+            --expect-source-revision "${SOURCE_SHA}" \
+            --output "${METADATA_DIR}/android-run-provenance.json"
+      - name: Check out the exact successful CI source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.provenance.outputs.source_sha }}
+          persist-credentials: false
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - name: Set up pinned Android SDK tools and components
+        uses: android-actions/setup-android@v3
+        with:
+          cmdline-tools-version: "12266719"
+          packages: "platform-tools platforms;android-36 build-tools;35.0.0"
+      - name: Download only the APK artifact from the selected Android CI run
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 packaging/server/publish-release.py download-artifacts \
+            --run-provenance "${METADATA_DIR}/android-run-provenance.json" \
+            --artifact-name android-ci \
+            --output-dir "${ARTIFACT_DIR}"
+      - name: Verify the unsigned CI release APK and its provenance
+        id: unsigned
+        shell: bash
+        env:
+          SOURCE_SHA: ${{ steps.provenance.outputs.source_sha }}
+        run: |
+          set -euo pipefail
+          python3 packaging/server/ci_artifact.py verify-android-ci \
+            --artifact-dir "${ARTIFACT_DIR}/android-ci" \
+            --source-revision "${SOURCE_SHA}" > "${METADATA_DIR}/android-unsigned.json"
+          cat "${METADATA_DIR}/android-unsigned.json"
+          unsigned="${ARTIFACT_DIR}/android-ci/$(jq -er '.apk' "${METADATA_DIR}/android-unsigned.json")"
+          apksigner="${ANDROID_HOME}/build-tools/35.0.0/apksigner"
+          zipalign="${ANDROID_HOME}/build-tools/35.0.0/zipalign"
+          if "${apksigner}" verify "${unsigned}" >/dev/null 2>&1; then
+            echo "CI release APK must arrive unsigned" >&2
+            exit 1
+          fi
+          "${zipalign}" -c -p 4 "${unsigned}"
+          printf 'unsigned_apk=%s\n' "${unsigned}" >> "${GITHUB_OUTPUT}"
+      - name: Sign the release APK with the pinned Android release key
+        shell: bash
+        env:
+          UNSIGNED_APK: ${{ steps.unsigned.outputs.unsigned_apk }}
+          KEYSTORE_B64: ${{ secrets.ANDROID_RELEASE_KEYSTORE_B64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_RELEASE_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_RELEASE_KEY_ALIAS }}
+        run: |
+          set -euo pipefail
+          umask 077
+          test -n "${KEYSTORE_B64}"
+          test -n "${KEYSTORE_PASSWORD}"
+          test -n "${KEY_ALIAS}"
+          mkdir -p "${SIGNING_DIR}" "${SIGNED_DIR}"
+          chmod 700 "${SIGNING_DIR}"
+          keystore="${SIGNING_DIR}/release.p12"
+          password="${SIGNING_DIR}/release.pass"
+          install -m 600 /dev/null "${keystore}"
+          install -m 600 /dev/null "${password}"
+          printf '%s' "${KEYSTORE_B64}" | base64 --decode > "${keystore}"
+          printf '%s\n' "${KEYSTORE_PASSWORD}" > "${password}"
+          test -s "${keystore}"
+          test "$(stat -c %a "${keystore}")" = 600
+          test "$(stat -c %a "${password}")" = 600
+          "${ANDROID_HOME}/build-tools/35.0.0/apksigner" sign \
+            --ks "${keystore}" \
+            --ks-type PKCS12 \
+            --ks-pass "file:${password}" \
+            --key-pass "file:${password}" \
+            --ks-key-alias "${KEY_ALIAS}" \
+            --v1-signing-enabled false \
+            --v2-signing-enabled true \
+            --v3-signing-enabled true \
+            --v4-signing-enabled false \
+            --out "${SIGNED_DIR}/${ANDROID_ASSET}" \
+            "${UNSIGNED_APK}"
+      - name: Remove the signing key material
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          if test -d "${SIGNING_DIR}"; then
+            find "${SIGNING_DIR}" -type f -exec shred --remove --zero {} +
+            rm -rf "${SIGNING_DIR}"
+          fi
+          test ! -e "${SIGNING_DIR}"
+      - name: Verify the signature, the pinned signer certificate, and record the APK manifest
+        shell: bash
+        env:
+          SOURCE_SHA: ${{ steps.provenance.outputs.source_sha }}
+        run: |
+          set -euo pipefail
+          apksigner="${ANDROID_HOME}/build-tools/35.0.0/apksigner"
+          zipalign="${ANDROID_HOME}/build-tools/35.0.0/zipalign"
+          signed="${SIGNED_DIR}/${ANDROID_ASSET}"
+          "${zipalign}" -c -p 4 "${signed}"
+          "${apksigner}" verify --min-sdk-version 29 --max-sdk-version 36 --verbose --print-certs "${signed}" \
+            > "${METADATA_DIR}/apksigner-verify.txt"
+          cat "${METADATA_DIR}/apksigner-verify.txt"
+          grep -qx 'Verified using v1 scheme (JAR signing): false' "${METADATA_DIR}/apksigner-verify.txt"
+          grep -qx 'Verified using v2 scheme (APK Signature Scheme v2): true' "${METADATA_DIR}/apksigner-verify.txt"
+          grep -qx 'Verified using v3 scheme (APK Signature Scheme v3): true' "${METADATA_DIR}/apksigner-verify.txt"
+          grep -qx 'Number of signers: 1' "${METADATA_DIR}/apksigner-verify.txt"
+          certificate="$(sed -n 's/^Signer #1 certificate SHA-256 digest: //p' "${METADATA_DIR}/apksigner-verify.txt" | tr 'a-f' 'A-F')"
+          pinned="$(tr -d '[:space:]' < packaging/android/release-certificate-sha256.txt)"
+          test -n "${certificate}"
+          test "${certificate}" = "${pinned}"
+          test "$(apkanalyzer manifest application-id "${signed}")" = "io.jastreamer.android"
+          test "$(apkanalyzer manifest version-code "${signed}")" = "20000"
+          test "$(apkanalyzer manifest version-name "${signed}")" = "0.2.0"
+          test "$(apkanalyzer manifest min-sdk "${signed}")" = "29"
+          test "$(apkanalyzer manifest target-sdk "${signed}")" = "36"
+          sha256="$(sha256sum "${signed}" | cut -d ' ' -f 1)"
+          printf '%s  %s\n' "${sha256}" "${ANDROID_ASSET}" > "${signed}.sha256"
+          jq -n \
+            --arg apk "${ANDROID_ASSET}" \
+            --arg sha256 "${sha256}" \
+            --argjson size "$(stat -c %s "${signed}")" \
+            --arg certificate "${certificate}" \
+            --arg source_revision "${SOURCE_SHA}" \
+            --argjson run_id "${ANDROID_RUN_ID}" \
+            --argjson unsigned "$(cat "${METADATA_DIR}/android-unsigned.json")" \
+            '{
+              schema: 1,
+              product: "jastreamer-android",
+              version: "0.2.0",
+              versionName: "0.2.0",
+              versionCode: 20000,
+              applicationId: "io.jastreamer.android",
+              minSdk: 29,
+              targetSdk: 36,
+              sourceRevision: $source_revision,
+              signed: true,
+              signatureSchemes: {v1: false, v2: true, v3: true},
+              signerCertificateSha256: $certificate,
+              apk: {path: $apk, bytes: $size, sha256: $sha256},
+              ci: {
+                workflow: ".github/workflows/android.yml",
+                runId: $run_id,
+                unsignedApk: {path: $unsigned.apk, bytes: $unsigned.bytes, sha256: $unsigned.sha256}
+              }
+            }' > "${SIGNED_DIR}/manifest.json"
+          python3 packaging/server/ci_artifact.py verify-android-release \
+            --artifact-dir "${SIGNED_DIR}" \
+            --source-revision "${SOURCE_SHA}"
+      - name: Upload only the signed APK and its manifest
+        uses: actions/upload-artifact@v4
+        with:
+          name: jastreamer-android-release-signed-${{ github.run_id }}
+          path: ${{ env.SIGNED_DIR }}/
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 7
+
+  publish:
+    name: Publish exact protected-main CI artifacts
+    needs: sign-android
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    environment: public-preview
+    permissions:
+      actions: read
+      contents: write
+      packages: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      RUN_ID: ${{ inputs.ci_run_id }}
+      ANDROID_RUN_ID: ${{ inputs.android_run_id }}
+      RELEASE_TAG: ${{ inputs.release_tag }}
+      IMAGE_TAG: ${{ inputs.image_tag }}
+      IMAGE_REPOSITORY: ghcr.io/furyheimdall/jastreamer-server
+    steps:
+      - name: Restrict dispatch origin
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "${GITHUB_REPOSITORY}" = "furyheimdall/jastreamer"
+          test "${GITHUB_REF}" = "refs/heads/main"
+          test "${GITHUB_EVENT_NAME}" = "workflow_dispatch"
+          printf '%s\n' \
+            "METADATA_DIR=${RUNNER_TEMP}/jastreamer-release-metadata" \
+            "ARTIFACT_DIR=${RUNNER_TEMP}/jastreamer-release-artifacts" \
+            "ANDROID_DIR=${RUNNER_TEMP}/jastreamer-release-android" \
+            "REGISTRY_DIR=${RUNNER_TEMP}/jastreamer-release-registry" \
+            "RELEASE_DIR=${RUNNER_TEMP}/jastreamer-release-assets" >> "${GITHUB_ENV}"
+      - name: Check out the protected release implementation
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Validate release input grammar and resolve the channel
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "${RUN_ID}" != "${GITHUB_RUN_ID}"
+          test "${ANDROID_RUN_ID}" != "${GITHUB_RUN_ID}"
+          test "${ANDROID_RUN_ID}" != "${RUN_ID}"
+          python3 packaging/server/publish-release.py validate-identity \
+            --source-revision "${GITHUB_SHA}" \
+            --release-tag "${RELEASE_TAG}" \
+            --image-tag "${IMAGE_TAG}"
+          for candidate in "${RUN_ID}" "${ANDROID_RUN_ID}"; do
+            case "${candidate}" in
+              ''|*[!0-9]*) echo "run IDs must be positive decimal workflow run IDs" >&2; exit 64 ;;
+            esac
+            test "${candidate}" -gt 0
+          done
+      - name: Retrieve CI run identity, checks, and artifact records
+        id: provenance
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "${METADATA_DIR}"
+          gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${RUN_ID}" > "${METADATA_DIR}/run.json"
+          workflow_id="$(jq -er '.workflow_id | select(type == "number" and . > 0)' "${METADATA_DIR}/run.json")"
+          source_sha="$(jq -er '.head_sha | select(test("^[0-9a-f]{40}$"))' "${METADATA_DIR}/run.json")"
+          gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/${workflow_id}" > "${METADATA_DIR}/workflow.json"
+          gh api "repos/${GITHUB_REPOSITORY}/branches/main" > "${METADATA_DIR}/branch.json"
+          gh api "repos/${GITHUB_REPOSITORY}/compare/${source_sha}...main" > "${METADATA_DIR}/comparison.json"
+          gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${RUN_ID}/jobs?filter=latest&per_page=100" > "${METADATA_DIR}/jobs.json"
+          gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${RUN_ID}/artifacts?per_page=100" > "${METADATA_DIR}/artifacts.json"
+          python3 packaging/server/publish-release.py validate-run \
+            --kind server \
+            --run "${METADATA_DIR}/run.json" \
+            --workflow "${METADATA_DIR}/workflow.json" \
+            --branch "${METADATA_DIR}/branch.json" \
+            --comparison "${METADATA_DIR}/comparison.json" \
+            --jobs "${METADATA_DIR}/jobs.json" \
+            --artifacts "${METADATA_DIR}/artifacts.json" \
+            --repository "${GITHUB_REPOSITORY}" \
+            --run-id "${RUN_ID}" \
+            --output "${METADATA_DIR}/run-provenance.json" \
+            --github-output "${GITHUB_OUTPUT}"
+      - name: Revalidate release inputs against the selected source
+        id: identity
+        shell: bash
+        env:
+          SOURCE_SHA: ${{ steps.provenance.outputs.source_sha }}
+        run: |
+          set -euo pipefail
+          python3 packaging/server/publish-release.py validate-identity \
+            --source-revision "${SOURCE_SHA}" \
+            --release-tag "${RELEASE_TAG}" \
+            --image-tag "${IMAGE_TAG}" \
+            --github-output "${GITHUB_OUTPUT}"
+      - name: Revalidate the Android CI run against the selected source
+        shell: bash
+        env:
+          SOURCE_SHA: ${{ steps.provenance.outputs.source_sha }}
+        run: |
+          set -euo pipefail
+          gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${ANDROID_RUN_ID}" > "${METADATA_DIR}/android-run.json"
+          workflow_id="$(jq -er '.workflow_id | select(type == "number" and . > 0)' "${METADATA_DIR}/android-run.json")"
+          gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/${workflow_id}" > "${METADATA_DIR}/android-workflow.json"
+          gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${ANDROID_RUN_ID}/jobs?filter=latest&per_page=100" > "${METADATA_DIR}/android-jobs.json"
+          gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${ANDROID_RUN_ID}/artifacts?per_page=100" > "${METADATA_DIR}/android-artifacts.json"
+          python3 packaging/server/publish-release.py validate-run \
+            --kind android \
+            --run "${METADATA_DIR}/android-run.json" \
+            --workflow "${METADATA_DIR}/android-workflow.json" \
+            --branch "${METADATA_DIR}/branch.json" \
+            --comparison "${METADATA_DIR}/comparison.json" \
+            --jobs "${METADATA_DIR}/android-jobs.json" \
+            --artifacts "${METADATA_DIR}/android-artifacts.json" \
+            --repository "${GITHUB_REPOSITORY}" \
+            --run-id "${ANDROID_RUN_ID}" \
+            --expect-source-revision "${SOURCE_SHA}" \
+            --output "${METADATA_DIR}/android-run-provenance.json"
+      - name: Require an unused GitHub release tag
+        shell: bash
+        run: |
+          set -euo pipefail
+          response="$(mktemp)"
+          require_absent() {
+            local url="$1"
+            local status
+            status="$(curl --silent --show-error --output "${response}" --write-out '%{http_code}' \
+              --header "Accept: application/vnd.github+json" \
+              --header "Authorization: Bearer ${GH_TOKEN}" \
+              --header "X-GitHub-Api-Version: 2022-11-28" \
+              "${url}")"
+            if test "${status}" != 404; then
+              echo "Expected an unused release reference, received HTTP ${status} from ${url}" >&2
+              cat "${response}" >&2
+              exit 1
+            fi
+          }
+          require_absent "https://api.github.com/repos/${GITHUB_REPOSITORY}/releases/tags/${RELEASE_TAG}"
+          require_absent "https://api.github.com/repos/${GITHUB_REPOSITORY}/git/ref/tags/${RELEASE_TAG}"
+      - name: Check out the exact successful CI source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.provenance.outputs.source_sha }}
+          persist-credentials: false
+      - name: Download only artifacts from the selected CI run
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 packaging/server/publish-release.py download-artifacts \
+            --run-provenance "${METADATA_DIR}/run-provenance.json" \
+            --output-dir "${ARTIFACT_DIR}"
+      - name: Download the signed Android APK from the signing job
+        uses: actions/download-artifact@v4
+        with:
+          name: jastreamer-android-release-signed-${{ github.run_id }}
+          path: ${{ env.ANDROID_DIR }}
+      - name: Verify all downloaded CI artifact identities and bytes
+        shell: bash
+        env:
+          SOURCE_SHA: ${{ steps.provenance.outputs.source_sha }}
+        run: |
+          set -euo pipefail
+          python3 packaging/server/ci_artifact.py verify-server --artifact-dir "${ARTIFACT_DIR}/server-image-amd64" --architecture amd64 --source-revision "${SOURCE_SHA}"
+          python3 packaging/server/ci_artifact.py verify-server --artifact-dir "${ARTIFACT_DIR}/server-image-arm64" --architecture arm64 --source-revision "${SOURCE_SHA}"
+          python3 packaging/server/ci_artifact.py verify-windows-server --artifact-dir "${ARTIFACT_DIR}/jastreamer-server-windows-x64" --source-revision "${SOURCE_SHA}"
+          python3 packaging/server/ci_artifact.py verify-desktop --artifact-dir "${ARTIFACT_DIR}/jastreamer-desktop-windows-x64" --target windows-x64 --source-revision "${SOURCE_SHA}"
+          python3 packaging/server/ci_artifact.py verify-desktop --artifact-dir "${ARTIFACT_DIR}/jastreamer-desktop-linux-amd64" --target linux-amd64 --source-revision "${SOURCE_SHA}"
+          python3 packaging/server/ci_artifact.py verify-android-release --artifact-dir "${ANDROID_DIR}" --source-revision "${SOURCE_SHA}"
+      - uses: docker/setup-buildx-action@v3
+      - name: Authenticate to GHCR for publication
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+      - name: Load the exact verified native images
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker image load --input "${ARTIFACT_DIR}/server-image-amd64/server-image-amd64.tar"
+          docker image load --input "${ARTIFACT_DIR}/server-image-arm64/server-image-arm64.tar"
+          test "$(docker image inspect --format '{{.Os}}/{{.Architecture}}' jastreamer-server-ci:amd64)" = linux/amd64
+          test "$(docker image inspect --format '{{.Os}}/{{.Architecture}}' jastreamer-server-ci:arm64)" = linux/arm64
+      - name: Publish or reuse matching immutable architecture references
+        shell: bash
+        env:
+          SOURCE_SHA: ${{ steps.provenance.outputs.source_sha }}
+        run: |
+          set -euo pipefail
+          mkdir -p "${REGISTRY_DIR}"
+          publish_architecture() {
+            local architecture="$1"
+            local reference="${IMAGE_REPOSITORY}:${IMAGE_TAG}-${architecture}"
+            local raw="${REGISTRY_DIR}/${architecture}-raw.json"
+            local error="${REGISTRY_DIR}/${architecture}-lookup-error.txt"
+            if docker buildx imagetools inspect --raw "${reference}" > "${raw}" 2> "${error}"; then
+              python3 packaging/server/publish-release.py validate-registry-image \
+                --raw "${raw}" \
+                --artifact-dir "${ARTIFACT_DIR}/server-image-${architecture}" \
+                --architecture "${architecture}" \
+                --source-revision "${SOURCE_SHA}" \
+                --output "${REGISTRY_DIR}/${architecture}.json"
+              echo "Reusing existing matching ${reference}; no mutable overwrite was attempted."
+              return
+            fi
+            python3 packaging/server/publish-release.py require-missing-reference --error "${error}"
+            docker image tag "jastreamer-server-ci:${architecture}" "${reference}"
+            docker image push "${reference}"
+            docker buildx imagetools inspect --raw "${reference}" > "${raw}"
+            python3 packaging/server/publish-release.py validate-registry-image \
+              --raw "${raw}" \
+              --artifact-dir "${ARTIFACT_DIR}/server-image-${architecture}" \
+              --architecture "${architecture}" \
+              --source-revision "${SOURCE_SHA}" \
+              --output "${REGISTRY_DIR}/${architecture}.json"
+          }
+          publish_architecture amd64
+          publish_architecture arm64
+      - name: Publish or reuse the matching two-architecture index
+        shell: bash
+        run: |
+          set -euo pipefail
+          reference="${IMAGE_REPOSITORY}:${IMAGE_TAG}"
+          raw="${REGISTRY_DIR}/index-raw.json"
+          error="${REGISTRY_DIR}/index-lookup-error.txt"
+          if docker buildx imagetools inspect --raw "${reference}" > "${raw}" 2> "${error}"; then
+            python3 packaging/server/publish-release.py validate-registry-index \
+              --raw "${raw}" \
+              --amd64-raw "${REGISTRY_DIR}/amd64-raw.json" \
+              --arm64-raw "${REGISTRY_DIR}/arm64-raw.json" \
+              --output "${REGISTRY_DIR}/index.json"
+            echo "Reusing existing matching ${reference}; no mutable overwrite was attempted."
+          else
+            python3 packaging/server/publish-release.py require-missing-reference --error "${error}"
+            amd64_digest="$(jq -er '.manifestDigest | select(test("^sha256:[0-9a-f]{64}$"))' "${REGISTRY_DIR}/amd64.json")"
+            arm64_digest="$(jq -er '.manifestDigest | select(test("^sha256:[0-9a-f]{64}$"))' "${REGISTRY_DIR}/arm64.json")"
+            docker buildx imagetools create \
+              --tag "${reference}" \
+              "${IMAGE_REPOSITORY}@${amd64_digest}" \
+              "${IMAGE_REPOSITORY}@${arm64_digest}"
+            docker buildx imagetools inspect --raw "${reference}" > "${raw}"
+            python3 packaging/server/publish-release.py validate-registry-index \
+              --raw "${raw}" \
+              --amd64-raw "${REGISTRY_DIR}/amd64-raw.json" \
+              --arm64-raw "${REGISTRY_DIR}/arm64-raw.json" \
+              --output "${REGISTRY_DIR}/index.json"
+          fi
+      - name: Verify anonymous access to both manifests and every image blob
+        shell: bash
+        env:
+          SOURCE_SHA: ${{ steps.provenance.outputs.source_sha }}
+        run: |
+          set -euo pipefail
+          docker logout ghcr.io
+          DOCKER_CONFIG="$(mktemp -d)"
+          export DOCKER_CONFIG
+          python3 packaging/server/publish-release.py verify-anonymous-registry \
+            --artifact-root "${ARTIFACT_DIR}" \
+            --source-revision "${SOURCE_SHA}" \
+            --release-tag "${RELEASE_TAG}" \
+            --image-tag "${IMAGE_TAG}" \
+            --output-dir "${REGISTRY_DIR}/anonymous"
+      - name: Stage exact Server, desktop, and signed Android assets with manifests and checksums
+        shell: bash
+        env:
+          SOURCE_SHA: ${{ steps.provenance.outputs.source_sha }}
+        run: |
+          set -euo pipefail
+          python3 packaging/server/publish-release.py stage-release \
+            --artifact-root "${ARTIFACT_DIR}" \
+            --run-provenance "${METADATA_DIR}/run-provenance.json" \
+            --run-id "${RUN_ID}" \
+            --android-run-provenance "${METADATA_DIR}/android-run-provenance.json" \
+            --android-run-id "${ANDROID_RUN_ID}" \
+            --android-dir "${ANDROID_DIR}" \
+            --source-revision "${SOURCE_SHA}" \
+            --release-tag "${RELEASE_TAG}" \
+            --image-tag "${IMAGE_TAG}" \
+            --amd64-raw "${REGISTRY_DIR}/amd64-raw.json" \
+            --arm64-raw "${REGISTRY_DIR}/arm64-raw.json" \
+            --index-raw "${REGISTRY_DIR}/index-raw.json" \
+            --output-dir "${RELEASE_DIR}"
+      - name: Generate channel-appropriate release notes
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 packaging/server/publish-release.py render-notes \
+            --staged "${RELEASE_DIR}" \
+            --output "${METADATA_DIR}/release-notes.md"
+      - name: Publish the public GitHub release without changing asset bytes
+        shell: bash
+        env:
+          SOURCE_SHA: ${{ steps.provenance.outputs.source_sha }}
+          CHANNEL: ${{ steps.identity.outputs.channel }}
+        run: |
+          set -euo pipefail
+          channel_arguments=(--prerelease --latest=false)
+          if test "${CHANNEL}" = stable; then
+            channel_arguments=(--latest)
+          fi
+          gh release create "${RELEASE_TAG}" "${RELEASE_DIR}"/* \
+            --repo "${GITHUB_REPOSITORY}" \
+            --target "${SOURCE_SHA}" \
+            --title "jastreamer ${RELEASE_TAG}" \
+            --notes-file "${METADATA_DIR}/release-notes.md" \
+            "${channel_arguments[@]}"
+      - name: Verify public release metadata and anonymously downloaded bytes
+        shell: bash
+        env:
+          SOURCE_SHA: ${{ steps.provenance.outputs.source_sha }}
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error --location \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/releases/tags/${RELEASE_TAG}" \
+            --output "${REGISTRY_DIR}/public-release.json"
+          latest_status="$(curl --silent --show-error --location --output "${REGISTRY_DIR}/latest-release.json" --write-out '%{http_code}' \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/releases/latest")"
+          if test "${latest_status}" = 200; then
+            latest_argument=(--latest-json "${REGISTRY_DIR}/latest-release.json")
+          elif test "${latest_status}" = 404; then
+            latest_argument=()
+          else
+            echo "Unexpected anonymous latest-release response: HTTP ${latest_status}" >&2
+            exit 1
+          fi
+          python3 packaging/server/publish-release.py verify-public-release \
+            --release-json "${REGISTRY_DIR}/public-release.json" \
+            --staged "${RELEASE_DIR}" \
+            --source-revision "${SOURCE_SHA}" \
+            --release-tag "${RELEASE_TAG}" \
+            --image-tag "${IMAGE_TAG}" \
+            "${latest_argument[@]}"

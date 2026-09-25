@@ -7,7 +7,7 @@ if errorlevel 1 goto setup_failed
 if errorlevel 1 goto setup_failed
 echo.
 echo jastreamer Windows x64 portable Server 0.2.0
-echo Unsigned public preview; not production-qualified.
+echo Not Authenticode-signed; verify the published SHA-256 before use.
 echo Default first-run URL: http://127.0.0.1:18080. For custom listeners, use the configured address.
 echo AirPlay and FFmpeg transcoding are not bundled.
 echo Press Ctrl+C to stop. Keep this window open while using the server.
