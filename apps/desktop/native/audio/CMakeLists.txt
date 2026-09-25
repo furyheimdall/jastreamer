@@ -21,9 +21,10 @@ if(WIN32)
     message(FATAL_ERROR "JASTREAMER_FFMPEG_ROOT is required on Windows; use scripts/build-native.ps1")
   endif()
   foreach(component IN ITEMS avformat avcodec avutil swresample)
+    # FFmpeg's MSVC shared build installs import libraries beside its DLLs.
     find_library(FFMPEG_${component}_LIBRARY
       NAMES ${component}
-      PATHS "${JASTREAMER_FFMPEG_ROOT}/lib"
+      PATHS "${JASTREAMER_FFMPEG_ROOT}/bin"
       NO_DEFAULT_PATH REQUIRED)
     if(component STREQUAL "avformat")
       set(dll_name "avformat-62.dll")
