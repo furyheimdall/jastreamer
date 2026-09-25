@@ -291,7 +291,7 @@ jobs:
     needs: sign-android
     runs-on: ubuntu-24.04
     timeout-minutes: 45
-    environment: public-preview
+    environment: public-release
     permissions:
       actions: read
       contents: write
@@ -594,23 +594,38 @@ jobs:
           SOURCE_SHA: ${{ steps.provenance.outputs.source_sha }}
         run: |
           set -euo pipefail
-          curl --fail --silent --show-error --location \
-            "https://api.github.com/repos/${GITHUB_REPOSITORY}/releases/tags/${RELEASE_TAG}" \
-            --output "${REGISTRY_DIR}/public-release.json"
-          latest_status="$(curl --silent --show-error --location --output "${REGISTRY_DIR}/latest-release.json" --write-out '%{http_code}' \
-            "https://api.github.com/repos/${GITHUB_REPOSITORY}/releases/latest")"
-          if test "${latest_status}" = 200; then
-            latest_argument=(--latest-json "${REGISTRY_DIR}/latest-release.json")
-          elif test "${latest_status}" = 404; then
-            latest_argument=()
-          else
-            echo "Unexpected anonymous latest-release response: HTTP ${latest_status}" >&2
-            exit 1
-          fi
-          python3 packaging/server/publish-release.py verify-public-release \
-            --release-json "${REGISTRY_DIR}/public-release.json" \
-            --staged "${RELEASE_DIR}" \
-            --source-revision "${SOURCE_SHA}" \
-            --release-tag "${RELEASE_TAG}" \
-            --image-tag "${IMAGE_TAG}" \
-            "${latest_argument[@]}"
+          # The public API can briefly lag behind `gh release create`. Retry the whole
+          # anonymous verification for a bounded time; a persistent mismatch still fails.
+          verify_public() {
+            local status latest_status
+            status="$(curl --silent --show-error --location --output "${REGISTRY_DIR}/public-release.json" --write-out '%{http_code}' \
+              "https://api.github.com/repos/${GITHUB_REPOSITORY}/releases/tags/${RELEASE_TAG}")"
+            if test "${status}" != 200; then
+              echo "Anonymous release lookup returned HTTP ${status}" >&2
+              return 1
+            fi
+            latest_status="$(curl --silent --show-error --location --output "${REGISTRY_DIR}/latest-release.json" --write-out '%{http_code}' \
+              "https://api.github.com/repos/${GITHUB_REPOSITORY}/releases/latest")"
+            if test "${latest_status}" = 200; then
+              latest_argument=(--latest-json "${REGISTRY_DIR}/latest-release.json")
+            elif test "${latest_status}" = 404; then
+              latest_argument=()
+            else
+              echo "Unexpected anonymous latest-release response: HTTP ${latest_status}" >&2
+              return 1
+            fi
+            python3 packaging/server/publish-release.py verify-public-release \
+              --release-json "${REGISTRY_DIR}/public-release.json" \
+              --staged "${RELEASE_DIR}" \
+              --source-revision "${SOURCE_SHA}" \
+              --release-tag "${RELEASE_TAG}" \
+              --image-tag "${IMAGE_TAG}" \
+              "${latest_argument[@]}"
+          }
+          for attempt in 1 2 3 4 5 6 7 8 9 10 11 12; do
+            if verify_public; then exit 0; fi
+            echo "Public release verification attempt ${attempt} failed; retrying in 10 seconds" >&2
+            sleep 10
+          done
+          echo "Public release verification did not succeed within the propagation window" >&2
+          exit 1
