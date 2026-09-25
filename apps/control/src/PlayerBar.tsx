@@ -419,9 +419,10 @@ export default function PlayerBar({ revision, phoneExpanded, onPhoneExpandedChan
     if (!output || !windowsAudioState || windowsConfigurationBusy || busy
       || player?.state !== "stopped" || Boolean(player.pending_command)
       || !windowsAudioState.audio.can_configure) return;
-    // A reconfiguration releases the old local registration; when this device was the
-    // selected output, reconnect it with the new backend instead of leaving a dead output.
-    const reconnect = Boolean(localBrowserDevice && localBrowserDevice.id === player.renderer_id);
+    // Endpoint/exclusive changes keep the same local output. Switching between browser and
+    // native audio replaces it, so reselect this device when it was the selected output.
+    const reconnect = configuration.enabled !== windowsAudioState.audio.enabled
+      && Boolean(localBrowserDevice && localBrowserDevice.id === player.renderer_id);
     setWindowsConfigurationBusy(true);
     setWindowsConfigurationError("");
     setBusy("windows-output");
