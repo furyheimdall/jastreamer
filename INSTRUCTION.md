@@ -146,10 +146,10 @@ On Windows, **X** hides the window in the notification tray while retaining the 
 
 This applies only to compatible Windows Desktop and Server/Web builds; it is not a feature of older published packages. It adds no offline library or independent queue.
 
-1. Stop playback and wait for pending operations. Open **Windows audio settings** beside the player output controls and change **Local audio backend** from **Browser (default)** to **Windows native (opt in)**.
+1. Stop playback and wait for pending operations. Select **This device** as the output; **Windows audio settings** appears beside the output controls only while this device is the selected output. Change **Local audio backend** from **Browser (default)** to **Windows native (opt in)**.
 2. Choose **System default** or a named **Windows audio endpoint**. Refresh outputs after attaching a new device. A missing fixed endpoint is an error, not permission to substitute another device.
 3. **Exclusive → Off** requests WASAPI Shared, using the endpoint's mix format. **On** requests exact-format Exclusive. Busy devices, unsupported formats and Windows exclusive-policy denial remain errors; the app never silently falls back to Shared.
-4. After changing backend, endpoint or mode, select **This device** again and explicitly Play. Paused or loaded media still owns the endpoint and must be stopped before reconfiguration. Preferences persist beside the EXE in `user-data`.
+4. When this device is the selected output, changing backend, endpoint or mode reconnects **This device** automatically with the new settings; playback stays stopped until you explicitly Play. Paused or loaded media still owns the endpoint and must be stopped before reconfiguration. Preferences persist beside the EXE in `user-data`.
 
 The panel separates the requested path from the actual active endpoint, mode, sample rate, channels, container width and valid-bit precision. **Local volume** changes only this app's PCM gain. The bit-transparent application-path indication additionally requires a lossless source explicitly identified by Server as untransformed, unchanged rate/layout/precision, unity gain, and actual Exclusive mode. Unknown source provenance, lossy decoding, Shared mode or altered samples cannot qualify. This indication does **not** verify driver, DSP, DAC or physical bit-perfect output.
 
