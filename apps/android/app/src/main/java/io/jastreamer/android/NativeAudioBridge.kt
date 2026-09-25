@@ -176,6 +176,18 @@ internal class NativeAudioBridge(
                     reply(replyProxy, generation, errorResponse(request.id, "unavailable", "Native playback is unavailable"))
                 }
             }
+            Action.CONFIGURE -> scope.launch {
+                try {
+                    val state = NativePlayback.configure(server, requireNotNull(request.bitPerfect))
+                    reply(replyProxy, generation, response(request.id, state, includeError = false))
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (failure: NativePlaybackException) {
+                    reply(replyProxy, generation, nativeFailure(request.id, failure.code, failure.message))
+                } catch (_: Throwable) {
+                    reply(replyProxy, generation, errorResponse(request.id, "unavailable", "Native playback is unavailable"))
+                }
+            }
         }
     }
 
@@ -301,11 +313,13 @@ internal class NativeAudioBridge(
             "disconnect" -> Action.DISCONNECT
             "set_volume" -> Action.SET_VOLUME
             "rename" -> Action.RENAME
+            "configure" -> Action.CONFIGURE
             else -> throw RequestFailure(id, "Action is not supported")
         }
         val allowedKeys = when (action) {
             Action.STATUS, Action.DISCONNECT -> STATUS_KEYS
             Action.SET_VOLUME -> VOLUME_ACTION_KEYS
+            Action.CONFIGURE -> CONFIGURE_ACTION_KEYS
             Action.CONNECT, Action.CONNECT_IF_AVAILABLE, Action.RENAME -> NAMED_ACTION_KEYS
         }
         val keys = value.keys()
@@ -313,7 +327,7 @@ internal class NativeAudioBridge(
             if (keys.next() !in allowedKeys) throw RequestFailure(id, "Request contains unsupported fields")
         }
         if (action == Action.STATUS || action == Action.DISCONNECT) {
-            return Request(id, action, null, null)
+            return Request(id, action, null, null, null)
         }
         if (action == Action.SET_VOLUME) {
             val rawVolume = value.opt("volume") as? Number
@@ -322,7 +336,12 @@ internal class NativeAudioBridge(
             if (!volume.isFinite() || volume !in 0.0..1.0) {
                 throw RequestFailure(id, "Volume must be between 0 and 1")
             }
-            return Request(id, action, null, volume)
+            return Request(id, action, null, volume, null)
+        }
+        if (action == Action.CONFIGURE) {
+            val bitPerfect = value.opt("bit_perfect") as? Boolean
+                ?: throw RequestFailure(id, "Bit-perfect setting is required")
+            return Request(id, action, null, null, bitPerfect)
         }
 
         val rawName = value.opt("name") as? String
@@ -335,7 +354,7 @@ internal class NativeAudioBridge(
         ) {
             throw RequestFailure(id, "Name is invalid")
         }
-        return Request(id, action, name, null)
+        return Request(id, action, name, null, null)
     }
 
     private fun response(
@@ -347,6 +366,7 @@ internal class NativeAudioBridge(
         put("device", sanitizeDevice(state.optJSONObject("device")))
         if (state.optBoolean("recovering", false)) put("recovering", true)
         put("volume", sanitizeVolume(state.opt("volume")))
+        sanitizeAudio(state.optJSONObject("audio"))?.let { put("audio", it) }
         if (includeError) sanitizeError(state.optJSONObject("error"))?.let { put("error", it) }
     }
 
@@ -355,6 +375,7 @@ internal class NativeAudioBridge(
         put("device", sanitizeDevice(state.optJSONObject("device")))
         put("recovering", state.optBoolean("recovering", false))
         put("volume", sanitizeVolume(state.opt("volume")))
+        sanitizeAudio(state.optJSONObject("audio"))?.let { put("audio", it) }
         sanitizeError(state.optJSONObject("error"))?.let { put("error", it) }
     }
 
@@ -392,6 +413,58 @@ internal class NativeAudioBridge(
             .put("code", safeCode(code))
             .put("message", message.take(MAX_ERROR_MESSAGE_CHARACTERS))
     }
+
+    /** Copies only the local-audio fields the settings panel reads, with bounded text. */
+    private fun sanitizeAudio(audio: JSONObject?): JSONObject? {
+        audio ?: return null
+        val devices = JSONArray()
+        audio.optJSONArray("devices")?.let { values ->
+            for (index in 0 until minOf(values.length(), MAX_AUDIO_DEVICES)) {
+                val device = values.optJSONObject(index) ?: continue
+                val id = safeLabel(device.optString("id"))
+                val name = safeLabel(device.optString("name"))
+                if (id.isEmpty() || name.isEmpty()) continue
+                devices.put(JSONObject().put("id", id).put("name", name))
+            }
+        }
+        val requested = audio.optJSONObject("requested") ?: JSONObject()
+        return JSONObject()
+            .put("supported", audio.optBoolean("supported", false))
+            .put("available", audio.optBoolean("available", false))
+            .put("reason", audio.optString("reason").let { if (it.isBlank()) "" else safeCode(it) })
+            .put("enabled", audio.optBoolean("enabled", false))
+            .put("devices", devices)
+            .put("requested", JSONObject().put("bit_perfect", requested.optBoolean("bit_perfect", false)))
+            .put("state", audio.optString("state").takeIf { it in AUDIO_STATES } ?: "stopped")
+            .put("can_configure", audio.optBoolean("can_configure", false))
+            .put("actual", sanitizeActualAudio(audio.optJSONObject("actual")))
+            .also { value ->
+                sanitizeError(audio.optJSONObject("error"))?.let { value.put("error", it) }
+            }
+    }
+
+    private fun sanitizeActualAudio(actual: JSONObject?): Any {
+        actual ?: return JSONObject.NULL
+        val sampleRate = actual.optInt("sample_rate", 0)
+        val channels = actual.optInt("channels", 0)
+        val containerBits = actual.optInt("container_bits", 0)
+        val validBits = actual.optInt("valid_bits", 0)
+        if (sampleRate <= 0 || channels <= 0 || containerBits <= 0 || validBits <= 0) return JSONObject.NULL
+        return JSONObject()
+            .put("device_id", safeLabel(actual.optString("device_id")))
+            .put("name", safeLabel(actual.optString("name")))
+            .put("mode", if (actual.optString("mode") == "bit_perfect") "bit_perfect" else "mixed")
+            .put("sample_rate", sampleRate)
+            .put("channels", channels)
+            .put("container_bits", containerBits)
+            .put("valid_bits", validBits)
+            .put("encoding", safeCode(actual.optString("encoding")))
+            .put("bit_transparent", actual.optBoolean("bit_transparent", false))
+            .put("reason", safeCode(actual.optString("reason")))
+    }
+
+    private fun safeLabel(value: String): String =
+        value.filterNot(Char::isISOControl).trim().take(MAX_LABEL_CHARACTERS)
 
     private fun sanitizeDevice(device: JSONObject?): Any {
         device ?: return JSONObject.NULL
@@ -454,13 +527,14 @@ internal class NativeAudioBridge(
         }
     }
 
-    private enum class Action { STATUS, CONNECT, CONNECT_IF_AVAILABLE, DISCONNECT, SET_VOLUME, RENAME }
+    private enum class Action { STATUS, CONNECT, CONNECT_IF_AVAILABLE, DISCONNECT, SET_VOLUME, RENAME, CONFIGURE }
 
     private data class Request(
         val id: String,
         val action: Action,
         val name: String?,
         val volume: Double?,
+        val bitPerfect: Boolean?,
     )
 
     private class RequestFailure(val id: String, val safeMessage: String) : Exception()
@@ -474,6 +548,10 @@ internal class NativeAudioBridge(
         private val STATUS_KEYS = setOf("id", "action")
         private val NAMED_ACTION_KEYS = setOf("id", "action", "name")
         private val VOLUME_ACTION_KEYS = setOf("id", "action", "volume")
+        private val CONFIGURE_ACTION_KEYS = setOf("id", "action", "bit_perfect")
+        private val AUDIO_STATES = setOf("stopped", "loaded", "playing", "paused", "error")
+        private const val MAX_AUDIO_DEVICES = 8
+        private const val MAX_LABEL_CHARACTERS = 120
         private val SAFE_CODE = Regex("[a-z0-9_.-]{1,64}")
     }
 }

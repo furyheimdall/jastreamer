@@ -230,8 +230,28 @@ The native Kotlin app adds Server selection, a Server-controlled phone output, a
 - One Media3 service owns this phone at a time: none, Server, or Saved music. Starting saved music while the Server owns playback, or assigning the phone to a Server while local music owns it, requires an explicit handoff confirmation. The previous owner is stopped first; queues are never copied, and late commands from the old owner cannot cross the handoff.
 - In Server mode, explicitly select `Android · jastreamer (This device) [Local audio]`, or its saved alias, then press **Play**. The Server owns that queue and its commands, and Android's system media controls report Play, Pause, Stop, Previous, Next, and supported Seek back to it. In Saved music mode the same controls act on local files and the device queue.
 - The native shell sends no Play or Stop merely because its screen closes, backgrounds, changes Servers, or reopens, and playback survives Activity/WebView recreation while its service stays alive. Process termination or terminal registration loss stops Server-owned playback. The local library, queue, and position are restored after a restart without autoplay. Only a newly opened Server page may attempt the guarded offline-output selection described above; it can neither take Saved music ownership nor supersede an in-flight user request.
-- Supported formats depend on Media3/Android decoders. Original imports promise no decoder compatibility, exclusive mode, or bit-perfect output. Transient Server-mode media failures use bounded recovery; terminal failures are shown rather than retried indefinitely.
+- Supported formats depend on Media3/Android decoders. Original imports promise no decoder compatibility or bit-perfect output; Server playback adds the opt-in USB path described below. Transient Server-mode media failures use bounded recovery; terminal failures are shown rather than retried indefinitely.
 - Only the verified Server's current top-level document receives the restricted native interfaces for Server output and explicit imports. They expose no cookies, credentials, arbitrary native calls, filesystem browsing, or arbitrary URL downloads, and external navigation, new windows, file pickers, and unrelated Web downloads or native permission requests stay blocked. Ordinary browsers and Linux Desktop keep browser audio; compatible Windows Desktop has its separate opt-in audio bridge; native iOS gains neither the Android interfaces nor local playback.
+
+**USB bit-perfect audio (Android 14+)**
+
+Opt-in output that hands this app's PCM to a connected USB DAC without Android mixing, resampling, or volume changes. It is off by default, applies to Server playback on this phone, and leaves **Saved music** on the standard Android output.
+
+1. Stop playback and wait for pending operations. Select the phone output (`Android · jastreamer (This device) [Local audio]`). **Phone audio settings** appears beside the output controls only while this device is the selected output.
+2. Set **USB bit-perfect** to **On**. The setting belongs to the app on this phone rather than to one Server, and it applies from the next track: the same phone output registration is kept and playback stays stopped until you press **Play**. Paused or loaded audio must be stopped before changing it.
+3. While it is on, app volume is fixed at 100% and the **Local volume** control is not offered — change the level on the DAC or amplifier.
+
+The panel reports what is missing: Android 14 or newer, a connected USB audio device, and a device that offers a bit-perfect mixer. When any of these is missing, the option stays visible with the reason and normal playback is unaffected.
+
+**Reading the panel.** It separates the **Requested path** from the **Actual active path**: USB device, mode, sample rate, channels, container width, valid-bit precision, and PCM representation. The actual values come from the audio track Android really opened and from the mixer attributes the framework reports, not from the request.
+
+**No silent fallback.** If the USB device will not take the track's format as a bit-perfect stream, or the device disappears, that track fails with an error instead of quietly playing through the Android mixer. Stop playback and turn **USB bit-perfect** off to play such tracks normally.
+
+**Application path eligible for bit-transparent delivery** appears only when all of the following hold: a lossless source the Server explicitly reports as untransformed, unchanged rate/layout/precision, unity gain (app volume 100%), and a mixer that is actually bit-perfect. This indication covers the application path only — it does **not** verify driver, DSP, or DAC behaviour, or physical bit-perfect output.
+
+**Precision limit.** Media3 writes 16-bit PCM for the formats this client plays, so a 24-bit source is reduced to 16 bits before output. Such a track can still use the bit-perfect mixer, and the panel then reports 16-bit with the reason that the source precision was reduced — never a bit-transparent claim. 16-bit lossless sources, including CD-rate FLAC and WAV, can qualify.
+
+The USB preference is released when the setting is turned off, when the USB device is detached, when Server playback ownership ends (disconnect, handoff to **Saved music**, or terminal registration loss), and when the playback service stops.
 
 **Saved music**
 

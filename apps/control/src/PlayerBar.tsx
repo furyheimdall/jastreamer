@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { api, ApiError } from "./api";
 import LocalOutput, { hasNativeAndroidAudio, type LocalOutputHandle } from "./LocalOutput";
+import type { NativeAndroidAudioState } from "./NativeAndroidOutput";
 import {
   nativeWindowsAudioBridge,
   parseNativeWindowsState,
@@ -28,6 +29,40 @@ const WINDOWS_AUDIO_STATE_MESSAGE: Record<NativeWindowsState["audio"]["state"], 
   playing: "player.windows.state.playing",
   paused: "player.windows.state.paused",
   error: "player.windows.state.error",
+};
+
+const ANDROID_AUDIO_STATE_MESSAGE: Record<NativeAndroidAudioState["state"], MessageKey> = {
+  stopped: "player.android.state.stopped",
+  loaded: "player.android.state.loaded",
+  playing: "player.android.state.playing",
+  paused: "player.android.state.paused",
+  error: "player.android.state.error",
+};
+
+const ANDROID_UNAVAILABLE_MESSAGE: Record<string, MessageKey> = {
+  requires_android_14: "player.android.unavailable.requiresAndroid14",
+  no_usb_device: "player.android.unavailable.noUsbDevice",
+  no_bit_perfect_mixer: "player.android.unavailable.noBitPerfectMixer",
+};
+
+const ANDROID_TRANSPARENCY_REASON_MESSAGE: Record<string, MessageKey> = {
+  mixer_not_bit_perfect: "player.android.reason.mixer_not_bit_perfect",
+  source_provenance_unknown: "player.android.reason.source_provenance_unknown",
+  source_transformed: "player.android.reason.source_transformed",
+  source_lossy: "player.android.reason.source_lossy",
+  source_precision_unknown: "player.android.reason.source_precision_unknown",
+  gain_changed: "player.android.reason.gain_changed",
+  rate_changed: "player.android.reason.rate_changed",
+  layout_changed: "player.android.reason.layout_changed",
+  precision_reduced: "player.android.reason.precision_reduced",
+  encoding_changed: "player.android.reason.encoding_changed",
+};
+
+const ANDROID_ENCODING_MESSAGE: Record<string, MessageKey> = {
+  pcm_16: "player.android.encoding.pcm_16",
+  pcm_24: "player.android.encoding.pcm_24",
+  pcm_32: "player.android.encoding.pcm_32",
+  pcm_float: "player.android.encoding.pcm_float",
 };
 
 function timeLabel(milliseconds: number, locale: string): string {
@@ -122,6 +157,10 @@ export default function PlayerBar({ revision, phoneExpanded, onPhoneExpandedChan
   const [windowsSettingsOpen, setWindowsSettingsOpen] = useState(false);
   const [windowsConfigurationError, setWindowsConfigurationError] = useState("");
   const [windowsConfigurationBusy, setWindowsConfigurationBusy] = useState(false);
+  const [androidAudioState, setAndroidAudioState] = useState<NativeAndroidAudioState | null>(null);
+  const [androidSettingsOpen, setAndroidSettingsOpen] = useState(false);
+  const [androidConfigurationError, setAndroidConfigurationError] = useState("");
+  const [androidConfigurationBusy, setAndroidConfigurationBusy] = useState(false);
   const [defaultBrowserName] = useState(() => localOutputName(usesNativeAndroid, windowsBridge !== null));
   const [browserAlias, setBrowserAlias] = useState("");
   const [nameDraft, setNameDraft] = useState("");
@@ -449,6 +488,29 @@ export default function PlayerBar({ revision, phoneExpanded, onPhoneExpandedChan
     }
   }
 
+  // The bit-perfect setting keeps the same phone output registration and applies from the
+  // next track, so it only replaces the requested path while playback is stopped.
+  async function configureAndroidAudio(bitPerfect: boolean) {
+    const output = localOutputRef.current;
+    if (!output || !androidAudioState || androidConfigurationBusy || busy
+      || player?.state !== "stopped" || Boolean(player.pending_command)
+      || !androidAudioState.can_configure) return;
+    setAndroidConfigurationBusy(true);
+    setAndroidConfigurationError("");
+    setBusy("android-output");
+    try {
+      await output.configureAndroid(bitPerfect);
+      onNotice(t("player.android.configurationSaved"));
+    } catch (caught) {
+      const message = errorMessage(caught, t("player.android.actionFailed"));
+      setAndroidConfigurationError(message);
+      onNotice(message, true);
+    } finally {
+      setBusy("");
+      setAndroidConfigurationBusy(false);
+    }
+  }
+
   // Reconnect only after the reconfigured backend has rendered: the local output handle
   // still points at the previous (browser or native) implementation until then.
   useEffect(() => {
@@ -676,6 +738,21 @@ export default function PlayerBar({ revision, phoneExpanded, onPhoneExpandedChan
   const windowsRequestedEndpoint = windowsAudioState?.audio.devices.find(
     (device) => device.id === windowsAudioState.audio.requested.device_id,
   );
+  const androidCanConfigure = Boolean(
+    androidAudioState?.can_configure
+    && player?.state === "stopped"
+    && !player.pending_command
+    && !busy
+    && !nameSaving
+    && !androidConfigurationBusy,
+  );
+  // Phone audio settings only apply while this device is the selected output.
+  const androidSettingsAvailable = Boolean(usesNativeAndroid && (
+    androidConfigurationBusy || busy === "output"
+    || (localBrowserDevice && localBrowserDevice.id === player?.renderer_id)
+  ));
+  const androidUsbDevice = androidAudioState?.devices[0];
+  const androidActual = androidAudioState?.actual ?? null;
 
   function shuffleButton(labeled = false, compactChooser = false) {
     return (
@@ -743,6 +820,7 @@ export default function PlayerBar({ revision, phoneExpanded, onPhoneExpandedChan
       windowsBridge={windowsBridge}
       windowsState={windowsAudioState}
       onWindowsStateChange={setWindowsAudioState}
+      onAndroidAudioChange={setAndroidAudioState}
       onDeviceChange={setLocalBrowserDevice}
       onAutoplayBlocked={setBrowserAutoplayBlocked}
       onRecoveryChange={handleLocalOutputRecovery}
@@ -796,6 +874,7 @@ export default function PlayerBar({ revision, phoneExpanded, onPhoneExpandedChan
           aria-controls="browser-name-panel"
           onClick={() => {
             setWindowsSettingsOpen(false);
+            setAndroidSettingsOpen(false);
             setNameEditorOpen((current) => !current);
           }}
         >
@@ -812,6 +891,22 @@ export default function PlayerBar({ revision, phoneExpanded, onPhoneExpandedChan
             onClick={() => {
               setNameEditorOpen(false);
               setWindowsSettingsOpen((current) => !current);
+            }}
+          >
+            <PlayerIcon name="modes" />
+          </button>
+        )}
+        {androidSettingsAvailable && (
+          <button
+            className="icon-button"
+            type="button"
+            aria-label={t("player.android.openSettings")}
+            title={t("player.android.openSettings")}
+            aria-expanded={androidSettingsOpen}
+            aria-controls="android-audio-panel"
+            onClick={() => {
+              setNameEditorOpen(false);
+              setAndroidSettingsOpen((current) => !current);
             }}
           >
             <PlayerIcon name="modes" />
@@ -854,12 +949,12 @@ export default function PlayerBar({ revision, phoneExpanded, onPhoneExpandedChan
       )}
       {windowsSettingsAvailable && windowsSettingsOpen && (
         <section
-          className="pairing-panel windows-audio-panel"
+          className="pairing-panel native-audio-panel"
           id="windows-audio-panel"
           aria-labelledby="windows-audio-heading"
           aria-busy={!windowsAudioResolved || windowsConfigurationBusy}
         >
-          <div className="windows-audio-heading">
+          <div className="native-audio-heading">
             <div>
               <h2 id="windows-audio-heading">{t("player.windows.title")}</h2>
               <p className="muted">{t("player.windows.description")}</p>
@@ -877,7 +972,7 @@ export default function PlayerBar({ revision, phoneExpanded, onPhoneExpandedChan
           )}
           {windowsAudioState && (
             <>
-              <div className="windows-audio-fields">
+              <div className="native-audio-fields">
                 <label>
                   <span className="field-label">{t("player.windows.backend")}</span>
                   <select
@@ -946,7 +1041,7 @@ export default function PlayerBar({ revision, phoneExpanded, onPhoneExpandedChan
               {!windowsCanConfigure && windowsAudioState.audio.available && (
                 <p className="field-help">{t("player.windows.stopToConfigure")}</p>
               )}
-              <div className="windows-audio-status">
+              <div className="native-audio-status">
                 <h3>{t("player.windows.requested")}</h3>
                 <dl>
                   <dt>{t("player.windows.endpoint")}</dt>
@@ -995,8 +1090,8 @@ export default function PlayerBar({ revision, phoneExpanded, onPhoneExpandedChan
                 </dl>
                 {windowsAudioState.audio.actual && (
                   <div className={windowsAudioState.audio.actual.bit_transparent
-                    ? "windows-transparency windows-transparency-qualified"
-                    : "windows-transparency"}>
+                    ? "native-transparency native-transparency-qualified"
+                    : "native-transparency"}>
                     <strong>{t(windowsAudioState.audio.actual.bit_transparent
                       ? "player.windows.transparency.qualified"
                       : "player.windows.transparency.notVerified")}</strong>
@@ -1009,7 +1104,7 @@ export default function PlayerBar({ revision, phoneExpanded, onPhoneExpandedChan
                 )}
               </div>
               {windowsAudioState.error && (
-                <p className="error-text windows-audio-error" role="alert">
+                <p className="error-text native-audio-error" role="alert">
                   {t("player.windows.error", {
                     code: windowsAudioState.error.code,
                     message: windowsAudioState.error.message,
@@ -1021,7 +1116,120 @@ export default function PlayerBar({ revision, phoneExpanded, onPhoneExpandedChan
           {windowsConfigurationError && <p className="error-text" role="alert">{windowsConfigurationError}</p>}
         </section>
       )}
-      {pairingRequired && selectedDevice && !nameEditorOpen && !windowsSettingsOpen && (
+      {androidSettingsAvailable && androidSettingsOpen && (
+        <section
+          className="pairing-panel native-audio-panel"
+          id="android-audio-panel"
+          aria-labelledby="android-audio-heading"
+          aria-busy={androidConfigurationBusy}
+        >
+          <div className="native-audio-heading">
+            <div>
+              <h2 id="android-audio-heading">{t("player.android.title")}</h2>
+              <p className="muted">{t("player.android.description")}</p>
+            </div>
+            <button className="button button-ghost" type="button" onClick={() => setAndroidSettingsOpen(false)}>
+              {t("common.close")}
+            </button>
+          </div>
+          {!androidAudioState && <p className="muted" role="status">{t("player.android.loading")}</p>}
+          {androidAudioState && (
+            <>
+              <div className="native-audio-fields">
+                <label>
+                  <span className="field-label">{t("player.android.bitPerfect")}</span>
+                  <select
+                    value={androidAudioState.requested.bit_perfect ? "on" : "off"}
+                    disabled={!androidCanConfigure || (!androidAudioState.available && !androidAudioState.enabled)}
+                    onChange={(event) => void configureAndroidAudio(event.target.value === "on")}
+                  >
+                    <option value="off">{t("player.android.off")}</option>
+                    <option value="on">{t("player.android.on")}</option>
+                  </select>
+                </label>
+              </div>
+              <p className="field-help">{t("player.android.serverOnly")}</p>
+              {androidAudioState.requested.bit_perfect && (
+                <p className="field-help">{t("player.android.fixedVolume")}</p>
+              )}
+              <p className="field-help">{t("player.android.noFallback")}</p>
+              {!androidAudioState.available && (
+                <p className="error-text" role="status">
+                  {t("player.android.unavailable", {
+                    reason: t(ANDROID_UNAVAILABLE_MESSAGE[androidAudioState.reason] ?? "player.android.unavailable.unknown"),
+                  })}
+                </p>
+              )}
+              {!androidCanConfigure && androidAudioState.available && (
+                <p className="field-help">{t("player.android.stopToConfigure")}</p>
+              )}
+              <div className="native-audio-status">
+                <h3>{t("player.android.requested")}</h3>
+                <dl>
+                  <dt>{t("player.android.endpoint")}</dt>
+                  <dd>{androidUsbDevice?.name || t("player.android.endpoint.none")}</dd>
+                  <dt>{t("player.android.mode")}</dt>
+                  <dd>{t(androidAudioState.requested.bit_perfect
+                    ? "player.android.mode.bitPerfectRequested"
+                    : "player.android.mode.standardRequested")}</dd>
+                </dl>
+                <h3>{t("player.android.actual")}</h3>
+                <dl>
+                  <dt>{t("player.android.engineState")}</dt>
+                  <dd>{t(ANDROID_AUDIO_STATE_MESSAGE[androidAudioState.state])}</dd>
+                  {androidActual ? (
+                    <>
+                      <dt>{t("player.android.endpoint")}</dt>
+                      <dd>{androidActual.name || t("player.android.endpoint.system")}</dd>
+                      <dt>{t("player.android.mode")}</dt>
+                      <dd>{t(androidActual.mode === "bit_perfect"
+                        ? "player.android.mode.bitPerfectActual"
+                        : "player.android.mode.mixedActual")}</dd>
+                      <dt>{t("player.android.format")}</dt>
+                      <dd>{t("player.android.formatValue", {
+                        rate: androidActual.sample_rate.toLocaleString(locale),
+                        channels: androidActual.channels,
+                        container: androidActual.container_bits,
+                        valid: androidActual.valid_bits,
+                        encoding: t(ANDROID_ENCODING_MESSAGE[androidActual.encoding] ?? "player.android.encoding.unknown"),
+                      })}</dd>
+                    </>
+                  ) : (
+                    <>
+                      <dt>{t("player.android.format")}</dt>
+                      <dd>{t("player.android.noActualFormat")}</dd>
+                    </>
+                  )}
+                </dl>
+                {androidActual && (
+                  <div className={androidActual.bit_transparent
+                    ? "native-transparency native-transparency-qualified"
+                    : "native-transparency"}>
+                    <strong>{t(androidActual.bit_transparent
+                      ? "player.android.transparency.qualified"
+                      : "player.android.transparency.notVerified")}</strong>
+                    <p>{androidActual.bit_transparent
+                      ? t("player.android.transparency.qualifiedDetail")
+                      : t("player.android.transparency.reason", {
+                          reason: t(ANDROID_TRANSPARENCY_REASON_MESSAGE[androidActual.reason] ?? "player.android.reason.unknown"),
+                        })}</p>
+                  </div>
+                )}
+              </div>
+            </>
+          )}
+          {androidAudioState?.error && (
+            <p className="error-text native-audio-error" role="alert">
+              {t("player.android.error", {
+                code: androidAudioState.error.code,
+                message: androidAudioState.error.message,
+              })}
+            </p>
+          )}
+          {androidConfigurationError && <p className="error-text" role="alert">{androidConfigurationError}</p>}
+        </section>
+      )}
+      {pairingRequired && selectedDevice && !nameEditorOpen && !windowsSettingsOpen && !androidSettingsOpen && (
         <section className="pairing-panel" aria-labelledby="pairing-heading" aria-busy={busy === "pairing"}>
           <h2 id="pairing-heading">{t("player.pairing.heading", { device: deviceLabel(selectedDevice, t) })}</h2>
           <p className="pairing-prompt" aria-live="polite">

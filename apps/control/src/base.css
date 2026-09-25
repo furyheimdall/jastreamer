@@ -833,72 +833,72 @@ html[data-client] .app-shell .mobile-header {
   min-height: 44px;
 }
 
-.windows-audio-panel {
+.native-audio-panel {
   max-height: calc(100dvh - var(--player-height) - 2rem);
   overflow-y: auto;
 }
 
-.windows-audio-heading {
+.native-audio-heading {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
   gap: 0.75rem;
 }
 
-.windows-audio-heading > div {
+.native-audio-heading > div {
   min-width: 0;
 }
 
-.windows-audio-heading p {
+.native-audio-heading p {
   margin: 0;
   font-size: 0.78rem;
   line-height: 1.45;
 }
 
-.windows-audio-heading .button {
+.native-audio-heading .button {
   min-height: 2.4rem;
   flex: 0 0 auto;
 }
 
-.windows-audio-fields {
+.native-audio-fields {
   display: grid;
   margin-top: 0.9rem;
   gap: 0.7rem;
 }
 
-.windows-audio-fields label {
+.native-audio-fields label {
   display: grid;
   gap: 0.35rem;
 }
 
-.windows-audio-fields select {
+.native-audio-fields select {
   min-height: 2.55rem;
 }
 
-.windows-audio-panel .field-help,
-.windows-audio-panel > .error-text {
+.native-audio-panel .field-help,
+.native-audio-panel > .error-text {
   margin: 0.7rem 0 0;
   font-size: 0.78rem;
   line-height: 1.45;
   overflow-wrap: anywhere;
 }
 
-.windows-audio-status {
+.native-audio-status {
   padding-top: 0.85rem;
   margin-top: 0.85rem;
   border-top: 1px solid var(--border);
 }
 
-.windows-audio-status h3 {
+.native-audio-status h3 {
   margin: 0.75rem 0 0.4rem;
   font-size: 0.82rem;
 }
 
-.windows-audio-status h3:first-child {
+.native-audio-status h3:first-child {
   margin-top: 0;
 }
 
-.windows-audio-status dl {
+.native-audio-status dl {
   display: grid;
   margin: 0;
   grid-template-columns: minmax(6rem, auto) minmax(0, 1fr);
@@ -907,17 +907,17 @@ html[data-client] .app-shell .mobile-header {
   line-height: 1.45;
 }
 
-.windows-audio-status dt {
+.native-audio-status dt {
   color: var(--muted);
 }
 
-.windows-audio-status dd {
+.native-audio-status dd {
   min-width: 0;
   margin: 0;
   overflow-wrap: anywhere;
 }
 
-.windows-transparency {
+.native-transparency {
   padding: 0.65rem;
   margin-top: 0.8rem;
   border: 1px solid #d8a34a66;
@@ -927,17 +927,17 @@ html[data-client] .app-shell .mobile-header {
   line-height: 1.45;
 }
 
-.windows-transparency-qualified {
+.native-transparency-qualified {
   border-color: #7dcf6a66;
   background: #7dcf6a12;
 }
 
-.windows-transparency p {
+.native-transparency p {
   margin: 0.25rem 0 0;
   overflow-wrap: anywhere;
 }
 
-.windows-audio-error {
+.native-audio-error {
   overflow-wrap: anywhere;
 }
 

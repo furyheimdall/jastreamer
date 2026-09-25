@@ -5,6 +5,7 @@
     <string name="native_playback_notification_channel">Playback</string>
     <string name="native_playback_notification_description">Phone playback and media controls</string>
     <string name="native_playback_error">Phone playback could not continue.</string>
+    <string name="native_audio_usb_device">USB audio device</string>
     <string name="playback_home_title">Choose how to listen</string>
     <string name="playback_home_detail">Open a Server or listen to music already saved on this device. Navigation never starts playback.</string>
     <string name="server_playback">Server playback</string>
