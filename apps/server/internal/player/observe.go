@@ -667,7 +667,7 @@ func (s *Service) commitTerminalAdvance(ctx context.Context, tx *sql.Tx, st stor
 	var next queueRecord
 	var found bool
 	if mode.repeatMode == RepeatOne {
-		next, found, err = entryByIDTx(ctx, tx, st.currentEntryID)
+		next, found, err = currentEntryTx(ctx, tx, st.currentEntryID)
 		if err == nil && !found {
 			next, found, err = s.adjacentEntryTx(ctx, tx, st.currentEntryID, 1, true)
 		}
@@ -723,7 +723,7 @@ func (s *Service) commitNaturalEnd(ctx context.Context, tx *sql.Tx, st storedSta
 	var next queueRecord
 	var found bool
 	if mode.repeatMode == RepeatOne {
-		next, found, err = entryByIDTx(ctx, tx, st.currentEntryID)
+		next, found, err = currentEntryTx(ctx, tx, st.currentEntryID)
 		if err == nil && !found {
 			next, found, err = s.adjacentEntryTx(ctx, tx, st.currentEntryID, 1, true)
 		}

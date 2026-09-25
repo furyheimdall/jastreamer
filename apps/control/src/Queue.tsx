@@ -173,9 +173,7 @@ export default function Queue({ revision, onNotice, onQueueChange, downloads }: 
           className="queue-global-management"
           role="group"
           aria-label={t("queue.actions")}
-          aria-describedby="queue-clear-description"
         >
-          <p className="muted" id="queue-clear-description">{t("queue.clearDescription")}</p>
           {!clearArmed ? (
             <button
               className="button button-ghost danger-button"
