@@ -560,7 +560,10 @@ OpenedEndpoint open_endpoint(const std::string& requested_id, bool exclusive, co
             UINT32 default_frames = 0, fundamental_frames = 0, minimum_frames = 0, maximum_frames = 0;
             if (SUCCEEDED(client3->GetSharedModeEnginePeriod(selected, &default_frames, &fundamental_frames,
                                                              &minimum_frames, &maximum_frames))) {
-                result = client3->InitializeSharedAudioStream(flags, default_frames, selected, nullptr);
+                // The documented InitializeSharedAudioStream contract supports only EVENTCALLBACK;
+                // passing NOPERSIST here rejects shared initialization.
+                result = client3->InitializeSharedAudioStream(AUDCLNT_STREAMFLAGS_EVENTCALLBACK, default_frames,
+                                                              selected, nullptr);
             } else {
                 result = client->Initialize(mode, flags, 0, 0, selected, nullptr);
             }
