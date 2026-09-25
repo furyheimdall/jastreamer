@@ -1142,6 +1142,9 @@ html[data-client] .app-shell .mobile-header {
   scrollbar-width: thin;
   scroll-snap-type: x proximity;
   overscroll-behavior-inline: contain;
+  /* The trailing fade hints that more tabs scroll into view; end padding keeps the last tab clear of it. */
+  padding-inline-end: 1.5rem;
+  mask-image: linear-gradient(to right, #000 calc(100% - 1.5rem), transparent);
 }
 
 .settings-tab {

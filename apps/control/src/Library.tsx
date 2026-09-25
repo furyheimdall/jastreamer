@@ -487,15 +487,7 @@ export default function Library({ revision, onNotice, onQueueChange, downloads }
 
       {scope && (
         <div className="library-detail-header">
-          <div className="library-detail-toolbar" role="toolbar" aria-label={t("library.currentListActions")}>
-            <button className="button button-ghost" type="button" onClick={leaveScope}><Icon name="back" /> {t(scope.kind === "folder" && scope.path ? "library.parentFolder" : "library.backToList")}</button>
-            <button className="button button-primary" type="button" disabled={actionBusy || loading || !scopeHasTracks} onClick={() => runScopeQueue("play")}><Icon name="play" /> {t("library.playAll")}</button>
-            <button className="button button-ghost" type="button" title={t("library.playNextTitle")} disabled={actionBusy || loading || !scopeHasTracks} onClick={() => runScopeQueue("next")}><Icon name="next" /> {t("library.playNext")}</button>
-            <button className="button button-ghost" type="button" disabled={actionBusy || loading || !scopeHasTracks} onClick={() => runScopeQueue("append")}><Icon name="append" /> {t("library.addToEnd")}</button>
-            <button className="button button-ghost" type="button" disabled={actionBusy || loading || !scopeHasTracks} onClick={openScopePicker}><Icon name="playlist" /> {t("library.addToSaved")}</button>
-            {scope.kind === "album" && <NativeDownloadAction downloads={downloads} target={{ kind: "album", id: scope.id }} title={scope.title} />}
-            {scope.kind === "folder" && <NativeDownloadAction downloads={downloads} target={{ kind: "folder", root_id: scope.rootID, path: scope.path }} title={scope.title} />}
-          </div>
+          <button className="library-detail-back" type="button" onClick={leaveScope}><Icon name="back" /> {t(scope.kind === "folder" && scope.path ? "library.parentFolder" : "library.backToList")}</button>
           <div className="library-detail-summary">
             {scope.kind === "album" ? (
               <Artwork
@@ -511,6 +503,14 @@ export default function Library({ revision, onNotice, onQueueChange, downloads }
               {scope.kind === "folder" && <p className="library-path">{scope.path || t("library.rootFolder")}</p>}
               {scope.kind === "folder" && <p>{t("library.folderActionsHelp")}</p>}
             </div>
+          </div>
+          <div className="library-detail-toolbar" role="toolbar" aria-label={t("library.currentListActions")}>
+            <button className="button button-primary" type="button" disabled={actionBusy || loading || !scopeHasTracks} onClick={() => runScopeQueue("play")}><Icon name="play" /> {t("library.playAll")}</button>
+            <button className="button button-ghost" type="button" title={t("library.playNextTitle")} disabled={actionBusy || loading || !scopeHasTracks} onClick={() => runScopeQueue("next")}><Icon name="next" /> {t("library.playNext")}</button>
+            <button className="button button-ghost" type="button" disabled={actionBusy || loading || !scopeHasTracks} onClick={() => runScopeQueue("append")}><Icon name="append" /> {t("library.addToEnd")}</button>
+            <button className="button button-ghost" type="button" disabled={actionBusy || loading || !scopeHasTracks} onClick={openScopePicker}><Icon name="playlist" /> {t("library.addToSaved")}</button>
+            {scope.kind === "album" && <NativeDownloadAction downloads={downloads} target={{ kind: "album", id: scope.id }} title={scope.title} />}
+            {scope.kind === "folder" && <NativeDownloadAction downloads={downloads} target={{ kind: "folder", root_id: scope.rootID, path: scope.path }} title={scope.title} />}
           </div>
         </div>
       )}

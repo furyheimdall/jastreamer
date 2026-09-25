@@ -75,9 +75,10 @@
   display: flex;
   gap: 0.35rem;
   margin: 0 -0.25rem 1.6rem;
-  padding: 0 0.25rem 0.65rem;
+  padding: 0 1.5rem 0.65rem 0.25rem;
   overflow-x: auto;
   scrollbar-width: thin;
+  mask-image: linear-gradient(to right, #000 calc(100% - 1.5rem), transparent);
 }
 
 .library-tab {
@@ -345,13 +346,40 @@
   background: linear-gradient(135deg, #ffffff07, transparent 55%), var(--panel, #1b1f22);
 }
 
+.library-detail-back {
+  display: inline-flex;
+  min-height: 2.75rem;
+  padding: 0 0.7rem 0 0.35rem;
+  margin: -0.35rem 0 0.6rem -0.35rem;
+  border: 0;
+  border-radius: 0.6rem;
+  align-items: center;
+  gap: 0.3rem;
+  color: var(--muted, #9aa3a6);
+  background: transparent;
+  font: inherit;
+  font-size: 0.86rem;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.library-detail-back:hover {
+  color: var(--text, #f4f4ec);
+  background: #ffffff0a;
+}
+
+.library-detail-back:focus-visible {
+  outline: 2px solid var(--accent, #c8edb2);
+  outline-offset: 2px;
+}
+
 .library-detail-toolbar {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 0.45rem;
   min-width: 0;
-  margin-bottom: 1rem;
+  margin-top: 1.1rem;
 }
 
 .library-detail-toolbar .button {
