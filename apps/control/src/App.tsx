@@ -406,6 +406,12 @@ export default function App() {
     if (noticeTimer.current !== null) window.clearTimeout(noticeTimer.current);
   }, []);
 
+  const viewLabelKey = navigation.find((item) => item.id === view)?.labelKey;
+  const viewTitle = session.authenticated && viewLabelKey ? t(viewLabelKey) : "";
+  useEffect(() => {
+    document.title = viewTitle ? `${viewTitle} · jastreamer` : "jastreamer";
+  }, [viewTitle]);
+
   async function logout() {
     let nativeLogoutFailed = false;
     try {

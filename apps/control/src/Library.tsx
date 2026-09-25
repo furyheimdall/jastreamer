@@ -140,7 +140,7 @@ export default function Library({ revision, onNotice, onQueueChange, downloads }
   const [search, setSearch] = useState("");
   const [likedOnly, setLikedOnly] = useState(false);
   const [offset, setOffset] = useState(0);
-  const [page, setPage] = useState<Page<BrowseItem> | null>(null);
+  const [result, setResult] = useState<{ key: string; page: Page<BrowseItem> } | null>(null);
   const [childFolders, setChildFolders] = useState<Folder[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -154,6 +154,16 @@ export default function Library({ revision, onNotice, onQueueChange, downloads }
   const [pickerError, setPickerError] = useState("");
   const [infoTrackID, setInfoTrackID] = useState<string | null>(null);
   const requestSerial = useRef(0);
+  // Refreshes of the same view keep the previous results visible instead of flashing a loader.
+  const viewKey = useMemo(() => JSON.stringify([kind, likedOnly, scope]), [kind, likedOnly, scope]);
+  const page = result?.key === viewKey ? result.page : null;
+  const setPage = (update: (current: Page<BrowseItem> | null) => Page<BrowseItem> | null) => {
+    setResult((current) => {
+      if (!current) return current;
+      const next = update(current.page);
+      return next ? { ...current, page: next } : null;
+    });
+  };
 
   useEffect(() => {
     const timer = window.setTimeout(() => setSearch(searchInput), 250);
@@ -181,7 +191,7 @@ export default function Library({ revision, onNotice, onQueueChange, downloads }
     Promise.all([pageRequest, foldersRequest])
       .then(([nextPage, folders]) => {
         if (requestSerial.current !== serial) return;
-        setPage(nextPage);
+        setResult({ key: viewKey, page: nextPage });
         if (scope?.kind === "folder" && folders) {
           setChildFolders(folders.items.filter((folder) => folder.root_id === scope.rootID && folder.path !== scope.path));
         } else {
@@ -190,7 +200,7 @@ export default function Library({ revision, onNotice, onQueueChange, downloads }
       })
       .catch((caught: unknown) => {
         if (isAbort(caught) || requestSerial.current !== serial) return;
-        setPage(null);
+        setResult(null);
         setChildFolders([]);
         setError(errorMessage(caught, t("common.requestFailed")));
       })
@@ -199,7 +209,7 @@ export default function Library({ revision, onNotice, onQueueChange, downloads }
       });
 
     return () => controller.abort();
-  }, [kind, likedOnly, offset, reload, revision, scope, search, t]);
+  }, [kind, likedOnly, offset, reload, revision, scope, search, t, viewKey]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -437,6 +447,7 @@ export default function Library({ revision, onNotice, onQueueChange, downloads }
     setChildFolders([]);
   }
 
+  const ready = !error && page !== null;
   const total = page?.total ?? 0;
   const scopeHasTracks = total > 0 || (scope?.kind === "folder" && childFolders.some((folder) => folder.track_count > 0));
   const limit = page?.limit || (scope || kind === "tracks" || kind === "most_played" ? trackPageSize : pageSize);
@@ -450,7 +461,7 @@ export default function Library({ revision, onNotice, onQueueChange, downloads }
   }, [limit, offset, page]);
 
   return (
-    <section className="library-shell" aria-labelledby="library-heading">
+    <section className="library-shell" aria-labelledby="library-heading" aria-busy={loading}>
       <header className="library-heading-row">
         <div>
           <p className="library-eyebrow">{t("library.eyebrow")}</p>
@@ -505,13 +516,13 @@ export default function Library({ revision, onNotice, onQueueChange, downloads }
       )}
 
       {error && <div className="library-error" role="alert"><p className="error-text">{error}</p><button className="button button-ghost" type="button" onClick={() => setReload((current) => current + 1)}>{t("common.retry")}</button></div>}
-      {loading && <div className="library-loading" role="status">{t("library.loading")}</div>}
+      {loading && !page && <div className="library-loading" role="status">{t("library.loading")}</div>}
 
-      {!loading && !error && page && page.items.length === 0 && childFolders.length === 0 && (
+      {ready && page && page.items.length === 0 && childFolders.length === 0 && (
         <div className="empty-state">{t(search ? "library.noSearchResults" : likedOnly ? "library.noLikedTracks" : kind === "most_played" ? "library.noMostPlayedTracks" : "library.empty")}</div>
       )}
 
-      {!loading && !error && !scope && kind === "albums" && (
+      {ready && !scope && kind === "albums" && (
         <div className="library-album-grid">
           {(page?.items as Album[] | undefined)?.map((album) => {
             const card = (
@@ -537,19 +548,19 @@ export default function Library({ revision, onNotice, onQueueChange, downloads }
         </div>
       )}
 
-      {!loading && !error && !scope && kind === "artists" && (
+      {ready && !scope && kind === "artists" && (
         <div className="library-name-grid">
           {(page?.items as Artist[] | undefined)?.map((artist) => <button className="library-name-card" type="button" key={artist.id} onClick={() => openItem(artist)}><span className="library-name-mark"><Icon name="music" /></span><span><strong>{artist.name}</strong><small>{t(artist.track_count === 1 ? "library.oneTrack" : "library.manyTracks", { count: numberFormatter.format(artist.track_count) })}</small></span></button>)}
         </div>
       )}
 
-      {!loading && !error && !scope && kind === "genres" && (
+      {ready && !scope && kind === "genres" && (
         <div className="library-name-grid">
           {(page?.items as Genre[] | undefined)?.map((genre) => <button className="library-name-card" type="button" key={genre.id} onClick={() => openItem(genre)}><span className="library-name-mark"><Icon name="music" /></span><span><strong>{genre.name}</strong><small>{t(genre.track_count === 1 ? "library.oneTrack" : "library.manyTracks", { count: numberFormatter.format(genre.track_count) })}</small></span></button>)}
         </div>
       )}
 
-      {!loading && !error && !scope && kind === "folders" && (
+      {ready && !scope && kind === "folders" && (
         <div className="library-folder-list">
           {(page?.items as Folder[] | undefined)?.map((folder) => (
             <div className="library-folder-item" key={`${folder.root_id}:${folder.path}`}>
@@ -560,7 +571,7 @@ export default function Library({ revision, onNotice, onQueueChange, downloads }
         </div>
       )}
 
-      {!loading && !error && scope?.kind === "folder" && childFolders.length > 0 && (
+      {ready && scope?.kind === "folder" && childFolders.length > 0 && (
         <div className="library-child-folders" aria-label={t("library.childFolders")}>
           {childFolders.map((folder) => (
             <div className="library-folder-item" key={`${folder.root_id}:${folder.path}`}>
@@ -571,7 +582,7 @@ export default function Library({ revision, onNotice, onQueueChange, downloads }
         </div>
       )}
 
-      {!loading && !error && (scope || kind === "tracks" || kind === "most_played") && visibleTracks.length > 0 && (
+      {ready && (scope || kind === "tracks" || kind === "most_played") && visibleTracks.length > 0 && (
         <div className="library-track-list" role="list" aria-label={t("library.trackList")}>
           {visibleTracks.map((track, index) => (
             <article className={`library-track-row${track.available ? "" : " library-track-unavailable"}`} role="listitem" key={track.id}>
@@ -605,7 +616,7 @@ export default function Library({ revision, onNotice, onQueueChange, downloads }
         </div>
       )}
 
-      {!loading && !error && total > limit && (
+      {ready && total > limit && (
         <nav className="library-pagination" aria-label={t("library.pagination")}>
           <button className="button button-ghost" type="button" disabled={offset === 0} onClick={() => setOffset(Math.max(0, offset - limit))}>{t("common.previous")}</button>
           <span>{numberFormatter.format(start)}–{numberFormatter.format(end)} / {numberFormatter.format(total)}</span>

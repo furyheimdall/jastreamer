@@ -580,6 +580,16 @@
   opacity: 0.62;
 }
 
+.library-shell :is(.library-album-grid, .library-name-grid, .library-folder-list, .library-child-folders, .library-track-list) {
+  transition: opacity 160ms ease;
+}
+
+/* Only slow refreshes dim the retained results; quick live updates stay visually still. */
+.library-shell[aria-busy="true"] :is(.library-album-grid, .library-name-grid, .library-folder-list, .library-child-folders, .library-track-list) {
+  opacity: 0.55;
+  transition-delay: 300ms;
+}
+
 .library-loading,
 .playlist-loading {
   padding: 2rem 1rem;

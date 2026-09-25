@@ -352,7 +352,7 @@ export default function Playlists({ revision, onNotice, onQueueChange, downloads
             {createError && <p className="error-text" role="alert">{createError}</p>}
           </form>
 
-          {loadingList && <p className="playlist-loading" role="status">{t("playlists.loadingList")}</p>}
+          {loadingList && playlists.length === 0 && <p className="playlist-loading" role="status">{t("playlists.loadingList")}</p>}
           {listError && <div className="playlist-inline-error" role="alert"><p className="error-text">{listError}</p><button className="button button-ghost" type="button" onClick={() => setReload((current) => current + 1)}>{t("common.retry")}</button></div>}
           {!loadingList && !listError && playlists.length === 0 && <div className="empty-state">{t("playlists.empty")}</div>}
           <div className="playlist-list">
@@ -373,7 +373,7 @@ export default function Playlists({ revision, onNotice, onQueueChange, downloads
           </div>
         </aside>
 
-        <main className="playlist-editor">
+        <section className="playlist-editor">
           {!selectedID && !loadingList && <div className="empty-state">{t("playlists.selectPrompt")}</div>}
           {selectedID && !loadingDetail && !baseline && detailError && <div className="playlist-inline-error" role="alert"><p className="error-text">{detailError}</p><button className="button button-ghost" type="button" onClick={() => setReload((current) => current + 1)}>{t("common.retry")}</button></div>}
           {selectedID && loadingDetail && !baseline && <p className="playlist-loading" role="status">{t("playlists.loadingDetail")}</p>}
@@ -432,7 +432,7 @@ export default function Playlists({ revision, onNotice, onQueueChange, downloads
               </footer>
             </>
           )}
-        </main>
+        </section>
       </div>
     </section>
   );

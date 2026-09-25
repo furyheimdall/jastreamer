@@ -299,6 +299,7 @@ export default function Queue({ revision, onNotice, onQueueChange, downloads }: 
                     className="icon-button"
                     type="button"
                     aria-label={t("queue.moveUp")}
+                    title={t("queue.moveUp")}
                     disabled={index === 0 || locked || busy || Boolean(busyEntry)}
                     onClick={() => void mutate(entry.id, "move", index - 1)}
                   >
@@ -308,6 +309,7 @@ export default function Queue({ revision, onNotice, onQueueChange, downloads }: 
                     className="icon-button"
                     type="button"
                     aria-label={t("queue.moveDown")}
+                    title={t("queue.moveDown")}
                     disabled={index === queue.entries.length - 1 || locked || busy || Boolean(busyEntry)}
                     onClick={() => void mutate(entry.id, "move", index + 1)}
                   >
@@ -317,6 +319,7 @@ export default function Queue({ revision, onNotice, onQueueChange, downloads }: 
                     className="icon-button danger-button"
                     type="button"
                     aria-label={t("queue.remove")}
+                    title={t("queue.remove")}
                     disabled={busy || Boolean(busyEntry)}
                     onClick={() => void mutate(entry.id, "remove")}
                   >
