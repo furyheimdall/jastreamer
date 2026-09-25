@@ -276,6 +276,20 @@ func entryByIDTx(ctx context.Context, tx *sql.Tx, entryID string) (queueRecord, 
 	return entry, err == nil, err
 }
 
+func currentEntryTx(ctx context.Context, tx *sql.Tx, entryID string) (queueRecord, bool, error) {
+	entry, found, err := entryByIDTx(ctx, tx, entryID)
+	if found || err != nil {
+		return entry, found, err
+	}
+	binding, found, err := loadCurrentBindingTx(ctx, tx, entryID)
+	if !found || err != nil {
+		return queueRecord{}, false, err
+	}
+	return queueRecord{
+		id: binding.entryID, trackID: binding.trackID, status: EntryPending, position: binding.queueIndex,
+	}, true, nil
+}
+
 func ensureShuffleTraversalTx(ctx context.Context, tx *sql.Tx, records []queueRecord, current string) error {
 	ids, err := loadShuffleIDsTx(ctx, tx)
 	if err != nil {

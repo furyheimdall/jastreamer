@@ -894,20 +894,10 @@ html[data-client] .app-shell .mobile-header {
   display: grid;
   min-width: 0;
   max-width: 34rem;
-  padding: 0.85rem 1rem;
-  border: 1px solid var(--border);
-  border-radius: 0.9rem;
-  background: var(--panel);
-  flex: 1 1 28rem;
+  flex: 0 1 auto;
   justify-items: end;
-  gap: 0.7rem;
 }
 
-.queue-global-management > p {
-  width: 100%;
-  margin: 0;
-  line-height: 1.5;
-}
 
 .queue-clear-confirmation {
   display: flex;

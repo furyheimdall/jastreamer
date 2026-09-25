@@ -660,6 +660,9 @@ func safeRendererErrorDetail(err error) string {
 
 func (s *Service) resolvePlayTarget(ctx context.Context, requested, current string) (queueRecord, bool, error) {
 	if requested != "" {
+		if requested == current {
+			return s.currentEntry(ctx, requested)
+		}
 		return s.entryByID(ctx, requested)
 	}
 	if current != "" {

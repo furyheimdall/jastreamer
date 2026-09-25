@@ -110,8 +110,8 @@ func TestRemoveCurrentPreservesLoadedPlaybackAcrossStates(t *testing.T) {
 	}
 }
 
-func TestClearQueueFinishesDetachedCurrentWithoutRepeatAndAcceptsNewNext(t *testing.T) {
-	for _, repeatMode := range []string{RepeatOne, RepeatAll} {
+func TestClearQueueFinishesDetachedCurrentForRepeatOffAndAllAndAcceptsNewNext(t *testing.T) {
+	for _, repeatMode := range []string{RepeatOff, RepeatAll} {
 		t.Run(repeatMode, func(t *testing.T) {
 			service, _, devices := newPlayerTestService(t)
 			ctx := context.Background()
@@ -185,6 +185,272 @@ func TestClearQueueFinishesDetachedCurrentWithoutRepeatAndAcceptsNewNext(t *test
 	}
 }
 
+func TestRepeatOneReplaysClearedDetachedCurrentOnNaturalCompletion(t *testing.T) {
+	service, _, devices := newPlayerTestService(t)
+	ctx := t.Context()
+	queue, err := service.MutateQueue(ctx, QueueMutation{Action: "append", TrackIDs: []string{"a", "b"}, Revision: 0})
+	if err != nil {
+		t.Fatal(err)
+	}
+	currentID := queue.Entries[0].ID
+	if _, err := service.Command(ctx, Command{Action: "play", EntryID: currentID}); err != nil {
+		t.Fatal(err)
+	}
+	runAcceptedCommand(t, service)
+	binding, err := service.loadState(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	repeat := RepeatOne
+	if _, err := service.UpdateMode(ctx, ModeUpdate{RepeatMode: &repeat}); err != nil {
+		t.Fatal(err)
+	}
+	currentQueue, err := service.Queue(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	empty, err := service.MutateQueue(ctx, QueueMutation{Action: "clear", Revision: currentQueue.Revision})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(empty.Entries) != 0 {
+		t.Fatalf("clear retained queue entries: %#v", empty.Entries)
+	}
+	callsBefore := testTransportCalls(devices)
+	ended := output.Observation{
+		State: "stopped", PlayID: binding.playID, URI: binding.currentURI, HasURI: true,
+		PositionMS: 100000, DurationMS: 100000, HasPosition: true,
+		CompletionKnown: true, Completed: true, ObservedAt: time.Now().UTC(),
+	}
+	first := service.applyObservation(ctx, ended)
+	second := service.applyObservation(ctx, ended)
+	if !first.commandQueued || second.commandQueued {
+		t.Fatalf("cleared repeat-one completion was not queued exactly once: first=%#v second=%#v", first, second)
+	}
+	runAcceptedCommand(t, service)
+	replayed := service.mustState(t)
+	if replayed.State != StateStarting || replayed.CurrentEntryID != currentID || replayed.Track == nil ||
+		replayed.Track.ID != "a" || replayed.PositionMS != 0 || replayed.PendingCommand != "" || replayed.Error != "" {
+		t.Fatalf("repeat one did not restart the cleared current track: %#v", replayed)
+	}
+	if retained, err := service.Queue(ctx); err != nil || len(retained.Entries) != 0 {
+		t.Fatalf("repeat one resurrected the cleared queue: queue=%#v err=%v", retained, err)
+	}
+	wantCalls := append(append([]string(nil), callsBefore...), "set_uri", "play")
+	if calls := testTransportCalls(devices); !reflect.DeepEqual(calls, wantCalls) {
+		t.Fatalf("natural repeat transport calls=%v, want %v", calls, wantCalls)
+	}
+	if stale := service.applyObservation(ctx, ended); stale.commandQueued {
+		t.Fatalf("stale completion from the previous playback queued another repeat: %#v", stale)
+	}
+	afterStale := service.mustState(t)
+	if afterStale.State != StateStarting || afterStale.CurrentEntryID != currentID || afterStale.Track == nil || afterStale.Track.ID != "a" {
+		t.Fatalf("stale completion displaced the replayed current track: %#v", afterStale)
+	}
+	if calls := testTransportCalls(devices); !reflect.DeepEqual(calls, wantCalls) {
+		t.Fatalf("stale completion sent transport commands: got %v want %v", calls, wantCalls)
+	}
+}
+
+func TestRepeatOneReplaysRemovedCurrentInsteadOfRemainingSuccessor(t *testing.T) {
+	service, _, devices := newPlayerTestService(t)
+	ctx := t.Context()
+	queue, err := service.MutateQueue(ctx, QueueMutation{Action: "append", TrackIDs: []string{"a", "b"}, Revision: 0})
+	if err != nil {
+		t.Fatal(err)
+	}
+	currentID := queue.Entries[0].ID
+	successorID := queue.Entries[1].ID
+	if _, err := service.Command(ctx, Command{Action: "play", EntryID: currentID}); err != nil {
+		t.Fatal(err)
+	}
+	runAcceptedCommand(t, service)
+	binding, err := service.loadState(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	repeat := RepeatOne
+	if _, err := service.UpdateMode(ctx, ModeUpdate{RepeatMode: &repeat}); err != nil {
+		t.Fatal(err)
+	}
+	currentQueue, err := service.Queue(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	retained, err := service.MutateQueue(ctx, QueueMutation{Action: "remove", EntryID: currentID, Revision: currentQueue.Revision})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(retained.Entries) != 1 || retained.Entries[0].ID != successorID {
+		t.Fatalf("current removal did not retain only its successor: %#v", retained.Entries)
+	}
+	ended := output.Observation{
+		State: "stopped", URI: binding.currentURI, HasURI: true,
+		PositionMS: 100000, DurationMS: 100000, HasPosition: true,
+		CompletionKnown: true, Completed: true, ObservedAt: time.Now().UTC(),
+	}
+	first := service.applyObservation(ctx, ended)
+	second := service.applyObservation(ctx, ended)
+	if !first.commandQueued || second.commandQueued {
+		t.Fatalf("removed-current repeat was not queued exactly once: first=%#v second=%#v", first, second)
+	}
+	runAcceptedCommand(t, service)
+	replayed := service.mustState(t)
+	if replayed.State != StateStarting || replayed.CurrentEntryID != currentID || replayed.Track == nil || replayed.Track.ID != "a" {
+		t.Fatalf("repeat one selected the remaining successor instead of the removed current: %#v", replayed)
+	}
+	afterRepeat, err := service.Queue(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(afterRepeat.Entries) != 1 || afterRepeat.Entries[0].ID != successorID {
+		t.Fatalf("repeat one reinserted the removed current: %#v", afterRepeat.Entries)
+	}
+	callsAfterRepeat := testTransportCalls(devices)
+	if _, err := service.Command(ctx, Command{Action: "next"}); err != nil {
+		t.Fatal(err)
+	}
+	runAcceptedCommand(t, service)
+	advanced := service.mustState(t)
+	if advanced.State != StateStarting || advanced.CurrentEntryID != successorID || advanced.Track == nil || advanced.Track.ID != "b" {
+		t.Fatalf("explicit Next did not escape repeat one to the retained successor: %#v", advanced)
+	}
+	wantCalls := append(append([]string(nil), callsAfterRepeat...), "stop", "set_uri", "play")
+	if calls := testTransportCalls(devices); !reflect.DeepEqual(calls, wantCalls) {
+		t.Fatalf("explicit Next transport calls=%v, want %v", calls, wantCalls)
+	}
+}
+
+func TestRepeatOneReplaysClearedDetachedCurrentAtConfirmedTerminalPosition(t *testing.T) {
+	service, _, devices := newPlayerTestService(t)
+	ctx := t.Context()
+	now := time.Now().UTC()
+	service.now = func() time.Time { return now }
+	queue, err := service.MutateQueue(ctx, QueueMutation{Action: "append", TrackIDs: []string{"a"}, Revision: 0})
+	if err != nil {
+		t.Fatal(err)
+	}
+	currentID := queue.Entries[0].ID
+	if _, err := service.Command(ctx, Command{Action: "play", EntryID: currentID}); err != nil {
+		t.Fatal(err)
+	}
+	runAcceptedCommand(t, service)
+	binding, err := service.loadState(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	repeat := RepeatOne
+	if _, err := service.UpdateMode(ctx, ModeUpdate{RepeatMode: &repeat}); err != nil {
+		t.Fatal(err)
+	}
+	currentQueue, err := service.Queue(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.MutateQueue(ctx, QueueMutation{Action: "clear", Revision: currentQueue.Revision}); err != nil {
+		t.Fatal(err)
+	}
+	observation := output.Observation{
+		State: "playing", URI: binding.currentURI, HasURI: true,
+		PositionMS: 99000, DurationMS: 100000, HasPosition: true, ObservedAt: now,
+	}
+	service.applyObservation(ctx, observation)
+	observation.PositionMS = observation.DurationMS
+	if service.applyObservation(ctx, observation).commandQueued {
+		t.Fatal("one terminal position queued a detached repeat")
+	}
+	now = now.Add(time.Second)
+	observation.ObservedAt = now
+	if service.applyObservation(ctx, observation).commandQueued {
+		t.Fatal("detached repeat queued before terminal position was stable")
+	}
+	now = now.Add(time.Second)
+	observation.ObservedAt = now
+	if result := service.applyObservation(ctx, observation); !result.commandQueued {
+		t.Fatalf("confirmed terminal position did not queue detached repeat: %#v", result)
+	}
+	callsBefore := testTransportCalls(devices)
+	before := service.mustState(t)
+	if before.State != StatePlaying || before.CurrentEntryID != currentID {
+		t.Fatalf("terminal detection changed playback before Stop was acknowledged: %#v", before)
+	}
+	if retained, err := service.Queue(ctx); err != nil || len(retained.Entries) != 0 {
+		t.Fatalf("terminal detection resurrected the cleared queue: queue=%#v err=%v", retained, err)
+	}
+	runAcceptedCommand(t, service)
+	replayed := service.mustState(t)
+	if replayed.State != StateStarting || replayed.CurrentEntryID != currentID || replayed.Track == nil || replayed.Track.ID != "a" {
+		t.Fatalf("terminal-position repeat did not restart the detached current: %#v", replayed)
+	}
+	wantCalls := append(append([]string(nil), callsBefore...), "stop", "set_uri", "play")
+	if calls := testTransportCalls(devices); !reflect.DeepEqual(calls, wantCalls) {
+		t.Fatalf("terminal-position repeat transport calls=%v, want %v", calls, wantCalls)
+	}
+	if retained, err := service.Queue(ctx); err != nil || len(retained.Entries) != 0 {
+		t.Fatalf("terminal-position repeat resurrected the cleared queue: queue=%#v err=%v", retained, err)
+	}
+}
+
+func TestRepeatOneTerminalReplayRequiresAcknowledgedStop(t *testing.T) {
+	service, _, devices := newPlayerTestService(t)
+	ctx := t.Context()
+	now := time.Now().UTC()
+	service.now = func() time.Time { return now }
+	queue, err := service.MutateQueue(ctx, QueueMutation{Action: "append", TrackIDs: []string{"a"}, Revision: 0})
+	if err != nil {
+		t.Fatal(err)
+	}
+	currentID := queue.Entries[0].ID
+	if _, err := service.Command(ctx, Command{Action: "play", EntryID: currentID}); err != nil {
+		t.Fatal(err)
+	}
+	runAcceptedCommand(t, service)
+	binding, err := service.loadState(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	repeat := RepeatOne
+	if _, err := service.UpdateMode(ctx, ModeUpdate{RepeatMode: &repeat}); err != nil {
+		t.Fatal(err)
+	}
+	currentQueue, err := service.Queue(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.MutateQueue(ctx, QueueMutation{Action: "clear", Revision: currentQueue.Revision}); err != nil {
+		t.Fatal(err)
+	}
+	observation := output.Observation{
+		State: "playing", URI: binding.currentURI, HasURI: true,
+		PositionMS: 99000, DurationMS: 100000, HasPosition: true, ObservedAt: now,
+	}
+	service.applyObservation(ctx, observation)
+	observation.PositionMS = observation.DurationMS
+	service.applyObservation(ctx, observation)
+	now = now.Add(2 * time.Second)
+	observation.ObservedAt = now
+	if result := service.applyObservation(ctx, observation); !result.commandQueued {
+		t.Fatalf("confirmed terminal position did not queue detached repeat: %#v", result)
+	}
+	devices.mu.Lock()
+	devices.fail["stop"] = &output.ActionError{Kind: output.ErrorFault, Action: "Stop", Code: 701}
+	devices.mu.Unlock()
+	callsBefore := testTransportCalls(devices)
+	runAcceptedCommand(t, service)
+	failed := service.mustState(t)
+	if failed.State != StateError || failed.CurrentEntryID != currentID || failed.Track == nil ||
+		failed.Track.ID != "a" || failed.PendingCommand != "" || failed.Error == "" {
+		t.Fatalf("failed Stop replayed or displaced the detached current: %#v", failed)
+	}
+	wantCalls := append(append([]string(nil), callsBefore...), "stop")
+	if calls := testTransportCalls(devices); !reflect.DeepEqual(calls, wantCalls) {
+		t.Fatalf("failed Stop continued into replay: got %v want %v", calls, wantCalls)
+	}
+	if retained, err := service.Queue(ctx); err != nil || len(retained.Entries) != 0 {
+		t.Fatalf("failed Stop resurrected the cleared queue: queue=%#v err=%v", retained, err)
+	}
+}
+
 func TestDetachedCurrentTraversalPreservesDuplicateEntryOrder(t *testing.T) {
 	service, _, devices := newPlayerTestService(t)
 	ctx := context.Background()
@@ -249,7 +515,7 @@ func TestDetachedShuffledCurrentFinishesOnceAtStoredSuccessor(t *testing.T) {
 		t.Fatal(err)
 	}
 	shuffle := true
-	repeat := RepeatOne
+	repeat := RepeatAll
 	if _, err := service.UpdateMode(ctx, ModeUpdate{Shuffle: &shuffle, RepeatMode: &repeat}); err != nil {
 		t.Fatal(err)
 	}
@@ -277,7 +543,7 @@ func TestDetachedShuffledCurrentFinishesOnceAtStoredSuccessor(t *testing.T) {
 	runAcceptedCommand(t, service)
 	state := service.mustState(t)
 	if state.CurrentEntryID != successorID || state.CurrentEntryID == currentID {
-		t.Fatalf("repeat-one resurrected the removed current instead of its shuffled successor: successor=%q state=%#v", successorID, state)
+		t.Fatalf("detached shuffled completion did not select its stored successor: successor=%q state=%#v", successorID, state)
 	}
 }
 
