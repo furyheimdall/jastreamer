@@ -453,3 +453,50 @@ class ReleaseNotesTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ServerRunContractTest(unittest.TestCase):
+    def run_validation(self, artifact_names):
+        with tempfile.TemporaryDirectory() as temp:
+            root = pathlib.Path(temp)
+            run_id = 42
+            payloads = {
+                "run": {
+                    "id": run_id, "name": publish.CI_NAME, "path": publish.CI_WORKFLOW, "workflow_id": 7,
+                    "repository": {"full_name": publish.REPOSITORY}, "head_repository": {"full_name": publish.REPOSITORY},
+                    "event": "push", "head_branch": "main", "status": "completed", "conclusion": "success",
+                    "head_sha": REVISION, "head_commit": {"id": REVISION},
+                },
+                "workflow": {"id": 7, "path": publish.CI_WORKFLOW, "name": publish.CI_NAME, "state": "active"},
+                "branch": {"name": "main", "protected": True},
+                "comparison": {"status": "identical", "base_commit": {"sha": REVISION}},
+                "jobs": {"total_count": len(publish.EXPECTED_JOBS), "jobs": [
+                    {"name": name, "status": "completed", "conclusion": "success", "head_sha": REVISION}
+                    for name in sorted(publish.EXPECTED_JOBS)
+                ]},
+                "artifacts": {"total_count": len(artifact_names), "artifacts": [
+                    {"name": name, "expired": False, "id": index + 1, "size_in_bytes": 10,
+                     "digest": "sha256:" + "b" * 64, "workflow_run": {"id": run_id, "head_sha": REVISION}}
+                    for index, name in enumerate(sorted(artifact_names))
+                ]},
+            }
+            for name, value in payloads.items():
+                (root / f"{name}.json").write_text(json.dumps(value), encoding="utf-8")
+            output = root / "provenance.json"
+            args = type("Args", (), {
+                "repository": publish.REPOSITORY, "run_id": str(run_id), "kind": "server", "expect_source_revision": "",
+                "run": root / "run.json", "workflow": root / "workflow.json", "branch": root / "branch.json",
+                "comparison": root / "comparison.json", "jobs": root / "jobs.json", "artifacts": root / "artifacts.json",
+                "output": output, "github_output": "",
+            })()
+            with patch("builtins.print"):
+                publish.validate_run(args)
+            return json.loads(output.read_text(encoding="utf-8"))
+
+    def test_evidence_artifact_is_required_but_never_published(self):
+        provenance = self.run_validation(publish.EXPECTED_ARTIFACTS | {"windows-audio-settings"})
+        self.assertEqual({record["name"] for record in provenance["artifacts"]}, publish.EXPECTED_ARTIFACTS)
+
+    def test_missing_evidence_artifact_is_rejected(self):
+        with self.assertRaises(SystemExit):
+            self.run_validation(set(publish.EXPECTED_ARTIFACTS))

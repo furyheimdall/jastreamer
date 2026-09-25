@@ -48,6 +48,8 @@ EXPECTED_ARTIFACTS = {
     "jastreamer-desktop-windows-x64",
     "jastreamer-desktop-linux-amd64",
 }
+# Verification evidence uploaded by the Server CI run; required to exist, never published.
+SERVER_EVIDENCE_ARTIFACTS = {"windows-audio-settings"}
 ANDROID_JOBS = {"Android build and real-Web-UI verification"}
 ANDROID_APK_ARTIFACT = "jastreamer-android-debug-test-signed-and-release-unsigned-{revision}"
 ANDROID_EVIDENCE_ARTIFACT = "jastreamer-android-api36-instrumentation-{revision}"
@@ -98,7 +100,7 @@ def expected_jobs(kind: str) -> set[str]:
 
 def expected_artifacts(kind: str, source_revision: str) -> set[str]:
     if kind == "server":
-        return set(EXPECTED_ARTIFACTS)
+        return EXPECTED_ARTIFACTS | SERVER_EVIDENCE_ARTIFACTS
     return {
         ANDROID_APK_ARTIFACT.format(revision=source_revision),
         ANDROID_EVIDENCE_ARTIFACT.format(revision=source_revision),
