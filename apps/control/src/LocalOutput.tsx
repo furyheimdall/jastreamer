@@ -2,6 +2,7 @@ import { forwardRef, useImperativeHandle, useRef } from "react";
 import BrowserOutput, { type BrowserOutputHandle, type BrowserOutputProps } from "./BrowserOutput";
 import NativeAndroidOutput, {
   nativeAndroidAudioBridge,
+  type NativeAndroidAudioState,
   type NativeAndroidOutputHandle,
 } from "./NativeAndroidOutput";
 import NativeWindowsOutput, {
@@ -21,6 +22,7 @@ export interface LocalOutputHandle {
   rename: (name: string) => Promise<void>;
   retryPlayback?: () => void;
   configureWindows: (configuration: NativeWindowsConfiguration) => Promise<NativeWindowsState>;
+  configureAndroid: (bitPerfect: boolean) => Promise<void>;
 }
 
 export interface LocalOutputProps extends BrowserOutputProps {
@@ -29,6 +31,7 @@ export interface LocalOutputProps extends BrowserOutputProps {
   windowsBridge: JastreamerWindowsAudioBridge | null;
   windowsState: NativeWindowsState | null;
   onWindowsStateChange: (state: NativeWindowsState) => void;
+  onAndroidAudioChange: (audio: NativeAndroidAudioState | null) => void;
 }
 
 export function hasNativeAndroidAudio(): boolean {
@@ -42,6 +45,7 @@ const LocalOutput = forwardRef<LocalOutputHandle, LocalOutputProps>(function Loc
     windowsBridge,
     windowsState,
     onWindowsStateChange,
+    onAndroidAudioChange,
     ...browserProps
   },
   ref,
@@ -105,6 +109,11 @@ const LocalOutput = forwardRef<LocalOutputHandle, LocalOutputProps>(function Loc
       onWindowsStateChange(next);
       return next;
     },
+    async configureAndroid(bitPerfect) {
+      const output = androidRef.current;
+      if (!output) throw new Error(bridgeError);
+      await output.configure(bitPerfect);
+    },
     ...(!nativeAndroidPresent && !nativeWindowsEnabled
       ? { retryPlayback: () => browserRef.current?.retryPlayback() }
       : {}),
@@ -130,6 +139,7 @@ const LocalOutput = forwardRef<LocalOutputHandle, LocalOutputProps>(function Loc
         onRecoveryChange={onRecoveryChange}
         onError={browserProps.onError}
         onVolumeChange={browserProps.onVolumeChange}
+        onAudioStateChange={onAndroidAudioChange}
       />
     );
   }

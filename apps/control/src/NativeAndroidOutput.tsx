@@ -18,12 +18,41 @@ declare global {
   }
 }
 
+export type NativeAndroidAudioDevice = { id: string; name: string };
+
+export type NativeAndroidActual = {
+  device_id: string;
+  name: string;
+  mode: "bit_perfect" | "mixed";
+  sample_rate: number;
+  channels: number;
+  container_bits: number;
+  valid_bits: number;
+  encoding: string;
+  bit_transparent: boolean;
+  reason: string;
+};
+
+export type NativeAndroidAudioState = {
+  supported: boolean;
+  available: boolean;
+  reason: string;
+  enabled: boolean;
+  devices: NativeAndroidAudioDevice[];
+  requested: { bit_perfect: boolean };
+  state: "stopped" | "loaded" | "playing" | "paused" | "error";
+  can_configure: boolean;
+  actual: NativeAndroidActual | null;
+  error?: { code: string; message: string };
+};
+
 export interface NativeAndroidOutputHandle {
   connect: () => Promise<Device>;
   connectAutomatically: () => Promise<Device | null>;
   disconnect: () => Promise<void>;
   rename: (name: string) => Promise<void>;
   setVolume: (volume: number) => Promise<void>;
+  configure: (bitPerfect: boolean) => Promise<void>;
 }
 
 interface NativeAndroidOutputProps {
@@ -33,18 +62,20 @@ interface NativeAndroidOutputProps {
   bridgeError: string;
   onDeviceChange: (device: Device | null) => void;
   onVolumeChange: (volume: number | null) => void;
+  onAudioStateChange: (audio: NativeAndroidAudioState | null) => void;
   onRecoveryChange: (recovering: boolean, message: string) => void;
   onError: (message: string) => void;
 }
 
-type BridgeAction = "status" | "connect" | "connect_if_available" | "disconnect" | "rename" | "set_volume";
+type BridgeAction = "status" | "connect" | "connect_if_available" | "disconnect" | "rename" | "set_volume" | "configure";
 
-type BridgeArgument = { name: string } | { volume: number } | undefined;
+type BridgeArgument = { name: string } | { volume: number } | { bit_perfect: boolean } | undefined;
 
 type NativeState = {
   device: Device | null;
   recovering: boolean;
   volume: number | null;
+  audio: NativeAndroidAudioState | null;
   error?: { code: string; message: string };
 };
 
@@ -107,6 +138,85 @@ function parseDevice(value: unknown): Device | null | undefined {
   };
 }
 
+function positiveInteger(value: unknown): value is number {
+  return typeof value === "number" && Number.isSafeInteger(value) && value > 0;
+}
+
+function parseActual(value: unknown): NativeAndroidActual | null | undefined {
+  if (value === null || value === undefined) return null;
+  const candidate = record(value);
+  if (!candidate
+    || typeof candidate.device_id !== "string"
+    || typeof candidate.name !== "string"
+    || (candidate.mode !== "bit_perfect" && candidate.mode !== "mixed")
+    || !positiveInteger(candidate.sample_rate)
+    || !positiveInteger(candidate.channels)
+    || !positiveInteger(candidate.container_bits)
+    || !positiveInteger(candidate.valid_bits)
+    || candidate.valid_bits > candidate.container_bits
+    || typeof candidate.encoding !== "string"
+    || typeof candidate.bit_transparent !== "boolean"
+    || typeof candidate.reason !== "string") return undefined;
+  return {
+    device_id: candidate.device_id,
+    name: candidate.name,
+    mode: candidate.mode,
+    sample_rate: candidate.sample_rate,
+    channels: candidate.channels,
+    container_bits: candidate.container_bits,
+    valid_bits: candidate.valid_bits,
+    encoding: candidate.encoding,
+    bit_transparent: candidate.bit_transparent,
+    reason: candidate.reason,
+  };
+}
+
+function parseAudio(value: unknown): NativeAndroidAudioState | null | undefined {
+  if (value === undefined || value === null) return null;
+  const candidate = record(value);
+  const requested = record(candidate?.requested);
+  const actual = parseActual(candidate?.actual);
+  if (!candidate || !requested || actual === undefined
+    || typeof candidate.supported !== "boolean"
+    || typeof candidate.available !== "boolean"
+    || typeof candidate.reason !== "string"
+    || typeof candidate.enabled !== "boolean"
+    || typeof candidate.can_configure !== "boolean"
+    || typeof requested.bit_perfect !== "boolean"
+    || !Array.isArray(candidate.devices)
+    || !["stopped", "loaded", "playing", "paused", "error"].includes(String(candidate.state))) return undefined;
+
+  const devices: NativeAndroidAudioDevice[] = [];
+  const deviceIDs = new Set<string>();
+  for (const entry of candidate.devices) {
+    const item = record(entry);
+    if (!item || typeof item.id !== "string" || item.id.length === 0
+      || typeof item.name !== "string" || item.name.length === 0 || deviceIDs.has(item.id)) return undefined;
+    deviceIDs.add(item.id);
+    devices.push({ id: item.id, name: item.name });
+  }
+
+  let audioError: NativeAndroidAudioState["error"];
+  if (candidate.error !== undefined) {
+    const failure = record(candidate.error);
+    if (!failure || typeof failure.code !== "string" || typeof failure.message !== "string") return undefined;
+    audioError = { code: failure.code, message: failure.message };
+  }
+
+  return {
+    supported: candidate.supported,
+    available: candidate.available,
+    reason: candidate.reason,
+    enabled: candidate.enabled,
+    devices,
+    requested: { bit_perfect: requested.bit_perfect },
+    state: candidate.state as NativeAndroidAudioState["state"],
+    can_configure: candidate.can_configure,
+    actual,
+    ...(audioError ? { error: audioError } : {}),
+  };
+}
+
 function parseState(value: Record<string, unknown>, recoveringRequired: boolean): NativeState | null {
   if (!("device" in value)) return null;
   const device = parseDevice(value.device);
@@ -121,13 +231,16 @@ function parseState(value: Record<string, unknown>, recoveringRequired: boolean)
     volume = value.volume;
   }
 
+  const audio = parseAudio(value.audio);
+  if (audio === undefined) return null;
+
   let error: NativeState["error"];
   if (value.error !== undefined) {
     const candidate = record(value.error);
     if (!candidate || typeof candidate.code !== "string" || typeof candidate.message !== "string") return null;
     error = { code: candidate.code, message: candidate.message };
   }
-  return { device, recovering: value.recovering === true, volume, ...(error ? { error } : {}) };
+  return { device, recovering: value.recovering === true, volume, audio, ...(error ? { error } : {}) };
 }
 
 function messageData(event: Event): string | null {
@@ -152,7 +265,7 @@ export function nativeAndroidAudioBridge(): AndroidAudioBridge | null {
 }
 
 const NativeAndroidOutput = forwardRef<NativeAndroidOutputHandle, NativeAndroidOutputProps>(function NativeAndroidOutput(
-  { bridge, name, registrationError, bridgeError, onDeviceChange, onRecoveryChange, onVolumeChange, onError },
+  { bridge, name, registrationError, bridgeError, onDeviceChange, onRecoveryChange, onVolumeChange, onAudioStateChange, onError },
   ref,
 ) {
   const requestRef = useRef<((action: BridgeAction, argument?: BridgeArgument) => Promise<NativeState>) | null>(null);
@@ -196,6 +309,11 @@ const NativeAndroidOutput = forwardRef<NativeAndroidOutputHandle, NativeAndroidO
       if (!request) throw new Error(bridgeErrorRef.current);
       await request("set_volume", { volume });
     },
+    async configure(bitPerfect) {
+      const request = requestRef.current;
+      if (!request) throw new Error(bridgeErrorRef.current);
+      await request("configure", { bit_perfect: bitPerfect });
+    },
   }), [bridgeError]);
 
   useEffect(() => {
@@ -203,6 +321,7 @@ const NativeAndroidOutput = forwardRef<NativeAndroidOutputHandle, NativeAndroidO
       onDeviceChange(null);
       onRecoveryChange(false, "");
       onVolumeChange(null);
+      onAudioStateChange(null);
       onError(bridgeError);
       return;
     }
@@ -228,6 +347,7 @@ const NativeAndroidOutput = forwardRef<NativeAndroidOutputHandle, NativeAndroidO
       onDeviceChange(state.device);
       onRecoveryChange(state.recovering, state.recovering ? state.error?.message ?? "" : "");
       onVolumeChange(state.volume);
+      onAudioStateChange(state.audio);
       if (state.recovering) terminalError = "";
       else if (reportTerminal) reportTerminalError(state.error);
       else terminalError = terminalErrorKey(state.error);
@@ -333,7 +453,7 @@ const NativeAndroidOutput = forwardRef<NativeAndroidOutputHandle, NativeAndroidO
       }
       pending.clear();
     };
-  }, [bridge, bridgeError, onDeviceChange, onError, onRecoveryChange, onVolumeChange]);
+  }, [bridge, bridgeError, onAudioStateChange, onDeviceChange, onError, onRecoveryChange, onVolumeChange]);
 
   return null;
 });

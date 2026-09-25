@@ -40,7 +40,7 @@ jastreamer 0.2.0은 신뢰하는 사설 LAN에서 쓰는 자체 호스팅 음악
 | Server | Windows x64 | 무설치 ZIP | Web 화면, UPnP/DLNA, 선택적 Cast. AirPlay와 FFmpeg은 없고 Windows 서비스도 아님 |
 | 데스크톱 앱 | Windows 10/11 x64 | 무설치 ZIP | 브라우저 오디오와 선택적 WASAPI 공유·독점 출력, Windows 미디어 제어([Windows 오디오](INSTRUCTION.ko.md#windows-audio)) |
 | 데스크톱 앱 | Linux `amd64` | DEB | 브라우저 오디오만 지원. ARM64 데스크톱 패키지는 없음 |
-| 모바일 앱 | Android 10 이상 | [GitHub Releases](https://github.com/furyheimdall/jastreamer/releases)에 첨부된 서명 APK `jastreamer-android_0.2.0_release.apk` | 시스템 미디어 제어가 있는 Media3 로컬 재생과 오프라인 **저장된 음악**([Android 설치](INSTALL.ko.md#android)) |
+| 모바일 앱 | Android 10 이상 | [GitHub Releases](https://github.com/furyheimdall/jastreamer/releases)에 첨부된 서명 APK `jastreamer-android_0.2.0_release.apk` | 시스템 미디어 제어가 있는 Media3 로컬 재생, Android 14 이상에서 선택적 USB 비트 퍼펙트 출력, 오프라인 **저장된 음악**([Android 설치](INSTALL.ko.md#android)) |
 | 모바일 앱 | iOS/iPadOS 18.4 이상 | [iOS CI](https://github.com/furyheimdall/jastreamer/actions/workflows/ios.yml)와 소스만 제공 | 제어 전용 앱. 설치 가능한 패키지, TestFlight, App Store 배포 없음([iOS 개발 범위](INSTALL.ko.md#ios)) |
 | 브라우저·PWA | LAN의 최신 브라우저 | Server가 직접 제공 | iPhone·Android 휴대전화 브라우저는 휴대전화 화면 사용, PWA 설치에는 신뢰할 수 있는 HTTPS 필요([PWA](INSTALL.ko.md#pwa)) |
 

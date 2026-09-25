@@ -15,6 +15,7 @@ import androidx.core.content.ContextCompat
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.ForwardingSimpleBasePlayer
+import androidx.media3.common.Format
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.PlaybackException
@@ -23,6 +24,8 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.okhttp.OkHttpDataSource
 import androidx.media3.datasource.HttpDataSource
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.analytics.AnalyticsListener
+import androidx.media3.exoplayer.audio.AudioSink
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.exoplayer.source.MediaSource
 import androidx.media3.exoplayer.upstream.DefaultLoadErrorHandlingPolicy
@@ -119,6 +122,12 @@ class NativePlaybackService : MediaSessionService(), Player.Listener {
     private var pendingTerminal: TerminalEvent? = null
     private var acknowledgingCommand = false
     private var deferredPlaybackError: PlayerFailure? = null
+    private lateinit var bitPerfect: UsbBitPerfectController
+    private var playerReleased = false
+    private var audioTrackStream: PcmStream? = null
+    private var audioTrackGeneration = -1L
+    private var bitPerfectSource: SourceStream? = null
+    private var bitPerfectError: PublicError? = null
 
     private val noisyReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
@@ -157,7 +166,9 @@ class NativePlaybackService : MediaSessionService(), Player.Listener {
                 it.setHandleAudioBecomingNoisy(false)
                 it.repeatMode = Player.REPEAT_MODE_OFF
                 it.addListener(this)
+                it.addAnalyticsListener(AudioTrackObserver())
             }
+        bitPerfect = UsbBitPerfectController(this) { notifyState() }
         routedPlayer = OwnerRoutedPlayer(player)
         session = MediaSession.Builder(this, routedPlayer)
             .setCallback(SessionCallback())
@@ -225,6 +236,9 @@ class NativePlaybackService : MediaSessionService(), Player.Listener {
         serviceJob.cancel()
         session.release()
         player.removeListener(this)
+        // The USB preference outlives an AudioTrack, so it is released before the player is.
+        bitPerfect.release()
+        playerReleased = true
         routedPlayer.release()
         setOwner(PlaybackOwner.NONE)
         registration = null
@@ -949,8 +963,18 @@ class NativePlaybackService : MediaSessionService(), Player.Listener {
 
     private fun setOwner(value: PlaybackOwner) {
         if (owner == value) return
+        // Bit-perfect output belongs to Server-owned playback; Saved music keeps the normal mixer.
+        if (value != PlaybackOwner.SERVER) releaseBitPerfect()
         owner = value
         ownershipGeneration++
+    }
+
+    /** Drops the preferred mixer attributes and the pinned USB route for the shared player. */
+    private fun releaseBitPerfect() {
+        bitPerfect.clear()
+        bitPerfectSource = null
+        bitPerfectError = null
+        if (::player.isInitialized && !playerReleased) player.setPreferredAudioDevice(null)
     }
 
     private fun ownerName(): String = when (owner) {
@@ -1192,7 +1216,48 @@ class NativePlaybackService : MediaSessionService(), Player.Listener {
         if (owner != PlaybackOwner.SERVER) {
             throw NativePlaybackException("not_connected", "Phone playback is not owned by this server.")
         }
+        if (bitPerfect.enabled) {
+            throw NativePlaybackException(
+                "bit_perfect_fixed_volume",
+                "Volume is fixed at 100% for USB bit-perfect output; adjust it on the DAC.",
+            )
+        }
         player.volume = volume
+        notifyState()
+        return state(server)
+    }
+
+    /**
+     * Turns the opt-in USB bit-perfect path on or off. It applies from the next track and keeps the
+     * same Server output registration, so it is only accepted while phone playback is stopped.
+     */
+    internal fun configure(server: ServerEndpoint, usbBitPerfect: Boolean): JSONObject {
+        requireRegistration(server)
+        if (owner != PlaybackOwner.SERVER) {
+            throw NativePlaybackException("not_connected", "Phone playback is not owned by this server.")
+        }
+        if (currentResource != null || preparing || recovering) {
+            throw NativePlaybackException("stop_required", "Stop phone playback before changing audio settings.")
+        }
+        if (usbBitPerfect) {
+            val status = bitPerfect.status()
+            if (!status.available) {
+                throw NativePlaybackException(
+                    "bit_perfect_unavailable",
+                    when (status.reason) {
+                        UsbBitPerfectPolicy.UNAVAILABLE_REQUIRES_ANDROID_14 ->
+                            "USB bit-perfect output needs Android 14 or newer."
+                        UsbBitPerfectPolicy.UNAVAILABLE_NO_USB_DEVICE ->
+                            "Connect a USB audio device to use bit-perfect output."
+                        else -> "This USB audio device does not offer a bit-perfect mixer."
+                    },
+                )
+            }
+        }
+        bitPerfect.setEnabled(usbBitPerfect)
+        bitPerfectError = null
+        if (usbBitPerfect) player.volume = 1f else releaseBitPerfect()
+        publicError = null
         notifyState()
         return state(server)
     }
@@ -1210,11 +1275,76 @@ class NativePlaybackService : MediaSessionService(), Player.Listener {
             .put("recovering", recovering)
             .put(
                 "volume",
-                if (existing != null && owner == PlaybackOwner.SERVER) player.volume.toDouble() else JSONObject.NULL,
+                if (existing != null && owner == PlaybackOwner.SERVER && !bitPerfect.enabled) {
+                    player.volume.toDouble()
+                } else {
+                    JSONObject.NULL
+                },
             )
+            .put("audio", audioState())
             .also { value ->
                 publicError?.let { value.put("error", JSONObject().put("code", it.code).put("message", it.message)) }
             }
+    }
+
+    /** The requested and the actually active local audio path, as the settings panel reports them. */
+    private fun audioState(): JSONObject {
+        val status = bitPerfect.status()
+        val devices = JSONArray()
+        status.devices.forEach { device ->
+            devices.put(JSONObject().put("id", device.id).put("name", device.name))
+        }
+        return JSONObject()
+            .put("supported", status.supported)
+            .put("available", status.available)
+            .put("reason", status.reason)
+            .put("devices", devices)
+            .put("enabled", bitPerfect.enabled)
+            .put("requested", JSONObject().put("bit_perfect", bitPerfect.enabled))
+            .put("state", engineState())
+            .put("can_configure", owner == PlaybackOwner.SERVER && currentResource == null && !preparing && !recovering)
+            .put("actual", actualAudio() ?: JSONObject.NULL)
+            .also { value ->
+                bitPerfectError?.let {
+                    value.put("error", JSONObject().put("code", it.code).put("message", it.message))
+                }
+            }
+    }
+
+    private fun engineState(): String = when {
+        owner != PlaybackOwner.SERVER || currentResource == null -> "stopped"
+        publicError != null -> "error"
+        player.isPlaying -> "playing"
+        currentResource?.everPlayed == true -> "paused"
+        else -> "loaded"
+    }
+
+    private fun actualAudio(): JSONObject? {
+        if (owner != PlaybackOwner.SERVER) return null
+        val stream = audioTrackStream ?: return null
+        val active = bitPerfect.active(stream)
+        val source = bitPerfectSource
+        val verdict = if (source == null) {
+            BitPerfectVerdict(false, UsbBitPerfectPolicy.REASON_SOURCE_PROVENANCE_UNKNOWN)
+        } else {
+            UsbBitPerfectPolicy.transparency(
+                source = source,
+                actual = stream,
+                bitPerfectActive = active?.bitPerfect == true,
+                unityGain = player.volume == 1f,
+            )
+        }
+        return JSONObject()
+            .put("device_id", active?.deviceId.orEmpty())
+            .put("name", active?.deviceName ?: bitPerfect.deviceLabel())
+            .put("mode", if (active?.bitPerfect == true) "bit_perfect" else "mixed")
+            .put("sample_rate", stream.sampleRate)
+            .put("channels", stream.channelCount)
+            .put("container_bits", stream.encoding.containerBits)
+            .put("valid_bits", stream.encoding.validBits)
+            .put("encoding", stream.encoding.label)
+            .put("bit_transparent", verdict.transparent)
+            .put("reason", verdict.reason)
     }
 
     private fun requireRegistration(server: ServerEndpoint): Registration {
@@ -1483,14 +1613,88 @@ class NativePlaybackService : MediaSessionService(), Player.Listener {
         } catch (error: Throwable) {
             throw preparationFailure(active, error)
         }
+        applyBitPerfect(expected, active, resource)
         notifyState()
         return observation("loaded", playId)
+    }
+
+    /**
+     * Configures the USB bit-perfect mixer for the freshly prepared track. The mixer attributes must
+     * exist before the `AudioTrack` is created, so a track opened under the previous preference is
+     * reopened once. An unusable format or device fails the item instead of falling back to the
+     * shared mixer.
+     */
+    private suspend fun applyBitPerfect(expected: Registration, active: ActiveResource, resource: JSONObject) {
+        bitPerfectSource = sourceStream(resource)
+        bitPerfectError = null
+        if (!bitPerfect.enabled) {
+            if (bitPerfect.applied) releaseBitPerfect()
+            return
+        }
+        val source = bitPerfectSource
+            ?: throw bitPerfectFailure("bit_perfect_format_unknown", "The decoded audio format is unknown, so bit-perfect output cannot be requested.")
+        val planned = UsbBitPerfectPolicy.plannedStream(
+            source = source,
+            channelMask = bitPerfect.channelMask(source.channelCount),
+            floatOutput = false,
+        ) ?: throw bitPerfectFailure("bit_perfect_layout_unsupported", "This channel layout cannot be sent to a USB audio device.")
+        val device = try {
+            bitPerfect.apply(planned)
+        } catch (failure: UsbBitPerfectException) {
+            throw bitPerfectFailure(failure.code, failure.message.orEmpty())
+        }
+        player.setPreferredAudioDevice(device)
+        player.volume = 1f
+        if (audioTrackStream != planned || audioTrackGeneration != bitPerfect.appliedGeneration) {
+            try {
+                player.stop()
+                player.setMediaSource(expected.client.mediaSource(active.mediaItem), 0L)
+                prepareWithRecovery(expected, active, startPositionMillis = 0L, playWhenReady = false)
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: PlaybackFailure) {
+                throw error
+            } catch (error: Throwable) {
+                throw preparationFailure(active, error)
+            }
+        }
+        if (audioTrackStream != planned || !bitPerfect.activeBitPerfect()) {
+            releaseBitPerfect()
+            throw bitPerfectFailure(
+                "bit_perfect_not_applied",
+                "USB bit-perfect output could not be applied to this track.",
+            )
+        }
+    }
+
+    /** Keeps the specific bit-perfect reason in the settings panel while the item fails normally. */
+    private fun bitPerfectFailure(code: String, message: String): CommandFailure {
+        bitPerfectError = PublicError(code, message)
+        notifyState()
+        return CommandFailure("media_unsupported", message)
+    }
+
+    /** What the Server delivered and what the extractor decoded, used for the transparency verdict. */
+    private fun sourceStream(resource: JSONObject): SourceStream? {
+        val format = player.audioFormat ?: return null
+        if (format.sampleRate == Format.NO_VALUE || format.channelCount == Format.NO_VALUE) return null
+        val transformed = if (resource.opt("transformed") is Boolean) resource.optBoolean("transformed") else null
+        val lossless = UsbBitPerfectPolicy.isLosslessMime(resource.optString("mime")) &&
+            UsbBitPerfectPolicy.isLosslessMime(format.sampleMimeType)
+        return SourceStream(
+            sampleRate = format.sampleRate,
+            channelCount = format.channelCount,
+            encoding = UsbBitPerfectController.encoding(format.pcmEncoding),
+            lossless = lossless,
+            transformed = transformed,
+        )
     }
 
     private suspend fun executePlay(expected: Registration, command: JSONObject, sequence: Long): JSONObject {
         val active = requireActive(command, sequence)
         val interruptedRecovery = cancelBackgroundRecovery()
         active.wantsPlayback = true
+        active.everPlayed = true
         drainPlayerErrors()
         if (interruptedRecovery || player.playbackState == Player.STATE_IDLE) {
             prepareWithRecovery(expected, active, player.currentPosition.coerceAtLeast(0L), true)
@@ -2544,8 +2748,36 @@ class NativePlaybackService : MediaSessionService(), Player.Listener {
         var sequence: Long,
         var wantsPlayback: Boolean = false,
         var terminalReported: Boolean = false,
+        var everPlayed: Boolean = false,
         val playbackErrors: NativePlaybackErrorBuffer = NativePlaybackErrorBuffer(),
     )
+
+    /** Records the stream the sink actually opened, which is what the settings panel reports. */
+    private inner class AudioTrackObserver : AnalyticsListener {
+        override fun onAudioTrackInitialized(
+            eventTime: AnalyticsListener.EventTime,
+            audioTrackConfig: AudioSink.AudioTrackConfig,
+        ) {
+            audioTrackStream = UsbBitPerfectController.encoding(audioTrackConfig.encoding)?.let { encoding ->
+                PcmStream(
+                    encoding = encoding,
+                    sampleRate = audioTrackConfig.sampleRate,
+                    channelCount = Integer.bitCount(audioTrackConfig.channelConfig),
+                    channelMask = audioTrackConfig.channelConfig,
+                )
+            }
+            audioTrackGeneration = bitPerfect.appliedGeneration
+            notifyState()
+        }
+
+        override fun onAudioTrackReleased(
+            eventTime: AnalyticsListener.EventTime,
+            audioTrackConfig: AudioSink.AudioTrackConfig,
+        ) {
+            audioTrackStream = null
+            notifyState()
+        }
+    }
 
     private data class PublicError(val code: String, val message: String)
     private data class TerminalEvent(

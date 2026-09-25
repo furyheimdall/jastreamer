@@ -287,16 +287,16 @@ html[data-device="phone"] .phone-player-expanded .pairing-panel {
   backdrop-filter: none;
 }
 
-html[data-device="phone"] .phone-player-expanded .windows-audio-panel {
+html[data-device="phone"] .phone-player-expanded .native-audio-panel {
   max-height: none;
 }
 
-html[data-device="phone"] .phone-player-expanded .windows-audio-heading {
+html[data-device="phone"] .phone-player-expanded .native-audio-heading {
   align-items: stretch;
   flex-direction: column;
 }
 
-html[data-device="phone"] .phone-player-expanded .windows-audio-heading .button {
+html[data-device="phone"] .phone-player-expanded .native-audio-heading .button {
   width: 100%;
 }
 

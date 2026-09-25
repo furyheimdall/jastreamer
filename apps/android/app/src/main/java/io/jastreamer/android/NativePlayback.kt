@@ -79,6 +79,14 @@ object NativePlayback {
     }
 
     @MainThread
+    fun configure(server: ServerEndpoint, usbBitPerfect: Boolean): JSONObject {
+        requireMainThread()
+        val service = NativePlaybackRegistry.service
+            ?: throw NativePlaybackException("not_connected", "Phone playback is not connected.")
+        return service.configure(server, usbBitPerfect)
+    }
+
+    @MainThread
     suspend fun rename(server: ServerEndpoint, name: String): JSONObject {
         requireMainThread()
         val service = NativePlaybackRegistry.service
