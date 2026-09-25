@@ -860,6 +860,58 @@ html[data-client] .app-shell .mobile-header {
   gap: 1rem;
 }
 
+.queue-heading-copy {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.queue-heading-copy > .muted {
+  max-width: 42rem;
+  margin-bottom: 0;
+}
+
+.queue-global-management {
+  display: grid;
+  min-width: 0;
+  max-width: 34rem;
+  padding: 0.85rem 1rem;
+  border: 1px solid var(--border);
+  border-radius: 0.9rem;
+  background: var(--panel);
+  flex: 1 1 28rem;
+  justify-items: end;
+  gap: 0.7rem;
+}
+
+.queue-global-management > p {
+  width: 100%;
+  margin: 0;
+  line-height: 1.5;
+}
+
+.queue-clear-confirmation {
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.65rem 1rem;
+}
+
+.queue-clear-confirmation > strong {
+  color: var(--danger);
+  font-size: 0.85rem;
+}
+
+.queue-clear-confirmation-actions {
+  display: flex;
+  max-width: 100%;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.5rem;
+}
+
 .queue-bulk-panel {
   display: flex;
   min-width: 0;
@@ -882,16 +934,7 @@ html[data-client] .app-shell .mobile-header {
   line-height: 1.5;
 }
 
-.queue-bulk-actions {
-  display: flex;
-  min-width: 0;
-  max-width: 100%;
-  flex: 0 1 auto;
-  flex-wrap: wrap;
-  gap: 0.5rem;
-}
-
-.queue-bulk-actions .button {
+.queue-bulk-panel > .button {
   flex: 0 0 auto;
 }
 
@@ -1755,9 +1798,28 @@ body:has([aria-modal="true"]) {
     flex-direction: column;
   }
 
-  .queue-heading-row > .button,
+  .queue-global-management {
+    width: 100%;
+    max-width: none;
+    flex-basis: auto;
+  }
+
+  .queue-global-management > .button,
   .settings-card-heading > .button {
     width: 100%;
+  }
+
+  .queue-clear-confirmation {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .queue-clear-confirmation-actions {
+    width: 100%;
+  }
+
+  .queue-clear-confirmation-actions > .button {
+    flex: 1 1 auto;
   }
 
   .scan-actions,

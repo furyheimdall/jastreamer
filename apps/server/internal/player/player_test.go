@@ -404,19 +404,8 @@ func TestQueuePreservesDuplicatesOrderAndCurrentCursor(t *testing.T) {
 		t.Fatal(err)
 	}
 	runAcceptedCommand(t, service)
-	queue, err = service.Queue(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := service.MutateQueue(ctx, QueueMutation{Action: "remove", EntryID: queue.Entries[1].ID, Revision: queue.Revision}); faultCode(err) != "CURRENT_ENTRY_IMMUTABLE" {
-		t.Fatalf("remove current error=%v", err)
-	}
-	queue, err = service.MutateQueue(ctx, QueueMutation{Action: "clear", Revision: queue.Revision})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(queue.Entries) != 2 || queue.Entries[1].ID != service.mustState(t).CurrentEntryID {
-		t.Fatalf("clear did not preserve history and current cursor: %#v", queue.Entries)
+	if current := service.mustState(t); current.CurrentEntryID != queue.Entries[1].ID || current.Track == nil || current.Track.ID != "a" {
+		t.Fatalf("duplicate selection lost its entry identity: %#v", current)
 	}
 }
 

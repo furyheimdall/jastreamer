@@ -65,9 +65,11 @@ func (s *Service) prepareListening(ctx context.Context, tx *sql.Tx, st storedSta
 		return listeningEvidence{}, false, nil
 	}
 	if next.playID != st.playID {
-		var trackID string
-		if err := tx.QueryRowContext(ctx, "SELECT track_id FROM player_queue WHERE entry_id=?", st.currentEntryID).Scan(&trackID); err != nil {
-			return listeningEvidence{}, false, fmt.Errorf("player: load listening track: %w", err)
+		trackID := st.currentTrackID
+		if trackID == "" {
+			if err := tx.QueryRowContext(ctx, "SELECT track_id FROM player_queue WHERE entry_id=?", st.currentEntryID).Scan(&trackID); err != nil {
+				return listeningEvidence{}, false, fmt.Errorf("player: load listening track: %w", err)
+			}
 		}
 		next = listeningEvidence{playID: st.playID, trackID: trackID, durationMS: st.durationMS}
 	}

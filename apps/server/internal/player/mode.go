@@ -69,7 +69,20 @@ func (s *Service) UpdateMode(ctx context.Context, update ModeUpdate) (State, err
 				var records []queueRecord
 				records, err = loadQueueRecords(ctx, tx)
 				if err == nil {
-					err = rebuildShuffleTraversalTx(ctx, tx, records, currentEntryID, false)
+					if queueRecordIndex(records, currentEntryID) >= 0 {
+						err = rebuildShuffleTraversalTx(ctx, tx, records, currentEntryID, false)
+					} else {
+						err = rebuildShuffleTraversalTx(ctx, tx, records, "", false)
+						if err == nil && currentEntryID != "" {
+							var binding currentBinding
+							var found bool
+							binding, found, err = loadCurrentBindingTx(ctx, tx, currentEntryID)
+							if err == nil && found {
+								binding.shuffleIndex = 0
+								err = storeCurrentBindingTx(ctx, tx, binding)
+							}
+						}
+					}
 				}
 			} else {
 				_, err = tx.ExecContext(ctx, "DELETE FROM player_shuffle")
@@ -148,13 +161,25 @@ func (s *Service) adjacentEntryTx(ctx context.Context, tx *sql.Tx, current strin
 		return queueRecord{}, false, nil
 	}
 	index := -1
+	detached := false
 	if current != "" {
 		index = stringIndex(ids, current)
 		if index < 0 {
-			return queueRecord{}, false, nil
+			binding, found, loadErr := loadCurrentBindingTx(ctx, tx, current)
+			if loadErr != nil {
+				return queueRecord{}, false, loadErr
+			}
+			if !found {
+				return queueRecord{}, false, nil
+			}
+			index = binding.shuffleIndex
+			detached = true
 		}
 	}
 	targetIndex := index + 1
+	if detached {
+		targetIndex = index
+	}
 	if direction < 0 {
 		targetIndex = index - 1
 	}
@@ -164,12 +189,29 @@ func (s *Service) adjacentEntryTx(ctx context.Context, tx *sql.Tx, current strin
 	if direction < 0 || !allowRepeatAll || mode.repeatMode != RepeatAll {
 		return queueRecord{}, false, nil
 	}
-	if err := rebuildShuffleTraversalTx(ctx, tx, records, current, true); err != nil {
+	if detached {
+		err = rebuildShuffleTraversalTx(ctx, tx, records, "", false)
+	} else {
+		err = rebuildShuffleTraversalTx(ctx, tx, records, current, true)
+	}
+	if err != nil {
 		return queueRecord{}, false, err
 	}
 	ids, err = loadShuffleIDsTx(ctx, tx)
 	if err != nil || len(ids) == 0 {
 		return queueRecord{}, false, err
+	}
+	if detached {
+		binding, found, loadErr := loadCurrentBindingTx(ctx, tx, current)
+		if loadErr != nil {
+			return queueRecord{}, false, loadErr
+		}
+		if found {
+			binding.shuffleIndex = 0
+			if err := storeCurrentBindingTx(ctx, tx, binding); err != nil {
+				return queueRecord{}, false, err
+			}
+		}
 	}
 	return entryByIDTx(ctx, tx, ids[0])
 }
@@ -179,13 +221,25 @@ func adjacentStoredEntryTx(ctx context.Context, tx *sql.Tx, current string, dire
 		return firstStoredEntryTx(ctx, tx)
 	}
 	var position int
+	detached := false
 	if err := tx.QueryRowContext(ctx, "SELECT position FROM player_queue WHERE entry_id=?", current).Scan(&position); err != nil {
-		if err == sql.ErrNoRows {
+		if err != sql.ErrNoRows {
+			return queueRecord{}, false, err
+		}
+		binding, found, loadErr := loadCurrentBindingTx(ctx, tx, current)
+		if loadErr != nil {
+			return queueRecord{}, false, loadErr
+		}
+		if !found {
 			return queueRecord{}, false, nil
 		}
-		return queueRecord{}, false, err
+		position = binding.queueIndex
+		detached = true
 	}
 	operator, order := ">", "ASC"
+	if detached {
+		operator = ">="
+	}
 	if direction < 0 {
 		operator, order = "<", "DESC"
 	}
@@ -305,7 +359,15 @@ func recordTraversalSelectionTx(ctx context.Context, tx *sql.Tx, current, target
 	}
 	currentIndex := stringIndex(ids, current)
 	if currentIndex < 0 {
-		currentIndex = -1
+		binding, found, loadErr := loadCurrentBindingTx(ctx, tx, current)
+		if loadErr != nil {
+			return loadErr
+		}
+		if found {
+			currentIndex = binding.shuffleIndex - 1
+		} else {
+			currentIndex = -1
+		}
 	}
 	if targetIndex <= currentIndex+1 {
 		return nil
@@ -318,7 +380,7 @@ func recordTraversalSelectionTx(ctx context.Context, tx *sql.Tx, current, target
 	return rewriteShuffleTx(ctx, tx, ids)
 }
 
-func syncShuffleQueueMutationTx(ctx context.Context, tx *sql.Tx, action, current string, before, after []queueRecord) error {
+func syncShuffleQueueMutationTx(ctx context.Context, tx *sql.Tx, action, current string, before, after []queueRecord, beforeIDs []string, binding *currentBinding) error {
 	mode, err := loadPlaybackModeTx(ctx, tx)
 	if err != nil || !mode.shuffle {
 		return err
@@ -341,6 +403,23 @@ func syncShuffleQueueMutationTx(ctx context.Context, tx *sql.Tx, action, current
 	for _, record := range after {
 		afterSet[record.id] = struct{}{}
 	}
+	cursor := 0
+	detached := binding != nil && queueRecordIndex(after, current) < 0
+	if binding != nil {
+		cursor = binding.shuffleIndex
+		if index := stringIndex(beforeIDs, current); index >= 0 {
+			cursor = index
+		}
+		if detached {
+			for index, id := range beforeIDs {
+				if id != current {
+					if _, remains := afterSet[id]; !remains && index < cursor {
+						cursor--
+					}
+				}
+			}
+		}
+	}
 	filtered := ids[:0]
 	for _, id := range ids {
 		if _, ok := afterSet[id]; ok {
@@ -356,8 +435,14 @@ func syncShuffleQueueMutationTx(ctx context.Context, tx *sql.Tx, action, current
 	}
 	if action == "next" {
 		insertAt := stringIndex(ids, current) + 1
+		if detached {
+			insertAt = cursor
+		}
 		if insertAt < 0 {
 			insertAt = 0
+		}
+		if insertAt > len(ids) {
+			insertAt = len(ids)
 		}
 		result := make([]string, 0, len(ids)+len(inserted))
 		result = append(result, ids[:insertAt]...)
@@ -369,7 +454,23 @@ func syncShuffleQueueMutationTx(ctx context.Context, tx *sql.Tx, action, current
 		shuffleStrings(inserted)
 		ids = append(ids, inserted...)
 	}
-	return rewriteShuffleTx(ctx, tx, ids)
+	if err := rewriteShuffleTx(ctx, tx, ids); err != nil {
+		return err
+	}
+	if binding != nil {
+		if index := stringIndex(ids, current); index >= 0 {
+			binding.shuffleIndex = index
+		} else {
+			if cursor < 0 {
+				cursor = 0
+			}
+			if cursor > len(ids) {
+				cursor = len(ids)
+			}
+			binding.shuffleIndex = cursor
+		}
+	}
+	return nil
 }
 
 func loadShuffleIDsTx(ctx context.Context, tx *sql.Tx) ([]string, error) {

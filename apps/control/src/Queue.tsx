@@ -46,9 +46,11 @@ export default function Queue({ revision, onNotice, onQueueChange, downloads }: 
   const [error, setError] = useState("");
   const [busyEntry, setBusyEntry] = useState("");
   const [saving, setSaving] = useState(false);
+  const [clearRevision, setClearRevision] = useState<number | null>(null);
   const [playlistName, setPlaylistName] = useState("");
   const [infoTrackID, setInfoTrackID] = useState<string | null>(null);
   const [likeBusy, setLikeBusy] = useState<Set<string>>(() => new Set());
+  const clearArmed = clearRevision !== null && clearRevision === queue?.revision;
 
   const loadQueue = useCallback(async () => {
     try {
@@ -81,6 +83,7 @@ export default function Queue({ revision, onNotice, onQueueChange, downloads }: 
       });
       setQueue(next);
       setError("");
+      if (action === "clear") setClearRevision(null);
       onQueueChange();
     } catch (requestError) {
       const conflict = requestError instanceof ApiError && requestError.code === "REVISION_CONFLICT";
@@ -161,34 +164,64 @@ export default function Queue({ revision, onNotice, onQueueChange, downloads }: 
   return (
     <section className="content-section queue-page" aria-labelledby="queue-heading">
       <header className="page-heading queue-heading-row">
-        <div>
+        <div className="queue-heading-copy">
           <p className="eyebrow">{t("queue.eyebrow")}</p>
           <h1 id="queue-heading">{t("queue.heading")}</h1>
           <p className="muted">{t("queue.description")}</p>
+        </div>
+        <div
+          className="queue-global-management"
+          role="group"
+          aria-label={t("queue.actions")}
+          aria-describedby="queue-clear-description"
+        >
+          <p className="muted" id="queue-clear-description">{t("queue.clearDescription")}</p>
+          {!clearArmed ? (
+            <button
+              className="button button-ghost danger-button"
+              type="button"
+              disabled={!queue?.entries.length || Boolean(busyEntry)}
+              onClick={() => setClearRevision(queue?.revision ?? null)}
+            >
+              {t("queue.clear")}
+            </button>
+          ) : (
+            <div className="queue-clear-confirmation">
+              <strong>{t("queue.clearConfirm")}</strong>
+              <div className="queue-clear-confirmation-actions">
+                <button
+                  className="button button-ghost"
+                  type="button"
+                  disabled={Boolean(busyEntry)}
+                  onClick={() => setClearRevision(null)}
+                >
+                  {t("common.cancel")}
+                </button>
+                <button
+                  className="button button-ghost danger-button"
+                  type="button"
+                  disabled={!queue?.entries.length || Boolean(busyEntry)}
+                  onClick={() => void mutate("", "clear")}
+                >
+                  {t("queue.clear")}
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       </header>
 
       <div className="queue-bulk-panel">
         <p className="muted" id="queue-shuffle-liked-description">{t("queue.shuffleLikedDescription")}</p>
-        <div className="queue-bulk-actions" role="group" aria-label={t("queue.actions")}>
-          <button
-            className="button button-primary"
-            type="button"
-            aria-describedby="queue-shuffle-liked-description"
-            disabled={!queue || Boolean(busyEntry)}
-            onClick={() => void mutate("", "append_liked_shuffled")}
-          >
-            {t("queue.shuffleLiked")}
-          </button>
-          <button
-            className="button button-ghost"
-            type="button"
-            disabled={!queue?.entries.length || Boolean(busyEntry)}
-            onClick={() => void mutate("", "clear")}
-          >
-            {t("queue.clearUpcoming")}
-          </button>
-        </div>
+        <button
+          className="button button-primary"
+          type="button"
+          aria-describedby="queue-shuffle-liked-description"
+          disabled={!queue || Boolean(busyEntry)}
+          onClick={() => void mutate("", "append_liked_shuffled")}
+        >
+          {t("queue.shuffleLiked")}
+        </button>
       </div>
 
       {error && (
@@ -284,7 +317,7 @@ export default function Queue({ revision, onNotice, onQueueChange, downloads }: 
                     className="icon-button danger-button"
                     type="button"
                     aria-label={t("queue.remove")}
-                    disabled={locked || busy || Boolean(busyEntry)}
+                    disabled={busy || Boolean(busyEntry)}
                     onClick={() => void mutate(entry.id, "remove")}
                   >
                     <QueueIcon name="remove" />

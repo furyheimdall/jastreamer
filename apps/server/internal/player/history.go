@@ -18,6 +18,7 @@ type playerHistoryRecord struct {
 	receivedAt time.Time
 	rendererID string
 	entryID    string
+	trackID    string
 	playID     string
 	commandID  string
 	stage      string
@@ -44,8 +45,12 @@ func (s *Service) commandHistoryRecord(command commandRecord, st storedState, en
 		}
 	}
 	position := st.positionMS
+	trackID := ""
+	if entryID == st.currentEntryID {
+		trackID = st.currentTrackID
+	}
 	return &playerHistoryRecord{
-		key: "player-command:" + command.id, receivedAt: finished, rendererID: st.rendererID, entryID: entryID,
+		key: "player-command:" + command.id, receivedAt: finished, rendererID: st.rendererID, entryID: entryID, trackID: trackID,
 		playID: st.playID, commandID: command.id, stage: stage, code: code, message: message, outcome: outcome,
 		positionMS: &position,
 		details: map[string]any{
@@ -85,16 +90,18 @@ func (s *Service) recordPlayerHistory(record *playerHistoryRecord) {
 		event.RendererName = device.Name
 		event.Protocol = device.Protocol
 	}
-	if record.entryID != "" {
-		var trackID string
-		if err := s.db.QueryRowContext(ctx, "SELECT track_id FROM player_queue WHERE entry_id=?", record.entryID).Scan(&trackID); err == nil {
-			event.TrackID = trackID
-			if track, trackErr := s.lib.Track(ctx, trackID); trackErr == nil {
-				event.TrackTitle = track.Title
-				event.RelativePath = track.Path
-				if track.RootID != "" {
-					_ = s.db.QueryRowContext(ctx, "SELECT name FROM library_roots WHERE id=?", track.RootID).Scan(&event.RootName)
-				}
+	trackID := record.trackID
+	if trackID == "" && record.entryID != "" {
+		_ = s.db.QueryRowContext(ctx, `SELECT track_id FROM player_queue WHERE entry_id=?
+UNION ALL SELECT track_id FROM player_current WHERE entry_id=? LIMIT 1`, record.entryID, record.entryID).Scan(&trackID)
+	}
+	if trackID != "" {
+		event.TrackID = trackID
+		if track, trackErr := s.lib.Track(ctx, trackID); trackErr == nil {
+			event.TrackTitle = track.Title
+			event.RelativePath = track.Path
+			if track.RootID != "" {
+				_ = s.db.QueryRowContext(ctx, "SELECT name FROM library_roots WHERE id=?", track.RootID).Scan(&event.RootName)
 			}
 		}
 	}

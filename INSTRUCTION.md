@@ -51,6 +51,14 @@ This exports the existing failure/inconclusive history, not a complete pass cert
 
 The queue is Server-wide, preserves order and duplicates, and survives restarts. A Server restart does not automatically resume playback. Cast uses that same single queue, loads media with Cast autoplay disabled, and sends Play explicitly. Receiver groups and gapless playback are not supported.
 
+### Removing tracks from Queue
+
+- A queue entry can be removed even when it is the loaded, playing, paused, or selected track. **Now playing** retains the loaded track and its position independently; removing the entry does not send Stop or restart the audio.
+- **Clear queue**, beside the Queue heading, removes every entry after confirmation—including prior, current, and upcoming entries. It is separate from **Shuffle liked into queue**. Neither action deletes original music files, likes, or saved playlists.
+- If the current track is playing, it continues until completion or an explicit playback command. Pause, resume, and supported seeking still work with an empty queue. Use **Stop** to stop the audio.
+- **Next** and natural completion follow the remaining sequential or shuffled order. Removed entries are not automatically repeated; if the queue remains empty, playback stops at completion even with repeat enabled. Adding tracks or using **Play next** after clearing does not start playback automatically.
+- Server restart preserves the loaded selection and saved position without restoring removed queue entries or autoplaying. Android **Saved music** retains its separate local queue behavior.
+
 ### Folder navigation and music actions
 
 Inside **Library → Folders**, **Parent folder** moves up one directory within the same music root. At that root, **Back to list** returns to the music-root list; the **Folders** tab also goes directly to that list. Navigation never changes Queue or starts playback.

@@ -78,6 +78,7 @@ type storedState struct {
 	queueRevision           int64
 	rendererID              string
 	currentEntryID          string
+	currentTrackID          string
 	playID                  string
 	currentURI              string
 	currentSeekable         bool
@@ -170,6 +171,13 @@ CREATE TABLE IF NOT EXISTS player_queue (
   status TEXT NOT NULL CHECK (status IN ('pending','playing','completed','error'))
 );
 CREATE INDEX IF NOT EXISTS player_queue_position ON player_queue(position);
+CREATE TABLE IF NOT EXISTS player_current (
+  singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
+  entry_id TEXT NOT NULL,
+  track_id TEXT NOT NULL,
+  queue_index INTEGER NOT NULL,
+  shuffle_index INTEGER NOT NULL
+);
 CREATE TABLE IF NOT EXISTS player_mode (
   singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
   shuffle INTEGER NOT NULL CHECK (shuffle IN (0,1)),
@@ -214,6 +222,12 @@ CREATE TABLE IF NOT EXISTS player_natural_ends (
 	}
 	if _, err := tx.ExecContext(ctx, "INSERT OR IGNORE INTO player_mode(singleton,shuffle,repeat_mode) VALUES(1,0,'off')"); err != nil {
 		return fmt.Errorf("player: initialize playback mode: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO player_current(singleton,entry_id,track_id,queue_index,shuffle_index)
+SELECT 1,q.entry_id,q.track_id,q.position,COALESCE((SELECT ordinal FROM player_shuffle WHERE entry_id=q.entry_id),q.position)
+FROM player_state ps JOIN player_queue q ON q.entry_id=ps.current_entry_id
+WHERE ps.singleton=1 AND ps.current_entry_id<>''`); err != nil {
+		return fmt.Errorf("player: initialize current playback: %w", err)
 	}
 	var active int
 	if err := tx.QueryRowContext(ctx, "SELECT COUNT(*) FROM player_commands WHERE status IN ('pending','running')").Scan(&active); err != nil {
@@ -333,22 +347,15 @@ func (s *Service) Snapshot(ctx context.Context) (State, error) {
 			result.Capabilities.Seek = result.Capabilities.Seek && st.currentSeekable
 		}
 	}
-	if st.currentEntryID != "" {
-		var trackID string
-		err := s.db.QueryRowContext(ctx, "SELECT track_id FROM player_queue WHERE entry_id=?", st.currentEntryID).Scan(&trackID)
-		if err != nil && !errors.Is(err, sql.ErrNoRows) {
-			return State{}, fmt.Errorf("player: load current queue entry: %w", err)
-		}
-		if trackID != "" {
-			track, trackErr := s.lib.Track(ctx, trackID)
-			if trackErr != nil {
-				if ctx.Err() != nil {
-					return State{}, ctx.Err()
-				}
-				track = library.Track{ID: trackID, Genres: []string{}, Available: false}
+	if st.currentTrackID != "" {
+		track, trackErr := s.lib.Track(ctx, st.currentTrackID)
+		if trackErr != nil {
+			if ctx.Err() != nil {
+				return State{}, ctx.Err()
 			}
-			result.Track = &track
+			track = library.Track{ID: st.currentTrackID, Genres: []string{}, Available: false}
 		}
+		result.Track = &track
 	}
 	if err := s.db.QueryRowContext(ctx, `SELECT CASE action WHEN 'natural_next' THEN 'next' WHEN 'error_next' THEN 'next' ELSE action END FROM player_commands WHERE service_epoch=? AND status IN ('pending','running') ORDER BY created_at LIMIT 1`, s.epoch).Scan(&result.PendingCommand); err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return State{}, fmt.Errorf("player: load pending command: %w", err)
@@ -545,11 +552,14 @@ func pairingError(err error) error {
 func (s *Service) loadState(ctx context.Context) (storedState, error) {
 	var st storedState
 	var seekable, hasPosition, resume, shuffle int
-	err := s.db.QueryRowContext(ctx, `SELECT ps.revision,ps.queue_revision,ps.renderer_id,ps.current_entry_id,ps.play_id,ps.current_uri,ps.current_seekable,ps.state,
+	err := s.db.QueryRowContext(ctx, `SELECT ps.revision,ps.queue_revision,ps.renderer_id,ps.current_entry_id,
+COALESCE(pc.track_id,(SELECT track_id FROM player_queue WHERE entry_id=ps.current_entry_id),''),ps.play_id,ps.current_uri,ps.current_seekable,ps.state,
 ps.position_ms,ps.duration_ms,ps.observed_at,ps.last_observed_state,ps.last_observed_uri,ps.last_observed_position_ms,ps.last_observed_duration_ms,
 ps.last_observed_has_position,ps.last_observed_at,ps.resume_required,ps.error,ps.control_action,ps.control_at,pm.shuffle,pm.repeat_mode
-FROM player_state ps JOIN player_mode pm ON pm.singleton=ps.singleton WHERE ps.singleton=1`).Scan(
-		&st.revision, &st.queueRevision, &st.rendererID, &st.currentEntryID, &st.playID, &st.currentURI,
+FROM player_state ps JOIN player_mode pm ON pm.singleton=ps.singleton
+LEFT JOIN player_current pc ON pc.singleton=ps.singleton AND pc.entry_id=ps.current_entry_id
+WHERE ps.singleton=1`).Scan(
+		&st.revision, &st.queueRevision, &st.rendererID, &st.currentEntryID, &st.currentTrackID, &st.playID, &st.currentURI,
 		&seekable, &st.state, &st.positionMS, &st.durationMS, &st.observedAt, &st.lastObservedState,
 		&st.lastObservedURI, &st.lastObservedPositionMS, &st.lastObservedDurationMS, &hasPosition,
 		&st.lastObservedAt, &resume, &st.errorMessage, &st.controlAction, &st.controlAt, &shuffle, &st.repeatMode,

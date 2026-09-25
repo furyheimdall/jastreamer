@@ -154,6 +154,7 @@ type observationFailure struct {
 	rendererID     string
 	playID         string
 	currentEntryID string
+	currentTrackID string
 	count          int
 	warning        StatusWarning
 }
@@ -175,7 +176,7 @@ func (s *Service) applyObservationFailure(ctx context.Context, observationError 
 	next := previous
 	newStreak := previous.count == 0 || previous.playID != st.playID || previous.rendererID != st.rendererID
 	if newStreak {
-		next = observationFailure{rendererID: st.rendererID, playID: st.playID, currentEntryID: st.currentEntryID}
+		next = observationFailure{rendererID: st.rendererID, playID: st.playID, currentEntryID: st.currentEntryID, currentTrackID: st.currentTrackID}
 		next.warning.ID = st.revision + 1
 	}
 	if next.count < observationWarningThreshold {
@@ -217,7 +218,7 @@ func (s *Service) applyObservationFailure(ctx context.Context, observationError 
 		position := st.positionMS
 		historyRecord = &playerHistoryRecord{
 			key:        observationHistoryKey(st.rendererID, st.playID, stage, next.warning.ID, "unknown"),
-			receivedAt: s.now().UTC(), rendererID: st.rendererID, entryID: st.currentEntryID, playID: st.playID,
+			receivedAt: s.now().UTC(), rendererID: st.rendererID, entryID: st.currentEntryID, trackID: st.currentTrackID, playID: st.playID,
 			stage: stage, code: code, message: message, outcome: "unknown", positionMS: &position,
 			details: map[string]any{"category": info.category, "renderer_action": info.action, "renderer_code": info.code, "failure_count": next.count},
 		}
@@ -294,7 +295,7 @@ func (s *Service) applyObservation(ctx context.Context, observation output.Obser
 			position := observation.PositionMS
 			result.historyRecord = &playerHistoryRecord{
 				key:        observationHistoryKey(failure.rendererID, failure.playID, "Observe", failure.warning.ID, "recovered"),
-				receivedAt: s.now().UTC(), rendererID: failure.rendererID, entryID: failure.currentEntryID, playID: failure.playID,
+				receivedAt: s.now().UTC(), rendererID: failure.rendererID, entryID: failure.currentEntryID, trackID: failure.currentTrackID, playID: failure.playID,
 				stage: "Observe", code: "observation_recovered", message: "Renderer status reporting recovered.",
 				outcome: "recovered", positionMS: &position,
 				details: map[string]any{"failure_count": failure.count, "observed_state": normalizeObservedState(observation.State), "transport_status": diagnosticTransportStatus(observation.TransportStatus)},
@@ -551,7 +552,7 @@ func (s *Service) commitInterruptedObservation(ctx context.Context, tx *sql.Tx, 
 		value := position
 		result.historyRecord = &playerHistoryRecord{
 			key:        observationHistoryKey(st.rendererID, st.playID, "Observe", st.revision+1, "failed"),
-			receivedAt: s.now().UTC(), rendererID: st.rendererID, entryID: st.currentEntryID, playID: st.playID,
+			receivedAt: s.now().UTC(), rendererID: st.rendererID, entryID: st.currentEntryID, trackID: st.currentTrackID, playID: st.playID,
 			stage: "Observe", code: "renderer_playback_error", message: message, outcome: "failed", positionMS: &value,
 			details: map[string]any{"observed_state": normalizeObservedState(observation.State), "transport_status": diagnosticTransportStatus(observation.TransportStatus)},
 		}
@@ -603,6 +604,11 @@ func (s *Service) commitMediaFailureAdvance(ctx context.Context, tx *sql.Tx, st 
 		playerMessage = ""
 		result.commandQueued = true
 	}
+	if nextEntryID != "" {
+		if err := selectCurrentBindingTx(ctx, tx, nextEntryID); err != nil {
+			return observationResult{}
+		}
+	}
 	if _, err := tx.ExecContext(ctx, `UPDATE player_state SET revision=revision+1,queue_revision=queue_revision+?,current_entry_id=CASE WHEN ?<>'' THEN ? ELSE current_entry_id END,state=?,play_id='',current_uri='',current_seekable=0,position_ms=?,duration_ms=?,observed_at=?,last_observed_state=?,last_observed_uri=?,last_observed_position_ms=?,last_observed_duration_ms=?,last_observed_has_position=?,last_observed_at=?,resume_required=0,error=?,control_action=?,control_at=? WHERE singleton=1`, boolInt(result.queueChanged), nextEntryID, nextEntryID, state, position, duration, observedAt, observation.State, observation.URI, observation.PositionMS, observation.DurationMS, boolInt(observation.HasPosition), observedAt, playerMessage, controlAction, observedAt); err != nil {
 		return observationResult{}
 	}
@@ -618,7 +624,7 @@ func (s *Service) commitMediaFailureAdvance(ctx context.Context, tx *sql.Tx, st 
 	value := position
 	result.historyRecord = &playerHistoryRecord{
 		key:        observationHistoryKey(st.rendererID, st.playID, "Playback", st.revision+1, "failed"),
-		receivedAt: s.now().UTC(), rendererID: st.rendererID, entryID: st.currentEntryID, playID: st.playID,
+		receivedAt: s.now().UTC(), rendererID: st.rendererID, entryID: st.currentEntryID, trackID: st.currentTrackID, playID: st.playID,
 		stage: "Playback", code: "media_failed", message: message, outcome: "failed", positionMS: &value,
 		details: map[string]any{"observed_state": normalizeObservedState(observation.State), "transport_status": diagnosticTransportStatus(observation.TransportStatus)},
 	}
@@ -662,6 +668,9 @@ func (s *Service) commitTerminalAdvance(ctx context.Context, tx *sql.Tx, st stor
 	var found bool
 	if mode.repeatMode == RepeatOne {
 		next, found, err = entryByIDTx(ctx, tx, st.currentEntryID)
+		if err == nil && !found {
+			next, found, err = s.adjacentEntryTx(ctx, tx, st.currentEntryID, 1, true)
+		}
 	} else {
 		next, found, err = s.adjacentEntryTx(ctx, tx, st.currentEntryID, 1, true)
 	}
@@ -694,7 +703,7 @@ func (s *Service) commitTerminalAdvance(ctx context.Context, tx *sql.Tx, st stor
 }
 
 func (s *Service) commitNaturalEnd(ctx context.Context, tx *sql.Tx, st storedState, observation output.Observation, position, duration int64, observedAt string, libraryChanged bool) observationResult {
-	result := observationResult{playerChanged: true, queueChanged: true, revokePlayID: st.playID, libraryChanged: libraryChanged}
+	result := observationResult{playerChanged: true, revokePlayID: st.playID, libraryChanged: libraryChanged}
 	insert, err := tx.ExecContext(ctx, "INSERT OR IGNORE INTO player_natural_ends(play_id,entry_id,ended_at) VALUES(?,?,?)", st.playID, st.currentEntryID, observedAt)
 	if err != nil {
 		return observationResult{}
@@ -703,7 +712,8 @@ func (s *Service) commitNaturalEnd(ctx context.Context, tx *sql.Tx, st storedSta
 	if err != nil || inserted == 0 {
 		return observationResult{}
 	}
-	if _, err := tx.ExecContext(ctx, "UPDATE player_queue SET status='completed' WHERE entry_id=?", st.currentEntryID); err != nil {
+	result.queueChanged, err = setQueueStatus(ctx, tx, st.currentEntryID, EntryCompleted)
+	if err != nil {
 		return observationResult{}
 	}
 	mode, err := loadPlaybackModeTx(ctx, tx)
@@ -714,6 +724,9 @@ func (s *Service) commitNaturalEnd(ctx context.Context, tx *sql.Tx, st storedSta
 	var found bool
 	if mode.repeatMode == RepeatOne {
 		next, found, err = entryByIDTx(ctx, tx, st.currentEntryID)
+		if err == nil && !found {
+			next, found, err = s.adjacentEntryTx(ctx, tx, st.currentEntryID, 1, true)
+		}
 	} else {
 		next, found, err = s.adjacentEntryTx(ctx, tx, st.currentEntryID, 1, true)
 	}
@@ -735,10 +748,13 @@ func (s *Service) commitNaturalEnd(ctx context.Context, tx *sql.Tx, st storedSta
 		if _, err := tx.ExecContext(ctx, `INSERT INTO player_commands(command_id,service_epoch,action,entry_id,position_ms,status,error,created_at,started_at,completed_at) VALUES(?,?, 'natural_next',?,0,'pending','',?,'','')`, commandID, s.epoch, nextEntryID, observedAt); err != nil {
 			return observationResult{}
 		}
+		if err := selectCurrentBindingTx(ctx, tx, nextEntryID); err != nil {
+			return observationResult{}
+		}
 		result.commandQueued = true
 		state = StateStarting
 	}
-	if _, err := tx.ExecContext(ctx, `UPDATE player_state SET revision=revision+1,queue_revision=queue_revision+1,current_entry_id=CASE WHEN ?<>'' THEN ? ELSE current_entry_id END,state=?,play_id='',current_uri='',current_seekable=0,position_ms=?,duration_ms=?,observed_at=?,last_observed_state=?,last_observed_uri=?,last_observed_position_ms=?,last_observed_duration_ms=?,last_observed_has_position=?,last_observed_at=?,error='',control_action='',control_at='' WHERE singleton=1`, nextEntryID, nextEntryID, state, position, duration, observedAt, observation.State, observation.URI, observation.PositionMS, observation.DurationMS, boolInt(observation.HasPosition), observedAt); err != nil {
+	if _, err := tx.ExecContext(ctx, `UPDATE player_state SET revision=revision+1,queue_revision=queue_revision+?,current_entry_id=CASE WHEN ?<>'' THEN ? ELSE current_entry_id END,state=?,play_id='',current_uri='',current_seekable=0,position_ms=?,duration_ms=?,observed_at=?,last_observed_state=?,last_observed_uri=?,last_observed_position_ms=?,last_observed_duration_ms=?,last_observed_has_position=?,last_observed_at=?,error='',control_action='',control_at='' WHERE singleton=1`, boolInt(result.queueChanged), nextEntryID, nextEntryID, state, position, duration, observedAt, observation.State, observation.URI, observation.PositionMS, observation.DurationMS, boolInt(observation.HasPosition), observedAt); err != nil {
 		return observationResult{}
 	}
 	if err := tx.Commit(); err != nil {
@@ -802,8 +818,15 @@ func normalizeObservedState(state string) string {
 func loadStateTx(ctx context.Context, tx *sql.Tx) (storedState, error) {
 	var st storedState
 	var seekable, hasPosition, resume, shuffle int
-	err := tx.QueryRowContext(ctx, `SELECT ps.revision,ps.queue_revision,ps.renderer_id,ps.current_entry_id,ps.play_id,ps.current_uri,ps.current_seekable,ps.state,ps.position_ms,ps.duration_ms,ps.observed_at,ps.last_observed_state,ps.last_observed_uri,ps.last_observed_position_ms,ps.last_observed_duration_ms,ps.last_observed_has_position,ps.last_observed_at,ps.resume_required,ps.error,ps.control_action,ps.control_at,pm.shuffle,pm.repeat_mode FROM player_state ps JOIN player_mode pm ON pm.singleton=ps.singleton WHERE ps.singleton=1`).Scan(
-		&st.revision, &st.queueRevision, &st.rendererID, &st.currentEntryID, &st.playID, &st.currentURI,
+	err := tx.QueryRowContext(ctx, `SELECT ps.revision,ps.queue_revision,ps.renderer_id,ps.current_entry_id,
+COALESCE(pc.track_id,(SELECT track_id FROM player_queue WHERE entry_id=ps.current_entry_id),''),ps.play_id,ps.current_uri,ps.current_seekable,
+ps.state,ps.position_ms,ps.duration_ms,ps.observed_at,ps.last_observed_state,ps.last_observed_uri,ps.last_observed_position_ms,
+ps.last_observed_duration_ms,ps.last_observed_has_position,ps.last_observed_at,ps.resume_required,ps.error,ps.control_action,ps.control_at,
+pm.shuffle,pm.repeat_mode
+FROM player_state ps JOIN player_mode pm ON pm.singleton=ps.singleton
+LEFT JOIN player_current pc ON pc.singleton=ps.singleton AND pc.entry_id=ps.current_entry_id
+WHERE ps.singleton=1`).Scan(
+		&st.revision, &st.queueRevision, &st.rendererID, &st.currentEntryID, &st.currentTrackID, &st.playID, &st.currentURI,
 		&seekable, &st.state, &st.positionMS, &st.durationMS, &st.observedAt, &st.lastObservedState,
 		&st.lastObservedURI, &st.lastObservedPositionMS, &st.lastObservedDurationMS, &hasPosition,
 		&st.lastObservedAt, &resume, &st.errorMessage, &st.controlAction, &st.controlAt, &shuffle, &st.repeatMode,
