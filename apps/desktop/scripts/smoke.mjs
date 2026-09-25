@@ -393,6 +393,9 @@ try {
     await audioPanel.getByRole('combobox', { name: 'Local audio backend', exact: true }).waitFor();
     assert.equal(await audioPanel.getByRole('combobox', { name: 'Local audio backend', exact: true }).inputValue(), 'browser', 'Native output must remain opt-in');
     assert.equal(await audioPanel.getByRole('combobox', { name: 'Exclusive', exact: true }).inputValue(), 'off', 'Exclusive output must require an explicit request');
+    for (const name of ['Windows audio endpoint', 'Exclusive']) {
+      assert.equal(await audioPanel.getByRole('combobox', { name, exact: true }).isDisabled(), true, `${name} must be disabled for Browser audio`);
+    }
     await mkdir('test-results', { recursive: true });
     await page.screenshot({ path: 'test-results/windows-audio-settings.png', fullPage: true });
     await audioPanel.getByRole('button', { name: 'Close', exact: true }).click();

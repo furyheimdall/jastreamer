@@ -58,6 +58,7 @@ export const playerMessages = {
   "player.windows.statusFailed": { en: "Could not read Windows audio status. Local output is not started until the status is known.", ko: "Windows 오디오 상태를 읽지 못했습니다. 상태가 확인될 때까지 로컬 출력을 시작하지 않습니다." },
   "player.windows.actionFailed": { en: "Could not change Windows audio settings.", ko: "Windows 오디오 설정을 변경하지 못했습니다." },
   "player.windows.configurationSaved": { en: "Windows audio settings saved. They apply from the next track.", ko: "Windows 오디오 설정을 저장했습니다. 다음 곡부터 적용됩니다." },
+  "player.windows.browserFixed": { en: "Browser audio always plays through the Windows default device in Shared mode. Choose Windows native to select an endpoint or Exclusive mode.", ko: "브라우저 오디오는 항상 Windows 기본 장치로 공유 모드 출력합니다. 엔드포인트나 독점 모드를 고르려면 Windows 네이티브를 선택하세요." },
   "player.windows.backend": { en: "Local audio backend", ko: "로컬 오디오 백엔드" },
   "player.windows.backend.browser": { en: "Browser (default)", ko: "브라우저(기본값)" },
   "player.windows.backend.native": { en: "Windows native (opt in)", ko: "Windows 네이티브(선택 사용)" },

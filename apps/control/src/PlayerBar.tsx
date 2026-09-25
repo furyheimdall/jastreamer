@@ -896,7 +896,7 @@ export default function PlayerBar({ revision, phoneExpanded, onPhoneExpandedChan
                   <span className="field-label">{t("player.windows.endpoint")}</span>
                   <select
                     value={windowsAudioState.audio.requested.device_id}
-                    disabled={!windowsCanConfigure || !windowsAudioState.audio.available}
+                    disabled={!windowsCanConfigure || !windowsAudioState.audio.available || !windowsAudioState.audio.enabled}
                     onChange={(event) => void configureWindowsAudio({
                       enabled: windowsAudioState.audio.enabled,
                       device_id: event.target.value,
@@ -925,7 +925,7 @@ export default function PlayerBar({ revision, phoneExpanded, onPhoneExpandedChan
                   <span className="field-label">{t("player.windows.exclusive")}</span>
                   <select
                     value={windowsAudioState.audio.requested.exclusive ? "on" : "off"}
-                    disabled={!windowsCanConfigure || !windowsAudioState.audio.available}
+                    disabled={!windowsCanConfigure || !windowsAudioState.audio.available || !windowsAudioState.audio.enabled}
                     onChange={(event) => void configureWindowsAudio({
                       enabled: windowsAudioState.audio.enabled,
                       device_id: windowsAudioState.audio.requested.device_id,
@@ -937,6 +937,9 @@ export default function PlayerBar({ revision, phoneExpanded, onPhoneExpandedChan
                   </select>
                 </label>
               </div>
+              {windowsAudioState.audio.available && !windowsAudioState.audio.enabled && (
+                <p className="field-help">{t("player.windows.browserFixed")}</p>
+              )}
               {!windowsAudioState.audio.available && (
                 <p className="error-text" role="status">{t("player.windows.unavailable")}</p>
               )}
