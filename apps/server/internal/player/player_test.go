@@ -1085,6 +1085,57 @@ func TestRetryDifferentEntryDoesNotResumePreviousTracksPosition(t *testing.T) {
 	}
 }
 
+func TestFailedReplayIgnoresPreviousPlaybackPosition(t *testing.T) {
+	service, _, devices := newPlayerTestService(t)
+	ctx := t.Context()
+	queue, err := service.MutateQueue(ctx, QueueMutation{Action: "append", TrackIDs: []string{"a"}, Revision: 0})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.Command(ctx, Command{Action: "play"}); err != nil {
+		t.Fatal(err)
+	}
+	runAcceptedCommand(t, service)
+	previous, err := service.loadState(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.Command(ctx, Command{Action: "stop"}); err != nil {
+		t.Fatal(err)
+	}
+	runAcceptedCommand(t, service)
+	devices.fail["set_uri"] = output.NewActionError(output.ErrorFault, "SetURI", 0, errors.New("media request returned 404"))
+	if _, err := service.Command(ctx, Command{Action: "play"}); err != nil {
+		t.Fatal(err)
+	}
+	runAcceptedCommand(t, service)
+	if failed := service.mustState(t); failed.State != StateError || failed.PositionMS != 0 {
+		t.Fatalf("failed replay did not preserve the stopped cursor: %#v", failed)
+	}
+	devices.observation = output.Observation{
+		State: "stopped", TransportStatus: "OK", PlayID: previous.playID,
+		URI: previous.currentURI, HasURI: true, PositionMS: 57000,
+		DurationMS: 100000, HasPosition: true, ObservedAt: time.Now().UTC(),
+	}
+	service.observeSelected(ctx)
+	if recovered := service.mustState(t); recovered.PositionMS != 0 {
+		t.Fatalf("previous playback overwrote the failed replay cursor: %#v", recovered)
+	}
+	delete(devices.fail, "set_uri")
+	if _, err := service.Command(ctx, Command{Action: "play"}); err != nil {
+		t.Fatal(err)
+	}
+	service.observeSelected(ctx)
+	if pending := service.mustState(t); pending.PositionMS != 0 {
+		t.Fatalf("previous playback overwrote the pending retry cursor: %#v", pending)
+	}
+	runAcceptedCommand(t, service)
+	retried := service.mustState(t)
+	if retried.State != StateStarting || retried.CurrentEntryID != queue.Entries[0].ID || retried.PositionMS != 0 {
+		t.Fatalf("retry resumed the previous playback position: %#v", retried)
+	}
+}
+
 func TestFallbackOutputRefusesConcurrentOrRecoveredOutputChanges(t *testing.T) {
 	newFallbackService := func(t *testing.T) (*Service, *sql.DB, *fallbackDevices, OutputFallback) {
 		t.Helper()
