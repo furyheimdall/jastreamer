@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
+import path from "node:path";
 import { Writable } from "node:stream";
 import test from "node:test";
 import { MAX_HELPER_LINE_BYTES, NativeAudioProcess, NativeProcessError, nativeHelperPath } from "../lib/native-process.mjs";
@@ -36,13 +37,11 @@ function fixture() {
 test("helper path is fixed for packaged resources and the repository development distribution", () => {
   assert.equal(
     nativeHelperPath({ isPackaged: true, resourcesPath: "C:\\portable\\resources", appDirectory: "ignored" }),
-    process.platform === "win32"
-      ? "C:\\portable\\resources\\native-audio\\jastreamer-audio.exe"
-      : "C:\\portable\\resources/native-audio/jastreamer-audio.exe",
+    path.join("C:\\portable\\resources", "native-audio", "jastreamer-audio.exe"),
   );
   assert.equal(
     nativeHelperPath({ isPackaged: false, resourcesPath: "ignored", appDirectory: "/repo/apps/desktop" }),
-    "/repo/apps/desktop/native/audio/dist/jastreamer-audio.exe",
+    path.join("/repo/apps/desktop", "native", "audio", "dist", "jastreamer-audio.exe"),
   );
 });
 
