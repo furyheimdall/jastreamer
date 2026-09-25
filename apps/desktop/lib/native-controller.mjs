@@ -112,6 +112,12 @@ export class NativeWindowsController extends EventEmitter {
   async prepareRemoteServer(server) {
     return this.#serialize(async () => {
       const existing = this.#registration;
+      // A new Server document starts a new connection; an error about a connection that
+      // already ended must not be reported again to that document.
+      if (!existing && CONNECTION_LOSS_CODES.has(this.#publicError?.code)) {
+        this.#publicError = null;
+        this.#emitState();
+      }
       if (!existing || existing.key === serverKey(server)) return;
       const status = await this.#helper.request("status");
       this.#applyAudio(status);
@@ -890,10 +896,19 @@ export class NativeWindowsController extends EventEmitter {
 
   #handleTransportFailure(expected, error) {
     if (this.#registration !== expected) return true;
-    const fatal = error instanceof NativeHTTPError && [401, 403, 404].includes(error.status);
+    const status = error instanceof NativeHTTPError ? error.status : 0;
     const tls = isTLSError(error);
-    if (fatal || tls) {
-      void this.#loseRegistration(tls ? "server_tls" : "authentication_required", tls ? "The Server certificate could not be verified." : "Sign in again to use Windows playback.", true, expected);
+    if (tls) {
+      void this.#loseRegistration("server_tls", "The Server certificate could not be verified.", true, expected);
+      return true;
+    }
+    if (status === 401 || status === 403) {
+      void this.#loseRegistration("authentication_required", "Sign in again to use Windows playback.", true, expected);
+      return true;
+    }
+    if (status === 404) {
+      // The Server no longer knows this output, e.g. after a Server restart; the sign-in is still valid.
+      void this.#loseRegistration("registration_lost", "The Windows playback connection ended because the Server restarted or released it. Select This device again.", true, expected);
       return true;
     }
     return false;
@@ -966,6 +981,8 @@ function delay(ms, signal) {
   });
 }
 function isAbort(error) { return error?.name === "AbortError"; }
+// Errors describing a Server connection that has already ended.
+const CONNECTION_LOSS_CODES = new Set(["authentication_required", "registration_lost", "lease_expired", "invalid_lease", "server_identity", "server_tls"]);
 function isTLSError(error) { for (let value = error; value; value = value.cause) if (typeof value.code === "string" && /CERT|TLS|SSL/.test(value.code.toUpperCase())) return true; return false; }
 function isAuthenticationFailure(error) { return isTLSError(error) || (error instanceof NativeHTTPError && [401, 403].includes(error.status)); }
 function safeCode(value, fallback = "media_read_failed") { return typeof value === "string" && /^[a-z0-9_.-]{1,64}$/.test(value) ? value : fallback; }

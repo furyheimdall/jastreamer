@@ -164,6 +164,23 @@ test("authentication loss tears down local ownership and is not reported as a su
   await value.shutdown();
 });
 
+test("a registration unknown to the Server is reported as a lost connection, not as sign-in, and is not replayed to a new document", async () => {
+  const targetSession = { fetch: async (_url, init) => {
+    if (init.method === "POST") return json(registration());
+    if (init.method === "GET") return json({ error: { code: "BROWSER_OUTPUT_NOT_FOUND" } }, 404);
+    if (init.method === "DELETE") return json({ error: { code: "BROWSER_OUTPUT_NOT_FOUND" } }, 404);
+    return json({ error: { code: "BROWSER_OUTPUT_NOT_FOUND" } }, 404);
+  } };
+  const { value } = await controller(targetSession);
+  await value.request(SERVER, targetSession, "connect", { name: "Windows output" });
+  const state = await waitFor(() => value.state().error ? value.state() : null);
+  assert.equal(state.device, null);
+  assert.equal(state.error.code, "registration_lost");
+  await value.prepareRemoteServer(SERVER);
+  assert.equal(value.state().error, undefined, "A new Server document must not receive the ended connection's error");
+  await value.shutdown();
+});
+
 test("configuration keeps the output across endpoint/mode changes and replaces it only when leaving native audio", async () => {
   const requests = [];
   const targetSession = { fetch: async (url, init) => {
