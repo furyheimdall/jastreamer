@@ -311,6 +311,11 @@ func (s *Service) applyObservation(ctx context.Context, observation output.Obser
 	if err != nil || st.rendererID == "" {
 		return result
 	}
+	if observation.PlayID != "" && observation.PlayID != st.playID {
+		s.resetListeningInterval(st.playID)
+		return result
+	}
+
 	observedAt := observation.ObservedAt.UTC().Format(time.RFC3339Nano)
 	duration := observation.DurationMS
 	if duration <= 0 {
@@ -354,11 +359,6 @@ func (s *Service) applyObservation(ctx context.Context, observation output.Obser
 		if err != nil {
 			return observationResult{}
 		}
-		s.resetListeningInterval(st.playID)
-		return result
-	}
-
-	if observation.PlayID != "" && observation.PlayID != st.playID {
 		s.resetListeningInterval(st.playID)
 		return result
 	}
