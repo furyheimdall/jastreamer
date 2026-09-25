@@ -201,7 +201,6 @@ jobs:
             --ks "${keystore}" \
             --ks-type PKCS12 \
             --ks-pass "file:${password}" \
-            --key-pass "file:${password}" \
             --ks-key-alias "${KEY_ALIAS}" \
             --v1-signing-enabled false \
             --v2-signing-enabled true \
@@ -229,7 +228,7 @@ jobs:
           zipalign="${ANDROID_HOME}/build-tools/35.0.0/zipalign"
           signed="${SIGNED_DIR}/${ANDROID_ASSET}"
           "${zipalign}" -c -p 4 "${signed}"
-          "${apksigner}" verify --min-sdk-version 29 --max-sdk-version 36 --verbose --print-certs "${signed}" \
+          "${apksigner}" verify --min-sdk-version 24 --max-sdk-version 36 --verbose --print-certs "${signed}" \
             > "${METADATA_DIR}/apksigner-verify.txt"
           cat "${METADATA_DIR}/apksigner-verify.txt"
           grep -qx 'Verified using v1 scheme (JAR signing): false' "${METADATA_DIR}/apksigner-verify.txt"
