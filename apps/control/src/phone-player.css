@@ -287,6 +287,19 @@ html[data-device="phone"] .phone-player-expanded .pairing-panel {
   backdrop-filter: none;
 }
 
+html[data-device="phone"] .phone-player-expanded .windows-audio-panel {
+  max-height: none;
+}
+
+html[data-device="phone"] .phone-player-expanded .windows-audio-heading {
+  align-items: stretch;
+  flex-direction: column;
+}
+
+html[data-device="phone"] .phone-player-expanded .windows-audio-heading .button {
+  width: 100%;
+}
+
 html[data-device="phone"] .phone-player-expanded .pairing-form .button,
 html[data-device="phone"] .phone-player-expanded .pairing-start .button {
   width: 100%;

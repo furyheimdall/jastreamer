@@ -2,7 +2,7 @@
 
 [프로젝트 소개](README.ko.md) · [한국어 사용자 안내서](INSTRUCTION.ko.md) · [English installation guide](INSTALL.md)
 
-실제로 사용할 패키지와 플랫폼에 맞는 아래 분기를 선택하세요. Server가 Web 화면을 제공하며 선택 사항인 Desktop·네이티브 모바일·휴대전화 PWA는 기존 Server에 접속할 수 있습니다. Server 모드의 로컬 재생은 브라우저·Desktop의 브라우저 오디오 또는 네이티브 Android Media3 서비스를 Server 대기열의 출력으로 사용합니다. 네이티브 iOS 앱은 제어 전용이며 미디어 로드를 차단합니다. Android **저장된 음악**은 같은 서비스를 별도 로컬 소유권으로 사용하고 독립 기기 대기열을 유지하며 Server 접속을 요구하지 않습니다. 사용법은 [사용자 안내서](INSTRUCTION.ko.md#android-controls)를 참고하세요.
+실제로 사용할 패키지와 플랫폼에 맞는 아래 분기를 선택하세요. Server가 Web 화면을 제공하며 Desktop·네이티브 모바일·휴대전화 PWA는 기존 Server에 접속합니다. Server 모드의 로컬 출력은 기본 브라우저 오디오, 호환 Windows Desktop의 선택적 WASAPI 또는 Android 네이티브 Media3 서비스를 사용하며 대기열은 항상 Server가 관리합니다. 네이티브 iOS 앱은 제어 전용이며 미디어 로드를 차단합니다. Android **저장된 음악**은 같은 서비스를 별도 로컬 소유권으로 사용하고 독립 기기 대기열을 유지하며 Server 접속을 요구하지 않습니다. 사용법은 [사용자 안내서](INSTRUCTION.ko.md#android-controls)를 참고하세요.
 
 공개 프리뷰는 미서명이며 production 검증을 마친 릴리즈가 아닙니다. 선택한 릴리즈의 제한을 읽고 내려받은 모든 파일을 검증한 뒤 실제 네트워크와 수신기에서 동작을 확인하세요. 설치 후 화면 사용법과 문제 해결은 [한국어 사용자 안내서](INSTRUCTION.ko.md)를 참고하세요.
 
@@ -170,6 +170,8 @@ Get-FileHash .\jastreamer-desktop_0.2.0_windows-x64.zip -Algorithm SHA256
 ZIP 전체를 쓰기 가능한 새 로컬 폴더에 풀고 `jastreamer-desktop.exe`를 실행하세요. ZIP 안에서 실행하거나 EXE만 복사하지 마세요. 서버 재생 화면에서 발견된 서버와 최근 서버가 별도 카드로 표시됩니다. 카드의 연결 버튼을 누르거나 **주소로 직접 연결**을 눌러 입력창에 완전한 HTTP(S) 루트 주소를 입력하세요. 앱은 접속 전에 서버를 확인하며 검색·접속은 재생을 시작하지 않습니다.
 
 서버 검색은 활성 IPv4 네트워크 어댑터마다 5초 간격으로 수행하며 어댑터 변경도 반영합니다. 방화벽이나 멀티캐스트 제한이 있으면 서버 주소를 직접 입력해야 할 수 있습니다.
+
+Windows 네이티브 출력에는 `resources/native-audio/jastreamer-audio.exe`와 번들 FFmpeg DLL을 포함한 Desktop 패키지, 호환되는 Server Web 화면이 모두 필요합니다. 이전 패키지는 브라우저 출력을 유지하며 Web 화면만 바꿔도 네이티브 helper가 추가되지는 않습니다. 브라우저 오디오가 기본값이고 네이티브 출력의 초기 모드는 공유입니다. [Windows 오디오](INSTRUCTION.ko.md#windows-audio)에서 선택 사용, 엔드포인트 지정과 명시적인 독점 모드 요청을 확인하세요. ZIP 전체와 `user-data`를 보존하고 임의의 코덱 DLL을 설치하지 마세요. 빌드·CI 성공은 실물 오디오나 DAC 단계의 비트 퍼펙트 전송 증명이 아닙니다.
 
 최근 서버, 언어, 쿠키와 로그인 상태는 EXE 옆 `user-data`에 저장됩니다. Windows 창의 X는 창만 숨기고 트레이에서 연결·로컬 재생을 유지합니다. 트레이 아이콘으로 다시 열고, 완전히 종료하려면 우클릭 → **종료**를 선택하세요. 앱을 종료해도 다른 네트워크 출력의 Server 재생에 정지 명령을 보내지 않습니다. 업데이트할 때는 새 ZIP을 검증해 별도 임시 폴더에 풀고 트레이에서 앱을 완전히 종료한 뒤 기존 설치 폴더의 패키지 소유 파일만 교체하세요. `user-data`는 복사하거나 덮어쓰지 않고 제자리에 유지합니다. 다른 Windows 계정이나 PC에서는 다시 로그인해야 할 수 있습니다.
 

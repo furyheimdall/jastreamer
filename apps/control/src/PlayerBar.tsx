@@ -1,6 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { api, ApiError } from "./api";
 import LocalOutput, { hasNativeAndroidAudio, type LocalOutputHandle } from "./LocalOutput";
+import {
+  nativeWindowsAudioBridge,
+  parseNativeWindowsState,
+  requestNativeWindowsAudio,
+  type NativeWindowsConfiguration,
+  type NativeWindowsState,
+} from "./NativeWindowsOutput";
 import { useI18n, type MessageKey } from "./i18n";
 import { embeddedClient, isPhone, localOutputName } from "./device";
 import type { Device, PairingRequest, PairingStatus, PlayerState, RepeatMode, StatusWarning } from "./types";
@@ -14,6 +21,14 @@ interface PlayerBarProps {
   onQueueChange: () => void;
   onShowQueue: () => void;
 }
+
+const WINDOWS_AUDIO_STATE_MESSAGE: Record<NativeWindowsState["audio"]["state"], MessageKey> = {
+  stopped: "player.windows.state.stopped",
+  loaded: "player.windows.state.loaded",
+  playing: "player.windows.state.playing",
+  paused: "player.windows.state.paused",
+  error: "player.windows.state.error",
+};
 
 function timeLabel(milliseconds: number, locale: string): string {
   const seconds = Math.max(0, Math.floor(milliseconds / 1000));
@@ -92,8 +107,16 @@ export default function PlayerBar({ revision, phoneExpanded, onPhoneExpandedChan
   const [modeChooserOpen, setModeChooserOpen] = useState(false);
   const observedPlayerError = useRef<{ revision: number; message: string } | null>(null);
   const localOutputRef = useRef<LocalOutputHandle>(null);
-  const [usesNativeOutput] = useState(hasNativeAndroidAudio);
-  const [defaultBrowserName] = useState(() => localOutputName(usesNativeOutput));
+  const [usesNativeAndroid] = useState(hasNativeAndroidAudio);
+  const [windowsBridge] = useState(() => usesNativeAndroid ? null : nativeWindowsAudioBridge());
+  const [windowsAudioState, setWindowsAudioState] = useState<NativeWindowsState | null>(null);
+  const previousWindowsEnabled = useRef(false);
+  const [windowsAudioResolved, setWindowsAudioResolved] = useState(() => windowsBridge === null);
+  const [windowsAudioStatusError, setWindowsAudioStatusError] = useState("");
+  const [windowsSettingsOpen, setWindowsSettingsOpen] = useState(false);
+  const [windowsConfigurationError, setWindowsConfigurationError] = useState("");
+  const [windowsConfigurationBusy, setWindowsConfigurationBusy] = useState(false);
+  const [defaultBrowserName] = useState(() => localOutputName(usesNativeAndroid));
   const [browserAlias, setBrowserAlias] = useState("");
   const [nameDraft, setNameDraft] = useState("");
   const [nameStorageKey, setNameStorageKey] = useState<string | null>(null);
@@ -105,6 +128,65 @@ export default function PlayerBar({ revision, phoneExpanded, onPhoneExpandedChan
   const automaticFallbackAttempted = useRef(false);
   const [outputsLoaded, setOutputsLoaded] = useState(false);
   const browserName = browserAlias || defaultBrowserName;
+  const usesNativeOutput = usesNativeAndroid || windowsAudioState?.audio.enabled === true;
+
+  useEffect(() => {
+    if (!windowsBridge) return;
+    let disposed = false;
+    let updateSequence = 0;
+    let unsubscribe: (() => void) | null = null;
+    try {
+      unsubscribe = windowsBridge.subscribe((value) => {
+        if (disposed) return;
+        updateSequence += 1;
+        const next = parseNativeWindowsState(value);
+        if (!next) {
+          setWindowsAudioStatusError("invalid_state");
+          return;
+        }
+        setWindowsAudioState(next);
+        setWindowsAudioStatusError("");
+      });
+      if (typeof unsubscribe !== "function") throw new Error("invalid_subscription");
+    } catch (caught) {
+      setWindowsAudioStatusError(caught instanceof Error ? caught.message : "subscription_failed");
+      setWindowsAudioResolved(true);
+      return () => undefined;
+    }
+
+    const requestSequence = updateSequence;
+    void requestNativeWindowsAudio(windowsBridge, "status")
+      .then((next) => {
+        if (disposed) return;
+        if (updateSequence === requestSequence) {
+          setWindowsAudioState(next);
+          setWindowsAudioStatusError("");
+        }
+      })
+      .catch((caught: unknown) => {
+        if (!disposed && updateSequence === requestSequence) {
+          setWindowsAudioStatusError(caught instanceof Error && caught.message ? caught.message : "status_failed");
+        }
+      })
+      .finally(() => {
+        if (!disposed) setWindowsAudioResolved(true);
+      });
+
+    return () => {
+      disposed = true;
+      unsubscribe?.();
+    };
+  }, [windowsBridge]);
+
+  useEffect(() => {
+    const enabled = windowsAudioState?.audio.enabled === true;
+    if (previousWindowsEnabled.current && !enabled) {
+      setLocalBrowserDevice(null);
+      setLocalVolume(null);
+      setBrowserAutoplayBlocked(false);
+    }
+    previousWindowsEnabled.current = enabled;
+  }, [windowsAudioState]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -270,15 +352,16 @@ export default function PlayerBar({ revision, phoneExpanded, onPhoneExpandedChan
 
   useEffect(() => {
     if (automaticFallbackAttempted.current || loading || !outputsLoaded || !player || !nameStorageKey || busy) return;
+    if (windowsBridge && (!windowsAudioResolved || !windowsAudioState)) return;
     if (embeddedClient === "ios" || !player.renderer_id || selectedDevice?.online) {
       automaticFallbackAttempted.current = true;
       return;
     }
     if (player.pending_command || !["stopped", "unavailable"].includes(player.state)) return;
-    automaticFallbackAttempted.current = true;
 
     const output = localOutputRef.current;
     if (!output) return;
+    automaticFallbackAttempted.current = true;
     const expected = player;
     const alreadyConnected = localBrowserDevice !== null;
     setBusy("output");
@@ -319,7 +402,7 @@ export default function PlayerBar({ revision, phoneExpanded, onPhoneExpandedChan
         setBusy("");
       }
     })();
-  }, [loading, outputsLoaded, player, nameStorageKey, busy, selectedDevice, localBrowserDevice, applyError, onStatusWarning, t]);
+  }, [loading, outputsLoaded, player, nameStorageKey, busy, selectedDevice, localBrowserDevice, applyError, onStatusWarning, t, windowsAudioResolved, windowsAudioState, windowsBridge]);
 
   async function changeLocalVolume(value: number) {
     if (!localOutputRef.current) return;
@@ -327,6 +410,30 @@ export default function PlayerBar({ revision, phoneExpanded, onPhoneExpandedChan
       await localOutputRef.current.setVolume(value);
     } catch (caught) {
       onNotice(errorMessage(caught, t("player.browser.actionFailed")), true);
+    }
+  }
+
+  async function configureWindowsAudio(configuration: NativeWindowsConfiguration) {
+    const output = localOutputRef.current;
+    if (!output || !windowsAudioState || windowsConfigurationBusy || busy
+      || player?.state !== "stopped" || Boolean(player.pending_command)
+      || !windowsAudioState.audio.can_configure) return;
+    setWindowsConfigurationBusy(true);
+    setWindowsConfigurationError("");
+    setBusy("windows-output");
+    try {
+      const next = await output.configureWindows(configuration);
+      setWindowsAudioState(next);
+      setLocalBrowserDevice(next.device);
+      setLocalVolume(next.volume);
+      onNotice(t("player.windows.configurationSaved"));
+    } catch (caught) {
+      const message = errorMessage(caught, t("player.windows.actionFailed"));
+      setWindowsConfigurationError(message);
+      onNotice(message, true);
+    } finally {
+      setBusy("");
+      setWindowsConfigurationBusy(false);
     }
   }
 
@@ -490,10 +597,18 @@ export default function PlayerBar({ revision, phoneExpanded, onPhoneExpandedChan
   async function refreshDevices() {
     setBusy("refresh");
     try {
-      await api<void>("/renderers/refresh", {
-        method: "POST",
-        body: JSON.stringify({}),
-      });
+      const [, nativeState] = await Promise.all([
+        api<void>("/renderers/refresh", {
+          method: "POST",
+          body: JSON.stringify({}),
+        }),
+        windowsBridge ? requestNativeWindowsAudio(windowsBridge, "status") : Promise.resolve(null),
+      ]);
+      if (nativeState) {
+        setWindowsAudioState(nativeState);
+        setWindowsAudioResolved(true);
+        setWindowsAudioStatusError("");
+      }
       onNotice(t("player.refreshingOutputs"));
       window.setTimeout(() => void load(), 1200);
     } catch (requestError) {
@@ -521,6 +636,20 @@ export default function PlayerBar({ revision, phoneExpanded, onPhoneExpandedChan
   const nextRepeatMode: RepeatMode = repeatMode === "off" ? "all" : repeatMode === "all" ? "one" : "off";
   const modeDisabled = !player || Boolean(player.pending_command) || Boolean(busy);
   const compactModeLabel = t("player.mode.open", { shuffle: shuffleLabel, repeat: repeatLabel });
+  const windowsCanConfigure = Boolean(
+    windowsAudioState?.audio.can_configure
+    && player?.state === "stopped"
+    && !player.pending_command
+    && !busy
+    && !nameSaving
+    && !windowsConfigurationBusy,
+  );
+  const windowsStatusError = ["invalid_state", "invalid_subscription", "subscription_failed", "status_failed"].includes(windowsAudioStatusError)
+    ? t("player.windows.statusFailed")
+    : windowsAudioStatusError;
+  const windowsRequestedEndpoint = windowsAudioState?.audio.devices.find(
+    (device) => device.id === windowsAudioState.audio.requested.device_id,
+  );
 
   function shuffleButton(labeled = false, compactChooser = false) {
     return (
@@ -577,21 +706,24 @@ export default function PlayerBar({ revision, phoneExpanded, onPhoneExpandedChan
       </div>
     );
   }
-  const localOutputAdapter = (
+  const localOutputAdapter = usesNativeAndroid || !windowsBridge || (windowsAudioResolved && windowsAudioState) ? (
     <LocalOutput
       ref={localOutputRef}
       name={browserName}
       disconnectedError={t("player.browser.disconnected")}
       registrationError={t("player.browser.registrationFailed")}
       actionError={t("player.browser.actionFailed")}
-      bridgeError={t("player.native.bridgeFailed")}
+      bridgeError={usesNativeAndroid ? t("player.native.bridgeFailed") : t("player.windows.bridgeFailed")}
+      windowsBridge={windowsBridge}
+      windowsState={windowsAudioState}
+      onWindowsStateChange={setWindowsAudioState}
       onDeviceChange={setLocalBrowserDevice}
       onAutoplayBlocked={setBrowserAutoplayBlocked}
       onRecoveryChange={handleLocalOutputRecovery}
       onError={handleLocalOutputError}
       onVolumeChange={setLocalVolume}
     />
-  );
+  ) : null;
   const outputPicker = (
     <div className="output-picker">
       <label htmlFor="player-output">{t("player.output")}</label>
@@ -604,7 +736,12 @@ export default function PlayerBar({ revision, phoneExpanded, onPhoneExpandedChan
         >
           <option value="">{t("player.selectOutput")}</option>
           {!localBrowserDevice && (
-            <option value="browser:local" disabled={!nameStorageKey}>{browserName} ({t("player.browser.thisDevice")}) [{t("player.protocol.browser")}]</option>
+            <option
+              value="browser:local"
+              disabled={!nameStorageKey || Boolean(windowsBridge && (!windowsAudioResolved || !windowsAudioState))}
+            >
+              {browserName} ({t("player.browser.thisDevice")}) [{t("player.protocol.browser")}]
+            </option>
           )}
           {missingSelectedDeviceLabel && player?.renderer_id && (
             <option value={player.renderer_id} disabled>{missingSelectedDeviceLabel}</option>
@@ -631,10 +768,29 @@ export default function PlayerBar({ revision, phoneExpanded, onPhoneExpandedChan
           title={t("player.browser.editName")}
           aria-expanded={nameEditorOpen}
           aria-controls="browser-name-panel"
-          onClick={() => setNameEditorOpen((current) => !current)}
+          onClick={() => {
+            setWindowsSettingsOpen(false);
+            setNameEditorOpen((current) => !current);
+          }}
         >
           <PlayerIcon name="edit" />
         </button>
+        {windowsBridge && (
+          <button
+            className="icon-button"
+            type="button"
+            aria-label={t("player.windows.openSettings")}
+            title={t("player.windows.openSettings")}
+            aria-expanded={windowsSettingsOpen}
+            aria-controls="windows-audio-panel"
+            onClick={() => {
+              setNameEditorOpen(false);
+              setWindowsSettingsOpen((current) => !current);
+            }}
+          >
+            <PlayerIcon name="modes" />
+          </button>
+        )}
       </div>
       {localBrowserDevice && localBrowserDevice.id === player?.renderer_id && localVolume !== null && (
         <label className="local-volume-control">
@@ -670,7 +826,173 @@ export default function PlayerBar({ revision, phoneExpanded, onPhoneExpandedChan
           {nameError && <p className="error-text" role="alert">{nameError}</p>}
         </section>
       )}
-      {pairingRequired && selectedDevice && !nameEditorOpen && (
+      {windowsBridge && windowsSettingsOpen && (
+        <section
+          className="pairing-panel windows-audio-panel"
+          id="windows-audio-panel"
+          aria-labelledby="windows-audio-heading"
+          aria-busy={!windowsAudioResolved || windowsConfigurationBusy}
+        >
+          <div className="windows-audio-heading">
+            <div>
+              <h2 id="windows-audio-heading">{t("player.windows.title")}</h2>
+              <p className="muted">{t("player.windows.description")}</p>
+            </div>
+            <button className="button button-ghost" type="button" onClick={() => setWindowsSettingsOpen(false)}>
+              {t("common.close")}
+            </button>
+          </div>
+          {windowsAudioState && windowsStatusError && (
+            <p className="error-text" role="alert">{windowsStatusError}</p>
+          )}
+          {!windowsAudioResolved && <p className="muted" role="status">{t("player.windows.loading")}</p>}
+          {windowsAudioResolved && !windowsAudioState && (
+            <p className="error-text" role="alert">{windowsStatusError || t("player.windows.statusFailed")}</p>
+          )}
+          {windowsAudioState && (
+            <>
+              <div className="windows-audio-fields">
+                <label>
+                  <span className="field-label">{t("player.windows.backend")}</span>
+                  <select
+                    value={windowsAudioState.audio.enabled ? "native" : "browser"}
+                    disabled={!windowsCanConfigure}
+                    onChange={(event) => void configureWindowsAudio({
+                      ...windowsAudioState.audio.requested,
+                      enabled: event.target.value === "native",
+                    })}
+                  >
+                    <option value="browser">{t("player.windows.backend.browser")}</option>
+                    <option value="native">{t("player.windows.backend.native")}</option>
+                  </select>
+                </label>
+                <label>
+                  <span className="field-label">{t("player.windows.endpoint")}</span>
+                  <select
+                    value={windowsAudioState.audio.requested.device_id}
+                    disabled={!windowsCanConfigure || !windowsAudioState.audio.available}
+                    onChange={(event) => void configureWindowsAudio({
+                      enabled: windowsAudioState.audio.enabled,
+                      device_id: event.target.value,
+                      exclusive: windowsAudioState.audio.requested.exclusive,
+                    })}
+                  >
+                    <option value="default">
+                      {t("player.windows.endpoint.default", {
+                        name: windowsAudioState.audio.devices.find((device) => device.is_default)?.name || t("player.windows.endpoint.system"),
+                      })}
+                    </option>
+                    {windowsAudioState.audio.requested.device_id !== "default"
+                      && !windowsAudioState.audio.devices.some((device) => device.id === windowsAudioState.audio.requested.device_id) && (
+                        <option value={windowsAudioState.audio.requested.device_id} disabled>
+                          {t("player.windows.endpoint.unavailable", { id: windowsAudioState.audio.requested.device_id })}
+                        </option>
+                      )}
+                    {windowsAudioState.audio.devices.filter((device) => device.id !== "default").map((device) => (
+                      <option key={device.id} value={device.id}>
+                        {device.name}{device.is_default ? ` (${t("player.windows.endpoint.currentDefault")})` : ""}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  <span className="field-label">{t("player.windows.exclusive")}</span>
+                  <select
+                    value={windowsAudioState.audio.requested.exclusive ? "on" : "off"}
+                    disabled={!windowsCanConfigure || !windowsAudioState.audio.available}
+                    onChange={(event) => void configureWindowsAudio({
+                      enabled: windowsAudioState.audio.enabled,
+                      device_id: windowsAudioState.audio.requested.device_id,
+                      exclusive: event.target.value === "on",
+                    })}
+                  >
+                    <option value="off">{t("player.windows.off")}</option>
+                    <option value="on">{t("player.windows.on")}</option>
+                  </select>
+                </label>
+              </div>
+              {!windowsAudioState.audio.available && (
+                <p className="error-text" role="status">{t("player.windows.unavailable")}</p>
+              )}
+              {!windowsCanConfigure && windowsAudioState.audio.available && (
+                <p className="field-help">{t("player.windows.stopToConfigure")}</p>
+              )}
+              <div className="windows-audio-status">
+                <h3>{t("player.windows.requested")}</h3>
+                <dl>
+                  <dt>{t("player.windows.endpoint")}</dt>
+                  <dd>{windowsAudioState.audio.requested.device_id === "default"
+                    ? t("player.windows.endpoint.system")
+                    : windowsRequestedEndpoint
+                      ? t("player.windows.endpoint.value", {
+                          name: windowsRequestedEndpoint.name,
+                          id: windowsRequestedEndpoint.id,
+                        })
+                      : windowsAudioState.audio.requested.device_id}</dd>
+                  <dt>{t("player.windows.mode")}</dt>
+                  <dd>{t(windowsAudioState.audio.requested.exclusive
+                    ? "player.windows.mode.exclusiveRequested"
+                    : "player.windows.mode.sharedRequested")}</dd>
+                </dl>
+                <h3>{t("player.windows.actual")}</h3>
+                <dl>
+                  <dt>{t("player.windows.engineState")}</dt>
+                  <dd>{t(WINDOWS_AUDIO_STATE_MESSAGE[windowsAudioState.audio.state])}</dd>
+                  {windowsAudioState.audio.actual ? (
+                    <>
+                      <dt>{t("player.windows.endpoint")}</dt>
+                      <dd>{t("player.windows.endpoint.value", {
+                        name: windowsAudioState.audio.actual.name,
+                        id: windowsAudioState.audio.actual.device_id,
+                      })}</dd>
+                      <dt>{t("player.windows.mode")}</dt>
+                      <dd>{t(windowsAudioState.audio.actual.mode === "exclusive"
+                        ? "player.windows.mode.exclusiveActual"
+                        : "player.windows.mode.sharedActual")}</dd>
+                      <dt>{t("player.windows.format")}</dt>
+                      <dd>{t("player.windows.formatValue", {
+                        rate: windowsAudioState.audio.actual.sample_rate.toLocaleString(locale),
+                        channels: windowsAudioState.audio.actual.channels,
+                        container: windowsAudioState.audio.actual.container_bits,
+                        valid: windowsAudioState.audio.actual.valid_bits,
+                      })}</dd>
+                    </>
+                  ) : (
+                    <>
+                      <dt>{t("player.windows.format")}</dt>
+                      <dd>{t("player.windows.noActualFormat")}</dd>
+                    </>
+                  )}
+                </dl>
+                {windowsAudioState.audio.actual && (
+                  <div className={windowsAudioState.audio.actual.bit_transparent
+                    ? "windows-transparency windows-transparency-qualified"
+                    : "windows-transparency"}>
+                    <strong>{t(windowsAudioState.audio.actual.bit_transparent
+                      ? "player.windows.transparency.qualified"
+                      : "player.windows.transparency.notVerified")}</strong>
+                    <p>{windowsAudioState.audio.actual.bit_transparent
+                      ? t("player.windows.transparency.qualifiedDetail")
+                      : t("player.windows.transparency.reason", {
+                          reason: windowsAudioState.audio.actual.reason || t("player.windows.transparency.unknown"),
+                        })}</p>
+                  </div>
+                )}
+              </div>
+              {windowsAudioState.error && (
+                <p className="error-text windows-audio-error" role="alert">
+                  {t("player.windows.error", {
+                    code: windowsAudioState.error.code,
+                    message: windowsAudioState.error.message,
+                  })}
+                </p>
+              )}
+            </>
+          )}
+          {windowsConfigurationError && <p className="error-text" role="alert">{windowsConfigurationError}</p>}
+        </section>
+      )}
+      {pairingRequired && selectedDevice && !nameEditorOpen && !windowsSettingsOpen && (
         <section className="pairing-panel" aria-labelledby="pairing-heading" aria-busy={busy === "pairing"}>
           <h2 id="pairing-heading">{t("player.pairing.heading", { device: deviceLabel(selectedDevice, t) })}</h2>
           <p className="pairing-prompt" aria-live="polite">

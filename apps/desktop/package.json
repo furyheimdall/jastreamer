@@ -11,7 +11,8 @@
   "scripts": {
     "start": "electron .",
     "test": "node --test",
-    "package:win": "node scripts/package.mjs",
+    "build:native:win": "powershell -NoProfile -ExecutionPolicy Bypass -File native/audio/scripts/build-native.ps1",
+    "package:win": "npm run build:native:win && node scripts/package.mjs",
     "package:linux": "node scripts/package-linux.mjs",
     "verify:package": "node scripts/verify-package.mjs"
   },

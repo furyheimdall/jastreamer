@@ -2,7 +2,7 @@
 
 [README](README.md) · [User guide](INSTRUCTION.md) · [한국어 설치 안내](INSTALL.ko.md)
 
-Choose the branch below for the package and platform you actually use. The Server hosts the Web interface; optional desktop, native mobile, and phone PWA clients can connect to it. Server-mode local playback uses browser audio in browsers/Desktop, or the native Android Media3 service as an output of the Server queue. The native iOS client is controller-only and blocks media loads. Android **Saved music** uses the same service under separate local ownership, with an independent device queue and no Server requirement; see the [user guide](INSTRUCTION.md#android-controls).
+Choose the branch below for the package and platform you actually use. The Server hosts the Web interface; optional desktop, native mobile, and phone PWA clients connect to it. Server-mode local playback uses browser audio by default, opt-in WASAPI in compatible Windows Desktop builds, or Android's native Media3 service, always as an output of the Server queue. The native iOS client is controller-only and blocks media loads. Android **Saved music** uses the same service under separate local ownership, with an independent device queue and no Server requirement; see the [user guide](INSTRUCTION.md#android-controls).
 
 Public previews are unsigned and not production-qualified. Read the selected release's limitations, verify every downloaded artifact, and confirm operation on your own network and receivers.
 
@@ -170,6 +170,8 @@ Get-FileHash .\jastreamer-desktop_0.2.0_windows-x64.zip -Algorithm SHA256
 Extract the complete ZIP to a new writable local folder and run `jastreamer-desktop.exe`; do not run inside the ZIP or copy only the EXE. The Server playback screen separates discovered and recent Server cards. Select a card's connection action, or choose **Connect by address** to enter a complete HTTP(S) root URL in its dialog. The app verifies the Server before connecting, and connection or discovery does not start playback.
 
 Server discovery searches each active IPv4 network adapter every five seconds, including when adapters change. Firewall and multicast restrictions can still require entering the Server URL manually.
+
+Windows native output requires both a Desktop package containing `resources/native-audio/jastreamer-audio.exe` and its bundled FFmpeg DLLs, and a compatible Server-hosted Web UI. Older packages remain browser-only; updating the Web page alone cannot add the native helper. Browser audio remains the default, and native output starts in Shared mode. Follow [Windows audio](INSTRUCTION.md#windows-audio) to opt in, select an endpoint, and request Exclusive explicitly. Preserve the complete ZIP and `user-data`; do not install arbitrary codec DLLs or claim that a build/CI result verifies physical audio or DAC-level bit-perfect delivery.
 
 Recent Servers, language, cookies, and sessions are stored beside the EXE in `user-data`. On Windows, X hides the window while the tray-resident app retains its connection and local playback. Reopen it from the tray; right-click → **Exit** quits completely. Exiting does not send Stop to other network outputs. To upgrade, verify and extract the new ZIP to a separate temporary folder, exit the app through the tray, and replace only package-owned files in the existing installation folder. Leave `user-data` in place without copying or overwriting it. A different Windows account or PC may require login again.
 

@@ -16,17 +16,18 @@ const (
 )
 
 type Resource struct {
-	URL        string `json:"url"`
-	Mime       string `json:"mime"`
-	Title      string `json:"title"`
-	Artist     string `json:"artist"`
-	Album      string `json:"album"`
-	ArtworkURL string `json:"artwork_url"`
-	DurationMS int64  `json:"duration_ms"`
-	Size       int64  `json:"size"`
-	Seekable   bool   `json:"seekable"`
-	TrackID    string `json:"-"`
-	PlayID     string `json:"-"`
+	URL         string `json:"url"`
+	Mime        string `json:"mime"`
+	Title       string `json:"title"`
+	Artist      string `json:"artist"`
+	Album       string `json:"album"`
+	ArtworkURL  string `json:"artwork_url"`
+	DurationMS  int64  `json:"duration_ms"`
+	Size        int64  `json:"size"`
+	Seekable    bool   `json:"seekable"`
+	Transformed *bool  `json:"transformed,omitempty"`
+	TrackID     string `json:"-"`
+	PlayID      string `json:"-"`
 }
 
 type Capabilities struct {

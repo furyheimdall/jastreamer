@@ -22,6 +22,7 @@ const root = fileURLToPath(new URL("..", import.meta.url));
 const output = path.join(root, "dist");
 const metadata = JSON.parse(await readFile(path.join(root, "package.json"), "utf8"));
 const manifest = JSON.parse(await readFile(path.join(output, "manifest.json"), "utf8"));
+const nativeLock = JSON.parse(await readFile(path.join(root, "native/audio/dependency-lock.json"), "utf8"));
 
 assert.equal(manifest.product, "jastreamer-desktop");
 assert.equal(manifest.version, metadata.version);
@@ -30,6 +31,12 @@ assert.equal(typeof manifest.sourceRevision, "string");
 assert(manifest.sourceRevision.length > 0, "Missing source revision");
 if (process.env.JASTREAMER_SOURCE_REVISION) {
   assert.equal(manifest.sourceRevision, process.env.JASTREAMER_SOURCE_REVISION);
+}
+if (manifest.platform === "win32") {
+  assert(Number.isSafeInteger(manifest.sourceDateEpoch) && manifest.sourceDateEpoch >= 0, "Missing reproducible source timestamp");
+  if (process.env.SOURCE_DATE_EPOCH) {
+    assert.equal(manifest.sourceDateEpoch, Number(process.env.SOURCE_DATE_EPOCH));
+  }
 }
 assert.equal(manifest.signed, false);
 assert.equal(manifest.productionQualified, false);
@@ -46,6 +53,21 @@ async function digest(file) {
   const hash = createHash("sha256");
   for await (const chunk of createReadStream(file)) hash.update(chunk);
   return hash.digest("hex");
+}
+async function verifyPeX64(file, label) {
+  const executable = await open(file);
+  try {
+    const header = Buffer.alloc(64);
+    await executable.read(header, 0, header.length, 0);
+    assert.equal(header.toString("ascii", 0, 2), "MZ", `${label} must have an MZ header`);
+    const pe = Buffer.alloc(26);
+    await executable.read(pe, 0, pe.length, header.readUInt32LE(60));
+    assert.equal(pe.toString("ascii", 0, 4), "PE\0\0", `${label} must have a PE header`);
+    assert.equal(pe.readUInt16LE(4), 0x8664, `${label} must target Windows x64`);
+    assert.equal(pe.readUInt16LE(24), 0x20b, `${label} must be PE32+`);
+  } finally {
+    await executable.close();
+  }
 }
 
 const archive = child(output, manifest.archive.path);
@@ -85,19 +107,96 @@ async function verifyWindows() {
   for (const required of ["jastreamer-desktop.exe", "resources/app.asar", "LICENSE.jastreamer", "START-HERE.txt"]) {
     assert(manifest.files.some((entry) => entry.path === required), `Missing ${required}`);
   }
-  const executable = await open(path.join(directory, "jastreamer-desktop.exe"));
-  try {
-    const header = Buffer.alloc(64);
-    await executable.read(header, 0, header.length, 0);
-    assert.equal(header.toString("ascii", 0, 2), "MZ");
-    const pe = Buffer.alloc(26);
-    await executable.read(pe, 0, pe.length, header.readUInt32LE(60));
-    assert.equal(pe.toString("ascii", 0, 4), "PE\0\0");
-    assert.equal(pe.readUInt16LE(4), 0x8664, "Executable must target Windows x64");
-    assert.equal(pe.readUInt16LE(24), 0x20b, "Executable must be PE32+");
-  } finally {
-    await executable.close();
+  const nativePrefix = "resources/native-audio/";
+  const runtimeNames = ["jastreamer-audio.exe", ...nativeLock.ffmpeg.runtime];
+  const nativeFiles = [
+    ...runtimeNames,
+    "dependencies.json",
+    "THIRD-PARTY-NOTICES.txt",
+    `legal/ffmpeg/${nativeLock.ffmpeg.license}`,
+    `legal/nlohmann-json/${nativeLock.nlohmannJson.license}`,
+    "legal/jastreamer/LICENSE.Apache-2.0",
+    "corresponding-source/CMakeLists.txt",
+    "corresponding-source/dependency-lock.json",
+    "corresponding-source/decoder.hpp",
+    "corresponding-source/decoder.cpp",
+    "corresponding-source/decoder_smoke.cpp",
+    "corresponding-source/decoder_behavior.cpp",
+    "corresponding-source/audio_engine.hpp",
+    "corresponding-source/audio_engine.cpp",
+    "corresponding-source/protocol.hpp",
+    "corresponding-source/protocol.cpp",
+    "corresponding-source/smtc.hpp",
+    "corresponding-source/smtc.cpp",
+    "corresponding-source/main.cpp",
+    "corresponding-source/tests/packing_test.cpp",
+    "corresponding-source/tests/protocol_smoke.cpp",
+    "corresponding-source/scripts/build-ffmpeg.sh",
+    "corresponding-source/scripts/build-native.ps1",
+    "corresponding-source/scripts/fetch-native-deps.mjs",
+    `corresponding-source/deps/downloads/${nativeLock.ffmpeg.archive}`,
+    `corresponding-source/deps/downloads/${nativeLock.nlohmannJson.archive}`,
+  ].map((relative) => nativePrefix + relative).sort();
+  const actualNativeFiles = manifest.files
+    .map((entry) => entry.path)
+    .filter((relative) => relative.startsWith(nativePrefix))
+    .sort();
+  assert.deepEqual(actualNativeFiles, nativeFiles, "Native helper, legal, or corresponding-source inventory differs");
+
+  assert.deepEqual(
+    JSON.parse(await readFile(path.join(directory, nativePrefix, "dependencies.json"), "utf8")),
+    nativeLock,
+    "Packaged native dependency lock differs from the repository lock",
+  );
+  assert.deepEqual(manifest.nativeAudio, {
+    helper: `${nativePrefix}jastreamer-audio.exe`,
+    runtime: runtimeNames.map((file) => nativePrefix + file),
+    staticCrt: true,
+    ffmpeg: {
+      version: nativeLock.ffmpeg.version,
+      source: `${nativePrefix}corresponding-source/deps/downloads/${nativeLock.ffmpeg.archive}`,
+      sha256: nativeLock.ffmpeg.sha256,
+    },
+    nlohmannJson: {
+      version: nativeLock.nlohmannJson.version,
+      source: `${nativePrefix}corresponding-source/deps/downloads/${nativeLock.nlohmannJson.archive}`,
+      sha256: nativeLock.nlohmannJson.sha256,
+    },
+  });
+  assert.equal(
+    await digest(path.join(directory, manifest.nativeAudio.ffmpeg.source)),
+    nativeLock.ffmpeg.sha256,
+    "Packaged FFmpeg corresponding source hash differs from the lock",
+  );
+  assert.equal(
+    await digest(path.join(directory, manifest.nativeAudio.nlohmannJson.source)),
+    nativeLock.nlohmannJson.sha256,
+    "Packaged nlohmann/json source hash differs from the lock",
+  );
+
+  await verifyPeX64(path.join(directory, "jastreamer-desktop.exe"), "Desktop executable");
+  for (const runtime of runtimeNames) {
+    const file = path.join(directory, nativePrefix, runtime);
+    await verifyPeX64(file, runtime);
+    const dependencies = (await command("dumpbin.exe", ["/nologo", "/dependents", file])).stdout;
+    assert.doesNotMatch(
+      dependencies,
+      /\b(?:vcruntime\d*|msvcp\d*|ucrtbase|api-ms-win-crt-[\w-]+)\.dll\b/i,
+      `${runtime} must use the statically linked MSVC/UCRT runtime`,
+    );
+    if (runtime === "jastreamer-audio.exe") {
+      for (const ffmpegDll of nativeLock.ffmpeg.runtime) {
+        assert.match(dependencies, new RegExp(`\\b${ffmpegDll.replaceAll(".", "\\.")}\\b`, "i"), `Helper does not import ${ffmpegDll}`);
+      }
+    }
   }
+  const helperVersion = await command(path.join(directory, nativePrefix, "jastreamer-audio.exe"), ["--protocol-version"]);
+  assert.equal(helperVersion.stderr, "", "Native helper wrote diagnostics during protocol version query");
+  assert.deepEqual(
+    JSON.parse(helperVersion.stdout.trim()),
+    { protocol: "jastreamer-native-audio", version: 1 },
+    "Packaged native helper protocol identity differs",
+  );
   console.log(`Verified Windows x64 portable ZIP and ${manifest.files.length} exact packaged files. Windows execution and signing are separate checks.`);
 }
 
