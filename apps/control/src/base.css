@@ -285,10 +285,30 @@ html[data-client] .app-shell .mobile-header {
   text-align: left;
 }
 
-.main-nav button:hover,
+.main-nav button {
+  position: relative;
+}
+
+.main-nav button:hover {
+  color: var(--text);
+  background: #ffffff0a;
+}
+
 .main-nav button.is-active {
   color: var(--text);
   background: var(--panel-raised);
+}
+
+/* A slim accent bar keeps the current page distinct from a merely hovered item. */
+.main-nav button.is-active::before {
+  position: absolute;
+  top: 0.7rem;
+  bottom: 0.7rem;
+  left: 0;
+  width: 3px;
+  border-radius: 0 3px 3px 0;
+  background: var(--accent);
+  content: "";
 }
 
 .main-nav button.is-active svg,
@@ -956,7 +976,12 @@ html[data-client] .app-shell .mobile-header {
 
 .queue-row.is-current {
   border-radius: 0.7rem;
-  background: #c8edb20b;
+  background: #c8edb214;
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+
+.queue-row.is-current :is(.queue-index, .queue-track-title) {
+  color: var(--accent);
 }
 
 .queue-index,
@@ -1117,6 +1142,9 @@ html[data-client] .app-shell .mobile-header {
   scrollbar-width: thin;
   scroll-snap-type: x proximity;
   overscroll-behavior-inline: contain;
+  /* The trailing fade hints that more tabs scroll into view; end padding keeps the last tab clear of it. */
+  padding-inline-end: 1.5rem;
+  mask-image: linear-gradient(to right, #000 calc(100% - 1.5rem), transparent);
 }
 
 .settings-tab {
@@ -1546,8 +1574,15 @@ html[data-client] .app-shell .mobile-header {
   box-shadow: 0 0.7rem 2rem #0008;
   align-items: center;
   gap: 0.8rem;
+  animation: toast-in 180ms ease-out;
 }
 
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(0.5rem);
+  }
+}
 
 .toast button {
   display: grid;
@@ -1957,6 +1992,7 @@ body:has([aria-modal="true"]) {
   *::after {
     scroll-behavior: auto !important;
     transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
   }
 }
 
