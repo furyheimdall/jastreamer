@@ -62,7 +62,7 @@ export const playerMessages = {
   "player.windows.backend.browser": { en: "Browser (default)", ko: "브라우저(기본값)" },
   "player.windows.backend.native": { en: "Windows native (opt in)", ko: "Windows 네이티브(선택 사용)" },
   "player.windows.endpoint": { en: "Windows audio endpoint", ko: "Windows 오디오 엔드포인트" },
-  "player.windows.endpoint.default": { en: "System default — {name}", ko: "시스템 기본값 — {name}" },
+  "player.windows.endpoint.default": { en: "Follow Windows default device (currently {name})", ko: "Windows 기본 장치 따르기 (현재: {name})" },
   "player.windows.endpoint.system": { en: "System default", ko: "시스템 기본값" },
   "player.windows.endpoint.currentDefault": { en: "current default", ko: "현재 기본값" },
   "player.windows.endpoint.unavailable": { en: "Unavailable endpoint — {id}", ko: "사용할 수 없는 엔드포인트 — {id}" },
