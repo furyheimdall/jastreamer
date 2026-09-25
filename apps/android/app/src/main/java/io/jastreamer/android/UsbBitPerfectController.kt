@@ -17,12 +17,33 @@ import androidx.annotation.RequiresApi
 /** An eligible USB output, as shown in the local audio settings panel. */
 internal data class UsbAudioDevice(val id: String, val name: String)
 
+/** One reported mixer entry with the reason this client cannot open it, for the diagnostics list. */
+internal data class UsbMixerReportEntry(
+    val entry: MixerEntry,
+    val encodingLabel: String,
+    val rejection: String,
+)
+
+/** Everything `getSupportedMixerAttributes` returned for one USB output device. */
+internal data class UsbMixerReport(
+    val deviceId: String,
+    val deviceName: String,
+    val deviceType: String,
+    val total: Int,
+    val bitPerfect: Int,
+    val usableBitPerfect: Int,
+    val rejected: Int,
+    val entries: List<UsbMixerReportEntry>,
+)
+
 /** What the bit-perfect path currently is, from the device and the framework rather than the request. */
 internal data class UsbBitPerfectStatus(
     val supported: Boolean,
     val available: Boolean,
     val reason: String,
+    val apiLevel: Int,
     val devices: List<UsbAudioDevice>,
+    val reports: List<UsbMixerReport>,
 )
 
 /** The applied output, reported after an `AudioTrack` exists. */
@@ -96,21 +117,26 @@ internal class UsbBitPerfectController(
                 supported = false,
                 available = false,
                 reason = UsbBitPerfectPolicy.UNAVAILABLE_REQUIRES_ANDROID_14,
+                apiLevel = Build.VERSION.SDK_INT,
                 devices = emptyList(),
+                reports = emptyList(),
             )
         }
         val devices = usbDevices()
-        val bitPerfectOptions = devices.sumOf { device -> options(device).count(MixerOption::bitPerfect) }
+        val reports = devices.map(::report)
         val reason = UsbBitPerfectPolicy.unavailableReason(
             apiLevel = Build.VERSION.SDK_INT,
             usbDeviceCount = devices.size,
-            bitPerfectOptionCount = bitPerfectOptions,
+            bitPerfectEntryCount = reports.sumOf(UsbMixerReport::bitPerfect),
+            usableBitPerfectCount = reports.sumOf(UsbMixerReport::usableBitPerfect),
         )
         return UsbBitPerfectStatus(
             supported = true,
             available = reason.isEmpty(),
             reason = reason,
+            apiLevel = Build.VERSION.SDK_INT,
             devices = devices.map { UsbAudioDevice(it.id.toString(), deviceName(it)) },
+            reports = reports,
         )
     }
 
@@ -234,26 +260,62 @@ internal class UsbBitPerfectController(
     }
 
     @RequiresApi(Build.VERSION_CODES.UPSIDE_DOWN_CAKE)
-    private fun options(device: AudioDeviceInfo): List<MixerOption> {
+    private fun options(device: AudioDeviceInfo): List<MixerOption> =
+        rawEntries(device).mapNotNull { entry ->
+            val stream = UsbBitPerfectPolicy.usableStream(entry, encoding(entry.encoding)) ?: return@mapNotNull null
+            MixerOption(stream, entry.bitPerfect)
+        }
+
+    /** The framework's own list, unfiltered, so the panel can report what a device really offers. */
+    @RequiresApi(Build.VERSION_CODES.UPSIDE_DOWN_CAKE)
+    private fun rawEntries(device: AudioDeviceInfo): List<MixerEntry> {
         val manager = audioManager ?: return emptyList()
         val supportedAttributes = try {
             manager.getSupportedMixerAttributes(device)
         } catch (_: RuntimeException) {
             return emptyList()
         }
-        return supportedAttributes.mapNotNull { attributes ->
-            val stream = mixerStream(attributes) ?: return@mapNotNull null
-            MixerOption(stream, attributes.mixerBehavior == AudioMixerAttributes.MIXER_BEHAVIOR_BIT_PERFECT)
+        return supportedAttributes.map(::mixerEntry)
+    }
+
+    @RequiresApi(Build.VERSION_CODES.UPSIDE_DOWN_CAKE)
+    private fun report(device: AudioDeviceInfo): UsbMixerReport {
+        val entries = rawEntries(device).map { entry ->
+            val encoding = encoding(entry.encoding)
+            UsbMixerReportEntry(
+                entry = entry,
+                encodingLabel = encoding?.label ?: "",
+                rejection = UsbBitPerfectPolicy.rejection(entry, encoding != null),
+            )
         }
+        return UsbMixerReport(
+            deviceId = device.id.toString(),
+            deviceName = deviceName(device),
+            deviceType = if (device.type == AudioDeviceInfo.TYPE_USB_HEADSET) "usb_headset" else "usb_device",
+            total = entries.size,
+            bitPerfect = entries.count { it.entry.bitPerfect },
+            usableBitPerfect = entries.count { it.entry.bitPerfect && it.rejection == UsbBitPerfectPolicy.REJECT_NONE },
+            rejected = entries.count { it.rejection != UsbBitPerfectPolicy.REJECT_NONE },
+            entries = entries,
+        )
+    }
+
+    @RequiresApi(Build.VERSION_CODES.UPSIDE_DOWN_CAKE)
+    private fun mixerEntry(attributes: AudioMixerAttributes): MixerEntry {
+        val format = attributes.format
+        return MixerEntry(
+            bitPerfect = attributes.mixerBehavior == AudioMixerAttributes.MIXER_BEHAVIOR_BIT_PERFECT,
+            encoding = format.encoding,
+            sampleRate = format.sampleRate,
+            channelMask = format.channelMask,
+            channelIndexMask = format.channelIndexMask,
+        )
     }
 
     @RequiresApi(Build.VERSION_CODES.UPSIDE_DOWN_CAKE)
     private fun mixerStream(attributes: AudioMixerAttributes): PcmStream? {
-        val format = attributes.format
-        val encoding = encoding(format.encoding) ?: return null
-        val mask = format.channelMask
-        if (format.sampleRate <= 0 || mask == 0) return null
-        return PcmStream(encoding, format.sampleRate, Integer.bitCount(mask), mask)
+        val entry = mixerEntry(attributes)
+        return UsbBitPerfectPolicy.usableStream(entry, encoding(entry.encoding))
     }
 
     private fun audioFormat(stream: PcmStream): AudioFormat = AudioFormat.Builder()

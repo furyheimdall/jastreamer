@@ -432,6 +432,8 @@ internal class NativeAudioBridge(
             .put("supported", audio.optBoolean("supported", false))
             .put("available", audio.optBoolean("available", false))
             .put("reason", audio.optString("reason").let { if (it.isBlank()) "" else safeCode(it) })
+            .put("api_level", audio.optInt("api_level", 0).coerceIn(0, 1_000))
+            .put("mixer_report", sanitizeMixerReport(audio.optJSONArray("mixer_report")))
             .put("enabled", audio.optBoolean("enabled", false))
             .put("devices", devices)
             .put("requested", JSONObject().put("bit_perfect", requested.optBoolean("bit_perfect", false)))
@@ -461,6 +463,49 @@ internal class NativeAudioBridge(
             .put("encoding", safeCode(actual.optString("encoding")))
             .put("bit_transparent", actual.optBoolean("bit_transparent", false))
             .put("reason", safeCode(actual.optString("reason")))
+    }
+
+    /** Copies the bounded diagnostics list: counts plus each reported entry's raw numbers. */
+    private fun sanitizeMixerReport(reports: JSONArray?): JSONArray {
+        val value = JSONArray()
+        reports ?: return value
+        var remaining = MAX_MIXER_ENTRIES
+        for (index in 0 until minOf(reports.length(), MAX_AUDIO_DEVICES)) {
+            val report = reports.optJSONObject(index) ?: continue
+            val entries = JSONArray()
+            val reported = report.optJSONArray("entries")
+            if (reported != null) {
+                for (entryIndex in 0 until minOf(reported.length(), remaining.coerceAtLeast(0))) {
+                    val entry = reported.optJSONObject(entryIndex) ?: continue
+                    entries.put(
+                        JSONObject()
+                            .put("bit_perfect", entry.optBoolean("bit_perfect", false))
+                            .put("encoding", entry.optInt("encoding", 0))
+                            .put("encoding_label", safeLabel(entry.optString("encoding_label")))
+                            .put("sample_rate", entry.optInt("sample_rate", 0).coerceAtLeast(0))
+                            .put("channel_mask", entry.optInt("channel_mask", 0))
+                            .put("channel_index_mask", entry.optInt("channel_index_mask", 0))
+                            .put(
+                                "rejection",
+                                entry.optString("rejection").let { if (it.isBlank()) "" else safeCode(it) },
+                            ),
+                    )
+                }
+            }
+            remaining -= entries.length()
+            value.put(
+                JSONObject()
+                    .put("device_id", safeLabel(report.optString("device_id")))
+                    .put("device_name", safeLabel(report.optString("device_name")))
+                    .put("device_type", safeCode(report.optString("device_type")))
+                    .put("total", report.optInt("total", 0).coerceAtLeast(0))
+                    .put("bit_perfect", report.optInt("bit_perfect", 0).coerceAtLeast(0))
+                    .put("usable_bit_perfect", report.optInt("usable_bit_perfect", 0).coerceAtLeast(0))
+                    .put("rejected", report.optInt("rejected", 0).coerceAtLeast(0))
+                    .put("entries", entries),
+            )
+        }
+        return value
     }
 
     private fun safeLabel(value: String): String =
@@ -552,6 +597,7 @@ internal class NativeAudioBridge(
         private val AUDIO_STATES = setOf("stopped", "loaded", "playing", "paused", "error")
         private const val MAX_AUDIO_DEVICES = 8
         private const val MAX_LABEL_CHARACTERS = 120
+        private const val MAX_MIXER_ENTRIES = 32
         private val SAFE_CODE = Regex("[a-z0-9_.-]{1,64}")
     }
 }

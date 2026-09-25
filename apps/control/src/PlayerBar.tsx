@@ -43,6 +43,14 @@ const ANDROID_UNAVAILABLE_MESSAGE: Record<string, MessageKey> = {
   requires_android_14: "player.android.unavailable.requiresAndroid14",
   no_usb_device: "player.android.unavailable.noUsbDevice",
   no_bit_perfect_mixer: "player.android.unavailable.noBitPerfectMixer",
+  no_usable_bit_perfect_format: "player.android.unavailable.noUsableBitPerfectFormat",
+};
+
+const ANDROID_MIXER_REJECTION_MESSAGE: Record<string, MessageKey> = {
+  encoding_unrecognized: "player.android.reject.encoding_unrecognized",
+  channel_index_mask: "player.android.reject.channel_index_mask",
+  no_channel_mask: "player.android.reject.no_channel_mask",
+  invalid_sample_rate: "player.android.reject.invalid_sample_rate",
 };
 
 const ANDROID_TRANSPARENCY_REASON_MESSAGE: Record<string, MessageKey> = {
@@ -1217,6 +1225,54 @@ export default function PlayerBar({ revision, phoneExpanded, onPhoneExpandedChan
                 )}
               </div>
             </>
+          )}
+          {androidAudioState && (
+            <details className="native-audio-report">
+              <summary>{t("player.android.mixerReport")}</summary>
+              <p className="muted">{t("player.android.mixerReport.apiLevel", { level: androidAudioState.api_level })}</p>
+              {androidAudioState.mixer_report.length === 0 && (
+                <p className="muted">{t("player.android.mixerReport.empty")}</p>
+              )}
+              {androidAudioState.mixer_report.map((report) => (
+                <div key={report.device_id}>
+                  <h4>{t("player.android.mixerReport.device", {
+                    name: report.device_name,
+                    type: report.device_type,
+                    id: report.device_id,
+                  })}</h4>
+                  <p className="muted">{t("player.android.mixerReport.counts", {
+                    total: report.total,
+                    bitPerfect: report.bit_perfect,
+                    usable: report.usable_bit_perfect,
+                    rejected: report.rejected,
+                  })}</p>
+                  {report.entries.length === 0
+                    ? <p className="muted">{t("player.android.mixerReport.empty")}</p>
+                    : (
+                      <ul>
+                        {report.entries.map((entry, index) => (
+                          <li key={`${report.device_id}-${index}`}>
+                            {t("player.android.mixerReport.entry", {
+                              behavior: t(entry.bit_perfect
+                                ? "player.android.mixerReport.bitPerfect"
+                                : "player.android.mixerReport.default"),
+                              encoding: entry.encoding,
+                              label: entry.encoding_label ? ` (${entry.encoding_label})` : "",
+                              rate: entry.sample_rate.toLocaleString(locale),
+                              mask: `0x${(entry.channel_mask >>> 0).toString(16)}`,
+                              indexMask: `0x${(entry.channel_index_mask >>> 0).toString(16)}`,
+                            })}
+                            {" — "}
+                            {entry.rejection
+                              ? t(ANDROID_MIXER_REJECTION_MESSAGE[entry.rejection] ?? "player.android.reject.unknown")
+                              : t("player.android.mixerReport.usable")}
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                </div>
+              ))}
+            </details>
           )}
           {androidAudioState?.error && (
             <p className="error-text native-audio-error" role="alert">

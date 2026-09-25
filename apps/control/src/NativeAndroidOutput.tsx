@@ -2,7 +2,8 @@ import { forwardRef, useEffect, useImperativeHandle, useRef } from "react";
 import type { Device } from "./types";
 
 const RESPONSE_TIMEOUT_MS = 10_000;
-const MAX_MESSAGE_BYTES = 4_096;
+// The state message carries the bounded mixer diagnostics list as well as the output state.
+const MAX_MESSAGE_BYTES = 16_384;
 const textEncoder = new TextEncoder();
 let requestSequence = 0;
 
@@ -33,6 +34,27 @@ export type NativeAndroidActual = {
   reason: string;
 };
 
+export type NativeAndroidMixerEntry = {
+  bit_perfect: boolean;
+  encoding: number;
+  encoding_label: string;
+  sample_rate: number;
+  channel_mask: number;
+  channel_index_mask: number;
+  rejection: string;
+};
+
+export type NativeAndroidMixerReport = {
+  device_id: string;
+  device_name: string;
+  device_type: string;
+  total: number;
+  bit_perfect: number;
+  usable_bit_perfect: number;
+  rejected: number;
+  entries: NativeAndroidMixerEntry[];
+};
+
 export type NativeAndroidAudioState = {
   supported: boolean;
   available: boolean;
@@ -42,6 +64,8 @@ export type NativeAndroidAudioState = {
   requested: { bit_perfect: boolean };
   state: "stopped" | "loaded" | "playing" | "paused" | "error";
   can_configure: boolean;
+  api_level: number;
+  mixer_report: NativeAndroidMixerReport[];
   actual: NativeAndroidActual | null;
   error?: { code: string; message: string };
 };
@@ -171,12 +195,68 @@ function parseActual(value: unknown): NativeAndroidActual | null | undefined {
   };
 }
 
+function nonNegativeInteger(value: unknown): value is number {
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
+}
+
+function parseMixerReport(value: unknown): NativeAndroidMixerReport[] | undefined {
+  if (value === undefined || value === null) return [];
+  if (!Array.isArray(value)) return undefined;
+  const reports: NativeAndroidMixerReport[] = [];
+  for (const item of value) {
+    const report = record(item);
+    if (!report
+      || typeof report.device_id !== "string"
+      || typeof report.device_name !== "string"
+      || typeof report.device_type !== "string"
+      || !nonNegativeInteger(report.total)
+      || !nonNegativeInteger(report.bit_perfect)
+      || !nonNegativeInteger(report.usable_bit_perfect)
+      || !nonNegativeInteger(report.rejected)
+      || !Array.isArray(report.entries)) return undefined;
+    const entries: NativeAndroidMixerEntry[] = [];
+    for (const rawEntry of report.entries) {
+      const entry = record(rawEntry);
+      if (!entry
+        || typeof entry.bit_perfect !== "boolean"
+        || !Number.isSafeInteger(entry.encoding)
+        || typeof entry.encoding_label !== "string"
+        || !nonNegativeInteger(entry.sample_rate)
+        || !Number.isSafeInteger(entry.channel_mask)
+        || !Number.isSafeInteger(entry.channel_index_mask)
+        || typeof entry.rejection !== "string") return undefined;
+      entries.push({
+        bit_perfect: entry.bit_perfect,
+        encoding: entry.encoding as number,
+        encoding_label: entry.encoding_label,
+        sample_rate: entry.sample_rate,
+        channel_mask: entry.channel_mask as number,
+        channel_index_mask: entry.channel_index_mask as number,
+        rejection: entry.rejection,
+      });
+    }
+    reports.push({
+      device_id: report.device_id,
+      device_name: report.device_name,
+      device_type: report.device_type,
+      total: report.total,
+      bit_perfect: report.bit_perfect,
+      usable_bit_perfect: report.usable_bit_perfect,
+      rejected: report.rejected,
+      entries,
+    });
+  }
+  return reports;
+}
+
 function parseAudio(value: unknown): NativeAndroidAudioState | null | undefined {
   if (value === undefined || value === null) return null;
   const candidate = record(value);
   const requested = record(candidate?.requested);
   const actual = parseActual(candidate?.actual);
-  if (!candidate || !requested || actual === undefined
+  const mixerReport = parseMixerReport(candidate?.mixer_report);
+  if (!candidate || !requested || actual === undefined || mixerReport === undefined
+    || (candidate.api_level !== undefined && !nonNegativeInteger(candidate.api_level))
     || typeof candidate.supported !== "boolean"
     || typeof candidate.available !== "boolean"
     || typeof candidate.reason !== "string"
@@ -212,6 +292,8 @@ function parseAudio(value: unknown): NativeAndroidAudioState | null | undefined 
     requested: { bit_perfect: requested.bit_perfect },
     state: candidate.state as NativeAndroidAudioState["state"],
     can_configure: candidate.can_configure,
+    api_level: nonNegativeInteger(candidate.api_level) ? candidate.api_level : 0,
+    mixer_report: mixerReport,
     actual,
     ...(audioError ? { error: audioError } : {}),
   };

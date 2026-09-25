@@ -1299,6 +1299,8 @@ class NativePlaybackService : MediaSessionService(), Player.Listener {
             .put("available", status.available)
             .put("reason", status.reason)
             .put("devices", devices)
+            .put("api_level", status.apiLevel)
+            .put("mixer_report", mixerReport(status.reports))
             .put("enabled", bitPerfect.enabled)
             .put("requested", JSONObject().put("bit_perfect", bitPerfect.enabled))
             .put("state", engineState())
@@ -1309,6 +1311,43 @@ class NativePlaybackService : MediaSessionService(), Player.Listener {
                     value.put("error", JSONObject().put("code", it.code).put("message", it.message))
                 }
             }
+    }
+
+    /**
+     * The raw `getSupportedMixerAttributes` list per USB device, bounded, so a device that reports
+     * nothing usable can be told apart from one that reports nothing at all.
+     */
+    private fun mixerReport(reports: List<UsbMixerReport>): JSONArray {
+        val value = JSONArray()
+        var remaining = MAX_REPORTED_MIXER_ENTRIES
+        reports.forEach { report ->
+            val entries = JSONArray()
+            report.entries.take(remaining.coerceAtLeast(0)).forEach { reported ->
+                entries.put(
+                    JSONObject()
+                        .put("bit_perfect", reported.entry.bitPerfect)
+                        .put("encoding", reported.entry.encoding)
+                        .put("encoding_label", reported.encodingLabel)
+                        .put("sample_rate", reported.entry.sampleRate)
+                        .put("channel_mask", reported.entry.channelMask)
+                        .put("channel_index_mask", reported.entry.channelIndexMask)
+                        .put("rejection", reported.rejection),
+                )
+            }
+            remaining -= entries.length()
+            value.put(
+                JSONObject()
+                    .put("device_id", report.deviceId)
+                    .put("device_name", report.deviceName)
+                    .put("device_type", report.deviceType)
+                    .put("total", report.total)
+                    .put("bit_perfect", report.bitPerfect)
+                    .put("usable_bit_perfect", report.usableBitPerfect)
+                    .put("rejected", report.rejected)
+                    .put("entries", entries),
+            )
+        }
+        return value
     }
 
     private fun engineState(): String = when {
@@ -2834,6 +2873,7 @@ class NativePlaybackService : MediaSessionService(), Player.Listener {
         private const val ARTWORK_TIMEOUT_MILLIS = 1_500L
         private const val SEEK_TOLERANCE_MILLIS = 250L
         private const val PREVIOUS_RESTART_THRESHOLD_MILLIS = 3_000L
+        private const val MAX_REPORTED_MIXER_ENTRIES = 32
 
         private fun registrationPath(id: String): String = "$REGISTRATIONS_PATH/${java.net.URLEncoder.encode(id, Charsets.UTF_8.name())}"
         private fun copyJson(value: JSONObject): JSONObject = JSONObject(value.toString())

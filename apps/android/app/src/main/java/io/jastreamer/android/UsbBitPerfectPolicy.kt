@@ -20,7 +20,23 @@ internal data class PcmStream(
     val channelMask: Int,
 )
 
-/** One entry of `AudioManager.getSupportedMixerAttributes`. */
+/**
+ * One raw entry of `AudioManager.getSupportedMixerAttributes`, kept as the framework reported it so
+ * the settings panel can show what a device actually offers.
+ *
+ * An `AudioFormat` carries either a channel position mask or a channel index mask — AOSP's
+ * `nativeAudioConfigBaseToJavaAudioFormat` fills in exactly one of them, depending on the HAL's
+ * channel representation — so both are recorded and unusable entries are reported, not dropped.
+ */
+internal data class MixerEntry(
+    val bitPerfect: Boolean,
+    val encoding: Int,
+    val sampleRate: Int,
+    val channelMask: Int,
+    val channelIndexMask: Int,
+)
+
+/** A reported mixer entry this client can actually open, paired with its mixer behaviour. */
 internal data class MixerOption(val stream: PcmStream, val bitPerfect: Boolean)
 
 /** What the decoded media actually carries, as far as the Server and the extractor report it. */
@@ -44,6 +60,13 @@ internal object UsbBitPerfectPolicy {
     const val UNAVAILABLE_REQUIRES_ANDROID_14 = "requires_android_14"
     const val UNAVAILABLE_NO_USB_DEVICE = "no_usb_device"
     const val UNAVAILABLE_NO_BIT_PERFECT_MIXER = "no_bit_perfect_mixer"
+    const val UNAVAILABLE_NO_USABLE_BIT_PERFECT_FORMAT = "no_usable_bit_perfect_format"
+
+    const val REJECT_NONE = ""
+    const val REJECT_ENCODING_UNRECOGNIZED = "encoding_unrecognized"
+    const val REJECT_CHANNEL_INDEX_MASK = "channel_index_mask"
+    const val REJECT_NO_CHANNEL_MASK = "no_channel_mask"
+    const val REJECT_INVALID_SAMPLE_RATE = "invalid_sample_rate"
 
     const val REASON_QUALIFIED = "qualified"
     const val REASON_NOT_BIT_PERFECT = "mixer_not_bit_perfect"
@@ -96,17 +119,51 @@ internal object UsbBitPerfectPolicy {
     }
 
     /**
+     * Why a reported mixer entry cannot back an `AudioTrack` this client opens, or [REJECT_NONE].
+     * Media3 always opens a channel *position* mask, so an index-mask entry is recorded and
+     * reported instead of silently matched against a positional layout.
+     */
+    fun rejection(entry: MixerEntry, encodingKnown: Boolean): String = when {
+        !encodingKnown -> REJECT_ENCODING_UNRECOGNIZED
+        entry.sampleRate <= 0 -> REJECT_INVALID_SAMPLE_RATE
+        entry.channelMask != 0 -> REJECT_NONE
+        entry.channelIndexMask != 0 -> REJECT_CHANNEL_INDEX_MASK
+        else -> REJECT_NO_CHANNEL_MASK
+    }
+
+    /** The stream an entry can back, or null when [rejection] explains why it cannot. */
+    fun usableStream(entry: MixerEntry, encoding: PcmEncoding?): PcmStream? {
+        if (rejection(entry, encoding != null) != REJECT_NONE || encoding == null) return null
+        return PcmStream(
+            encoding = encoding,
+            sampleRate = entry.sampleRate,
+            channelCount = Integer.bitCount(entry.channelMask),
+            channelMask = entry.channelMask,
+        )
+    }
+
+    /**
      * The bit-perfect mixer attributes that exactly match [planned]. A near match is never
      * substituted: the mixer only stays bit-perfect while the track format is identical.
      */
     fun select(planned: PcmStream, options: List<MixerOption>): MixerOption? =
         options.firstOrNull { it.bitPerfect && it.stream == planned }
 
-    /** Why the option cannot be used right now, or an empty string when it can. */
-    fun unavailableReason(apiLevel: Int, usbDeviceCount: Int, bitPerfectOptionCount: Int): String = when {
+    /**
+     * Why the option cannot be used right now, or an empty string when it can. A device that
+     * reports bit-perfect entries this client cannot open is distinguished from one that reports
+     * none at all, because the two need different answers from the user.
+     */
+    fun unavailableReason(
+        apiLevel: Int,
+        usbDeviceCount: Int,
+        bitPerfectEntryCount: Int,
+        usableBitPerfectCount: Int = bitPerfectEntryCount,
+    ): String = when {
         apiLevel < MEDIA_MIN_API -> UNAVAILABLE_REQUIRES_ANDROID_14
         usbDeviceCount <= 0 -> UNAVAILABLE_NO_USB_DEVICE
-        bitPerfectOptionCount <= 0 -> UNAVAILABLE_NO_BIT_PERFECT_MIXER
+        bitPerfectEntryCount <= 0 -> UNAVAILABLE_NO_BIT_PERFECT_MIXER
+        usableBitPerfectCount <= 0 -> UNAVAILABLE_NO_USABLE_BIT_PERFECT_FORMAT
         else -> ""
     }
 
