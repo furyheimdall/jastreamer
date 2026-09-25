@@ -35,6 +35,8 @@ cd "$source_dir"
 
 # Keep the repository's audio decoder set, build only LGPL libraries, and
 # deliberately omit network, device, GPL, nonfree, encoder and program code.
+# FFmpeg's AC3 translation unit references EAC3 static helpers even when their
+# branches are constant-false; MSVC requires the companion definitions enabled.
 # shellcheck disable=SC2086
 ./configure \
   --prefix="$prefix" \
@@ -45,7 +47,7 @@ cd "$source_dir"
   --disable-gpl --disable-nonfree --disable-version3 \
   --enable-avformat --enable-avcodec --enable-avutil --enable-swresample \
   --enable-demuxer=aac,aiff,ape,asf,dsf,iff,flac,mov,mp3,ogg,wav,wv,matroska,pcm_s16le,pcm_s16be,pcm_s32le \
-  --enable-decoder=aac,aac_fixed,ac3,alac,ape,flac,mp3,mp3float,opus,vorbis,wavpack,wmav1,wmav2,wmapro,wmalossless,dsd_lsbf,dsd_msbf,dsd_lsbf_planar,dsd_msbf_planar,pcm_alaw,pcm_bluray,pcm_dvd,pcm_f16le,pcm_f24le,pcm_f32be,pcm_f32le,pcm_f64be,pcm_f64le,pcm_lxf,pcm_mulaw,pcm_s16be,pcm_s16be_planar,pcm_s16le,pcm_s16le_planar,pcm_s24be,pcm_s24daud,pcm_s24le,pcm_s24le_planar,pcm_s32be,pcm_s32le,pcm_s32le_planar,pcm_s64be,pcm_s64le,pcm_s8,pcm_s8_planar,pcm_sga,pcm_u16be,pcm_u16le,pcm_u24be,pcm_u24le,pcm_u32be,pcm_u32le,pcm_u8,pcm_vidc \
+  --enable-decoder=aac,aac_fixed,ac3,eac3,alac,ape,flac,mp3,mp3float,opus,vorbis,wavpack,wmav1,wmav2,wmapro,wmalossless,dsd_lsbf,dsd_msbf,dsd_lsbf_planar,dsd_msbf_planar,pcm_alaw,pcm_bluray,pcm_dvd,pcm_f16le,pcm_f24le,pcm_f32be,pcm_f32le,pcm_f64be,pcm_f64le,pcm_lxf,pcm_mulaw,pcm_s16be,pcm_s16be_planar,pcm_s16le,pcm_s16le_planar,pcm_s24be,pcm_s24daud,pcm_s24le,pcm_s24le_planar,pcm_s32be,pcm_s32le,pcm_s32le_planar,pcm_s64be,pcm_s64le,pcm_s8,pcm_s8_planar,pcm_sga,pcm_u16be,pcm_u16le,pcm_u24be,pcm_u24le,pcm_u32be,pcm_u32le,pcm_u8,pcm_vidc \
   --enable-parser=aac,aac_latm,ac3,flac,mpegaudio,opus,vorbis
 make -j "$jobs"
 make install
