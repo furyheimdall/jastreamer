@@ -84,7 +84,8 @@ export class NativeWindowsController extends EventEmitter {
     return {
       device: this.#registration ? structuredClone(this.#registration.device) : null,
       recovering: false,
-      volume: this.#registration ? this.#settings.volume : null,
+      // Exclusive mode delivers unaltered samples, so app-local volume is fixed at 100%.
+      volume: this.#registration && !this.#settings.exclusive ? this.#settings.volume : null,
       ...(this.#publicError ? { error: { ...this.#publicError } } : {}),
       audio: {
         available: this.#available,
@@ -303,6 +304,9 @@ export class NativeWindowsController extends EventEmitter {
 
   async #setVolume(server, volume, signal) {
     this.#requireRegistration(server);
+    if (this.#settings.exclusive) {
+      throw new NativeControllerError("exclusive_fixed_volume", "Volume is fixed at 100% in exclusive mode; adjust it on the DAC.");
+    }
     const result = await this.#helper.request("set_volume", { volume }, { signal });
     this.#applyAudio(result);
     this.#settings = await this.#preferences.set({ volume });
@@ -328,14 +332,16 @@ export class NativeWindowsController extends EventEmitter {
       this.#emitState();
       throw new NativeControllerError("stop_required", "Stop Windows playback before changing audio settings.");
     }
-    const existing = this.#registration;
-    if (existing) await this.#disconnectRegistration(existing, true);
     if (args.enabled) {
       if (!this.#available) throw new NativeControllerError("native_unavailable", "Native Windows audio is unavailable.");
       if (args.device_id !== "default" && !this.#devices.some((value) => value.id === args.device_id)) {
         throw new NativeControllerError("device_unavailable", "The selected Windows audio endpoint is unavailable.");
       }
     }
+    // Endpoint and exclusive mode apply when the next track loads, so the Server output
+    // registration stays valid. Only switching between browser and native audio replaces it.
+    const existing = this.#registration;
+    if (existing && args.enabled !== this.#settings.enabled) await this.#disconnectRegistration(existing, true);
     this.#settings = await this.#preferences.set({
       enabled: args.enabled, device_id: args.device_id, exclusive: args.exclusive,
     });
@@ -545,7 +551,7 @@ export class NativeWindowsController extends EventEmitter {
       ...(typeof resource.transformed === "boolean" ? { transformed: resource.transformed } : {}),
       device_id: this.#settings.device_id,
       exclusive: this.#settings.exclusive,
-      volume: this.#settings.volume,
+      volume: this.#settings.exclusive ? 1 : this.#settings.volume,
     };
     const result = await this.#helper.request("set_uri", params, { signal: expected.controller.signal });
     return this.#acceptHelperResult(result, playID, sequence);

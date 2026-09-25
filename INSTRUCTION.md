@@ -112,7 +112,7 @@ On page entry, if the previously selected output is offline and playback is stop
 
 When the selected **This device** belongs to this page/app, **Local volume** adjusts it from 0–100%. Expand the player on phones. This controls browser audio, Windows native PCM gain, or Android's Server-mode Media3 volume, not system-wide volume, network renderers or other devices. Native controls require the corresponding Desktop/APK build.
 
-The default name describes the OS/browser information available to the page, not the computer's hostname or a phone's user-assigned name. Use the pencil button **Name this local output** beside the output selector to save an alias such as **Office PC**. **Use default name**, or saving an empty alias, restores the automatic name. Names are limited to 80 UTF-8 bytes; Korean characters can use several bytes each.
+In a browser the default name describes the OS/browser information available to the page, not the computer's hostname or a phone's user-assigned name. The native apps use fixed defaults: **Windows · jastreamer** and **Android · jastreamer**. Use the pencil button **Name this local output** beside the output selector to save an alias such as **Office PC**. **Use default name**, or saving an empty alias, restores the automatic name. Names are limited to 80 UTF-8 bytes; Korean characters can use several bytes each.
 
 The alias is saved in this browser profile for this Server UUID and exact origin (including port). It does not follow you to another browser/profile, private browsing session or replacement Server. Storage failures are reported rather than claimed as saved. Clearing browser storage removes the alias.
 
@@ -146,10 +146,10 @@ On Windows, **X** hides the window in the notification tray while retaining the 
 
 This applies only to compatible Windows Desktop and Server/Web builds; it is not a feature of older published packages. It adds no offline library or independent queue.
 
-1. Stop playback and wait for pending operations. Open **Windows audio settings** beside the player output controls and change **Local audio backend** from **Browser (default)** to **Windows native (opt in)**.
-2. Choose **System default** or a named **Windows audio endpoint**. Refresh outputs after attaching a new device. A missing fixed endpoint is an error, not permission to substitute another device.
+1. Stop playback and wait for pending operations. Select **This device** as the output; **Windows audio settings** appears beside the output controls only while this device is the selected output. Change **Local audio backend** from **Browser (default)** to **Windows native (opt in)**.
+2. Choose a named **Windows audio endpoint** to always use that device regardless of the Windows default, or **Follow Windows default device** to use whichever device Windows currently defaults to. Refresh outputs after attaching a new device. A missing fixed endpoint is an error, not permission to substitute another device.
 3. **Exclusive → Off** requests WASAPI Shared, using the endpoint's mix format. **On** requests exact-format Exclusive. Busy devices, unsupported formats and Windows exclusive-policy denial remain errors; the app never silently falls back to Shared.
-4. After changing backend, endpoint or mode, select **This device** again and explicitly Play. Paused or loaded media still owns the endpoint and must be stopped before reconfiguration. Preferences persist beside the EXE in `user-data`.
+4. Endpoint and mode changes keep the same **This device** output and apply to the next track. Switching between Browser and Windows native replaces the local output, and this device is reselected automatically when it was the selected output. Playback stays stopped until you explicitly Play. Paused or loaded media still owns the endpoint and must be stopped before reconfiguration. In Exclusive mode app-local volume is fixed at 100%; adjust volume on the DAC. Preferences persist beside the EXE in `user-data`.
 
 The panel separates the requested path from the actual active endpoint, mode, sample rate, channels, container width and valid-bit precision. **Local volume** changes only this app's PCM gain. The bit-transparent application-path indication additionally requires a lossless source explicitly identified by Server as untransformed, unchanged rate/layout/precision, unity gain, and actual Exclusive mode. Unknown source provenance, lossy decoding, Shared mode or altered samples cannot qualify. This indication does **not** verify driver, DSP, DAC or physical bit-perfect output.
 

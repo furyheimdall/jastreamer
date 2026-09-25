@@ -332,15 +332,8 @@ try {
   await createAccount(page, 'desktop-a');
   assert.equal(await username(page), 'desktop-a');
   if (process.platform === 'win32') {
-    // Exercise the real main/preload/UI contract even on runners without speakers.
-    await page.getByRole('button', { name: 'Windows audio settings', exact: true }).click();
-    const audioPanel = page.getByRole('region', { name: 'Windows local audio', exact: true });
-    await audioPanel.getByRole('combobox', { name: 'Local audio backend', exact: true }).waitFor();
-    assert.equal(await audioPanel.getByRole('combobox', { name: 'Local audio backend', exact: true }).inputValue(), 'browser', 'Native output must remain opt-in');
-    assert.equal(await audioPanel.getByRole('combobox', { name: 'Exclusive', exact: true }).inputValue(), 'off', 'Exclusive output must require an explicit request');
-    await mkdir('test-results', { recursive: true });
-    await page.screenshot({ path: 'test-results/windows-audio-settings.png', fullPage: true });
-    await audioPanel.getByRole('button', { name: 'Close', exact: true }).click();
+    assert.equal(await page.getByRole('button', { name: 'Windows audio settings', exact: true }).count(), 0,
+      'Windows audio settings must stay hidden until this device is the selected output');
   }
   assert.equal(await page.locator('.sidebar > .brand').isVisible(), false, 'The native shell must not duplicate Web branding');
   assert.equal(await page.locator('.sidebar-account').getByText('desktop-a', { exact: true }).isVisible(), true, 'The signed-in account must remain visible');
@@ -393,6 +386,17 @@ try {
   assert.equal(await username(page), 'desktop-a', 'Moving the complete portable directory must retain the session on the same user/machine');
   const localRendererID = await selectLocalBrowserOutput(page);
   assert.equal((await browserOutputState(page)).playerState, "stopped", "Selecting the local output must not start playback");
+  if (process.platform === 'win32') {
+    // Exercise the real main/preload/UI contract even on runners without speakers.
+    await page.getByRole('button', { name: 'Windows audio settings', exact: true }).click();
+    const audioPanel = page.getByRole('region', { name: 'Windows local audio', exact: true });
+    await audioPanel.getByRole('combobox', { name: 'Local audio backend', exact: true }).waitFor();
+    assert.equal(await audioPanel.getByRole('combobox', { name: 'Local audio backend', exact: true }).inputValue(), 'browser', 'Native output must remain opt-in');
+    assert.equal(await audioPanel.getByRole('combobox', { name: 'Exclusive', exact: true }).inputValue(), 'off', 'Exclusive output must require an explicit request');
+    await mkdir('test-results', { recursive: true });
+    await page.screenshot({ path: 'test-results/windows-audio-settings.png', fullPage: true });
+    await audioPanel.getByRole('button', { name: 'Close', exact: true }).click();
+  }
   assert(browserOutputRequests.some(({ method }) => method === "POST"), "The browser audio output did not register");
   trayLifecycle = await hideAndRestore(page, a, localRendererID);
   const observerCookies = await application.evaluate(async ({ webContents }, remoteUrl) => {

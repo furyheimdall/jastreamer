@@ -88,6 +88,12 @@ export default function PlayerBar({ revision, phoneExpanded, onPhoneExpandedChan
   const [player, setPlayer] = useState<PlayerState | null>(null);
   const [devices, setDevices] = useState<Device[]>([]);
   const [localBrowserDevice, setLocalBrowserDevice] = useState<Device | null>(null);
+  const [pendingLocalReconnect, setPendingLocalReconnect] = useState(false);
+  // The last registered local output survives the moment a backend switch releases it.
+  const lastLocalOutputID = useRef("");
+  useEffect(() => {
+    if (localBrowserDevice) lastLocalOutputID.current = localBrowserDevice.id;
+  }, [localBrowserDevice]);
   const [browserAutoplayBlocked, setBrowserAutoplayBlocked] = useState(false);
   const [position, setPosition] = useState(0);
   const [seeking, setSeeking] = useState(false);
@@ -116,7 +122,7 @@ export default function PlayerBar({ revision, phoneExpanded, onPhoneExpandedChan
   const [windowsSettingsOpen, setWindowsSettingsOpen] = useState(false);
   const [windowsConfigurationError, setWindowsConfigurationError] = useState("");
   const [windowsConfigurationBusy, setWindowsConfigurationBusy] = useState(false);
-  const [defaultBrowserName] = useState(() => localOutputName(usesNativeAndroid));
+  const [defaultBrowserName] = useState(() => localOutputName(usesNativeAndroid, windowsBridge !== null));
   const [browserAlias, setBrowserAlias] = useState("");
   const [nameDraft, setNameDraft] = useState("");
   const [nameStorageKey, setNameStorageKey] = useState<string | null>(null);
@@ -418,6 +424,11 @@ export default function PlayerBar({ revision, phoneExpanded, onPhoneExpandedChan
     if (!output || !windowsAudioState || windowsConfigurationBusy || busy
       || player?.state !== "stopped" || Boolean(player.pending_command)
       || !windowsAudioState.audio.can_configure) return;
+    // Endpoint/exclusive changes keep the same local output. Switching between browser and
+    // native audio replaces it, so reselect this device when it was the selected output.
+    const reconnect = configuration.enabled !== windowsAudioState.audio.enabled
+      && Boolean(player.renderer_id)
+      && player.renderer_id === (localBrowserDevice?.id ?? lastLocalOutputID.current);
     setWindowsConfigurationBusy(true);
     setWindowsConfigurationError("");
     setBusy("windows-output");
@@ -426,7 +437,8 @@ export default function PlayerBar({ revision, phoneExpanded, onPhoneExpandedChan
       setWindowsAudioState(next);
       setLocalBrowserDevice(next.device);
       setLocalVolume(next.volume);
-      onNotice(t("player.windows.configurationSaved"));
+      if (reconnect) setPendingLocalReconnect(true);
+      else onNotice(t("player.windows.configurationSaved"));
     } catch (caught) {
       const message = errorMessage(caught, t("player.windows.actionFailed"));
       setWindowsConfigurationError(message);
@@ -436,6 +448,14 @@ export default function PlayerBar({ revision, phoneExpanded, onPhoneExpandedChan
       setWindowsConfigurationBusy(false);
     }
   }
+
+  // Reconnect only after the reconfigured backend has rendered: the local output handle
+  // still points at the previous (browser or native) implementation until then.
+  useEffect(() => {
+    if (!pendingLocalReconnect || busy) return;
+    setPendingLocalReconnect(false);
+    void selectOutput("browser:local");
+  }, [pendingLocalReconnect, busy]);
 
   useEffect(() => {
     setPairingPIN("");
@@ -644,6 +664,12 @@ export default function PlayerBar({ revision, phoneExpanded, onPhoneExpandedChan
     && !nameSaving
     && !windowsConfigurationBusy,
   );
+  // Windows audio settings only apply while this device is the selected output; keep them
+  // visible through a reconfiguration and its automatic reconnection.
+  const windowsSettingsAvailable = Boolean(windowsBridge && (
+    windowsConfigurationBusy || pendingLocalReconnect || busy === "output"
+    || (localBrowserDevice && localBrowserDevice.id === player?.renderer_id)
+  ));
   const windowsStatusError = ["invalid_state", "invalid_subscription", "subscription_failed", "status_failed"].includes(windowsAudioStatusError)
     ? t("player.windows.statusFailed")
     : windowsAudioStatusError;
@@ -775,7 +801,7 @@ export default function PlayerBar({ revision, phoneExpanded, onPhoneExpandedChan
         >
           <PlayerIcon name="edit" />
         </button>
-        {windowsBridge && (
+        {windowsSettingsAvailable && (
           <button
             className="icon-button"
             type="button"
@@ -826,7 +852,7 @@ export default function PlayerBar({ revision, phoneExpanded, onPhoneExpandedChan
           {nameError && <p className="error-text" role="alert">{nameError}</p>}
         </section>
       )}
-      {windowsBridge && windowsSettingsOpen && (
+      {windowsSettingsAvailable && windowsSettingsOpen && (
         <section
           className="pairing-panel windows-audio-panel"
           id="windows-audio-panel"

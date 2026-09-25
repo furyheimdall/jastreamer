@@ -164,7 +164,7 @@ test("authentication loss tears down local ownership and is not reported as a su
   await value.shutdown();
 });
 
-test("configuration rechecks host state, preserves active ownership, then releases only an idle registration", async () => {
+test("configuration keeps the output across endpoint/mode changes and replaces it only when leaving native audio", async () => {
   const requests = [];
   const targetSession = { fetch: async (url, init) => {
     requests.push({ url: String(url), method: init.method });
@@ -195,8 +195,16 @@ test("configuration rechecks host state, preserves active ownership, then releas
     "configure",
     { enabled: true, device_id: "default", exclusive: true },
   );
-  assert.equal(configured.device, null);
+  assert.equal(configured.device.id, "browser:windows", "An exclusive-mode change must keep the selected output");
   assert.equal(configured.audio.requested.exclusive, true);
+  assert.equal(configured.volume, null, "Exclusive mode must not offer app-local volume");
+  await assert.rejects(
+    value.request(SERVER, targetSession, "set_volume", { volume: 0.5 }),
+    (error) => error.code === "exclusive_fixed_volume",
+  );
+  assert.equal(requests.some((request) => request.method === "DELETE"), false);
+  const browser = await value.request(SERVER, targetSession, "configure", { enabled: false, device_id: "default", exclusive: false });
+  assert.equal(browser.device, null);
   assert.equal(requests.filter((request) => request.method === "DELETE").length, 1);
   await value.shutdown();
 });

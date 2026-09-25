@@ -486,6 +486,7 @@ struct OpenedEndpoint {
     ComPtr<IAudioRenderClient> render;
     ComPtr<IAudioClock> clock;
     HANDLE event = nullptr;
+    bool event_driven = false;
     UINT32 buffer_frames = 0;
     AudioFormat output_format{};
     std::string id;
@@ -534,25 +535,25 @@ OpenedEndpoint open_endpoint(const std::string& requested_id, bool exclusive, co
         output = audio_format_from_wave(selected);
     }
 
-    const DWORD flags = AUDCLNT_STREAMFLAGS_EVENTCALLBACK | AUDCLNT_STREAMFLAGS_NOPERSIST;
+    // Shared streams are event driven. Exclusive streams use push (timer) mode, which every
+    // exclusive driver supports: event-driven exclusive rendered silence on a FiiO K17 while
+    // the rate locked and the clock advanced, and shared mode played normally.
+    const DWORD flags = exclusive ? AUDCLNT_STREAMFLAGS_NOPERSIST
+                                  : AUDCLNT_STREAMFLAGS_EVENTCALLBACK | AUDCLNT_STREAMFLAGS_NOPERSIST;
     if (exclusive) {
-        REFERENCE_TIME default_period = 0;
-        REFERENCE_TIME minimum_period = 0;
-        check_hr(client->GetDevicePeriod(&default_period, &minimum_period), "exclusive_unsupported",
-                 "Cannot determine endpoint exclusive period");
-        auto period = std::max<REFERENCE_TIME>(minimum_period, 10000);
-        result = client->Initialize(mode, flags, period, period, selected, nullptr);
+        REFERENCE_TIME buffer_duration = 2000000;  // 200 ms
+        result = client->Initialize(mode, flags, buffer_duration, 0, selected, nullptr);
         if (result == AUDCLNT_E_BUFFER_SIZE_NOT_ALIGNED) {
             UINT32 aligned_frames = 0;
             check_hr(client->GetBufferSize(&aligned_frames), "exclusive_unsupported",
                      "Cannot determine aligned exclusive buffer size");
-            period = static_cast<REFERENCE_TIME>(
+            buffer_duration = static_cast<REFERENCE_TIME>(
                 pcm::exclusive_buffer_duration_100ns(aligned_frames, selected->nSamplesPerSec));
             client.Reset();
             check_hr(device->Activate(__uuidof(IAudioClient), CLSCTX_ALL, nullptr,
                                       reinterpret_cast<void**>(client.GetAddressOf())),
                      "device_unavailable", "Cannot reactivate Windows audio endpoint");
-            result = client->Initialize(mode, flags, period, period, selected, nullptr);
+            result = client->Initialize(mode, flags, buffer_duration, 0, selected, nullptr);
         }
     } else {
         ComPtr<IAudioClient3> client3;
@@ -560,7 +561,10 @@ OpenedEndpoint open_endpoint(const std::string& requested_id, bool exclusive, co
             UINT32 default_frames = 0, fundamental_frames = 0, minimum_frames = 0, maximum_frames = 0;
             if (SUCCEEDED(client3->GetSharedModeEnginePeriod(selected, &default_frames, &fundamental_frames,
                                                              &minimum_frames, &maximum_frames))) {
-                result = client3->InitializeSharedAudioStream(flags, default_frames, selected, nullptr);
+                // The documented InitializeSharedAudioStream contract supports only EVENTCALLBACK;
+                // passing NOPERSIST here rejects shared initialization.
+                result = client3->InitializeSharedAudioStream(AUDCLNT_STREAMFLAGS_EVENTCALLBACK, default_frames,
+                                                              selected, nullptr);
             } else {
                 result = client->Initialize(mode, flags, 0, 0, selected, nullptr);
             }
@@ -576,9 +580,11 @@ OpenedEndpoint open_endpoint(const std::string& requested_id, bool exclusive, co
         throw EngineError("device_unavailable", "Endpoint rejected shared initialization");
     }
 
+    // The event wakes the render thread: signalled by WASAPI for shared streams, and only
+    // manually (seek/stop) for push-mode exclusive streams, which poll instead.
     HANDLE event = CreateEventW(nullptr, FALSE, FALSE, nullptr);
     if (!event) throw EngineError("audio_error", "Cannot create WASAPI render event");
-    if (FAILED(client->SetEventHandle(event))) {
+    if (!exclusive && FAILED(client->SetEventHandle(event))) {
         CloseHandle(event);
         throw EngineError("audio_error", "Cannot configure WASAPI render event");
     }
@@ -598,8 +604,8 @@ OpenedEndpoint open_endpoint(const std::string& requested_id, bool exclusive, co
         throw EngineError("audio_error", "Cannot obtain WASAPI endpoint clock");
     }
     const auto name = endpoint_name(device.Get());
-    return {std::move(device), std::move(client), std::move(render), std::move(clock), event, frames,
-            output, id, name};
+    return {std::move(device), std::move(client), std::move(render), std::move(clock), event, !exclusive,
+            frames, output, id, name};
 }
 
 
@@ -983,9 +989,11 @@ public:
             HANDLE mmcss = AvSetMmThreadCharacteristicsW(L"Pro Audio", &task_index);
             while (!stopping.load(std::memory_order_acquire) && terminal.load(std::memory_order_acquire) == Terminal::none) {
                 if (quiesce_for_seek(render_quiescent)) continue;
-                const auto wait = WaitForSingleObject(endpoint.event, 500);
+                // Push-mode (exclusive) streams poll every 10 ms; the event only wakes them for
+                // seek/stop. Event-driven (shared) streams wait for the WASAPI signal.
+                const auto wait = WaitForSingleObject(endpoint.event, endpoint.event_driven ? 500 : 10);
                 if (stopping.load(std::memory_order_acquire)) break;
-                if (wait != WAIT_OBJECT_0) continue;
+                if (wait != WAIT_OBJECT_0 && !(wait == WAIT_TIMEOUT && !endpoint.event_driven)) continue;
                 if (quiesce_for_seek(render_quiescent)) continue;
                 if (!playing.load(std::memory_order_acquire)) continue;
                 refresh_clock();
@@ -1001,19 +1009,15 @@ public:
                     }
                     continue;
                 }
-                UINT32 requested_frames = endpoint.buffer_frames;
-                HRESULT result = S_OK;
-                if (!spec.exclusive) {
-                    UINT32 padding = 0;
-                    result = endpoint.client->GetCurrentPadding(&padding);
-                    if (FAILED(result)) {
-                        set_terminal(device_loss(result) ? Terminal::device_lost : Terminal::audio_error,
-                                     device_loss(result) ? "Windows audio endpoint was lost" : "WASAPI padding query failed");
-                        break;
-                    }
-                    if (padding >= endpoint.buffer_frames) continue;
-                    requested_frames = endpoint.buffer_frames - padding;
+                UINT32 padding = 0;
+                HRESULT result = endpoint.client->GetCurrentPadding(&padding);
+                if (FAILED(result)) {
+                    set_terminal(device_loss(result) ? Terminal::device_lost : Terminal::audio_error,
+                                 device_loss(result) ? "Windows audio endpoint was lost" : "WASAPI padding query failed");
+                    break;
                 }
+                if (padding >= endpoint.buffer_frames) continue;
+                const UINT32 requested_frames = endpoint.buffer_frames - padding;
                 BYTE* destination = nullptr;
                 result = endpoint.render->GetBuffer(requested_frames, &destination);
                 if (FAILED(result)) {
