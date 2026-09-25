@@ -154,8 +154,9 @@ export default function Library({ revision, onNotice, onQueueChange, downloads }
   const [pickerError, setPickerError] = useState("");
   const [infoTrackID, setInfoTrackID] = useState<string | null>(null);
   const requestSerial = useRef(0);
-  // Refreshes of the same view keep the previous results visible instead of flashing a loader.
-  const viewKey = useMemo(() => JSON.stringify([kind, likedOnly, scope]), [kind, likedOnly, scope]);
+  // Only a refresh of the identical query (same view, search and page) keeps the previous results visible;
+  // any other change waits for its own response so stale rows never appear under new numbering or controls.
+  const viewKey = useMemo(() => JSON.stringify([kind, likedOnly, scope, search, offset]), [kind, likedOnly, scope, search, offset]);
   const page = result?.key === viewKey ? result.page : null;
   const setPage = (update: (current: Page<BrowseItem> | null) => Page<BrowseItem> | null) => {
     setResult((current) => {
