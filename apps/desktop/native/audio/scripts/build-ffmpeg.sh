@@ -11,6 +11,15 @@ case "$toolchain" in
     toolchain_args="--enable-rpath"
     ;;
   msvc)
+    msvc_bin=$(cygpath -u "${JASTREAMER_MSVC_BIN:?run from the MSVC developer environment}")
+    PATH="$msvc_bin:$PATH"
+    export PATH
+    for build_tool in make nasm cygpath cl.exe lib.exe; do
+      command -v "$build_tool" >/dev/null || {
+        echo "required MSYS2/MSVC build tool is unavailable: $build_tool" >&2
+        exit 1
+      }
+    done
     toolchain_args="--toolchain=msvc --arch=x86_64 --target-os=win64 --extra-cflags=-MT --extra-cxxflags=-MT --extra-ldflags=-Brepro"
     ;;
   *)
