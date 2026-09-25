@@ -40,11 +40,11 @@ jastreamer 0.2.0은 신뢰하는 사설 LAN에서 쓰는 자체 호스팅 음악
 | Server | Windows x64 | 무설치 ZIP | Web 화면, UPnP/DLNA, 선택적 Cast. AirPlay와 FFmpeg은 없고 Windows 서비스도 아님 |
 | 데스크톱 앱 | Windows 10/11 x64 | 무설치 ZIP | 브라우저 오디오와 선택적 WASAPI 공유·독점 출력, Windows 미디어 제어([Windows 오디오](INSTRUCTION.ko.md#windows-audio)) |
 | 데스크톱 앱 | Linux `amd64` | DEB | 브라우저 오디오만 지원. ARM64 데스크톱 패키지는 없음 |
-| 모바일 앱 | Android 10 이상 | [Android CI](https://github.com/furyheimdall/jastreamer/actions/workflows/android.yml)의 APK | 시스템 미디어 제어가 있는 Media3 로컬 재생과 오프라인 **저장된 음악**([Android 설치](INSTALL.ko.md#android)) |
+| 모바일 앱 | Android 10 이상 | [GitHub Releases](https://github.com/furyheimdall/jastreamer/releases)에 첨부된 서명 APK `jastreamer-android_0.2.0_release.apk` | 시스템 미디어 제어가 있는 Media3 로컬 재생과 오프라인 **저장된 음악**([Android 설치](INSTALL.ko.md#android)) |
 | 모바일 앱 | iOS/iPadOS 18.4 이상 | [iOS CI](https://github.com/furyheimdall/jastreamer/actions/workflows/ios.yml)와 소스만 제공 | 제어 전용 앱. 설치 가능한 패키지, TestFlight, App Store 배포 없음([iOS 개발 범위](INSTALL.ko.md#ios)) |
 | 브라우저·PWA | LAN의 최신 브라우저 | Server가 직접 제공 | iPhone·Android 휴대전화 브라우저는 휴대전화 화면 사용, PWA 설치에는 신뢰할 수 있는 HTTPS 필요([PWA](INSTALL.ko.md#pwa)) |
 
-데스크톱과 모바일 앱은 모두 Server가 제공하는 같은 Web 화면을 표시합니다. Android CI의 APK는 개발용 산출물이며 production 서명이나 Play Store 배포가 아닙니다.
+데스크톱과 모바일 앱은 모두 Server가 제공하는 같은 Web 화면을 표시합니다. Android는 릴리즈에 첨부된 APK를 설치하세요. CI가 만드는 APK는 여전히 개발용 산출물이며, jastreamer는 Play Store로 배포하지 않습니다.
 
 ## 빠른 시작
 
@@ -83,19 +83,27 @@ jastreamer 0.2.0은 신뢰하는 사설 LAN에서 쓰는 자체 호스팅 음악
 <a id="code-signing-policy"></a>
 ## Code signing policy (코드 서명 정책)
 
-**빌드 방식.** 공개 산출물은 보호된 `main` 브랜치에서 GitHub Actions만 만듭니다. 배포 워크플로는 성공한 보호된 `main` CI 실행의 바이트를 그대로 게시하되 사전에 모든 산출물을 그 실행과 대조해 검증하며, 이미 존재하는 태그나 레지스트리 참조는 덮어쓰지 않습니다. 각 릴리즈는 사용한 소스 리비전을 기록하고 기계가 읽을 수 있는 증거를 함께 제공합니다. 모든 자산의 `SHA256SUMS`, 저장소·릴리즈 태그·소스 리비전·CI 실행과 산출물 기록이 담긴 `release-provenance.json`, 패키지별 `*.manifest.json`·`*.verification.json` 확인서, 그리고 이미지별 플랫폼·불변 다이제스트·다이제스트 참조를 담은 Server 배포 manifest입니다. 설치 전에 이 값들을 검증하세요.
+**빌드 방식.** 공개 산출물은 보호된 `main` 브랜치에서 GitHub Actions만 만듭니다. 릴리즈 워크플로는 성공한 보호된 `main` CI 실행의 바이트를 그대로 게시하되 사전에 모든 산출물을 그 실행과 대조해 검증하며, 이미 존재하는 태그나 레지스트리 참조는 덮어쓰지 않습니다. 예외는 Android APK 하나로, 같은 리비전의 Android CI가 만든 미서명 APK를 워크플로가 release 키로 서명한 뒤 그 서명을 다시 검증합니다. 각 릴리즈는 사용한 소스 리비전을 기록하고 기계가 읽을 수 있는 증거를 함께 제공합니다. 모든 자산의 `SHA256SUMS`, 저장소·릴리즈 태그·채널·소스 리비전·CI 실행·산출물 기록과 Android 서명 인증서가 담긴 `release-provenance.json`, 패키지별 `*.manifest.json`·`*.verification.json` 확인서, 그리고 이미지별 플랫폼·불변 다이제스트·다이제스트 참조를 담은 Server 배포 manifest입니다. 설치 전에 이 값들을 검증하세요.
 
 **현재 서명 상태.**
 
 | 산출물 | 상태 |
 | --- | --- |
 | Linux Server 컨테이너 이미지 | 코드 서명하지 않습니다. 불변 `sha256` 다이제스트로 식별·고정하며 GHCR에 게시하고 릴리즈 과정에서 익명 다운로드로 검증합니다. 가변 태그가 아니라 다이제스트를 고정하세요. |
-| Windows Server 무설치 ZIP | Authenticode 서명이 없습니다. Windows가 SmartScreen이나 웹 표시(Mark of the Web) 경고를 띄울 수 있으므로, 게시된 SHA-256을 검증하고 압축을 풀기 전에 차단을 해제하세요([네이티브 Windows Server](INSTALL.ko.md#windows-server)). |
-| Windows 데스크톱 ZIP | Authenticode 서명이 없으며 SmartScreen·체크섬·차단 해제 절차가 같습니다([Windows 데스크톱 앱](INSTALL.ko.md#desktop-windows)). |
-| Android APK | GitHub Releases에 첨부되는 release APK는 jastreamer release 키로 서명하고, 릴리즈 페이지에 서명 인증서의 SHA-256을 함께 표시합니다. 아직 그런 릴리즈는 게시되지 않았으며, 현재 CI APK는 디버그·테스트 서명이거나 서명이 없는 개발용 산출물입니다. |
+| Windows Server 무설치 ZIP | Authenticode 서명이 없습니다. Windows가 SmartScreen이나 웹 표시(Mark of the Web) 경고를 띄울 수 있으므로, 게시된 SHA-256을 검증하고 압축을 풀기 전에 [차단을 해제](INSTALL.ko.md#windows-unblock)하세요([네이티브 Windows Server](INSTALL.ko.md#windows-server)). |
+| Windows 데스크톱 ZIP | Authenticode 서명이 없으며 SmartScreen·체크섬·[차단 해제](INSTALL.ko.md#windows-unblock) 절차가 같습니다([Windows 데스크톱 앱](INSTALL.ko.md#desktop-windows)). |
+| Android APK | GitHub Releases에 첨부되는 release APK는 jastreamer Android release 키로 APK Signature Scheme v2·v3 서명을 합니다. 서명 인증서 SHA-256은 `53285C2C239AFF2927EBE6F5C6AEBB82FDBB50956ED84B1E9F0222B2D925943E`입니다. CI가 만드는 APK는 디버그·테스트 서명이거나 미서명인 개발 전용 산출물입니다. |
 | iOS | 배포하지 않습니다. 소스와 CI만 있고, CI가 만드는 미서명 개발 번들은 이 저장소에서 설치할 수 없습니다. |
 
-현재 릴리즈는 프리뷰(`v0.2.0-preview.N`)로 게시되며 `/releases/latest`에 포함되지 않습니다.
+APK를 설치하기 전에 서명자를 직접 확인하고 위 지문 및 같은 값이 적힌 릴리즈 노트와 비교하세요.
+
+```
+apksigner verify --print-certs jastreamer-android_0.2.0_release.apk
+```
+
+이 지문은 저장소의 `packaging/android/release-certificate-sha256.txt`에 고정되어 있고, 릴리즈 워크플로는 다른 인증서로 서명된 APK를 게시하지 않습니다. 비교는 대소문자를 구분하지 않으며 `apksigner`는 구분 기호 없이 출력합니다. jastreamer는 Google Play로 배포하지 않습니다.
+
+정식 릴리즈(`vX.Y.Z`)는 latest로 표시되고, 그보다 이전의 `vX.Y.Z-preview.N` 항목은 프리뷰(prerelease)로 남아 latest가 되지 않습니다.
 
 **서명·승인 담당.** jastreamer는 [@furyheimdall](https://github.com/furyheimdall)이 관리하며, 커밋·리뷰·승인 담당자는 이 관리자 한 명입니다. 다른 사람의 기여는 병합 전에 관리자가 검토하고, 서명과 릴리즈 작업도 모두 관리자가 승인합니다.
 

@@ -40,11 +40,11 @@ jastreamer 0.2.0 is a self-hosted music server for a trusted private LAN. A Serv
 | Server | Windows x64 | Portable ZIP | Web interface, UPnP/DLNA, optional Cast; no AirPlay and no FFmpeg; not a Windows service |
 | Desktop client | Windows 10/11 x64 | Portable ZIP | Browser audio plus opt-in WASAPI Shared/Exclusive output and Windows media controls ([Windows audio](INSTRUCTION.md#windows-audio)) |
 | Desktop client | Linux `amd64` | DEB | Browser audio only; no ARM64 desktop package |
-| Mobile client | Android 10+ | APK from [Android CI](https://github.com/furyheimdall/jastreamer/actions/workflows/android.yml) | Media3 local playback with system media controls and an offline **Saved music** library ([Android](INSTALL.md#android)) |
+| Mobile client | Android 10+ | Signed `jastreamer-android_0.2.0_release.apk` from [GitHub Releases](https://github.com/furyheimdall/jastreamer/releases) | Media3 local playback with system media controls and an offline **Saved music** library ([Android](INSTALL.md#android)) |
 | Mobile client | iOS/iPadOS 18.4+ | [iOS CI](https://github.com/furyheimdall/jastreamer/actions/workflows/ios.yml) and source only | Controller-only client; no installable package, TestFlight or App Store release ([iOS](INSTALL.md#ios)) |
 | Browser or PWA | Any current LAN browser | Served by the Server | Phone layout for iPhone and Android phone browsers; PWA installation needs trusted HTTPS ([PWA](INSTALL.md#pwa)) |
 
-Desktop and mobile clients all display the same Server-hosted Web interface. Android CI APKs are development artifacts, not a production-signed or Play Store release.
+Desktop and mobile clients all display the same Server-hosted Web interface. Install the Android APK attached to a release; CI APKs remain development artifacts, and jastreamer is not distributed through the Play Store.
 
 ## Quick start
 
@@ -83,19 +83,27 @@ Private-LAN HTTP encrypts neither credentials nor audio; use the built-in HTTPS 
 <a id="code-signing-policy"></a>
 ## Code signing policy
 
-**How artifacts are built.** Public artifacts are produced only by GitHub Actions from the protected `main` branch. The publication workflow republishes the exact bytes of a successful protected-`main` CI run, verifies every artifact against that run first, and refuses to overwrite an existing tag or registry reference. Each release records its source revision and ships machine-readable evidence: `SHA256SUMS` over all assets, `release-provenance.json` (repository, release tag, source revision, CI run and artifact records), per-package `*.manifest.json` and `*.verification.json` receipts, and a Server publication manifest listing each image's platform, immutable digest and digest reference. Verify these before installing.
+**How artifacts are built.** Public artifacts are produced only by GitHub Actions from the protected `main` branch. The release workflow republishes the exact bytes of a successful protected-`main` CI run, verifies every artifact against that run first, and refuses to overwrite an existing tag or registry reference. The one exception is the Android APK: the workflow takes the unsigned APK from the matching Android CI run and signs it with the release key, then verifies the resulting signature. Each release records its source revision and ships machine-readable evidence: `SHA256SUMS` over all assets, `release-provenance.json` (repository, release tag, channel, source revision, CI runs, artifact records and the Android signer certificate), per-package `*.manifest.json` and `*.verification.json` receipts, and a Server publication manifest listing each image's platform, immutable digest and digest reference. Verify these before installing.
 
 **Current signing status.**
 
 | Artifact | Status |
 | --- | --- |
 | Linux Server container images | Not code-signed. Identified and pinned by immutable `sha256` digest, published to GHCR and verified by anonymous download during release. Pin the digest, never a mutable tag. |
-| Windows Server portable ZIP | Not Authenticode-signed. Windows may show SmartScreen or Mark-of-the-Web warnings; verify the published SHA-256 and unblock the ZIP before extracting — see [Windows Server](INSTALL.md#windows-server). |
-| Windows desktop ZIP | Not Authenticode-signed; same SmartScreen, checksum and unblock handling — see [Windows desktop](INSTALL.md#desktop-windows). |
-| Android APK | Release APKs attached to GitHub Releases are signed with the jastreamer release key, and the release page lists the signer certificate SHA-256. No such release has been published yet; current CI APKs are development artifacts, either debug/test-signed or unsigned. |
+| Windows Server portable ZIP | Not Authenticode-signed. Windows may show SmartScreen or Mark-of-the-Web warnings; verify the published SHA-256 and [unblock the ZIP](INSTALL.md#windows-unblock) before extracting — see [Windows Server](INSTALL.md#windows-server). |
+| Windows desktop ZIP | Not Authenticode-signed; same SmartScreen, checksum and [unblock](INSTALL.md#windows-unblock) handling — see [Windows desktop](INSTALL.md#desktop-windows). |
+| Android APK | Release APKs attached to GitHub Releases are signed with the jastreamer Android release key using APK Signature Scheme v2 and v3. Signer certificate SHA-256 `53285C2C239AFF2927EBE6F5C6AEBB82FDBB50956ED84B1E9F0222B2D925943E`. CI APKs stay development-only: debug/test-signed or unsigned. |
 | iOS | Not distributed. Source and CI only, with unsigned development bundles that cannot be installed from this repository. |
 
-Releases are currently published as prereleases (`v0.2.0-preview.N`) and are excluded from `/releases/latest`.
+Before installing an APK, confirm the signer yourself and compare it with the fingerprint above and in the release notes, which carry the same value:
+
+```
+apksigner verify --print-certs jastreamer-android_0.2.0_release.apk
+```
+
+The repository pins that fingerprint in `packaging/android/release-certificate-sha256.txt`, and the release workflow refuses to publish an APK signed by any other certificate. The digest is compared case-insensitively; `apksigner` prints it without separators. jastreamer is not published on Google Play.
+
+Stable releases (`vX.Y.Z`) are marked latest; older `vX.Y.Z-preview.N` entries remain prereleases and are never marked latest.
 
 **Who signs and approves.** jastreamer is maintained by [@furyheimdall](https://github.com/furyheimdall), who is the only committer, reviewer and approver. Contributions from anyone else are reviewed by the maintainer before merge, and every signing or release action is approved by the maintainer.
 
