@@ -540,7 +540,10 @@ OpenedEndpoint open_endpoint(const std::string& requested_id, bool exclusive, co
         REFERENCE_TIME minimum_period = 0;
         check_hr(client->GetDevicePeriod(&default_period, &minimum_period), "exclusive_unsupported",
                  "Cannot determine endpoint exclusive period");
-        auto period = std::max<REFERENCE_TIME>(minimum_period, 10000);
+        // Use the endpoint's default period: minimum-period buffers (1 ms or less) can open,
+        // lock the DAC and advance the clock while some USB drivers underrun into silence.
+        auto period = std::max<REFERENCE_TIME>(default_period > 0 ? default_period : minimum_period, minimum_period);
+        period = std::max<REFERENCE_TIME>(period, 10000);
         result = client->Initialize(mode, flags, period, period, selected, nullptr);
         if (result == AUDCLNT_E_BUFFER_SIZE_NOT_ALIGNED) {
             UINT32 aligned_frames = 0;
