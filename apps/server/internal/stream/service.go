@@ -239,17 +239,19 @@ func (service *Service) Prepare(ctx context.Context, device output.Device, track
 	if representation.transformed {
 		resourceSize = 0
 	}
+	transformed := representation.transformed
 	resource := output.Resource{
-		URL:        base.String(),
-		Mime:       representation.mime,
-		Title:      openedTrack.Title,
-		Artist:     openedTrack.Artist,
-		Album:      openedTrack.Album,
-		DurationMS: openedTrack.DurationMS,
-		Size:       resourceSize,
-		Seekable:   !representation.transformed,
-		TrackID:    openedTrack.ID,
-		PlayID:     playID,
+		URL:         base.String(),
+		Mime:        representation.mime,
+		Title:       openedTrack.Title,
+		Artist:      openedTrack.Artist,
+		Album:       openedTrack.Album,
+		DurationMS:  openedTrack.DurationMS,
+		Size:        resourceSize,
+		Seekable:    !representation.transformed,
+		Transformed: &transformed,
+		TrackID:     openedTrack.ID,
+		PlayID:      playID,
 	}
 	if artwork != nil {
 		base.Path = mediaPath + "/artwork"

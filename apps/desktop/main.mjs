@@ -22,8 +22,9 @@ import {
 } from "./lib/i18n.mjs";
 import { probeEndpoint, probeErrorMessage } from "./lib/probe.mjs";
 import {
-  isTrustedShellSender,
   isLanguageCookieForOrigin,
+  isTrustedRemoteSender,
+  isTrustedShellSender,
   normalizeEndpoint,
   normalizeServerId,
   restrictLocalContents,
@@ -37,11 +38,15 @@ import {
   RecentServerStore,
   resolveUserDataPath,
 } from "./lib/storage.mjs";
+import { NativeWindowsController } from "./lib/native-controller.mjs";
+import { NativePreferenceStore } from "./lib/native-preferences.mjs";
+import { NativeAudioProcess, nativeHelperPath } from "./lib/native-process.mjs";
 
 const APP_DIRECTORY = path.dirname(fileURLToPath(import.meta.url));
 const SHELL_PATH = path.join(APP_DIRECTORY, "index.html");
 const SHELL_URL = pathToFileURL(SHELL_PATH).href;
 const PRELOAD_PATH = path.join(APP_DIRECTORY, "preload.cjs");
+const REMOTE_PRELOAD_PATH = path.join(APP_DIRECTORY, "remote-preload.cjs");
 const REMOTE_TOP = 76;
 const RECENT_PROBE_INTERVAL_MS = 60_000;
 const MAX_PARALLEL_RECENT_PROBES = 3;
@@ -87,6 +92,10 @@ let recentProbeTimer = null;
 let shuttingDown = false;
 let lastAttempt = null;
 let remoteLanguageObserver = null;
+let nativeController = null;
+let remoteDocument = null;
+let remoteDocumentGeneration = 0;
+let quitCleanupStarted = false;
 const pendingControllers = new Set();
 const restrictedSessions = new WeakSet();
 const recentAvailability = new Map();
@@ -258,9 +267,61 @@ async function setRemoteLanguageCookie(view, origin, language) {
   });
 }
 
+function invalidateRemoteDocument(view = null) {
+  if (!remoteDocument || (view && remoteDocument.view !== view)) return;
+  remoteDocument.controller.abort();
+  remoteDocument = null;
+}
+
+function beginRemoteDocument(view, server) {
+  invalidateRemoteDocument(view);
+  remoteDocument = {
+    view,
+    server,
+    generation: ++remoteDocumentGeneration,
+    ready: false,
+    controller: new AbortController(),
+  };
+}
+
+function finishRemoteDocument(view, server) {
+  if (!remoteDocument || remoteDocument.view !== view || remoteDocument.server !== server) return;
+  if (!isTrustedRemoteDocument(view, server)) return;
+  remoteDocument.ready = true;
+  sendNativeState();
+}
+
+function isTrustedRemoteDocument(view, server) {
+  return Boolean(
+    view &&
+      !view.webContents.isDestroyed() &&
+      view.webContents.mainFrame &&
+      isSameCurrentRemoteURL(view.webContents.mainFrame.url, server.origin),
+  );
+}
+
+function isSameCurrentRemoteURL(value, origin) {
+  try {
+    const url = new URL(value);
+    return url.origin === origin && !url.username && !url.password;
+  } catch {
+    return false;
+  }
+}
+
+function sendNativeState() {
+  const document = remoteDocument;
+  if (!IS_WINDOWS || !nativeController || !document?.ready || remoteView !== document.view ||
+      document.view.webContents.isDestroyed() || !isTrustedRemoteDocument(document.view, document.server)) {
+    return;
+  }
+  document.view.webContents.send("windows-audio:state", nativeController.state());
+}
+
 function closeRemoteView() {
   const view = remoteView;
   remoteView = null;
+  invalidateRemoteDocument(view);
   clearRemoteLanguageObserver(view);
   if (!view) return;
   if (remoteAttached && shellWindow && !shellWindow.isDestroyed()) {
@@ -304,6 +365,7 @@ async function loadRemoteServer(server, token) {
   const view = new WebContentsView({
     webPreferences: {
       partition,
+      ...(IS_WINDOWS ? { preload: REMOTE_PRELOAD_PATH } : {}),
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
@@ -314,6 +376,10 @@ async function loadRemoteServer(server, token) {
       backgroundThrottling: !IS_WINDOWS,
       safeDialogs: true,
     },
+  });
+  if (IS_WINDOWS) beginRemoteDocument(view, server);
+  view.webContents.on("did-start-navigation", (_event, _url, isInPlace, isMainFrame) => {
+    if (IS_WINDOWS && isMainFrame && !isInPlace) beginRemoteDocument(view, server);
   });
   remoteView = view;
   view.webContents.setUserAgent(`${view.webContents.getUserAgent()} JaStreamerDesktop/${app.getVersion()}`);
@@ -334,7 +400,6 @@ async function loadRemoteServer(server, token) {
     failed = true;
     failRemoteView(token, detail);
   };
-
   view.webContents.on("did-fail-load", (_event, errorCode, errorDescription, _validatedUrl, isMainFrame) => {
     if (!isMainFrame || errorCode === -3) return;
     showFailure(remoteFailureDetail(errorCode, errorDescription));
@@ -345,15 +410,20 @@ async function loadRemoteServer(server, token) {
   view.webContents.on("unresponsive", () => {
     showFailure(t("main.remote.unresponsive"));
   });
+
   view.webContents.once("destroyed", () => {
     clearTimeout(loadTimer);
     clearRemoteLanguageObserver(view);
+    invalidateRemoteDocument(view);
   });
-  view.webContents.once("did-finish-load", () => {
+  view.webContents.on("did-finish-load", () => {
     if (failed || token !== operationGeneration || remoteView !== view || !shellWindow) return;
-    shellWindow.contentView.addChildView(view);
-    remoteAttached = true;
-    layoutRemoteView();
+    if (!remoteAttached) {
+      shellWindow.contentView.addChildView(view);
+      remoteAttached = true;
+      layoutRemoteView();
+    }
+    if (IS_WINDOWS) finishRemoteDocument(view, server);
     updateState({ mode: "connected", error: null });
     clearTimeout(loadTimer);
   });
@@ -418,7 +488,8 @@ async function connectToServer(input) {
       signal: controller.signal,
     });
     if (token !== operationGeneration) return;
-
+    if (IS_WINDOWS) await nativeController?.prepareRemoteServer(server);
+    if (token !== operationGeneration) return;
     try {
       await store.upsert(server);
     } catch (error) {
@@ -515,7 +586,8 @@ async function refreshServers() {
   }
 }
 
-function changeServer() {
+async function changeServer() {
+  if (IS_WINDOWS) await nativeController?.assertCanChangeServer();
   cancelConnection();
   closeRemoteView();
   lastAttempt = null;
@@ -526,6 +598,21 @@ function assertTrustedSender(event) {
   if (!isTrustedShellSender(event, shellWindow?.webContents, SHELL_URL)) {
     throw new Error(t("main.ipc.denied"));
   }
+}
+
+function trustedRemoteDocument(event) {
+  const document = remoteDocument;
+  if (
+    !IS_WINDOWS ||
+    !nativeController ||
+    !document?.ready ||
+    remoteView !== document.view ||
+    !isTrustedRemoteSender(event, document.view.webContents, document.server.origin) ||
+    !isTrustedRemoteDocument(document.view, document.server)
+  ) {
+    throw new Error(t("main.ipc.denied"));
+  }
+  return document;
 }
 
 function registerIpc() {
@@ -549,9 +636,9 @@ function registerIpc() {
     await connectToServer(lastAttempt);
     return publicState();
   });
-  ipcMain.handle("desktop:change-server", (event) => {
+  ipcMain.handle("desktop:change-server", async (event) => {
     assertTrustedSender(event);
-    changeServer();
+    await changeServer();
     return publicState();
   });
   ipcMain.handle("desktop:set-language", async (event, value) => {
@@ -568,6 +655,28 @@ function registerIpc() {
     }
     return publicState();
   });
+  if (IS_WINDOWS) {
+    ipcMain.handle("windows-audio:request", async (event, action, args) => {
+      const document = trustedRemoteDocument(event);
+      const generation = document.generation;
+      const result = await nativeController.request(
+        document.server,
+        document.view.webContents.session,
+        action,
+        args,
+        { signal: document.controller.signal },
+      );
+      if (
+        remoteDocument !== document ||
+        remoteDocument.generation !== generation ||
+        !remoteDocument.ready ||
+        !isTrustedRemoteDocument(document.view, document.server)
+      ) {
+        throw new DOMException("Native audio document changed.", "AbortError");
+      }
+      return result;
+    });
+  }
 }
 
 function createShellWindow() {
@@ -628,6 +737,21 @@ async function startApplication() {
     appState.language = language;
     store = new RecentServerStore(userDataPath);
     await store.load();
+    if (IS_WINDOWS) {
+      const preferences = new NativePreferenceStore(userDataPath);
+      const helper = new NativeAudioProcess(nativeHelperPath({
+        isPackaged: app.isPackaged,
+        resourcesPath: process.resourcesPath,
+        appDirectory: APP_DIRECTORY,
+      }));
+      nativeController = new NativeWindowsController({
+        preferences,
+        helper,
+        probe: probeServer,
+      });
+      nativeController.on("state", sendNativeState);
+      await nativeController.initialize();
+    }
   } catch {
     dialog.showErrorBox(
       t("main.data.title"),
@@ -652,7 +776,10 @@ async function startApplication() {
 app.on("second-instance", showShellWindow);
 
 app.on("window-all-closed", () => app.quit());
-app.on("before-quit", () => {
+app.on("before-quit", (event) => {
+  if (quitCleanupStarted) return;
+  event.preventDefault();
+  quitCleanupStarted = true;
   shuttingDown = true;
   destroyTray();
   clearInterval(recentProbeTimer);
@@ -660,7 +787,12 @@ app.on("before-quit", () => {
   cancelConnection();
   for (const controller of pendingControllers) controller.abort();
   pendingControllers.clear();
-  closeRemoteView();
+  invalidateRemoteDocument();
+  const cleanup = nativeController ? nativeController.shutdown() : Promise.resolve();
+  void cleanup.finally(() => {
+    closeRemoteView();
+    app.exit(0);
+  });
 });
 
 if (ownsSingleInstance) {

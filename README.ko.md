@@ -42,7 +42,7 @@ jastreamer 0.2.0은 신뢰하는 사설 LAN에서 사용하는 자체 호스팅 
 
 - **Linux Server:** 내장 Web 화면, Python 3.12, 오디오 전용 FFmpeg 8.1.2와 pyatv 0.18.0 AirPlay 송신 프로그램을 포함하는 `amd64`·`arm64` 컨테이너입니다. Synology Container Manager에서는 제공된 Compose 정의를 사용합니다.
 - **네이티브 Windows Server:** 내장 Web 화면, UPnP/DLNA와 선택적 Google Cast를 제공하는 미서명 x64 무설치 ZIP입니다. AirPlay 송신 프로그램, 네이티브 오디오 엔진 또는 FFmpeg 변환기를 포함하지 않으며 Windows 서비스가 아닙니다.
-- **선택 사항인 데스크톱 앱:** Windows 10/11 x64 무설치 ZIP 또는 Linux amd64 DEB로 제공됩니다. Server를 찾거나 HTTP(S) 주소를 입력받아 Server의 Web 화면을 표시합니다. Server나 독립 네이티브 오디오 엔진을 추가하지 않으며 로컬 출력은 공유 Web 화면을 사용합니다. ARM64 데스크톱 패키지는 없으며 Linux arm64 클라이언트는 브라우저를 사용할 수 있습니다.
+- **선택 사항인 데스크톱 앱:** Windows 10/11 x64 무설치 ZIP 또는 Linux amd64 DEB로 제공되며 Server를 찾거나 HTTP(S) 주소를 입력받아 Server의 Web 화면을 표시합니다. 브라우저 오디오가 기본값이며, 호환되는 Windows 빌드는 Server 대기열을 그대로 사용하는 선택적 WASAPI 공유·독점 출력과 Windows 미디어 제어를 추가합니다. [Windows 오디오](INSTRUCTION.ko.md#windows-audio)를 참고하세요. 독립 저장 음악 플레이어나 ARM64 데스크톱 패키지는 없으며 Linux arm64 클라이언트는 브라우저를 사용할 수 있습니다.
 - **Android 클라이언트:** Android 10 이상과 독립 프로필을 지원하는 최신 WebView가 필요한 Kotlin/WebView 앱입니다. Server의 휴대전화·태블릿 화면을 그대로 사용하며 Media3 포그라운드 서비스로 네이티브 로컬 재생을 제공합니다. [Android CI](https://github.com/furyheimdall/jastreamer/actions/workflows/android.yml)는 개발·테스트 APK와 미서명 release 빌드를 제공하며 production 서명이나 Play Store 배포는 아닙니다. [Android 설치](INSTALL.ko.md#android)를 참고하세요.
 - **iOS 소스와 CI:** iOS/iPadOS 18.4 이상용 SwiftUI/WKWebView 앱입니다. [iOS CI](https://github.com/furyheimdall/jastreamer/actions/workflows/ios.yml)는 iPhone 시뮬레이터에서 실제 Web 화면을 검증하고 미서명 기기용 개발 번들과 시뮬레이터 전용 번들을 만듭니다. 설치 가능한 iPhone 패키지, TestFlight나 App Store 릴리즈는 제공하지 않습니다. [iOS 개발 범위](INSTALL.ko.md#ios)를 참고하세요.
 

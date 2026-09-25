@@ -1,8 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
-  isSameServerNavigation,
   isLanguageCookieForOrigin,
+  isSameServerNavigation,
+  isTrustedRemoteSender,
   isTrustedShellSender,
   normalizeEndpoint,
   sessionPartitionFor,
@@ -81,4 +82,18 @@ test("shell IPC accepts equivalent file URL encoding without trusting other docu
     mainFrame.url = otherDocument;
     assert.equal(isTrustedShellSender(event, shellContents, shellUrl), false, otherDocument);
   }
+});
+
+test("remote native IPC is bound to the selected origin, WebContents and current main frame", () => {
+  const origin = "https://media-box.local:8443";
+  const mainFrame = { url: `${origin}/settings?tab=output` };
+  const contents = { mainFrame };
+  const event = { sender: contents, senderFrame: mainFrame };
+  assert.equal(isTrustedRemoteSender(event, contents, origin), true);
+  assert.equal(isTrustedRemoteSender({ ...event, sender: {} }, contents, origin), false);
+  assert.equal(isTrustedRemoteSender({ ...event, senderFrame: { ...mainFrame } }, contents, origin), false);
+  mainFrame.url = "https://other.local/";
+  assert.equal(isTrustedRemoteSender(event, contents, origin), false);
+  mainFrame.url = "file:///C:/secret.txt";
+  assert.equal(isTrustedRemoteSender(event, contents, origin), false);
 });

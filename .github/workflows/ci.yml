@@ -189,6 +189,25 @@ jobs:
       JASTREAMER_SOURCE_REVISION: ${{ github.sha }}
     steps:
       - uses: actions/checkout@v4
+      - name: Set reproducible source timestamp
+        shell: pwsh
+        run: |
+          $epoch = (git show -s --format=%ct HEAD).Trim()
+          if ($epoch -notmatch "^\d+$") { throw "Invalid source timestamp: $epoch" }
+          "SOURCE_DATE_EPOCH=$epoch" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+      - uses: msys2/setup-msys2@v2
+        id: msys2
+        with:
+          msystem: MSYS
+          update: false
+          install: >-
+            diffutils
+            make
+            nasm
+          path-type: inherit
+      - uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
       - uses: actions/setup-go@v5
         with:
           go-version-file: apps/server/go.mod
@@ -206,7 +225,22 @@ jobs:
         run: npm test
       - name: Package Windows portable desktop
         working-directory: apps/desktop
+        env:
+          JASTREAMER_MSYS_BASH: ${{ steps.msys2.outputs.msys2-location }}\usr\bin\bash.exe
         run: npm run package:win
+      - name: Exercise native decoder, packing, bounded protocol, and SMTC initialization
+        working-directory: apps/desktop
+        shell: pwsh
+        run: |
+          $executables = @(
+            "native/audio/build/Release/jastreamer-decoder-behavior.exe",
+            "native/audio/build/Release/jastreamer-packing-test.exe",
+            "native/audio/build/Release/jastreamer-protocol-smoke.exe"
+          )
+          foreach ($executable in $executables) {
+            & $executable
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
       - name: Verify exact packaged bytes and Windows executable
         working-directory: apps/desktop
         run: npm run verify:package
@@ -226,6 +260,14 @@ jobs:
             node scripts/smoke.mjs ../server/dist/jastreamer-server.exe dist/jastreamer-desktop-win32-x64/jastreamer-desktop.exe
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           }
+      - name: Preserve actual Windows audio settings screenshot
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-audio-settings
+          path: apps/desktop/test-results/windows-audio-settings.png
+          if-no-files-found: warn
+          retention-days: 30
       - name: Record successful Windows package verification
         run: >-
           python packaging/server/ci_artifact.py create-desktop

@@ -140,6 +140,16 @@ export function isTrustedShellSender(event, shellContents, shellUrl) {
   );
 }
 
+export function isTrustedRemoteSender(event, remoteContents, endpoint) {
+  return Boolean(
+    event &&
+      remoteContents &&
+      event.sender === remoteContents &&
+      event.senderFrame === remoteContents.mainFrame &&
+      isSameServerNavigation(event.senderFrame?.url, endpoint),
+  );
+}
+
 export function restrictSession(targetSession) {
   targetSession.setPermissionCheckHandler(() => false);
   targetSession.setPermissionRequestHandler((_webContents, _permission, callback) => callback(false));

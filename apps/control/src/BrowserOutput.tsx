@@ -76,7 +76,7 @@ type CommandExecution = {
 
 export interface BrowserOutputHandle {
   connect: () => Promise<Device>;
-  disconnect: () => Promise<void>;
+  disconnect: (options?: { onlyWhenStopped: boolean }) => Promise<void>;
   setVolume: (volume: number) => Promise<void>;
   rename: (name: string) => Promise<void>;
   retryPlayback: () => void;
@@ -397,7 +397,12 @@ const BrowserOutput = forwardRef<BrowserOutputHandle, BrowserOutputProps>(functi
         ? connectRef.current()
         : Promise.reject(new Error(messagesRef.current.registrationError));
     },
-    async disconnect() {
+    async disconnect(options) {
+      const audio = audioRef.current;
+      if (options?.onlyWhenStopped && (executionRef.current ||
+        (resourceRef.current && !audio?.ended && !audio?.error))) {
+        throw new Error(messagesRef.current.actionError);
+      }
       disconnectRef.current?.();
     },
     async setVolume(volume) {

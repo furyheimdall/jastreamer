@@ -1,0 +1,23 @@
+jastreamer native audio third-party software
+
+FFmpeg 8.1.2
+Copyright (c) FFmpeg developers
+https://ffmpeg.org/
+The packaged FFmpeg shared libraries are built from the adjacent, SHA-256-verified
+source archive using the packaged build-ffmpeg.sh recipe. This configuration is
+LGPL-only: GPL, nonfree, network and external autodetected components are disabled.
+The full applicable LGPL v2.1 license is in legal/ffmpeg/COPYING.LGPLv2.1.
+The DLLs are separate shared libraries and may be replaced with compatible builds.
+
+JSON for Modern C++ 3.12.0
+Copyright (c) 2013-2025 Niels Lohmann
+https://github.com/nlohmann/json
+Licensed under the MIT License. The full license is in
+legal/nlohmann-json/LICENSE.MIT.
+
+No third-party binary in native-audio was downloaded prebuilt. FFmpeg DLLs are
+compiled from the pinned source archive during the Windows package build;
+nlohmann/json is compiled from its pinned source archive as a header-only library.
+The helper and source-built FFmpeg DLLs use the statically linked MSVC/UCRT
+runtime, so the portable package does not require a separately installed Visual
+C++ Redistributable or package redistributable runtime DLLs.

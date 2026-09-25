@@ -103,7 +103,7 @@ const [packagedDirectory] = await packager({
   prune: true,
   overwrite: true,
   ignore: [
-    /^\/(?:dist|scripts|tests?|\.user-data|user-data)(?:\/|$)/,
+    /^\/(?:dist|native|scripts|tests?|\.user-data|user-data)(?:\/|$)/,
     /^\/.*\.(?:test|spec)\.[cm]?js$/,
     /^\/(?:\.env(?:\..*)?|package-lock\.json)$/,
   ],

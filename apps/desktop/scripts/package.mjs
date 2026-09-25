@@ -12,6 +12,13 @@ const output = path.join(root, 'dist');
 const name = 'jastreamer-desktop';
 const target = path.join(output, `${name}-win32-x64`);
 const metadata = JSON.parse(await readFile(path.join(root, 'package.json'), 'utf8'));
+const nativeRoot = path.join(root, 'native/audio');
+const nativeLock = JSON.parse(await readFile(path.join(nativeRoot, 'dependency-lock.json'), 'utf8'));
+const sourceDateEpoch = Number(process.env.SOURCE_DATE_EPOCH || 315532800);
+if (!Number.isSafeInteger(sourceDateEpoch) || sourceDateEpoch < 0) {
+  throw new Error('SOURCE_DATE_EPOCH must be a non-negative integer');
+}
+const archiveTimestamp = new Date(Math.max(sourceDateEpoch, 315532800) * 1000);
 try {
   await access(path.join(target, 'user-data'));
   throw new Error('Portable user-data exists in the build output. Move the entire used application folder before rebuilding; it will not be erased.');
@@ -35,12 +42,66 @@ const [directory] = await packager({
   prune: true,
   overwrite: true,
   ignore: [
-    /^\/(?:dist|scripts|tests?|\.user-data|user-data)(?:\/|$)/,
+    /^\/(?:dist|native|scripts|tests?|\.user-data|user-data)(?:\/|$)/,
     /^\/.*\.(?:test|spec)\.[cm]?js$/,
     /^\/(?:\.env(?:\..*)?|package-lock\.json)$/,
   ],
 });
 await copyFile(path.resolve(root, '../../LICENSE'), path.join(directory, 'LICENSE.jastreamer'));
+const packagedNative = path.join(directory, 'resources/native-audio');
+const correspondingSource = path.join(packagedNative, 'corresponding-source');
+await mkdir(packagedNative, { recursive: true });
+const runtimeFiles = ['jastreamer-audio.exe', ...nativeLock.ffmpeg.runtime];
+for (const relative of runtimeFiles) {
+  await copyFile(path.join(nativeRoot, 'dist', relative), path.join(packagedNative, relative));
+}
+await copyFile(path.join(nativeRoot, 'dependency-lock.json'), path.join(packagedNative, 'dependencies.json'));
+await copyFile(path.join(nativeRoot, 'THIRD-PARTY-NOTICES.txt'), path.join(packagedNative, 'THIRD-PARTY-NOTICES.txt'));
+await mkdir(path.join(packagedNative, 'legal/ffmpeg'), { recursive: true });
+await mkdir(path.join(packagedNative, 'legal/nlohmann-json'), { recursive: true });
+await mkdir(path.join(packagedNative, 'legal/jastreamer'), { recursive: true });
+await copyFile(
+  path.join(nativeRoot, 'deps/src', nativeLock.ffmpeg.sourceDirectory, nativeLock.ffmpeg.license),
+  path.join(packagedNative, 'legal/ffmpeg', nativeLock.ffmpeg.license),
+);
+await copyFile(
+  path.join(nativeRoot, 'deps/src', nativeLock.nlohmannJson.sourceDirectory, nativeLock.nlohmannJson.license),
+  path.join(packagedNative, 'legal/nlohmann-json', nativeLock.nlohmannJson.license),
+);
+await copyFile(path.resolve(root, '../../LICENSE'), path.join(packagedNative, 'legal/jastreamer/LICENSE.Apache-2.0'));
+
+await mkdir(path.join(correspondingSource, 'deps/downloads'), { recursive: true });
+await mkdir(path.join(correspondingSource, 'scripts'), { recursive: true });
+await mkdir(path.join(correspondingSource, 'tests'), { recursive: true });
+for (const dependency of [nativeLock.ffmpeg, nativeLock.nlohmannJson]) {
+  await copyFile(
+    path.join(nativeRoot, 'deps/downloads', dependency.archive),
+    path.join(correspondingSource, 'deps/downloads', dependency.archive),
+  );
+}
+const nativeSources = [
+  'CMakeLists.txt',
+  'dependency-lock.json',
+  'decoder.hpp',
+  'decoder.cpp',
+  'decoder_smoke.cpp',
+  'decoder_behavior.cpp',
+  'audio_engine.hpp',
+  'audio_engine.cpp',
+  'protocol.hpp',
+  'protocol.cpp',
+  'smtc.hpp',
+  'smtc.cpp',
+  'main.cpp',
+  'tests/packing_test.cpp',
+  'tests/protocol_smoke.cpp',
+  'scripts/build-ffmpeg.sh',
+  'scripts/build-native.ps1',
+  'scripts/fetch-native-deps.mjs',
+];
+for (const relative of nativeSources) {
+  await copyFile(path.join(nativeRoot, relative), path.join(correspondingSource, relative));
+}
 await writeFile(path.join(directory, 'START-HERE.txt'), [
   'jastreamer Windows portable desktop',
   '',
@@ -51,6 +112,8 @@ await writeFile(path.join(directory, 'START-HERE.txt'), [
   'Recent servers, language preference, and OS-protected Chromium sessions are stored beside the EXE in user-data.',
   'The folder must remain writable. No AppData fallback or administrator launch is required.',
   'Saved sessions are not guaranteed to move across Windows accounts or machines; sign in again there.',
+  'Native audio is opt-in. Its helper and replaceable LGPL FFmpeg DLLs are under resources/native-audio.',
+  'Corresponding source, verified source archives, build recipes, licenses, and third-party notices are packaged beside them.',
   'On Windows, X hides the window in the notification tray while local playback continues.',
   'Click the tray icon to reopen; right-click it and choose Exit to quit completely before updating.',
   'Exiting or changing servers does not send Stop to other network outputs.',
@@ -80,7 +143,7 @@ try {
   for await (const relative of files(directory)) {
     const file = path.join(directory, relative);
     inventory.push({ path: relative, bytes: (await stat(file)).size, sha256: await digest(file) });
-    zip.addFile(file, `${name}/${relative}`);
+    zip.addFile(file, `${name}/${relative}`, { mtime: archiveTimestamp });
   }
   zip.end();
   await finished;
@@ -93,9 +156,25 @@ const manifest = {
   product: 'jastreamer-desktop', version: metadata.version, platform: 'win32', arch: 'x64',
   electron: metadata.devDependencies.electron,
   sourceRevision: process.env.JASTREAMER_SOURCE_REVISION || 'worktree',
+  sourceDateEpoch,
   signed: false, productionQualified: false,
   directory: path.basename(directory),
   archive: { path: archiveName, bytes: (await stat(archivePath)).size, sha256: await digest(archivePath) },
+  nativeAudio: {
+    helper: 'resources/native-audio/jastreamer-audio.exe',
+    runtime: runtimeFiles.map((file) => `resources/native-audio/${file}`),
+    staticCrt: true,
+    ffmpeg: {
+      version: nativeLock.ffmpeg.version,
+      source: `resources/native-audio/corresponding-source/deps/downloads/${nativeLock.ffmpeg.archive}`,
+      sha256: nativeLock.ffmpeg.sha256,
+    },
+    nlohmannJson: {
+      version: nativeLock.nlohmannJson.version,
+      source: `resources/native-audio/corresponding-source/deps/downloads/${nativeLock.nlohmannJson.archive}`,
+      sha256: nativeLock.nlohmannJson.sha256,
+    },
+  },
   files: inventory,
 };
 await writeFile(path.join(output, 'manifest.json'), JSON.stringify(manifest, null, 2) + '\n');

@@ -178,8 +178,9 @@ func TestHandler_grant_is_source_bound_range_capable_and_valid_until_revoke(t *t
 	if err != nil {
 		t.Fatal(err)
 	}
-	if resource.Mime != "audio/x-flac" || !resource.Seekable || resource.Size != int64(len(content)) || resource.ArtworkURL != "" {
-		t.Fatalf("resource = %+v", resource)
+	if resource.Mime != "audio/x-flac" || !resource.Seekable || resource.Size != int64(len(content)) ||
+		resource.Transformed == nil || *resource.Transformed || resource.ArtworkURL != "" {
+		t.Fatalf("original resource = %+v", resource)
 	}
 	if strings.Contains(resource.URL, track.ID) || strings.Contains(resource.URL, fixture.path) {
 		t.Fatalf("media URL exposes source identity")
@@ -378,7 +379,7 @@ func TestHandler_rejects_same_metadata_file_replacement_after_prepare(t *testing
 	}
 }
 
-func TestPrepare_replaces_same_play_binding_and_prefers_original_over_FFmpeg(t *testing.T) {
+func TestPrepare_replaces_same_play_binding_and_renews_selected_provenance(t *testing.T) {
 	service, fixture, device, track := newOriginalFixture(t, []byte("original"))
 	executable, err := os.Executable()
 	if err != nil {
@@ -392,17 +393,19 @@ func TestPrepare_replaces_same_play_binding_and_prefers_original_over_FFmpeg(t *
 	if err != nil {
 		t.Fatal(err)
 	}
-	device.ProtocolInfo = []string{"http-get:*:audio/L16:DLNA.ORG_PN=LPCM", "http-get:*:audio/flac:*"}
+	device.ProtocolInfo = []string{"http-get:*:audio/L16:DLNA.ORG_PN=LPCM"}
 	first, err := service.Prepare(context.Background(), device, track, "same-play")
 	if err != nil {
 		t.Fatal(err)
 	}
+	device.ProtocolInfo = []string{"http-get:*:audio/L16:DLNA.ORG_PN=LPCM", "http-get:*:audio/flac:*"}
 	second, err := service.Prepare(context.Background(), device, track, "same-play")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if first.URL == second.URL || !second.Seekable || second.Mime != "audio/flac" {
-		t.Fatalf("replacement resources = first %+v, second %+v", first, second)
+	if first.URL == second.URL || first.Transformed == nil || !*first.Transformed ||
+		second.Transformed == nil || *second.Transformed || !second.Seekable || second.Mime != "audio/flac" {
+		t.Fatalf("replacement resources do not reflect selected representations: first %+v, second %+v", first, second)
 	}
 	firstURL, _ := url.Parse(first.URL)
 	oldRequest := httptest.NewRequest(http.MethodGet, firstURL.RequestURI(), nil)
@@ -441,7 +444,8 @@ func TestPrepare_marks_FFmpeg_fallback_nonseekable_without_starting_it_for_HEAD(
 	if err != nil {
 		t.Fatal(err)
 	}
-	if resource.Seekable || resource.Size != 0 || resource.Mime != l16Mime {
+	if resource.Seekable || resource.Size != 0 || resource.Mime != l16Mime ||
+		resource.Transformed == nil || !*resource.Transformed {
 		t.Fatalf("transformed resource = %+v", resource)
 	}
 	parsed, _ := url.Parse(resource.URL)

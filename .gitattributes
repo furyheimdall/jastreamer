@@ -1,2 +1,5 @@
 # Redistributed sample assets must retain identical bytes on every platform.
 /packaging/server/samples/** -text
+
+# The Windows MSYS2 build executes these scripts without newline conversion.
+/apps/desktop/native/audio/scripts/*.sh text eol=lf
