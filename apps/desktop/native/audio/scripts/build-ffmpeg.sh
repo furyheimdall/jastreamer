@@ -14,8 +14,8 @@ case "$toolchain" in
     msvc_bin=$(cygpath -u "${JASTREAMER_MSVC_BIN:?run from the MSVC developer environment}")
     PATH="$msvc_bin:$PATH"
     export PATH
-    for build_tool in make nasm cygpath cl.exe lib.exe; do
-      command -v "$build_tool" >/dev/null || {
+    for build_tool in make nasm awk cygpath cl.exe lib.exe; do
+      command -v "$build_tool" || {
         echo "required MSYS2/MSVC build tool is unavailable: $build_tool" >&2
         exit 1
       }
