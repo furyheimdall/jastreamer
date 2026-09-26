@@ -87,6 +87,30 @@ object NativePlayback {
     }
 
     @MainThread
+    suspend fun usbDirectScan(server: ServerEndpoint): JSONObject {
+        requireMainThread()
+        val service = NativePlaybackRegistry.service
+            ?: throw NativePlaybackException("not_connected", "Phone playback is not connected.")
+        return service.usbDirectScan(server)
+    }
+
+    @MainThread
+    fun usbDirectStart(server: ServerEndpoint): JSONObject {
+        requireMainThread()
+        val service = NativePlaybackRegistry.service
+            ?: throw NativePlaybackException("not_connected", "Phone playback is not connected.")
+        return service.usbDirectStart(server)
+    }
+
+    @MainThread
+    fun usbDirectStop(server: ServerEndpoint): JSONObject {
+        requireMainThread()
+        val service = NativePlaybackRegistry.service
+            ?: throw NativePlaybackException("not_connected", "Phone playback is not connected.")
+        return service.usbDirectStop(server)
+    }
+
+    @MainThread
     suspend fun rename(server: ServerEndpoint, name: String): JSONObject {
         requireMainThread()
         val service = NativePlaybackRegistry.service

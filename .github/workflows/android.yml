@@ -37,7 +37,11 @@ jobs:
         uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3
         with:
           cmdline-tools-version: "12266719"
-          packages: "platform-tools platforms;android-36 build-tools;35.0.0"
+          # The NDK and CMake build libusb1.0.so and libusb_direct.so; the NDK revision must
+          # match `ndkVersion` in apps/android/app/build.gradle.kts.
+          packages: "platform-tools platforms;android-36 build-tools;35.0.0 ndk;27.0.12077973 cmake;3.22.1"
+      - name: Run the host tests for the USB descriptor and packet-sizing logic
+        run: bash tooling/qa/usb-direct-native-tests.sh
       - name: Run Android unit tests and lint; build debug and unsigned release APKs
         working-directory: apps/android
         run: >-

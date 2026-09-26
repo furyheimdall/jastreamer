@@ -23,6 +23,9 @@ export interface LocalOutputHandle {
   retryPlayback?: () => void;
   configureWindows: (configuration: NativeWindowsConfiguration) => Promise<NativeWindowsState>;
   configureAndroid: (bitPerfect: boolean) => Promise<void>;
+  usbDirectScanAndroid: () => Promise<void>;
+  usbDirectStartAndroid: () => Promise<void>;
+  usbDirectStopAndroid: () => Promise<void>;
 }
 
 export interface LocalOutputProps extends BrowserOutputProps {
@@ -113,6 +116,21 @@ const LocalOutput = forwardRef<LocalOutputHandle, LocalOutputProps>(function Loc
       const output = androidRef.current;
       if (!output) throw new Error(bridgeError);
       await output.configure(bitPerfect);
+    },
+    async usbDirectScanAndroid() {
+      const output = androidRef.current;
+      if (!output) throw new Error(bridgeError);
+      await output.usbDirectScan();
+    },
+    async usbDirectStartAndroid() {
+      const output = androidRef.current;
+      if (!output) throw new Error(bridgeError);
+      await output.usbDirectStart();
+    },
+    async usbDirectStopAndroid() {
+      const output = androidRef.current;
+      if (!output) throw new Error(bridgeError);
+      await output.usbDirectStop();
     },
     ...(!nativeAndroidPresent && !nativeWindowsEnabled
       ? { retryPlayback: () => browserRef.current?.retryPlayback() }
