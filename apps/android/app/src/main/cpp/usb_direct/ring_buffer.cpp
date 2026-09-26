@@ -98,12 +98,14 @@ size_t RingBuffer::Head() const {
 size_t RingBuffer::SkipTo(size_t target) {
   const size_t tail = tail_.load(std::memory_order_relaxed);
   const size_t head = head_.load(std::memory_order_acquire);
-  const size_t limit = target - tail > head - tail ? head : target;
-  const size_t dropped = limit - tail;
-  if (dropped == 0) {
+  // Cursors increase monotonically (modulo size_t), so only a target inside
+  // [tail, head] names bytes still queued. A target already read past is stale
+  // and drops nothing.
+  const size_t dropped = target - tail;
+  if (dropped == 0 || dropped > head - tail) {
     return 0;
   }
-  tail_.store(limit, std::memory_order_release);
+  tail_.store(target, std::memory_order_release);
   return dropped;
 }
 

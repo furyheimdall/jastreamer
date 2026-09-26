@@ -168,6 +168,8 @@ class UsbDirectDevice {
   // Write cursor the feeder must skip past on the next packet, published by a
   // flush. Only the consumer moves the read cursor.
   std::atomic<size_t> discard_target_{0};
+  // Set by Flush, cleared by the feeder once the discard has been applied.
+  std::atomic<bool> discard_pending_{false};
   // Set once the ring has delivered audio, so priming silence is not counted
   // as an underrun.
   std::atomic<bool> flowing_{false};
