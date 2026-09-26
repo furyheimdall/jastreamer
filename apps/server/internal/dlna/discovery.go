@@ -18,11 +18,18 @@ import (
 
 const (
 	ssdpAddress    = "239.255.255.250:1900"
+	ssdpPort       = 1900
 	maxSSDPPacket  = 64 << 10
 	responseWindow = 1500 * time.Millisecond
-	defaultMaxAge  = 180 * time.Second
-	minimumMaxAge  = 5 * time.Second
-	maximumMaxAge  = 24 * time.Hour
+	// probeWindow bounds one unicast address probe, and probeResend repeats the search
+	// once inside that window because SSDP runs over UDP.
+	probeWindow = 1500 * time.Millisecond
+	probeResend = 500 * time.Millisecond
+	// maxProbeReadFailures bounds non-timeout socket errors inside one probe round.
+	maxProbeReadFailures = 8
+	defaultMaxAge        = 180 * time.Second
+	minimumMaxAge        = 5 * time.Second
+	maximumMaxAge        = 24 * time.Hour
 )
 
 type localNetwork struct {
@@ -100,6 +107,19 @@ type discoveryClient interface {
 }
 
 type ssdpDiscoverer struct{}
+
+// addressProbe finds the other addresses one renderer answers on. A renderer with
+// several addresses on one interface may notify from one address and answer a unicast
+// search from another, so the addresses it will fetch media from are only complete
+// after asking every address already known for it.
+type addressProbe interface {
+	Probe(ctx context.Context, network localNetwork, targets addressSet, udn string) addressSet
+}
+
+// ssdpProbe searches the SSDP port of each known renderer address.
+type ssdpProbe struct {
+	port uint16
+}
 
 func resolveNetworks(names []string) ([]localNetwork, error) {
 	requested := make(map[string]struct{}, len(names))
@@ -267,6 +287,98 @@ func searchSSDPNetwork(ctx context.Context, network localNetwork) ([]advertiseme
 			values = append(values, value)
 		}
 	}
+}
+
+// Probe asks every address already known for one renderer, over unicast M-SEARCH on
+// the interface that discovered it, and returns the addresses that answered for the
+// same UDN. UDA 1.1 unicast searches carry no MX, and the search is repeated once
+// inside the bounded window because SSDP is unreliable.
+func (probe ssdpProbe) Probe(ctx context.Context, network localNetwork, targets addressSet, udn string) addressSet {
+	if len(targets) == 0 || udn == "" {
+		return nil
+	}
+	connection, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IP(network.local.AsSlice())})
+	if err != nil {
+		return nil
+	}
+	defer connection.Close()
+	stop := context.AfterFunc(ctx, func() { _ = connection.SetReadDeadline(time.Now()) })
+	defer stop()
+	deadline := time.Now().Add(probeWindow)
+	if value, ok := ctx.Deadline(); ok && value.Before(deadline) {
+		deadline = value
+	}
+	if err := connection.SetDeadline(deadline); err != nil {
+		return nil
+	}
+	found := addressSet{}
+	buffer := make([]byte, maxSSDPPacket)
+	// One search, one bounded retry: SSDP runs over UDP and a renderer that answers
+	// from a second address may drop either datagram.
+	for round := range 2 {
+		sent := 0
+		for _, target := range targets {
+			if probe.sendSearch(connection, target) {
+				sent++
+			}
+		}
+		if sent == 0 {
+			return found
+		}
+		until := deadline
+		if round == 0 {
+			if early := time.Now().Add(probeResend); early.Before(until) {
+				until = early
+			}
+		}
+		complete, stopped := collectProbeReplies(connection, network, udn, until, buffer, &found)
+		if complete || stopped || !time.Now().Before(deadline) {
+			return found
+		}
+	}
+	return found
+}
+
+// collectProbeReplies reads matching answers until the round ends. It reports whether
+// the address set is full and whether reading stopped before the round ended.
+func collectProbeReplies(connection *net.UDPConn, network localNetwork, udn string, until time.Time, buffer []byte, found *addressSet) (bool, bool) {
+	if err := connection.SetReadDeadline(until); err != nil {
+		return false, true
+	}
+	failures := 0
+	for {
+		count, source, err := connection.ReadFromUDPAddrPort(buffer)
+		if err != nil {
+			// A closed port on one target address must not end the round: only a
+			// timeout or repeated socket failures do.
+			if timeout, ok := err.(net.Error); ok && timeout.Timeout() {
+				return false, false
+			}
+			failures++
+			if failures >= maxProbeReadFailures {
+				return false, true
+			}
+			continue
+		}
+		value, parseErr := parseSearchResponse(buffer[:count], source, network)
+		if parseErr != nil || value.udn != udn {
+			continue
+		}
+		*found = found.with(source.Addr())
+		if len(*found) >= maxDeviceAddresses {
+			return true, false
+		}
+	}
+}
+
+func (probe ssdpProbe) sendSearch(connection *net.UDPConn, target netip.Addr) bool {
+	if !target.Is4() || !allowedLocalAddress(target) {
+		return false
+	}
+	host := netip.AddrPortFrom(target, probe.port)
+	request := "M-SEARCH * HTTP/1.1\r\nHOST: " + host.String() + "\r\nMAN: \"ssdp:discover\"\r\nST: " + mediaRendererTarget + "\r\n\r\n"
+	_, err := connection.WriteToUDPAddrPort([]byte(request), host)
+	return err == nil
 }
 
 func parseSearchResponse(data []byte, source netip.AddrPort, network localNetwork) (advertisement, error) {
