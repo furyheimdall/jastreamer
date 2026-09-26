@@ -85,7 +85,27 @@ void TestReset() {
 
 }  // namespace
 
+
+// Regression: a stale flush target that the consumer has already read past must
+// not be treated as "drop everything" (unsigned wrap made SkipTo empty the ring
+// on every transfer, so a flushed stream played only silence).
+void TestStaleSkipTargetDropsNothing() {
+  RingBuffer ring(16);
+  uint8_t in[8] = {1, 2, 3, 4, 5, 6, 7, 8};
+  uint8_t out[8] = {};
+  CHECK_EQ(ring.Write(in, 4), size_t{4});
+  const size_t target = ring.Head();
+  CHECK_EQ(ring.SkipTo(target), size_t{4});
+  CHECK_EQ(ring.Write(in, 8), size_t{8});
+  CHECK_EQ(ring.Read(out, 2), size_t{2});
+  CHECK_EQ(ring.SkipTo(target), size_t{0});
+  CHECK_EQ(ring.Available(), size_t{6});
+  CHECK_EQ(ring.SkipTo(0), size_t{0});
+  CHECK_EQ(ring.Available(), size_t{6});
+}
+
 void RunRingBufferTests() {
+  TestStaleSkipTargetDropsNothing();
   TestCapacityRounding();
   TestShortWriteAndDrain();
   TestWrapAround();

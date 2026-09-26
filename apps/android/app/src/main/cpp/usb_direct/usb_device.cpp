@@ -610,6 +610,7 @@ std::string UsbDirectDevice::Start(uint32_t sample_rate, uint32_t channels,
   feedback_q16_.store(0, std::memory_order_relaxed);
   paused_.store(false, std::memory_order_relaxed);
   discard_target_.store(0, std::memory_order_relaxed);
+  discard_pending_.store(false, std::memory_order_relaxed);
   flowing_.store(false, std::memory_order_relaxed);
   active_transfers_.store(0, std::memory_order_relaxed);
   {
@@ -728,9 +729,9 @@ void UsbDirectDevice::FillDataTransfer(IsoTransfer* iso) {
 
   RingBuffer* ring = ring_raw_;
   const bool paused = paused_.load(std::memory_order_acquire);
-  if (ring != nullptr) {
-    // A flush is published by the writer and applied here, because only the
-    // feeder may move the read cursor.
+  if (ring != nullptr && discard_pending_.exchange(false, std::memory_order_acq_rel)) {
+    // A flush is published by the writer and applied here exactly once,
+    // because only the feeder may move the read cursor.
     ring->SkipTo(discard_target_.load(std::memory_order_acquire));
   }
   size_t offset = 0;
@@ -938,6 +939,7 @@ void UsbDirectDevice::Flush() {
     return;
   }
   discard_target_.store(ring->Head(), std::memory_order_release);
+  discard_pending_.store(true, std::memory_order_release);
 }
 
 uint64_t UsbDirectDevice::PlayedFrames() const {
