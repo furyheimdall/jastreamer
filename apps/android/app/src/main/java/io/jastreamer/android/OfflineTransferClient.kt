@@ -317,6 +317,27 @@ internal class OfflineTransferClient(
         }
     }
 
+    /**
+     * Confirms a prepared artifact really serves before a player is pointed at it, so a revoked or
+     * missing file surfaces as its HTTP status instead of an opaque decoder error.
+     */
+    suspend fun probeFile(url: HttpUrl, authorization: String, expectedSize: Long, expectedMime: String) {
+        val builder = requestBuilder(url, authenticated = false, authorization = authorization)
+            .header("Accept", expectedMime.ifBlank { "application/octet-stream" })
+            .header("Accept-Encoding", "identity")
+        execute(builder.head().build()) { response ->
+            if (!response.isSuccessful) throw httpFailure(response)
+            val length = response.header("Content-Length")?.toLongOrNull()
+            if (expectedSize > 0 && length != null && length != expectedSize) {
+                throw OfflineDownloadException(
+                    "size_mismatch",
+                    "The prepared file size changed",
+                    httpStatus = response.code,
+                )
+            }
+        }
+    }
+
     suspend fun artwork(
         path: String,
         destination: File,
@@ -533,7 +554,9 @@ internal class OfflineTransferClient(
         }
 
     private fun httpFailure(response: Response): OfflineDownloadException {
-        if (response.code in 300..399) return OfflineDownloadException("redirect", "Server redirects are not allowed")
+        if (response.code in 300..399) {
+            return OfflineDownloadException("redirect", "Server redirects are not allowed", httpStatus = response.code)
+        }
         val code = try {
             val raw = readBounded(response, MAX_ERROR_BYTES)
             JSONObject(raw.toString(Charsets.UTF_8)).optJSONObject("error")?.optString("code").orEmpty()
@@ -553,6 +576,7 @@ internal class OfflineTransferClient(
                 response.code == 425 ||
                 response.code == 429 ||
                 response.code in 500..599,
+            httpStatus = response.code,
         )
     }
 

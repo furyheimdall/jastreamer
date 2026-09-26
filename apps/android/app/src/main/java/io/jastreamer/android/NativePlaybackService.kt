@@ -58,6 +58,7 @@ import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -1303,27 +1304,63 @@ class NativePlaybackService : MediaSessionService(), Player.Listener {
     /**
      * Decodes the Server track this phone loaded most recently and streams it straight to the DAC.
      * Refused while the Media3 engine still holds a track, so the two paths never share a device.
+     *
+     * The track is identified by library id and read from its own authenticated per-track artifact.
+     * The playback media URL cannot be reused: the Server revokes that grant the moment playback
+     * stops, which is precisely the state this test requires.
      */
-    internal fun usbDirectStart(server: ServerEndpoint): JSONObject {
+    internal suspend fun usbDirectStart(server: ServerEndpoint): JSONObject {
         val session = requireUsbDirect(server)
+        val registration = requireRegistration(server)
         if (currentResource != null || preparing || recovering || player.isPlaying) {
             throw NativePlaybackException(
                 "stop_required",
                 "Stop phone playback before running the USB direct test.",
             )
         }
-        val track = usbDirectTrack
-            ?: throw NativePlaybackException(
+        if (usbDirectTrack == null) {
+            throw NativePlaybackException(
                 "usb_direct_no_track",
                 "Play a track on this phone from the Server once, then stop it, so the test has something to decode.",
             )
+        }
+        val track = resolveUsbDirectTrack(registration)
         try {
-            session.start(track)
+            session.start(track, UsbDirectSource(server))
         } catch (failure: UsbDirectException) {
             throw NativePlaybackException(failure.code, failure.message.orEmpty())
         }
         notifyState()
         return state(server)
+    }
+
+    /**
+     * Asks the Server which track it still has loaded and remembers its id. The remembered id is
+     * reused when the Server has since cleared its current track, so a stopped phone can still
+     * replay the track it last loaded.
+     */
+    private suspend fun resolveUsbDirectTrack(registration: Registration): UsbDirectTrack {
+        val remembered = usbDirectTrack
+        val current = try {
+            withTimeout(UsbDirectTestPolicy.RESOLVE_TIMEOUT_MILLIS) {
+                registration.client.json("GET", "/api/v1/player")
+            }
+        } catch (error: CancellationException) {
+            throw error
+        } catch (_: Throwable) {
+            null
+        }
+        val resolved = current?.optJSONObject("track")?.optString("id")?.trim().orEmpty()
+        val trackId = resolved.takeIf { it.isNotEmpty() && it.length <= MAX_TRACK_ID_CHARACTERS }
+            ?: remembered?.trackId?.takeIf(String::isNotEmpty)
+            ?: throw NativePlaybackException(
+                "usb_direct_no_track",
+                "The Server no longer reports a loaded track for this phone.",
+            )
+        val label = remembered?.label.orEmpty()
+        val track = UsbDirectTrack(trackId, label)
+        usbDirectTrack = track
+        return track
     }
 
     internal fun usbDirectStop(server: ServerEndpoint): JSONObject {
@@ -1795,13 +1832,12 @@ class NativePlaybackService : MediaSessionService(), Player.Listener {
             .build()
         val active = ActiveResource(playId, item, sequence)
         currentResource = active
-        // Debug builds keep the resolved media URL so the USB direct test can decode the same track
-        // again after the Server stops. Release builds never construct the session that reads it.
+        // Debug builds remember which track the panel offers to replay. The media URL is useless
+        // here: the Server revokes its play grant on Stop, which is when the test may run at all.
+        // The library id is resolved from the Server when the test starts.
         if (usbDirect != null) {
             usbDirectTrack = UsbDirectTrack(
-                url = mediaUrl.toString(),
-                headers = expected.client.mediaHeaders(mediaUrl),
-                mime = mime,
+                trackId = "",
                 label = listOf(resource.optString("title"), resource.optString("artist"))
                     .map { it.trim() }
                     .filter(String::isNotEmpty)
@@ -3043,6 +3079,7 @@ class NativePlaybackService : MediaSessionService(), Player.Listener {
         private const val MAX_REPORTED_MIXER_ENTRIES = 32
         private const val MAX_USB_DIRECT_FORMATS = 16
         private const val MAX_USB_DIRECT_RATES = 64
+        private const val MAX_TRACK_ID_CHARACTERS = 200
 
         private fun registrationPath(id: String): String = "$REGISTRATIONS_PATH/${java.net.URLEncoder.encode(id, Charsets.UTF_8.name())}"
         private fun copyJson(value: JSONObject): JSONObject = JSONObject(value.toString())
@@ -3093,18 +3130,6 @@ private class AuthenticatedServerClient(val server: ServerEndpoint) {
     })
 
     fun mediaSource(item: MediaItem): MediaSource = mediaFactory.createMediaSource(item)
-
-    /**
-     * The request headers a plain HTTP reader needs to fetch the same media bytes Media3 fetches.
-     * The profile cookie stays inside this process; it is never handed to the Web UI.
-     */
-    fun mediaHeaders(url: HttpUrl): Map<String, String> {
-        val cookie = cookieManager.getCookie(url.toString())
-        return buildMap {
-            put("User-Agent", "jastreamer-android")
-            if (!cookie.isNullOrBlank()) put("Cookie", cookie)
-        }
-    }
 
     suspend fun json(
         method: String,

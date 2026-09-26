@@ -95,7 +95,7 @@ object NativePlayback {
     }
 
     @MainThread
-    fun usbDirectStart(server: ServerEndpoint): JSONObject {
+    suspend fun usbDirectStart(server: ServerEndpoint): JSONObject {
         requireMainThread()
         val service = NativePlaybackRegistry.service
             ?: throw NativePlaybackException("not_connected", "Phone playback is not connected.")

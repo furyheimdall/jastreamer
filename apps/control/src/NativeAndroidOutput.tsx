@@ -66,7 +66,7 @@ export type NativeAndroidUsbDirectFormat = {
 };
 
 export type NativeAndroidUsbDirect = {
-  state: "idle" | "opening" | "playing" | "error";
+  state: "idle" | "opening_source" | "opening" | "playing" | "error";
   device_name: string;
   can_start: boolean;
   track: string;
@@ -302,7 +302,7 @@ function parseUsbDirect(value: unknown): NativeAndroidUsbDirect | null | undefin
   const requested = record(candidate?.requested);
   const actual = record(candidate?.actual);
   if (!candidate || !requested || !actual
-    || !["idle", "opening", "playing", "error"].includes(String(candidate.state))
+    || !["idle", "opening_source", "opening", "playing", "error"].includes(String(candidate.state))
     || typeof candidate.device_name !== "string"
     || typeof candidate.can_start !== "boolean"
     || typeof candidate.track !== "string"

@@ -183,4 +183,6 @@ class OfflineDownloadException(
     override val message: String,
     cause: Throwable? = null,
     val retryable: Boolean? = null,
+    /** The HTTP status the Server answered with, when the failure came from a response. */
+    val httpStatus: Int? = null,
 ) : Exception(message, cause)

@@ -39,8 +39,11 @@ const ANDROID_AUDIO_STATE_MESSAGE: Record<NativeAndroidAudioState["state"], Mess
   error: "player.android.state.error",
 };
 
+const USB_DIRECT_ACTIVE = new Set<NativeAndroidUsbDirect["state"]>(["opening_source", "opening", "playing"]);
+
 const ANDROID_USB_DIRECT_STATE_MESSAGE: Record<NativeAndroidUsbDirect["state"], MessageKey> = {
   idle: "player.android.usbDirect.state.idle",
+  opening_source: "player.android.usbDirect.state.openingSource",
   opening: "player.android.usbDirect.state.opening",
   playing: "player.android.usbDirect.state.playing",
   error: "player.android.usbDirect.state.error",
@@ -1349,7 +1352,7 @@ export default function PlayerBar({ revision, phoneExpanded, onPhoneExpandedChan
                 <button
                   className="button button-primary"
                   type="button"
-                  disabled={usbDirectBusy || usbDirect.state === "opening" || usbDirect.state === "playing"}
+                  disabled={usbDirectBusy || USB_DIRECT_ACTIVE.has(usbDirect.state)}
                   onClick={() => void runUsbDirect("scan")}
                 >
                   {t("player.android.usbDirect.scan")}
@@ -1365,7 +1368,7 @@ export default function PlayerBar({ revision, phoneExpanded, onPhoneExpandedChan
                 <button
                   className="button button-ghost"
                   type="button"
-                  disabled={usbDirectBusy || (usbDirect.state !== "opening" && usbDirect.state !== "playing")}
+                  disabled={usbDirectBusy || !USB_DIRECT_ACTIVE.has(usbDirect.state)}
                   onClick={() => void runUsbDirect("stop")}
                 >
                   {t("player.android.usbDirect.stop")}
