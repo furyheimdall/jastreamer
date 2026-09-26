@@ -2,11 +2,13 @@ package dlna
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
 	"github.com/jastreamer/jastreamer-server/internal/output"
 	"io"
+	"log"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -15,6 +17,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -538,11 +541,16 @@ func fixtureManager(client *http.Client) *Manager {
 	network := localNetwork{name: "loopback", index: 1, local: netip.MustParseAddr("127.0.0.1"), prefix: netip.MustParsePrefix("127.0.0.0/8")}
 	return &Manager{
 		config: Config{DiscoveryInterval: time.Minute}, networks: []localNetwork{network},
-		httpClient: client, now: time.Now, notify: func(string) {},
+		httpClient: client, probe: silentProbe{}, now: time.Now, notify: func(string) {},
 		devices: make(map[string]deviceRecord), byUDN: make(map[string]string), pending: make(map[string]pendingInspection),
 		xmlCache: make(map[string]xmlCacheEntry), inspectionSlots: make(chan struct{}, maxConcurrentInspections),
 	}
 }
+
+// silentProbe stands in for renderers that answer no unicast search.
+type silentProbe struct{}
+
+func (silentProbe) Probe(context.Context, localNetwork, addressSet, string) addressSet { return nil }
 
 func fixtureAdvertisement(location, udn, bootID string) advertisement {
 	return fixtureAdvertisementFrom("127.0.0.1", location, udn, bootID)
@@ -707,4 +715,103 @@ func TestSearchResponseKeepsLocationOnASecondAddressOfTheSameNetwork(t *testing.
 	if _, err := parseSearchResponse([]byte(offNetwork), source, network); err == nil {
 		t.Fatal("a LOCATION outside the discovery network was accepted")
 	}
+}
+
+func TestUnicastProbeAddsTheAddressARendererAnswersFrom(t *testing.T) {
+	const udn = "uuid:unicast-probe-fixture"
+	server, _ := countingRendererServer(t, udn, "unicast-probe")
+	defer server.Close()
+	// The renderer accepts unicast searches on one address and answers from another,
+	// exactly like a host with two addresses on the same interface.
+	port := startFakeSSDPResponder(t, "127.0.0.2", "127.0.0.3", udn, server.URL+"/description.xml")
+
+	logs := &syncBuffer{}
+	previousWriter := log.Writer()
+	log.SetOutput(logs)
+	defer log.SetOutput(previousWriter)
+
+	manager := fixtureManager(server.Client())
+	manager.probe = ssdpProbe{port: port}
+	// Discovery only ever heard a NOTIFY from 127.0.0.2.
+	manager.acceptAdvertisement(context.Background(), fixtureAdvertisementFrom("127.0.0.2", server.URL+"/description.xml", udn, "1"))
+	device := waitForDevice(t, manager, func(value output.Device) bool {
+		return value.Online && value.Model == "unicast-probe"
+	})
+	for _, address := range []string{"127.0.0.2", "127.0.0.1", "127.0.0.3"} {
+		if !slices.Contains(device.MediaAddresses, address) {
+			t.Fatalf("media addresses %v do not include %q", device.MediaAddresses, address)
+		}
+	}
+	recorded := waitForLog(t, logs, "event=renderer_addresses")
+	if !strings.Contains(recorded, "count=3") {
+		t.Fatalf("address set change reported the wrong size: %s", recorded)
+	}
+	if strings.Contains(recorded, "127.0.0.") {
+		t.Fatalf("diagnostics disclosed renderer addresses: %s", recorded)
+	}
+}
+
+type syncBuffer struct {
+	mu   sync.Mutex
+	data bytes.Buffer
+}
+
+func (buffer *syncBuffer) Write(value []byte) (int, error) {
+	buffer.mu.Lock()
+	defer buffer.mu.Unlock()
+	return buffer.data.Write(value)
+}
+
+func (buffer *syncBuffer) String() string {
+	buffer.mu.Lock()
+	defer buffer.mu.Unlock()
+	return buffer.data.String()
+}
+
+func waitForLog(t *testing.T, buffer *syncBuffer, expected string) string {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if recorded := buffer.String(); strings.Contains(recorded, expected) {
+			return recorded
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	t.Fatalf("diagnostic %q was not recorded: %s", expected, buffer.String())
+	return ""
+}
+
+// startFakeSSDPResponder answers unicast M-SEARCH sent to listenAddress with a reply
+// sent from replyAddress, and reports the port it listens on.
+func startFakeSSDPResponder(t *testing.T, listenAddress, replyAddress, udn, location string) uint16 {
+	t.Helper()
+	inbound, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.ParseIP(listenAddress)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	outbound, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.ParseIP(replyAddress)})
+	if err != nil {
+		_ = inbound.Close()
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_ = inbound.Close()
+		_ = outbound.Close()
+	})
+	response := "HTTP/1.1 200 OK\r\nCACHE-CONTROL: max-age=1800\r\nST: " + mediaRendererTarget + "\r\n" +
+		"USN: " + udn + "::" + mediaRendererTarget + "\r\nLOCATION: " + location + "\r\n\r\n"
+	go func() {
+		buffer := make([]byte, maxSSDPPacket)
+		for {
+			count, sender, readErr := inbound.ReadFromUDPAddrPort(buffer)
+			if readErr != nil {
+				return
+			}
+			if !bytes.HasPrefix(buffer[:count], []byte("M-SEARCH * HTTP/1.1")) {
+				continue
+			}
+			_, _ = outbound.WriteToUDPAddrPort([]byte(response), sender)
+		}
+	}()
+	return uint16(inbound.LocalAddr().(*net.UDPAddr).Port)
 }

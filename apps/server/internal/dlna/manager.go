@@ -8,10 +8,12 @@ import (
 	"errors"
 	"fmt"
 	"github.com/jastreamer/jastreamer-server/internal/output"
+	"log"
 	"net"
 	"net/http"
 	"net/netip"
 	"net/url"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -59,6 +61,7 @@ type notificationListener interface {
 type managerDependencies struct {
 	networks   []localNetwork
 	discoverer discoveryClient
+	probe      addressProbe
 	httpClient *http.Client
 	now        func() time.Time
 	listen     func(localNetwork) (notificationListener, error)
@@ -68,6 +71,7 @@ type Manager struct {
 	config     Config
 	networks   []localNetwork
 	discoverer discoveryClient
+	probe      addressProbe
 	httpClient *http.Client
 	now        func() time.Time
 	listen     func(localNetwork) (notificationListener, error)
@@ -96,13 +100,13 @@ func New(config Config) (*Manager, error) {
 		return nil, err
 	}
 	return newManager(config, managerDependencies{
-		networks: networks, discoverer: ssdpDiscoverer{}, httpClient: httpClient(),
+		networks: networks, discoverer: ssdpDiscoverer{}, probe: ssdpProbe{port: ssdpPort}, httpClient: httpClient(),
 		now: time.Now, listen: listenMulticast,
 	})
 }
 
 func newManager(config Config, dependencies managerDependencies) (*Manager, error) {
-	if config.DiscoveryInterval <= 0 || len(dependencies.networks) == 0 || dependencies.discoverer == nil || dependencies.httpClient == nil || dependencies.now == nil || dependencies.listen == nil {
+	if config.DiscoveryInterval <= 0 || len(dependencies.networks) == 0 || dependencies.discoverer == nil || dependencies.probe == nil || dependencies.httpClient == nil || dependencies.now == nil || dependencies.listen == nil {
 		return nil, ErrInvalidConfig
 	}
 	notify := config.Notify
@@ -111,7 +115,7 @@ func newManager(config Config, dependencies managerDependencies) (*Manager, erro
 	}
 	return &Manager{
 		config: config, networks: append([]localNetwork(nil), dependencies.networks...),
-		discoverer: dependencies.discoverer, httpClient: dependencies.httpClient,
+		discoverer: dependencies.discoverer, probe: dependencies.probe, httpClient: dependencies.httpClient,
 		now: dependencies.now, listen: dependencies.listen, notify: notify,
 		devices: make(map[string]deviceRecord), byUDN: make(map[string]string),
 		pending: make(map[string]pendingInspection), xmlCache: make(map[string]xmlCacheEntry),
@@ -600,6 +604,13 @@ func (manager *Manager) launchInspection(parent context.Context, value advertise
 			manager.clearInspection(value.udn, sequence)
 			return
 		}
+		// Ask every address known so far: a renderer with several addresses on one
+		// interface may notify from one and answer a unicast search from another, and
+		// it can fetch media from any of them.
+		for _, address := range manager.probe.Probe(ctx, inspected.network, inspected.addresses, inspected.udn) {
+			inspected.addresses = inspected.addresses.with(address)
+		}
+		inspected.device.MediaAddresses = inspected.addresses.strings()
 		now := manager.now()
 		inspected.device.LastSeen = now.UTC().Format(time.RFC3339Nano)
 		inspected.device.Online = true
@@ -621,10 +632,13 @@ func (manager *Manager) launchInspection(parent context.Context, value advertise
 		}
 		record.expiresAt = now.Add(pending.candidate.maxAge)
 		delete(manager.pending, value.udn)
+		var previousAddresses addressSet
 		if currentID, exists := manager.byUDN[value.udn]; exists {
+			previous := manager.devices[currentID]
+			previousAddresses = previous.addresses
 			// The same description keeps the addresses discovery already observed for
 			// this renderer; a moved description starts a fresh set.
-			if previous := manager.devices[currentID]; previous.descriptionURL == record.descriptionURL {
+			if previous.descriptionURL == record.descriptionURL {
 				record.addresses = record.addresses.merge(previous.addresses)
 				record.device.MediaAddresses = record.addresses.strings()
 			}
@@ -632,7 +646,11 @@ func (manager *Manager) launchInspection(parent context.Context, value advertise
 		}
 		manager.devices[record.device.ID] = record
 		manager.byUDN[value.udn] = record.device.ID
+		changed := !slices.Equal(previousAddresses, record.addresses)
 		manager.mu.Unlock()
+		if changed {
+			log.Printf("diagnostic component=dlna event=renderer_addresses renderer_id=%q count=%d", record.device.ID, len(record.addresses))
+		}
 		manager.notify("renderers")
 	}()
 }
