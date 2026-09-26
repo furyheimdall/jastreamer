@@ -3,6 +3,7 @@ import { api, ApiError } from "./api";
 import { useI18n, type Language, type MessageKey } from "./i18n";
 import AirPlayHelpDialog from "./AirPlayHelpDialog";
 import { HistoryPanel, VerificationStatus } from "./Diagnostics";
+import { requestExperimentalFeatures, useExperimentalFeatures } from "./experimental";
 import ServerPathPicker from "./ServerPathPicker";
 import type { ConfigDocument, ConfigRoot, FilesystemEntryKind, NetworkInterfacesDocument, RestartResponse, ScanJob, ServerConfig } from "./types";
 
@@ -154,6 +155,9 @@ export default function Settings({ configRevision, libraryRevision, historyRevis
   const [passwordBusy, setPasswordBusy] = useState(false);
   const [languagePersistFailed, setLanguagePersistFailed] = useState(false);
   const [pathPicker, setPathPicker] = useState<OpenPathPicker | null>(null);
+  const experimental = useExperimentalFeatures();
+  const [experimentalBusy, setExperimentalBusy] = useState(false);
+  const [experimentalError, setExperimentalError] = useState("");
   const [airplayHelpOpen, setAirplayHelpOpen] = useState(false);
   const [networkInterfaces, setNetworkInterfaces] = useState<NetworkInterfacesDocument | null>(null);
   const [networkInterfacesLoading, setNetworkInterfacesLoading] = useState(true);
@@ -291,6 +295,21 @@ export default function Settings({ configRevision, libraryRevision, historyRevis
 
   function updateDraft(update: (config: ServerConfig) => ServerConfig) {
     setDraft((current) => (current ? update(current) : current));
+  }
+
+  // Turning the switch off first shuts down an active experimental mode, so nothing keeps
+  // running behind a hidden menu. A refused or failed shutdown keeps the switch on.
+  async function changeExperimentalFeatures(next: boolean) {
+    if (experimentalBusy) return;
+    setExperimentalBusy(true);
+    setExperimentalError("");
+    try {
+      await requestExperimentalFeatures(next);
+    } catch (caught) {
+      setExperimentalError(caught instanceof Error && caught.message ? caught.message : t("settings.experimental.changeFailed"));
+    } finally {
+      setExperimentalBusy(false);
+    }
   }
 
   function choosePath(path: string) {
@@ -735,6 +754,34 @@ export default function Settings({ configRevision, libraryRevision, historyRevis
       )}
     </section>
   );
+  const experimentalStorageWarning = experimental.failure === "save" ? t("settings.experimental.saveFailed")
+    : experimental.failure === "read" ? t("settings.experimental.readFailed")
+    : experimental.failure === "identity" ? t("settings.experimental.identityFailed")
+    : "";
+  // A client preference of this browser or app profile, isolated per Server like the local
+  // output alias. It saves no Server configuration and sends no playback command.
+  const experimentalSettings = (
+    <section className="settings-card" aria-labelledby="experimental-heading">
+      <div className="settings-card-heading">
+        <div>
+          <h2 id="experimental-heading">{t("settings.experimental.title")}</h2>
+          <p className="muted" id="experimental-description">{t("settings.experimental.help")}</p>
+        </div>
+        <label className="switch-label">
+          <input
+            type="checkbox"
+            checked={experimental.enabled}
+            disabled={experimentalBusy}
+            aria-describedby="experimental-description"
+            onChange={(event) => void changeExperimentalFeatures(event.target.checked)}
+          />
+          {t("settings.experimental.label")}
+        </label>
+      </div>
+      {experimentalError && <p className="error-text" role="status">{experimentalError}</p>}
+      {experimentalStorageWarning && <p className="error-text" role="status">{experimentalStorageWarning}</p>}
+    </section>
+  );
   const historySettings = <HistoryPanel revision={historyRevision} />;
 
   if (!draft) {
@@ -766,6 +813,7 @@ export default function Settings({ configRevision, libraryRevision, historyRevis
             <p>{t("settings.tabs.general.description")}</p>
           </header>
           {languageSettings}
+          {experimentalSettings}
         </div>
         {(["network", "library", "playback"] as SettingsTab[]).map((tab) => (
           <div
@@ -953,6 +1001,7 @@ export default function Settings({ configRevision, libraryRevision, historyRevis
           <p>{t("settings.tabs.general.description")}</p>
         </header>
         {languageSettings}
+        {experimentalSettings}
         <section className="settings-card">
           <h2>{t("settings.serverName.title")}</h2>
           <label className="field-label" htmlFor="server-name">{t("settings.serverName.label")}</label>

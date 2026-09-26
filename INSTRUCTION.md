@@ -239,7 +239,9 @@ The native Kotlin app adds Server selection, a Server-controlled phone output, a
 
 Opt-in output that opens a connected USB Audio Class DAC directly: the app drives the DAC's own isochronous audio stream, and the PCM never passes through the Android mixer. It is off by default, applies to Server playback on this phone, and leaves **Saved music** on the standard Android output.
 
-1. Stop playback and wait for pending operations. Select the phone output (`Android · jastreamer (This device) [Local audio]`). **Phone audio settings** appears beside the output controls only while this device is the selected output.
+**It is an experimental feature.** **Phone audio settings**, its panel, and the **Bit-perfect** badge appear only while **Settings → General → Experimental features** is on. That switch is a preference of this browser or app profile on this device, isolated by Server and origin like a saved local output name: it saves no Server configuration and sends no playback command, and it is off by default. A phone that already has USB bit-perfect on and has made no choice yet starts with the switch on, so the option stays reachable. Turning the switch off while USB bit-perfect is on turns that option off first, under the panel's own rules — stop playback and wait for pending operations; when the phone cannot be reconfigured right now, or the change fails, the switch stays on and the reason is shown. Windows native audio is not experimental and is unaffected.
+
+1. Turn on **Settings → General → Experimental features**. Stop playback and wait for pending operations. Select the phone output (`Android · jastreamer (This device) [Local audio]`). **Phone audio settings** appears beside the output controls only while this device is the selected output.
 2. Set **USB bit-perfect (direct USB)** to **On**. The phone asks for USB permission at that moment rather than when playback starts. The setting belongs to the app on this phone rather than to one Server, and it applies from the next track: the same phone output registration is kept and playback stays stopped until you press **Play**. Paused or loaded audio must be stopped before changing it.
 3. Choose **When the USB device cannot take the format**: **Skip track** (default) or **Play through Android output**. It follows the same rules — change it while playback is stopped, and it applies from the next track.
 4. While it is on, Android system sounds and other apps cannot use that DAC, app volume is fixed at 100%, and the **Local volume** control is not offered — change the level on the DAC or amplifier.
@@ -257,7 +259,7 @@ All this needs is a connected USB Audio Class device and USB permission for it. 
 
 **Application path eligible for bit-transparent delivery** appears only when all of the following hold: a lossless source the Server explicitly reports as untransformed, unchanged rate/layout/precision, unity gain (app volume 100%), and an actually running USB direct stream. Unknown source provenance, lossy decoding, a track routed to the Android output, or altered samples cannot qualify. This indication covers the application path only — it does **not** verify driver, DSP, or DAC behaviour, or physical bit-perfect output.
 
-**Bit-perfect badge.** While the USB direct path is actually active, a **Bit-perfect** badge sits next to the track information in the player bar; a Windows exclusive-mode path uses the same badge. It reads **Bit-perfect** when the application path qualifies, and **Not bit-perfect** with the reason when the direct path is active but the path was altered. It is hidden for browser audio, network renderers, and shared or system output. Selecting it opens the matching audio settings panel; it never changes playback.
+**Bit-perfect badge.** While the USB direct path is actually active, a **Bit-perfect** badge sits next to the track information in the player bar; a Windows exclusive-mode path uses the same badge. It reads **Bit-perfect** when the application path qualifies, and **Not bit-perfect** with the reason when the direct path is active but the path was altered. It is hidden for browser audio, network renderers, shared or system output, and — on Android — while **Experimental features** is off on this device. Selecting it opens the matching audio settings panel; it never changes playback.
 
 The DAC is returned to Android when you press Stop, when **Saved music** takes over, when the device is unplugged, when the playback service stops, and when the option is turned off.
 
@@ -320,7 +322,7 @@ Cast control keeps a persistent TLS connection and owns the application and medi
 
 | Tab | Controls |
 |---|---|
-| **General** | Language, Server name, data directory, and account password |
+| **General** | Language, experimental features, Server name, data directory, and account password |
 | **Network** | HTTP/HTTPS listeners, access rules, network adapters, discovery/polling intervals, and the Server audio URL |
 | **Library** | Music folders, scanning, and background audio verification |
 | **Playback & outputs** | Google Cast, AirPlay and its setup help, FFmpeg, and audio conversion |

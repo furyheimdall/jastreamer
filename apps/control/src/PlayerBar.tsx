@@ -14,6 +14,11 @@ import {
   type NativeWindowsState,
 } from "./NativeWindowsOutput";
 import { androidSignalPath, windowsSignalPath, type SignalPathBadge } from "./signalPath";
+import {
+  reportAndroidUsbDirect,
+  setExperimentalDisableGuard,
+  useExperimentalFeatures,
+} from "./experimental";
 import { useI18n, type MessageKey } from "./i18n";
 import { embeddedClient, isPhone, localOutputName } from "./device";
 import type { Device, PairingRequest, PairingStatus, PlayerState, RepeatMode, StatusWarning } from "./types";
@@ -187,6 +192,9 @@ export default function PlayerBar({ revision, phoneExpanded, onPhoneExpandedChan
   const [outputsLoaded, setOutputsLoaded] = useState(false);
   const browserName = browserAlias || defaultBrowserName;
   const usesNativeOutput = usesNativeAndroid || windowsAudioState?.audio.enabled === true;
+  // The phone's USB bit-perfect panel is still under test, so it stays behind the
+  // per-device "Experimental features" switch in Settings → General.
+  const { enabled: experimentalEnabled } = useExperimentalFeatures();
 
   useEffect(() => {
     if (!windowsBridge) return;
@@ -524,6 +532,51 @@ export default function PlayerBar({ revision, phoneExpanded, onPhoneExpandedChan
     }
   }
 
+  // The experimental switch lives in Settings, so turning it off reuses the panel's own rules
+  // here instead of duplicating them: USB bit-perfect is switched off first, and a phone that
+  // cannot be reconfigured right now keeps both the option and the switch on.
+  const androidDisableInputs = useRef({
+    audio: androidAudioState,
+    player,
+    busy,
+    configuring: androidConfigurationBusy,
+  });
+  androidDisableInputs.current = { audio: androidAudioState, player, busy, configuring: androidConfigurationBusy };
+
+  const disableAndroidUsbDirect = useCallback(async () => {
+    const { audio, player: currentPlayer, busy: currentBusy, configuring } = androidDisableInputs.current;
+    if (!audio?.enabled) return;
+    const output = localOutputRef.current;
+    if (!output || configuring || currentBusy || currentPlayer?.state !== "stopped"
+      || Boolean(currentPlayer.pending_command) || !audio.can_configure) {
+      throw new Error(t("player.android.stopToConfigure"));
+    }
+    setAndroidConfigurationBusy(true);
+    setAndroidConfigurationError("");
+    setBusy("android-output");
+    try {
+      await output.configureAndroid(false, audio.unsupported_format);
+    } catch (caught) {
+      const message = errorMessage(caught, t("player.android.actionFailed"));
+      setAndroidConfigurationError(message);
+      throw new Error(message);
+    } finally {
+      setBusy("");
+      setAndroidConfigurationBusy(false);
+    }
+  }, [t]);
+
+  useEffect(() => {
+    if (!usesNativeAndroid) return;
+    setExperimentalDisableGuard(disableAndroidUsbDirect);
+    return () => setExperimentalDisableGuard(null);
+  }, [disableAndroidUsbDirect, usesNativeAndroid]);
+
+  useEffect(() => {
+    if (!usesNativeAndroid || !androidAudioState) return;
+    reportAndroidUsbDirect(androidAudioState.enabled);
+  }, [androidAudioState, usesNativeAndroid]);
+
   // Reconnect only after the reconfigured backend has rendered: the local output handle
   // still points at the previous (browser or native) implementation until then.
   useEffect(() => {
@@ -759,8 +812,9 @@ export default function PlayerBar({ revision, phoneExpanded, onPhoneExpandedChan
     && !nameSaving
     && !androidConfigurationBusy,
   );
-  // Phone audio settings only apply while this device is the selected output.
-  const androidSettingsAvailable = Boolean(usesNativeAndroid && (
+  // Phone audio settings only apply while this device is the selected output, and only while
+  // experimental features are on: the switch turns USB bit-perfect off before hiding them.
+  const androidSettingsAvailable = Boolean(usesNativeAndroid && experimentalEnabled && (
     androidConfigurationBusy || busy === "output"
     || (localBrowserDevice && localBrowserDevice.id === player?.renderer_id)
   ));
@@ -769,7 +823,7 @@ export default function PlayerBar({ revision, phoneExpanded, onPhoneExpandedChan
   // One badge rule set: the Windows exclusive path and the Android direct USB path both
   // reduce to "is the active path bypassing the platform mixer, and did it stay transparent".
   const signalPath: SignalPathBadge = usesNativeAndroid
-    ? androidSignalPath(androidAudioState)
+    ? (experimentalEnabled ? androidSignalPath(androidAudioState) : null)
     : windowsSignalPath(windowsAudioState?.audio);
   const signalPathReason = signalPath?.tone === "muted"
     ? usesNativeAndroid
