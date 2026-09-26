@@ -8,6 +8,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"net/netip"
 	"net/url"
 	"os"
 	"strconv"
@@ -52,8 +53,8 @@ func (service *Service) serveHTTP(writer http.ResponseWriter, request *http.Requ
 		return
 	}
 	remoteIP, err := rendererIP(request.RemoteAddr)
-	if err != nil || remoteIP != value.sourceIP {
-		service.logBindingRejection(value, request.Method, http.StatusForbidden, "source_mismatch", startedAt)
+	if err != nil || !value.allows(remoteIP) {
+		service.logSourceRejection(value, request.Method, remoteIP, startedAt)
 		writeStreamError(writer, http.StatusForbidden, "MEDIA_FORBIDDEN")
 		return
 	}
@@ -258,6 +259,43 @@ func (service *Service) logBindingRejection(value *binding, method string, statu
 	service.mu.Unlock()
 	if allowed {
 		log.Printf("diagnostic component=stream event=media_http_rejected renderer_id=%q play_id=%q method=%q status=%d bytes=0 elapsed_ms=%d range=%q cancel=false error_category=%q reason=%q suppressed=%d", value.rendererID, value.playID, method, status, now.Sub(started).Milliseconds(), "not_evaluated", reason, reason, suppressed)
+	}
+}
+
+// logSourceRejection records a media request from an address the grant never observed.
+// Diagnostics keep the requesting address class and the number of accepted addresses
+// so a mismatch stays diagnosable without writing a client address to the log.
+func (service *Service) logSourceRejection(value *binding, method string, remote netip.Addr, started time.Time) {
+	method = diagnosticMethod(method)
+	now := time.Now()
+	service.mu.Lock()
+	suppressed, allowed := value.rejectDiagnostic.allow(now)
+	service.mu.Unlock()
+	if allowed {
+		log.Printf("diagnostic component=stream event=media_http_rejected renderer_id=%q play_id=%q method=%q status=%d bytes=0 elapsed_ms=%d range=%q cancel=false error_category=%q reason=%q remote_class=%q allowed_addresses=%d suppressed=%d",
+			value.rendererID, value.playID, method, http.StatusForbidden, now.Sub(started).Milliseconds(), "not_evaluated",
+			"source_mismatch", "source_mismatch", addressClass(remote), len(value.sources), suppressed)
+	}
+}
+
+// addressClass names an address family and scope without exposing the address itself.
+func addressClass(address netip.Addr) string {
+	if !address.IsValid() {
+		return "unparsed"
+	}
+	family := "ipv4"
+	if !address.Is4() {
+		family = "ipv6"
+	}
+	switch {
+	case address.IsLoopback():
+		return family + "_loopback"
+	case address.IsLinkLocalUnicast():
+		return family + "_link_local"
+	case address.IsPrivate():
+		return family + "_private"
+	default:
+		return family + "_other"
 	}
 }
 

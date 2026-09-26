@@ -1042,3 +1042,53 @@ func TestHandler_UPnPMediaRetainsSameOriginPolicy(t *testing.T) {
 		})
 	}
 }
+
+func TestHandler_serves_media_to_every_discovered_renderer_address(t *testing.T) {
+	var logs bytes.Buffer
+	previous := log.Writer()
+	log.SetOutput(&logs)
+	defer log.SetOutput(previous)
+	content := []byte("multi-address")
+	service, _, device, track := newOriginalFixture(t, content)
+	device.Protocol = output.ProtocolUPnP
+	// The renderer answered discovery from one address and published its description
+	// on a second address of the same interface; its HTTP client may use either.
+	device.MediaAddresses = []string{"192.0.2.1", "192.0.2.5"}
+	resource, err := service.Prepare(context.Background(), device, track, "play-multi")
+	if err != nil {
+		t.Fatal(err)
+	}
+	parsed, err := url.Parse(resource.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, address := range []string{"192.0.2.1:41000", "192.0.2.5:41001"} {
+		request := httptest.NewRequest(http.MethodGet, parsed.RequestURI(), nil)
+		request.Host = parsed.Host
+		request.RemoteAddr = address
+		response := httptest.NewRecorder()
+		service.Handler().ServeHTTP(response, request)
+		if response.Code != http.StatusOK || response.Body.String() != string(content) {
+			t.Fatalf("observed address %s response = %d body=%q", address, response.Code, response.Body.String())
+		}
+	}
+
+	unobserved := httptest.NewRequest(http.MethodGet, parsed.RequestURI(), nil)
+	unobserved.Host = parsed.Host
+	unobserved.RemoteAddr = "192.0.2.9:41002"
+	unobservedResponse := httptest.NewRecorder()
+	service.Handler().ServeHTTP(unobservedResponse, unobserved)
+	if unobservedResponse.Code != http.StatusForbidden || unobservedResponse.Body.Len() == 0 {
+		t.Fatalf("unobserved address response = %d body=%q", unobservedResponse.Code, unobservedResponse.Body.String())
+	}
+	recorded := logs.String()
+	if !strings.Contains(recorded, `error_category="source_mismatch"`) ||
+		!strings.Contains(recorded, `remote_class="ipv4_other"`) ||
+		!strings.Contains(recorded, "allowed_addresses=2") {
+		t.Fatalf("source mismatch is not diagnosable: %s", recorded)
+	}
+	if strings.Contains(recorded, "192.0.2.9") {
+		t.Fatalf("diagnostics disclosed the requesting address: %s", recorded)
+	}
+}

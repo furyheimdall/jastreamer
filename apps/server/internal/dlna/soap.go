@@ -25,7 +25,7 @@ type soapArgument struct {
 }
 
 type soapCall struct {
-	candidate advertisement
+	scope     endpointScope
 	url       string
 	service   string
 	action    string
@@ -53,7 +53,7 @@ type soapBodyElement struct {
 }
 
 func (manager *Manager) executeSOAP(ctx context.Context, call soapCall) ([]byte, error) {
-	if _, err := trustedAbsoluteURL(call.url, call.candidate.source.Addr(), call.candidate.network); err != nil {
+	if _, _, err := trustedAbsoluteURL(call.url, call.scope); err != nil {
 		return nil, output.NewActionError(output.ErrorTransport, call.action, 0, ErrUnavailable)
 	}
 	var body bytes.Buffer
@@ -90,7 +90,7 @@ func (manager *Manager) executeSOAP(ctx context.Context, call soapCall) ([]byte,
 		// without sending the implementation header to the renderer.
 		request.Header["Idempotency-Key"] = nil
 	}
-	response, err := manager.soapClientFor(call.candidate.source.Addr(), call.candidate.network).Do(request)
+	response, err := manager.soapClientFor(call.scope).Do(request)
 	if err != nil {
 		return nil, classifyActionError(ctx, call.action, err)
 	}

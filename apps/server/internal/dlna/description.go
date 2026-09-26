@@ -59,6 +59,7 @@ type inspectedDevice struct {
 	actions        map[string]bool
 	queries        map[string]bool
 	source         netip.Addr
+	addresses      addressSet
 	network        localNetwork
 }
 
@@ -70,8 +71,12 @@ type xmlCacheEntry struct {
 
 func (manager *Manager) inspect(ctx context.Context, candidate advertisement) (inspectedDevice, error) {
 	tag := cacheTag(candidate)
+	scope := candidate.scope()
+	// Every address this renderer actually presented: the SSDP sender, the LOCATION
+	// host, and the hosts of the description, control and service URLs it published.
+	observed := addressSet{}.with(candidate.source.Addr()).with(candidate.locationAddr)
 	var root deviceDescription
-	descriptionURL, err := manager.fetchXML(ctx, candidate, candidate.location, tag, &root)
+	descriptionURL, err := manager.fetchXML(ctx, candidate, scope, candidate.location, tag, &root)
 	if err != nil {
 		return inspectedDevice{}, err
 	}
@@ -81,25 +86,29 @@ func (manager *Manager) inspect(ctx context.Context, candidate advertisement) (i
 	}
 	base := descriptionURL
 	if strings.TrimSpace(root.URLBase) != "" {
-		base, err = trustedReference(descriptionURL, root.URLBase, candidate.source.Addr(), candidate.network)
+		var baseAddress netip.Addr
+		base, baseAddress, err = trustedReference(descriptionURL, root.URLBase, scope)
 		if err != nil {
 			return inspectedDevice{}, err
 		}
+		observed = observed.with(baseAddress)
 	}
 	avService, found := findService(value.Services, avTransportPrefix)
 	if !found {
 		return inspectedDevice{}, ErrUnsupported
 	}
-	controlURL, err := trustedReference(base, avService.ControlURL, candidate.source.Addr(), candidate.network)
+	controlURL, controlAddress, err := trustedReference(base, avService.ControlURL, scope)
 	if err != nil {
 		return inspectedDevice{}, err
 	}
-	scpdURL, err := trustedReference(base, avService.SCPDURL, candidate.source.Addr(), candidate.network)
+	observed = observed.with(controlAddress)
+	scpdURL, scpdAddress, err := trustedReference(base, avService.SCPDURL, scope)
 	if err != nil {
 		return inspectedDevice{}, err
 	}
+	observed = observed.with(scpdAddress)
 	var avDescription serviceDescription
-	if _, err := manager.fetchXML(ctx, candidate, scpdURL, tag, &avDescription); err != nil {
+	if _, err := manager.fetchXML(ctx, candidate, scope, scpdURL, tag, &avDescription); err != nil {
 		return inspectedDevice{}, err
 	}
 	actions := namedActions(avDescription)
@@ -108,12 +117,13 @@ func (manager *Manager) inspect(ctx context.Context, candidate advertisement) (i
 	}
 	protocols := make([]string, 0)
 	if connection, ok := findService(value.Services, connectionManagerPrefix); ok {
-		connectionSCPD, scpdErr := trustedReference(base, connection.SCPDURL, candidate.source.Addr(), candidate.network)
-		connectionControl, controlErr := trustedReference(base, connection.ControlURL, candidate.source.Addr(), candidate.network)
+		connectionSCPD, _, scpdErr := trustedReference(base, connection.SCPDURL, scope)
+		connectionControl, connectionAddress, controlErr := trustedReference(base, connection.ControlURL, scope)
 		if scpdErr == nil && controlErr == nil {
+			observed = observed.with(connectionAddress)
 			var connectionDescription serviceDescription
-			if _, fetchErr := manager.fetchXML(ctx, candidate, connectionSCPD, tag, &connectionDescription); fetchErr == nil && namedActions(connectionDescription)["GetProtocolInfo"] {
-				if values, queryErr := manager.getProtocolInfo(ctx, candidate, connectionControl, connection.ServiceType); queryErr == nil {
+			if _, fetchErr := manager.fetchXML(ctx, candidate, scope, connectionSCPD, tag, &connectionDescription); fetchErr == nil && namedActions(connectionDescription)["GetProtocolInfo"] {
+				if values, queryErr := manager.getProtocolInfo(ctx, scope, connectionControl, connection.ServiceType); queryErr == nil {
 					protocols = values
 				}
 			}
@@ -131,7 +141,7 @@ func (manager *Manager) inspect(ctx context.Context, candidate advertisement) (i
 		device: output.Device{
 			ID: rendererID(candidate.udn), Name: name,
 			Manufacturer: strings.TrimSpace(value.Manufacturer), Model: strings.TrimSpace(value.ModelName),
-			Address: candidate.source.Addr().String(), Online: true,
+			Address: candidate.source.Addr().String(), MediaAddresses: observed.strings(), Online: true,
 			LocalAddress: candidate.network.local.String(),
 			Capabilities: capabilities, ProtocolInfo: protocols, Protocol: output.ProtocolUPnP,
 		},
@@ -142,7 +152,7 @@ func (manager *Manager) inspect(ctx context.Context, candidate advertisement) (i
 			"GetPositionInfo":  actions["GetPositionInfo"],
 			"GetMediaInfo":     actions["GetMediaInfo"],
 		},
-		source: candidate.source.Addr(), network: candidate.network,
+		source: candidate.source.Addr(), addresses: observed, network: candidate.network,
 	}, nil
 }
 
@@ -216,8 +226,8 @@ func cacheTag(candidate advertisement) string {
 	return candidate.source.Addr().String() + "\x00" + candidate.location + "\x00" + candidate.bootID + "\x00" + candidate.configID + "\x00" + candidate.nextBoot
 }
 
-func (manager *Manager) fetchXML(ctx context.Context, candidate advertisement, rawURL, tag string, target any) (string, error) {
-	trusted, err := trustedReference(candidate.location, rawURL, candidate.source.Addr(), candidate.network)
+func (manager *Manager) fetchXML(ctx context.Context, candidate advertisement, scope endpointScope, rawURL, tag string, target any) (string, error) {
+	trusted, _, err := trustedReference(candidate.location, rawURL, scope)
 	if err != nil {
 		return "", err
 	}
@@ -231,7 +241,7 @@ func (manager *Manager) fetchXML(ctx context.Context, candidate advertisement, r
 	if err != nil {
 		return "", ErrUnavailable
 	}
-	client := manager.clientFor(candidate.source.Addr(), candidate.network)
+	client := manager.clientFor(scope)
 	response, err := client.Do(request)
 	if err != nil {
 		if ctx.Err() != nil {
@@ -244,7 +254,7 @@ func (manager *Manager) fetchXML(ctx context.Context, candidate advertisement, r
 		return "", ErrUnavailable
 	}
 	finalURL := response.Request.URL.String()
-	if _, err := trustedAbsoluteURL(finalURL, candidate.source.Addr(), candidate.network); err != nil {
+	if _, _, err := trustedAbsoluteURL(finalURL, scope); err != nil {
 		return "", err
 	}
 	data, err := readBoundedXML(response.Body)
@@ -266,20 +276,20 @@ func (manager *Manager) fetchXML(ctx context.Context, candidate advertisement, r
 	return finalURL, nil
 }
 
-func (manager *Manager) clientFor(source netip.Addr, network localNetwork) *http.Client {
+func (manager *Manager) clientFor(scope endpointScope) *http.Client {
 	client := *manager.httpClient
 	client.CheckRedirect = func(request *http.Request, via []*http.Request) error {
 		if len(via) >= 5 {
 			return ErrUnavailable
 		}
-		_, err := trustedAbsoluteURL(request.URL.String(), source, network)
+		_, _, err := trustedAbsoluteURL(request.URL.String(), scope)
 		return err
 	}
 	return &client
 }
 
-func (manager *Manager) soapClientFor(source netip.Addr, network localNetwork) *http.Client {
-	client := manager.clientFor(source, network)
+func (manager *Manager) soapClientFor(scope endpointScope) *http.Client {
+	client := manager.clientFor(scope)
 	client.CheckRedirect = func(*http.Request, []*http.Request) error {
 		return http.ErrUseLastResponse
 	}
@@ -311,19 +321,19 @@ func decodeSafeXML(reader io.Reader, target any) error {
 	return nil
 }
 
-func trustedReference(baseRaw, referenceRaw string, source netip.Addr, network localNetwork) (string, error) {
+func trustedReference(baseRaw, referenceRaw string, scope endpointScope) (string, netip.Addr, error) {
 	base, baseErr := url.Parse(strings.TrimSpace(baseRaw))
 	reference, referenceErr := url.Parse(strings.TrimSpace(referenceRaw))
 	if baseErr != nil || referenceErr != nil {
-		return "", ErrUnavailable
+		return "", netip.Addr{}, ErrUnavailable
 	}
 	resolved := base.ResolveReference(reference)
-	return trustedAbsoluteURL(resolved.String(), source, network)
+	return trustedAbsoluteURL(resolved.String(), scope)
 }
 
-func (manager *Manager) getProtocolInfo(ctx context.Context, candidate advertisement, controlURL, serviceType string) ([]string, error) {
+func (manager *Manager) getProtocolInfo(ctx context.Context, scope endpointScope, controlURL, serviceType string) ([]string, error) {
 	data, err := manager.executeSOAP(ctx, soapCall{
-		candidate: candidate, url: controlURL, service: serviceType, action: "GetProtocolInfo",
+		scope: scope, url: controlURL, service: serviceType, action: "GetProtocolInfo",
 	})
 	if err != nil {
 		return nil, err
