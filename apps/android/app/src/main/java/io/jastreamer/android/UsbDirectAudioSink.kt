@@ -78,7 +78,11 @@ internal class UsbDirectAudioSink(
             }
 
             is UsbDirectOpen.Rejected -> {
-                if (engine.unsupportedFormat == UsbDirectPolicy.UNSUPPORTED_SKIP) {
+                val formatIssue = UsbDirectPolicy.isFormatRejection(opened.rejection.code)
+                if (!formatIssue || engine.unsupportedFormat == UsbDirectPolicy.UNSUPPORTED_SKIP) {
+                    // A missing device or permission is not something the Android output can
+                    // stand in for: the user asked for a device this track cannot reach, so the
+                    // item fails with its own reason instead of quietly playing elsewhere.
                     usbMode = false
                     engine.release()
                     throw AudioSink.ConfigurationException(

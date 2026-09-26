@@ -259,7 +259,11 @@ All this needs is a connected USB Audio Class device and USB permission for it. 
 
 **Bit-perfect badge.** While the USB direct path is actually active, a **Bit-perfect** badge sits next to the track information in the player bar; a Windows exclusive-mode path uses the same badge. It reads **Bit-perfect** when the application path qualifies, and **Not bit-perfect** with the reason when the direct path is active but the path was altered. It is hidden for browser audio, network renderers, and shared or system output. Selecting it opens the matching audio settings panel; it never changes playback.
 
-The DAC is returned to Android when you press Stop, when **Saved music** takes over, when the device is unplugged — playback reports an error and does not resume by itself — when the playback service stops, and when the option is turned off.
+The DAC is returned to Android when you press Stop, when **Saved music** takes over, when the device is unplugged, when the playback service stops, and when the option is turned off.
+
+**Unplugging the DAC turns the option off.** Android withdraws the app's USB permission together with the device, so the switch cannot simply stay on: unplugging releases the device, switches **USB bit-perfect (direct USB)** back to **Off**, and the panel says the DAC was disconnected. A track that was playing over USB stops and is reported to the Server as failed; playback never continues on the phone speaker by itself. Reconnect the dongle and switch the option on again to get the permission request.
+
+**Allow USB access.** If the option is on but Android has not granted USB access — after restarting the app with the DAC attached, for example — the panel shows an **Allow USB access** button. Pressing it asks the phone for the permission, exactly as switching the option on does. Playback never opens that dialog: a track started without permission fails with the reason pointing at this button, whatever **When the USB device cannot take the format** is set to, because a missing permission is not a format problem.
 
 **Saved music**
 

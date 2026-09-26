@@ -8,7 +8,11 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.hardware.usb.UsbDevice
 import android.hardware.usb.UsbManager
+import android.media.AudioDeviceCallback
+import android.media.AudioDeviceInfo
 import android.media.AudioManager
+import android.os.Handler
+import android.os.Looper
 import android.os.Process
 import android.os.SystemClock
 import android.webkit.CookieManager
@@ -159,23 +163,54 @@ class NativePlaybackService : MediaSessionService(), Player.Listener {
             if (intent?.action != UsbManager.ACTION_USB_DEVICE_DETACHED) return
             val device = IntentCompat.getParcelableExtra(intent, UsbManager.EXTRA_DEVICE, UsbDevice::class.java)
                 ?: return
-            if (!usbDirect.holds(device)) {
-                notifyState()
-                return
-            }
-            val playing = owner == PlaybackOwner.SERVER && currentResource != null
-            usbDirect.recordFailure(
-                UsbDirectPolicy.FAILURE_DEVICE_LOST,
-                "The USB audio device was disconnected.",
+            handleUsbDetached(
+                usbAudioDevice = usbDirect.isAudioDevice(device),
+                heldByEngine = usbDirect.holds(device),
             )
-            usbDirect.release()
-            if (playing) {
-                currentResource?.wantsPlayback = false
-                player.stop()
-                setError(UsbDirectPolicy.FAILURE_DEVICE_LOST, getString(R.string.native_audio_usb_detached))
-            }
-            notifyState()
         }
+    }
+
+    /**
+     * The framework's own view of the same event. The USB broadcast and this callback can arrive
+     * in either order, or only one of them on some builds, so both run the same idempotent
+     * handler: once the option is off and the device released, the second call does nothing.
+     */
+    private val audioDeviceCallback = object : AudioDeviceCallback() {
+        override fun onAudioDevicesRemoved(removedDevices: Array<out AudioDeviceInfo>?) {
+            val usbRemoved = removedDevices?.any {
+                it.type == AudioDeviceInfo.TYPE_USB_DEVICE || it.type == AudioDeviceInfo.TYPE_USB_HEADSET
+            } == true
+            if (!usbRemoved) return
+            handleUsbDetached(usbAudioDevice = true, heldByEngine = false)
+        }
+    }
+
+    /**
+     * Hands the DAC back, persists the option off and fails the running track. Android revokes the
+     * USB permission together with the device, so a switch left on could not open it again after a
+     * replug without being toggled; the panel says so instead of silently failing every track.
+     */
+    private fun handleUsbDetached(usbAudioDevice: Boolean, heldByEngine: Boolean) {
+        val playingThroughUsb = usbDirect.streamingActive
+        val outcome = usbDirect.handleDetached(usbAudioDevice, heldByEngine)
+        if (!outcome.handled) {
+            notifyState()
+            return
+        }
+        val message = getString(R.string.native_audio_usb_detached)
+        usbDirect.recordFailure(UsbDirectPolicy.FAILURE_DEVICE_DETACHED, message)
+        val expected = registration
+        val active = currentResource
+        if (outcome.failPlayback && playingThroughUsb && expected != null && active != null &&
+            owner == PlaybackOwner.SERVER
+        ) {
+            active.wantsPlayback = false
+            finishTerminalError(expected, active, "media_failed", message)
+            // The specific reason replaces the generic media error the terminal path sets, so the
+            // panel and the Server report agree on what happened.
+            setError(UsbDirectPolicy.FAILURE_DEVICE_DETACHED, message)
+        }
+        notifyState()
     }
 
     override fun onCreate() {
@@ -234,6 +269,8 @@ class NativePlaybackService : MediaSessionService(), Player.Listener {
             IntentFilter(UsbManager.ACTION_USB_DEVICE_DETACHED),
             ContextCompat.RECEIVER_NOT_EXPORTED,
         )
+        getSystemService(AudioManager::class.java)
+            ?.registerAudioDeviceCallback(audioDeviceCallback, Handler(Looper.getMainLooper()))
         addSession(session)
         NativePlaybackRegistry.attach(this)
         offlineLibraryJob = scope.launch {
@@ -273,6 +310,7 @@ class NativePlaybackService : MediaSessionService(), Player.Listener {
         } catch (_: IllegalArgumentException) {
             // Receiver was already removed by the framework.
         }
+        getSystemService(AudioManager::class.java)?.unregisterAudioDeviceCallback(audioDeviceCallback)
         cancelServerTransport()
         offlineTickerJob?.cancel()
         offlineLibraryJob?.cancel()
@@ -1361,6 +1399,10 @@ class NativePlaybackService : MediaSessionService(), Player.Listener {
             .put("devices", devices)
             .put("enabled", usbDirect.enabled)
             .put("unsupported_format", usbDirect.unsupportedFormat)
+            .put(
+                "needs_permission",
+                UsbDirectPolicy.needsPermissionPrompt(usbDirect.enabled, availability.reason),
+            )
             .put(
                 "requested",
                 JSONObject()

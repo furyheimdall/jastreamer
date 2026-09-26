@@ -120,6 +120,32 @@ internal class UsbDirectEngine(context: Context, private val onChanged: () -> Un
     /** True while [device] is the DAC this engine holds. */
     fun holds(device: UsbDevice): Boolean = output.device?.deviceName == device.deviceName
 
+    /** Whether [device] is a USB audio device at all, detached ones included. */
+    fun isAudioDevice(device: UsbDevice): Boolean = output.isAudioDevice(device)
+
+    /** True while the DAC is actually carrying audio. */
+    val streamingActive: Boolean get() = activeStream != null
+
+    /**
+     * Applies [UsbDirectPolicy.detachOutcome] for a device that went away: the DAC is handed back
+     * and the option is persisted off, because Android drops the USB permission with the device
+     * and a switch left on could never open it again without being toggled.
+     */
+    fun handleDetached(usbAudioDevice: Boolean, heldByEngine: Boolean): UsbDetachOutcome {
+        val outcome = UsbDirectPolicy.detachOutcome(
+            usbAudioDevice = usbAudioDevice,
+            heldByEngine = heldByEngine,
+            settingEnabled = enabled,
+            playingThroughUsb = streamingActive,
+        )
+        if (!outcome.handled) return outcome
+        if (outcome.disableSetting) {
+            preferences.edit().putBoolean(USB_DIRECT, false).apply()
+        }
+        if (outcome.releaseDevice) release()
+        return outcome
+    }
+
     /**
      * Claims the DAC and starts the isochronous stream for [source], or explains why it cannot
      * carry the track unchanged. Runs on the playback thread and never converts anything itself.
@@ -130,12 +156,20 @@ internal class UsbDirectEngine(context: Context, private val onChanged: () -> Un
             if (!UsbDirectNative.available) {
                 return reject(UsbDirectPolicy.FAILURE_DRIVER, driverFailure())
             }
-            val target = output.candidate()
-                ?: return reject(UsbDirectPolicy.FAILURE_NO_DEVICE, "No USB audio device is attached.")
+            val target = output.candidate() ?: run {
+                // The device went away while nothing was watching (a detach during an app
+                // restart). Turning the option off here keeps every later track from failing
+                // against a device that is not there.
+                if (enabled) preferences.edit().putBoolean(USB_DIRECT, false).apply()
+                return reject(
+                    UsbDirectPolicy.FAILURE_DEVICE_DETACHED,
+                    application.getString(R.string.native_audio_usb_detached),
+                )
+            }
             if (!output.hasPermission(target)) {
                 return reject(
                     UsbDirectPolicy.FAILURE_PERMISSION,
-                    "USB access for ${output.label(target)} has not been granted.",
+                    application.getString(R.string.native_audio_usb_permission, output.label(target)),
                 )
             }
             val capabilities = try {

@@ -448,6 +448,7 @@ internal class NativeAudioBridge(
                 "unsupported_format",
                 UsbDirectPolicy.unsupportedFormatChoice(audio.optString("unsupported_format")),
             )
+            .put("needs_permission", audio.optBoolean("needs_permission", false))
             .put("devices", devices)
             .put(
                 "requested",

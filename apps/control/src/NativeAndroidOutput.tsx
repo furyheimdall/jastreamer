@@ -47,12 +47,27 @@ export type NativeAndroidAudioState = {
   devices: NativeAndroidAudioDevice[];
   enabled: boolean;
   unsupported_format: NativeAndroidUnsupportedFormat;
+  // The phone is waiting for USB access: the option is on but Android has not granted it.
+  needs_permission: boolean;
   requested: { mode: "usb_direct" | "system"; device_name: string };
   state: "stopped" | "loaded" | "playing" | "paused" | "error";
   can_configure: boolean;
   actual: NativeAndroidActual | null;
   error?: { code: string; message: string };
 };
+
+/**
+ * Whether the panel offers the "Allow USB access" action. It projects the phone's own
+ * `needs_permission` decision (`UsbDirectPolicy.needsPermissionPrompt`, unit tested on Android)
+ * onto the panel: the option is on, a USB audio device is attached, only the permission is
+ * missing, and settings may be changed right now. Playback never raises that dialog itself, so
+ * this action is the only way back in after Android dropped the permission with the device.
+ */
+export function androidUsbPermissionActionVisible(
+  audio: NativeAndroidAudioState | null | undefined,
+): boolean {
+  return Boolean(audio?.needs_permission && audio.can_configure);
+}
 
 export interface NativeAndroidOutputHandle {
   connect: () => Promise<Device>;
@@ -206,6 +221,7 @@ function parseAudio(value: unknown): NativeAndroidAudioState | null | undefined 
     || typeof candidate.reason !== "string"
     || typeof candidate.enabled !== "boolean"
     || typeof candidate.can_configure !== "boolean"
+    || typeof candidate.needs_permission !== "boolean"
     || (candidate.unsupported_format !== "skip" && candidate.unsupported_format !== "system_output")
     || (requested.mode !== "usb_direct" && requested.mode !== "system")
     || typeof requested.device_name !== "string"
@@ -236,6 +252,7 @@ function parseAudio(value: unknown): NativeAndroidAudioState | null | undefined 
     devices,
     enabled: candidate.enabled,
     unsupported_format: candidate.unsupported_format,
+    needs_permission: candidate.needs_permission,
     requested: { mode: requested.mode, device_name: requested.device_name },
     state: candidate.state as NativeAndroidAudioState["state"],
     can_configure: candidate.can_configure,

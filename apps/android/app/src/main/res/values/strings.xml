@@ -6,7 +6,8 @@
     <string name="native_playback_notification_description">Phone playback and media controls</string>
     <string name="native_playback_error">Phone playback could not continue.</string>
     <string name="native_audio_usb_device">USB audio device</string>
-    <string name="native_audio_usb_detached">The USB audio device was disconnected, so playback stopped.</string>
+    <string name="native_audio_usb_detached">The USB DAC was disconnected, so USB bit-perfect output was turned off.</string>
+    <string name="native_audio_usb_permission">USB access for %1$s has not been granted. Use Allow USB access in the phone audio settings.</string>
     <string name="native_audio_android_output">Android output</string>
     <string name="playback_home_title">Choose how to listen</string>
     <string name="playback_home_detail">Open a Server or listen to music already saved on this device. Navigation never starts playback.</string>

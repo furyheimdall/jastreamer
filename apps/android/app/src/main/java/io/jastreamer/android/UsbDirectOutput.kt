@@ -98,6 +98,9 @@ internal class UsbDirectOutput(context: Context) {
     fun devices(): List<UsbDevice> =
         usbManager?.deviceList?.values?.filter(::hasAudioStreaming).orEmpty()
 
+    /** Whether [candidate] declares a USB audio streaming interface at all. */
+    fun isAudioDevice(candidate: UsbDevice): Boolean = hasAudioStreaming(candidate)
+
     /**
      * The first attached device that declares a USB audio function. Composite dongles expose the
      * AudioControl interface on the same device as their HID volume keys, so the class check looks
