@@ -11,12 +11,14 @@ add_executable(usb_direct_host_tests
     ../usb_direct/format_choice.cpp
     ../usb_direct/packet_sizing.cpp
     ../usb_direct/ring_buffer.cpp
+    ../usb_direct/sample_pack.cpp
     ../usb_direct/uac_descriptors.cpp
     descriptor_test.cpp
     format_choice_test.cpp
     main.cpp
     packet_sizing_test.cpp
     ring_buffer_test.cpp
+    sample_pack_test.cpp
 )
 
 set_target_properties(usb_direct_host_tests PROPERTIES

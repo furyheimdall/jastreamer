@@ -57,9 +57,25 @@ class UsbDirectDevice {
   std::string Start(uint32_t sample_rate, uint32_t channels, uint32_t bits,
                     std::string* error);
 
-  // Queues PCM bytes for the isochronous feeder. Returns the number of bytes
-  // accepted, or -1 with `error` filled in.
-  int Write(const uint8_t* data, size_t length, std::string* error);
+  // Queues PCM frames for the isochronous feeder, widening and duplicating
+  // them into the negotiated subslot layout when the device asked for a wider
+  // container or a mono source plays on a stereo-only device. Returns the
+  // number of *source* bytes accepted, or -1 with `error` filled in.
+  int Write(const uint8_t* data, size_t length, uint32_t source_sample_bytes,
+            uint32_t source_channels, std::string* error);
+
+  // Stops and resumes feeding audio without releasing the device: the
+  // isochronous stream keeps running on silence, so the DAC stays locked and
+  // no other application can take the interface while playback is paused.
+  void SetPaused(bool paused);
+
+  // Drops everything still queued, for a seek or a track change. The frames
+  // dropped here never count as played.
+  void Flush();
+
+  // Frames the feeder has actually handed to the device since the stream
+  // started, excluding underrun and pause silence and excluding flushed audio.
+  uint64_t PlayedFrames() const;
 
   // Runtime counters as JSON. Always valid.
   std::string Status() const;
@@ -130,6 +146,9 @@ class UsbDirectDevice {
   mutable std::mutex ring_mutex_;
   RingBuffer* ring_raw_ = nullptr;  // Valid while transfers are in flight.
   PacketSizer sizer_;               // Event thread only.
+  // Scratch space for the widening feeder; owned by the writer thread, which
+  // is serialised by the Kotlin side, so it never allocates per buffer.
+  std::vector<uint8_t> pack_scratch_;
 
   std::vector<std::unique_ptr<IsoTransfer>> transfers_;
   std::thread event_thread_;
@@ -143,7 +162,12 @@ class UsbDirectDevice {
   std::atomic<uint64_t> packets_{0};
   std::atomic<uint64_t> underruns_{0};
   std::atomic<uint64_t> frames_{0};
+  std::atomic<uint64_t> played_frames_{0};
   std::atomic<uint32_t> feedback_q16_{0};
+  std::atomic<bool> paused_{false};
+  // Write cursor the feeder must skip past on the next packet, published by a
+  // flush. Only the consumer moves the read cursor.
+  std::atomic<size_t> discard_target_{0};
   // Set once the ring has delivered audio, so priming silence is not counted
   // as an underrun.
   std::atomic<bool> flowing_{false};

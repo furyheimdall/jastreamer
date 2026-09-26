@@ -43,6 +43,16 @@ html[data-device="phone"] .phone-player-summary .now-playing-copy span {
   font-size: 0.7rem;
 }
 
+html[data-device="phone"] .phone-player-summary .signal-path-badge {
+  padding: 0 0.35rem;
+  font-size: 0.62rem;
+}
+
+html[data-device="phone"] .phone-player-summary .signal-path-badge svg {
+  width: 0.72rem;
+  height: 0.72rem;
+}
+
 html[data-device="phone"] .phone-player-summary .player-error {
   max-width: 100%;
   overflow: hidden;

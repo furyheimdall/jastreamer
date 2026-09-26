@@ -44,6 +44,7 @@ add_library(usb_direct SHARED
     usb_direct/json.cpp
     usb_direct/packet_sizing.cpp
     usb_direct/ring_buffer.cpp
+    usb_direct/sample_pack.cpp
     usb_direct/uac_descriptors.cpp
     usb_direct/usb_device.cpp
 )

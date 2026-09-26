@@ -12,8 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 //
-// JNI surface for io.jastreamer.android.UsbDirectNative. Debug-build developer
-// test path only. No Java exceptions are ever thrown from here and no media
+// JNI surface for io.jastreamer.android.UsbDirectNative, the opt-in direct USB
+// audio output. No Java exceptions are ever thrown from here and no media
 // identifiers or payload bytes are logged.
 
 #include <jni.h>
@@ -171,13 +171,19 @@ Java_io_jastreamer_android_UsbDirectNative_start(JNIEnv* env, jobject /*self*/,
 extern "C" JNIEXPORT jint JNICALL
 Java_io_jastreamer_android_UsbDirectNative_write(JNIEnv* env, jobject /*self*/,
                                                  jlong handle, jobject buffer,
-                                                 jint length) {
+                                                 jint length,
+                                                 jint source_sample_bytes,
+                                                 jint source_channels) {
   UsbDirectDevice* device = RequireDevice(handle);
   if (device == nullptr) {
     return -1;
   }
   if (buffer == nullptr || length < 0) {
     g_last_error = "write needs a direct ByteBuffer and a non-negative length";
+    return -1;
+  }
+  if (source_sample_bytes <= 0 || source_channels <= 0) {
+    g_last_error = "write needs the decoded sample size and channel count";
     return -1;
   }
   void* address = env->GetDirectBufferAddress(buffer);
@@ -191,14 +197,50 @@ Java_io_jastreamer_android_UsbDirectNative_write(JNIEnv* env, jobject /*self*/,
     return -1;
   }
   std::string error;
-  const int written = device->Write(static_cast<const uint8_t*>(address),
-                                    static_cast<size_t>(length), &error);
+  const int written = device->Write(
+      static_cast<const uint8_t*>(address), static_cast<size_t>(length),
+      static_cast<uint32_t>(source_sample_bytes),
+      static_cast<uint32_t>(source_channels), &error);
   if (written < 0) {
     g_last_error = error.empty() ? "unable to queue audio" : error;
     return -1;
   }
   g_last_error.clear();
   return static_cast<jint>(written);
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_io_jastreamer_android_UsbDirectNative_setPaused(JNIEnv* /*env*/,
+                                                     jobject /*self*/,
+                                                     jlong handle,
+                                                     jboolean paused) {
+  UsbDirectDevice* device = RequireDevice(handle);
+  if (device == nullptr) {
+    return;
+  }
+  device->SetPaused(paused == JNI_TRUE);
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_io_jastreamer_android_UsbDirectNative_flush(JNIEnv* /*env*/,
+                                                 jobject /*self*/,
+                                                 jlong handle) {
+  UsbDirectDevice* device = RequireDevice(handle);
+  if (device == nullptr) {
+    return;
+  }
+  device->Flush();
+}
+
+extern "C" JNIEXPORT jlong JNICALL
+Java_io_jastreamer_android_UsbDirectNative_playedFrames(JNIEnv* /*env*/,
+                                                        jobject /*self*/,
+                                                        jlong handle) {
+  UsbDirectDevice* device = RequireDevice(handle);
+  if (device == nullptr) {
+    return -1;
+  }
+  return static_cast<jlong>(device->PlayedFrames());
 }
 
 extern "C" JNIEXPORT jstring JNICALL

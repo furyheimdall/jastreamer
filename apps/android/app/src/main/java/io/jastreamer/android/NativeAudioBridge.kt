@@ -178,36 +178,11 @@ internal class NativeAudioBridge(
             }
             Action.CONFIGURE -> scope.launch {
                 try {
-                    val state = NativePlayback.configure(server, requireNotNull(request.bitPerfect))
-                    reply(replyProxy, generation, response(request.id, state, includeError = false))
-                } catch (cancelled: CancellationException) {
-                    throw cancelled
-                } catch (failure: NativePlaybackException) {
-                    reply(replyProxy, generation, nativeFailure(request.id, failure.code, failure.message))
-                } catch (_: Throwable) {
-                    reply(replyProxy, generation, errorResponse(request.id, "unavailable", "Native playback is unavailable"))
-                }
-            }
-            Action.USB_DIRECT_SCAN -> scope.launch {
-                try {
-                    val state = NativePlayback.usbDirectScan(server)
-                    reply(replyProxy, generation, response(request.id, state, includeError = false))
-                } catch (cancelled: CancellationException) {
-                    throw cancelled
-                } catch (failure: NativePlaybackException) {
-                    reply(replyProxy, generation, nativeFailure(request.id, failure.code, failure.message))
-                } catch (_: Throwable) {
-                    reply(replyProxy, generation, errorResponse(request.id, "unavailable", "Native playback is unavailable"))
-                }
-            }
-            Action.USB_DIRECT_START,
-            Action.USB_DIRECT_STOP -> scope.launch {
-                try {
-                    val state = if (request.action == Action.USB_DIRECT_START) {
-                        NativePlayback.usbDirectStart(server)
-                    } else {
-                        NativePlayback.usbDirectStop(server)
-                    }
+                    val state = NativePlayback.configure(
+                        server,
+                        requireNotNull(request.usbDirect),
+                        requireNotNull(request.unsupportedFormat),
+                    )
                     reply(replyProxy, generation, response(request.id, state, includeError = false))
                 } catch (cancelled: CancellationException) {
                     throw cancelled
@@ -343,19 +318,10 @@ internal class NativeAudioBridge(
             "set_volume" -> Action.SET_VOLUME
             "rename" -> Action.RENAME
             "configure" -> Action.CONFIGURE
-            // Debug builds answer these; a release build reports them as unavailable rather than
-            // widening the bridge, so the action names stay a fixed, restricted set either way.
-            "usb_direct_scan" -> Action.USB_DIRECT_SCAN
-            "usb_direct_start" -> Action.USB_DIRECT_START
-            "usb_direct_stop" -> Action.USB_DIRECT_STOP
             else -> throw RequestFailure(id, "Action is not supported")
         }
         val allowedKeys = when (action) {
-            Action.STATUS,
-            Action.DISCONNECT,
-            Action.USB_DIRECT_SCAN,
-            Action.USB_DIRECT_START,
-            Action.USB_DIRECT_STOP -> STATUS_KEYS
+            Action.STATUS, Action.DISCONNECT -> STATUS_KEYS
             Action.SET_VOLUME -> VOLUME_ACTION_KEYS
             Action.CONFIGURE -> CONFIGURE_ACTION_KEYS
             Action.CONNECT, Action.CONNECT_IF_AVAILABLE, Action.RENAME -> NAMED_ACTION_KEYS
@@ -364,13 +330,8 @@ internal class NativeAudioBridge(
         while (keys.hasNext()) {
             if (keys.next() !in allowedKeys) throw RequestFailure(id, "Request contains unsupported fields")
         }
-        if (action == Action.STATUS ||
-            action == Action.DISCONNECT ||
-            action == Action.USB_DIRECT_SCAN ||
-            action == Action.USB_DIRECT_START ||
-            action == Action.USB_DIRECT_STOP
-        ) {
-            return Request(id, action, null, null, null)
+        if (action == Action.STATUS || action == Action.DISCONNECT) {
+            return Request(id, action, null, null, null, null)
         }
         if (action == Action.SET_VOLUME) {
             val rawVolume = value.opt("volume") as? Number
@@ -379,12 +340,19 @@ internal class NativeAudioBridge(
             if (!volume.isFinite() || volume !in 0.0..1.0) {
                 throw RequestFailure(id, "Volume must be between 0 and 1")
             }
-            return Request(id, action, null, volume, null)
+            return Request(id, action, null, volume, null, null)
         }
         if (action == Action.CONFIGURE) {
-            val bitPerfect = value.opt("bit_perfect") as? Boolean
-                ?: throw RequestFailure(id, "Bit-perfect setting is required")
-            return Request(id, action, null, null, bitPerfect)
+            val usbDirect = value.opt("usb_direct") as? Boolean
+                ?: throw RequestFailure(id, "The USB direct setting is required")
+            val unsupportedFormat = value.opt("unsupported_format") as? String
+                ?: throw RequestFailure(id, "The unsupported format choice is required")
+            if (unsupportedFormat != UsbDirectPolicy.UNSUPPORTED_SKIP &&
+                unsupportedFormat != UsbDirectPolicy.UNSUPPORTED_SYSTEM_OUTPUT
+            ) {
+                throw RequestFailure(id, "The unsupported format choice is invalid")
+            }
+            return Request(id, action, null, null, usbDirect, unsupportedFormat)
         }
 
         val rawName = value.opt("name") as? String
@@ -397,7 +365,7 @@ internal class NativeAudioBridge(
         ) {
             throw RequestFailure(id, "Name is invalid")
         }
-        return Request(id, action, name, null, null)
+        return Request(id, action, name, null, null, null)
     }
 
     private fun response(
@@ -475,86 +443,30 @@ internal class NativeAudioBridge(
             .put("supported", audio.optBoolean("supported", false))
             .put("available", audio.optBoolean("available", false))
             .put("reason", audio.optString("reason").let { if (it.isBlank()) "" else safeCode(it) })
-            .put("api_level", audio.optInt("api_level", 0).coerceIn(0, 1_000))
-            .put("mixer_report", sanitizeMixerReport(audio.optJSONArray("mixer_report")))
             .put("enabled", audio.optBoolean("enabled", false))
+            .put(
+                "unsupported_format",
+                UsbDirectPolicy.unsupportedFormatChoice(audio.optString("unsupported_format")),
+            )
             .put("devices", devices)
-            .put("requested", JSONObject().put("bit_perfect", requested.optBoolean("bit_perfect", false)))
-            .put("state", audio.optString("state").takeIf { it in AUDIO_STATES } ?: "stopped")
-            .put("can_configure", audio.optBoolean("can_configure", false))
-            .put("actual", sanitizeActualAudio(audio.optJSONObject("actual")))
-            .put("debug_build", audio.optBoolean("debug_build", false))
-            .also { value ->
-                if (audio.optBoolean("debug_build", false)) {
-                    audio.optJSONObject("usb_direct")
-                        ?.let(::sanitizeUsbDirect)
-                        ?.let { value.put("usb_direct", it) }
-                }
-                sanitizeError(audio.optJSONObject("error"))?.let { value.put("error", it) }
-            }
-    }
-
-    /**
-     * Copies the debug-only USB direct report: bounded descriptor capabilities plus the live
-     * counters. Nothing here can carry a media URL or a device path.
-     */
-    private fun sanitizeUsbDirect(usbDirect: JSONObject): JSONObject {
-        val formats = JSONArray()
-        usbDirect.optJSONArray("formats")?.let { values ->
-            for (index in 0 until minOf(values.length(), MAX_USB_DIRECT_FORMATS)) {
-                val format = values.optJSONObject(index) ?: continue
-                val rates = JSONArray()
-                format.optJSONArray("rates")?.let { reported ->
-                    for (rateIndex in 0 until minOf(reported.length(), MAX_USB_DIRECT_RATES)) {
-                        val rate = reported.optInt(rateIndex, 0)
-                        if (rate > 0) rates.put(rate)
-                    }
-                }
-                formats.put(
-                    JSONObject()
-                        .put("bits", format.optInt("bits", 0).coerceAtLeast(0))
-                        .put("subslot_bytes", format.optInt("subslot_bytes", 0).coerceAtLeast(0))
-                        .put("channels", format.optInt("channels", 0).coerceAtLeast(0))
-                        .put("sync", format.optString("sync").let { if (it.isBlank()) "" else safeCode(it) })
-                        .put("feedback", format.optBoolean("feedback", false))
-                        .put("rates", rates),
-                )
-            }
-        }
-        val requested = usbDirect.optJSONObject("requested") ?: JSONObject()
-        val actual = usbDirect.optJSONObject("actual") ?: JSONObject()
-        return JSONObject()
-            .put("state", usbDirect.optString("state").takeIf { it in USB_DIRECT_STATES } ?: "idle")
-            .put("device_name", safeLabel(usbDirect.optString("device_name")))
-            .put("can_start", usbDirect.optBoolean("can_start", false))
-            .put("track", safeLabel(usbDirect.optString("track")))
-            .put("decoder", safeLabel(usbDirect.optString("decoder")))
-            .put("decoder_encoding", usbDirect.optString("decoder_encoding").let { if (it.isBlank()) "" else safeCode(it) })
-            .put("uac_version", usbDirect.optInt("uac_version", 0).coerceIn(0, 2))
-            .put("high_speed", usbDirect.optBoolean("high_speed", false))
-            .put("formats", formats)
             .put(
                 "requested",
                 JSONObject()
-                    .put("sample_rate", requested.optInt("sample_rate", 0).coerceAtLeast(0))
-                    .put("bits", requested.optInt("bits", 0).coerceAtLeast(0))
-                    .put("channels", requested.optInt("channels", 0).coerceAtLeast(0)),
+                    .put(
+                        "mode",
+                        if (requested.optString("mode") == UsbDirectPolicy.ENGINE_USB_DIRECT) {
+                            UsbDirectPolicy.ENGINE_USB_DIRECT
+                        } else {
+                            UsbDirectPolicy.ENGINE_SYSTEM
+                        },
+                    )
+                    .put("device_name", safeLabel(requested.optString("device_name"))),
             )
-            .put(
-                "actual",
-                JSONObject()
-                    .put("sample_rate", actual.optInt("sample_rate", 0).coerceAtLeast(0))
-                    .put("bits", actual.optInt("bits", 0).coerceAtLeast(0))
-                    .put("channels", actual.optInt("channels", 0).coerceAtLeast(0))
-                    .put("subslot_bytes", actual.optInt("subslot_bytes", 0).coerceAtLeast(0))
-                    .put("sync", actual.optString("sync").let { if (it.isBlank()) "" else safeCode(it) })
-                    .put("feedback", actual.optBoolean("feedback", false)),
-            )
-            .put("packets", usbDirect.optLong("packets", 0L).coerceAtLeast(0L))
-            .put("underruns", usbDirect.optLong("underruns", 0L).coerceAtLeast(0L))
-            .put("feedback_rate", usbDirect.optInt("feedback_rate", 0).coerceAtLeast(0))
+            .put("state", audio.optString("state").takeIf { it in AUDIO_STATES } ?: "stopped")
+            .put("can_configure", audio.optBoolean("can_configure", false))
+            .put("actual", sanitizeActualAudio(audio.optJSONObject("actual")))
             .also { value ->
-                sanitizeError(usbDirect.optJSONObject("error"))?.let { value.put("error", it) }
+                sanitizeError(audio.optJSONObject("error"))?.let { value.put("error", it) }
             }
     }
 
@@ -566,59 +478,25 @@ internal class NativeAudioBridge(
         val validBits = actual.optInt("valid_bits", 0)
         if (sampleRate <= 0 || channels <= 0 || containerBits <= 0 || validBits <= 0) return JSONObject.NULL
         return JSONObject()
-            .put("device_id", safeLabel(actual.optString("device_id")))
-            .put("name", safeLabel(actual.optString("name")))
-            .put("mode", if (actual.optString("mode") == "bit_perfect") "bit_perfect" else "mixed")
+            .put(
+                "engine",
+                if (actual.optString("engine") == UsbDirectPolicy.ENGINE_USB_DIRECT) {
+                    UsbDirectPolicy.ENGINE_USB_DIRECT
+                } else {
+                    UsbDirectPolicy.ENGINE_SYSTEM
+                },
+            )
+            .put("device_name", safeLabel(actual.optString("device_name")))
             .put("sample_rate", sampleRate)
             .put("channels", channels)
             .put("container_bits", containerBits)
             .put("valid_bits", validBits)
             .put("encoding", safeCode(actual.optString("encoding")))
+            .put("sync", actual.optString("sync").let { if (it.isBlank()) "" else safeCode(it) })
+            .put("feedback_rate", actual.optInt("feedback_rate", 0).coerceAtLeast(0))
+            .put("underruns", actual.optLong("underruns", 0L).coerceAtLeast(0L))
             .put("bit_transparent", actual.optBoolean("bit_transparent", false))
             .put("reason", safeCode(actual.optString("reason")))
-    }
-
-    /** Copies the bounded diagnostics list: counts plus each reported entry's raw numbers. */
-    private fun sanitizeMixerReport(reports: JSONArray?): JSONArray {
-        val value = JSONArray()
-        reports ?: return value
-        var remaining = MAX_MIXER_ENTRIES
-        for (index in 0 until minOf(reports.length(), MAX_AUDIO_DEVICES)) {
-            val report = reports.optJSONObject(index) ?: continue
-            val entries = JSONArray()
-            val reported = report.optJSONArray("entries")
-            if (reported != null) {
-                for (entryIndex in 0 until minOf(reported.length(), remaining.coerceAtLeast(0))) {
-                    val entry = reported.optJSONObject(entryIndex) ?: continue
-                    entries.put(
-                        JSONObject()
-                            .put("bit_perfect", entry.optBoolean("bit_perfect", false))
-                            .put("encoding", entry.optInt("encoding", 0))
-                            .put("encoding_label", safeLabel(entry.optString("encoding_label")))
-                            .put("sample_rate", entry.optInt("sample_rate", 0).coerceAtLeast(0))
-                            .put("channel_mask", entry.optInt("channel_mask", 0))
-                            .put("channel_index_mask", entry.optInt("channel_index_mask", 0))
-                            .put(
-                                "rejection",
-                                entry.optString("rejection").let { if (it.isBlank()) "" else safeCode(it) },
-                            ),
-                    )
-                }
-            }
-            remaining -= entries.length()
-            value.put(
-                JSONObject()
-                    .put("device_id", safeLabel(report.optString("device_id")))
-                    .put("device_name", safeLabel(report.optString("device_name")))
-                    .put("device_type", safeCode(report.optString("device_type")))
-                    .put("total", report.optInt("total", 0).coerceAtLeast(0))
-                    .put("bit_perfect", report.optInt("bit_perfect", 0).coerceAtLeast(0))
-                    .put("usable_bit_perfect", report.optInt("usable_bit_perfect", 0).coerceAtLeast(0))
-                    .put("rejected", report.optInt("rejected", 0).coerceAtLeast(0))
-                    .put("entries", entries),
-            )
-        }
-        return value
     }
 
     private fun safeLabel(value: String): String =
@@ -693,9 +571,6 @@ internal class NativeAudioBridge(
         SET_VOLUME,
         RENAME,
         CONFIGURE,
-        USB_DIRECT_SCAN,
-        USB_DIRECT_START,
-        USB_DIRECT_STOP,
     }
 
     private data class Request(
@@ -703,7 +578,8 @@ internal class NativeAudioBridge(
         val action: Action,
         val name: String?,
         val volume: Double?,
-        val bitPerfect: Boolean?,
+        val usbDirect: Boolean?,
+        val unsupportedFormat: String?,
     )
 
     private class RequestFailure(val id: String, val safeMessage: String) : Exception()
@@ -717,14 +593,10 @@ internal class NativeAudioBridge(
         private val STATUS_KEYS = setOf("id", "action")
         private val NAMED_ACTION_KEYS = setOf("id", "action", "name")
         private val VOLUME_ACTION_KEYS = setOf("id", "action", "volume")
-        private val CONFIGURE_ACTION_KEYS = setOf("id", "action", "bit_perfect")
+        private val CONFIGURE_ACTION_KEYS = setOf("id", "action", "usb_direct", "unsupported_format")
         private val AUDIO_STATES = setOf("stopped", "loaded", "playing", "paused", "error")
-        private val USB_DIRECT_STATES = setOf("idle", "opening_source", "opening", "playing", "error")
-        private const val MAX_USB_DIRECT_FORMATS = 16
-        private const val MAX_USB_DIRECT_RATES = 64
         private const val MAX_AUDIO_DEVICES = 8
         private const val MAX_LABEL_CHARACTERS = 120
-        private const val MAX_MIXER_ENTRIES = 32
         private val SAFE_CODE = Regex("[a-z0-9_.-]{1,64}")
     }
 }

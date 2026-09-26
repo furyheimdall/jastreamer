@@ -317,27 +317,6 @@ internal class OfflineTransferClient(
         }
     }
 
-    /**
-     * Confirms a prepared artifact really serves before a player is pointed at it, so a revoked or
-     * missing file surfaces as its HTTP status instead of an opaque decoder error.
-     */
-    suspend fun probeFile(url: HttpUrl, authorization: String, expectedSize: Long, expectedMime: String) {
-        val builder = requestBuilder(url, authenticated = false, authorization = authorization)
-            .header("Accept", expectedMime.ifBlank { "application/octet-stream" })
-            .header("Accept-Encoding", "identity")
-        execute(builder.head().build()) { response ->
-            if (!response.isSuccessful) throw httpFailure(response)
-            val length = response.header("Content-Length")?.toLongOrNull()
-            if (expectedSize > 0 && length != null && length != expectedSize) {
-                throw OfflineDownloadException(
-                    "size_mismatch",
-                    "The prepared file size changed",
-                    httpStatus = response.code,
-                )
-            }
-        }
-    }
-
     suspend fun artwork(
         path: String,
         destination: File,

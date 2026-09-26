@@ -5,6 +5,8 @@
     <string name="native_playback_notification_description">휴대전화 재생 및 미디어 컨트롤</string>
     <string name="native_playback_error">휴대전화 재생을 계속할 수 없습니다.</string>
     <string name="native_audio_usb_device">USB 오디오 기기</string>
+    <string name="native_audio_usb_detached">USB 오디오 기기 연결이 끊겨 재생을 멈췄습니다.</string>
+    <string name="native_audio_android_output">Android 출력</string>
     <string name="playback_home_title">재생 방법을 선택하세요</string>
     <string name="playback_home_detail">서버를 열거나 이 기기에 저장된 음악을 들으세요. 화면 이동만으로 재생되지는 않습니다.</string>
     <string name="server_playback">서버 재생</string>

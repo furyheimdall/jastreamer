@@ -6,12 +6,15 @@ import android.app.NotificationManager
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.hardware.usb.UsbDevice
+import android.hardware.usb.UsbManager
 import android.media.AudioManager
 import android.os.Process
 import android.os.SystemClock
 import android.webkit.CookieManager
 import androidx.annotation.OptIn
 import androidx.core.content.ContextCompat
+import androidx.core.content.IntentCompat
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.ForwardingSimpleBasePlayer
@@ -123,19 +126,13 @@ class NativePlaybackService : MediaSessionService(), Player.Listener {
     private var pendingTerminal: TerminalEvent? = null
     private var acknowledgingCommand = false
     private var deferredPlaybackError: PlayerFailure? = null
-    private lateinit var bitPerfect: UsbBitPerfectController
+    private lateinit var usbDirect: UsbDirectEngine
+    private lateinit var renderers: UsbDirectRenderersFactory
     private var playerReleased = false
-    private var audioTrackStream: PcmStream? = null
-    private var audioTrackGeneration = -1L
-    private var bitPerfectSource: SourceStream? = null
-    private var bitPerfectError: PublicError? = null
-
-    /**
-     * The debug-only USB direct output experiment and the last Server track it may replay. Both stay
-     * null in release builds, so nothing in this file can reach a USB DAC outside a debug build.
-     */
-    private var usbDirect: UsbDirectTestSession? = null
-    private var usbDirectTrack: UsbDirectTrack? = null
+    /** The stream the Android output opened, for the tracks that do not go out over USB. */
+    private var audioTrackStream: UsbActualStream? = null
+    private var currentSource: SourceStream? = null
+    private var usbStatusJob: Job? = null
 
     private val noisyReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
@@ -153,6 +150,34 @@ class NativePlaybackService : MediaSessionService(), Player.Listener {
         }
     }
 
+    /**
+     * Unplugging the DAC ends Server playback with an error rather than moving the track to the
+     * phone speaker: the user asked for that device, and nothing here resumes by itself.
+     */
+    private val usbDetachReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            if (intent?.action != UsbManager.ACTION_USB_DEVICE_DETACHED) return
+            val device = IntentCompat.getParcelableExtra(intent, UsbManager.EXTRA_DEVICE, UsbDevice::class.java)
+                ?: return
+            if (!usbDirect.holds(device)) {
+                notifyState()
+                return
+            }
+            val playing = owner == PlaybackOwner.SERVER && currentResource != null
+            usbDirect.recordFailure(
+                UsbDirectPolicy.FAILURE_DEVICE_LOST,
+                "The USB audio device was disconnected.",
+            )
+            usbDirect.release()
+            if (playing) {
+                currentResource?.wantsPlayback = false
+                player.stop()
+                setError(UsbDirectPolicy.FAILURE_DEVICE_LOST, getString(R.string.native_audio_usb_detached))
+            }
+            notifyState()
+        }
+    }
+
     override fun onCreate() {
         super.onCreate()
         offlineLibrary = OfflineLibrary.get(applicationContext)
@@ -160,7 +185,9 @@ class NativePlaybackService : MediaSessionService(), Player.Listener {
             .setLoadErrorHandlingPolicy(object : DefaultLoadErrorHandlingPolicy(0) {
                 override fun getRetryDelayMsFor(loadErrorInfo: LoadErrorHandlingPolicy.LoadErrorInfo): Long = C.TIME_UNSET
             })
-        player = ExoPlayer.Builder(this)
+        usbDirect = UsbDirectEngine(this) { notifyState() }
+        renderers = UsbDirectRenderersFactory(this, usbDirect)
+        player = ExoPlayer.Builder(this, renderers)
             .setWakeMode(C.WAKE_MODE_NETWORK)
             .build()
             .also {
@@ -176,15 +203,6 @@ class NativePlaybackService : MediaSessionService(), Player.Listener {
                 it.addListener(this)
                 it.addAnalyticsListener(AudioTrackObserver())
             }
-        bitPerfect = UsbBitPerfectController(this) { notifyState() }
-        // Debug builds only: the experiment never exists in a release APK, so no release code path
-        // can open a USB device.
-        if (BuildConfig.DEBUG) {
-            usbDirect = UsbDirectTestSession(this, scope) {
-                // The decode loop runs off the main thread; state is published on it.
-                scope.launch { notifyState() }
-            }
-        }
         routedPlayer = OwnerRoutedPlayer(player)
         session = MediaSession.Builder(this, routedPlayer)
             .setCallback(SessionCallback())
@@ -208,6 +226,12 @@ class NativePlaybackService : MediaSessionService(), Player.Listener {
             this,
             noisyReceiver,
             IntentFilter(AudioManager.ACTION_AUDIO_BECOMING_NOISY),
+            ContextCompat.RECEIVER_NOT_EXPORTED,
+        )
+        ContextCompat.registerReceiver(
+            this,
+            usbDetachReceiver,
+            IntentFilter(UsbManager.ACTION_USB_DEVICE_DETACHED),
             ContextCompat.RECEIVER_NOT_EXPORTED,
         )
         addSession(session)
@@ -244,20 +268,22 @@ class NativePlaybackService : MediaSessionService(), Player.Listener {
         } catch (_: IllegalArgumentException) {
             // Receiver was already removed by the framework.
         }
+        try {
+            unregisterReceiver(usbDetachReceiver)
+        } catch (_: IllegalArgumentException) {
+            // Receiver was already removed by the framework.
+        }
         cancelServerTransport()
         offlineTickerJob?.cancel()
         offlineLibraryJob?.cancel()
+        usbStatusJob?.cancel()
         // The DAC must go back to Android before anything else tears down.
-        usbDirect?.release()
-        usbDirect = null
-        usbDirectTrack = null
+        usbDirect.release()
         player.stop()
         releaseOfflineRetention()
         serviceJob.cancel()
         session.release()
         player.removeListener(this)
-        // The USB preference outlives an AudioTrack, so it is released before the player is.
-        bitPerfect.release()
         playerReleased = true
         routedPlayer.release()
         setOwner(PlaybackOwner.NONE)
@@ -983,22 +1009,19 @@ class NativePlaybackService : MediaSessionService(), Player.Listener {
 
     private fun setOwner(value: PlaybackOwner) {
         if (owner == value) return
-        // Bit-perfect output and the debug USB direct test both belong to Server-owned playback;
-        // Saved music, or losing ownership, gives the mixer and the DAC back to Android.
-        if (value != PlaybackOwner.SERVER) {
-            releaseBitPerfect()
-            usbDirect?.stop()
-        }
+        // The direct USB output belongs to Server-owned playback; Saved music, or losing
+        // ownership, gives the DAC back to Android.
+        if (value != PlaybackOwner.SERVER) releaseUsbDirect()
         owner = value
         ownershipGeneration++
     }
 
-    /** Drops the preferred mixer attributes and the pinned USB route for the shared player. */
-    private fun releaseBitPerfect() {
-        bitPerfect.clear()
-        bitPerfectSource = null
-        bitPerfectError = null
-        if (::player.isInitialized && !playerReleased) player.setPreferredAudioDevice(null)
+    /** Hands the DAC back to Android and forgets the path the panel was reporting. */
+    private fun releaseUsbDirect() {
+        usbStatusJob?.cancel()
+        usbStatusJob = null
+        usbDirect.release()
+        currentSource = null
     }
 
     private fun ownerName(): String = when (owner) {
@@ -1240,10 +1263,10 @@ class NativePlaybackService : MediaSessionService(), Player.Listener {
         if (owner != PlaybackOwner.SERVER) {
             throw NativePlaybackException("not_connected", "Phone playback is not owned by this server.")
         }
-        if (bitPerfect.enabled) {
+        if (usbDirect.enabled) {
             throw NativePlaybackException(
-                "bit_perfect_fixed_volume",
-                "Volume is fixed at 100% for USB bit-perfect output; adjust it on the DAC.",
+                "usb_direct_fixed_volume",
+                "Volume is fixed at 100% for USB bit-perfect output; adjust it on the USB device.",
             )
         }
         player.volume = volume
@@ -1252,10 +1275,18 @@ class NativePlaybackService : MediaSessionService(), Player.Listener {
     }
 
     /**
-     * Turns the opt-in USB bit-perfect path on or off. It applies from the next track and keeps the
-     * same Server output registration, so it is only accepted while phone playback is stopped.
+     * Turns the opt-in direct USB output on or off and records what to do with a track the device
+     * cannot take unchanged. Both apply from the next track and keep the same Server output
+     * registration, so they are only accepted while phone playback is stopped.
+     *
+     * Enabling asks for USB access here rather than at playback time: a permission dialog in the
+     * middle of a track would either stall the decoder or fail the item for no good reason.
      */
-    internal fun configure(server: ServerEndpoint, usbBitPerfect: Boolean): JSONObject {
+    internal suspend fun configure(
+        server: ServerEndpoint,
+        usbDirectEnabled: Boolean,
+        unsupportedFormat: String,
+    ): JSONObject {
         requireRegistration(server)
         if (owner != PlaybackOwner.SERVER) {
             throw NativePlaybackException("not_connected", "Phone playback is not owned by this server.")
@@ -1263,188 +1294,32 @@ class NativePlaybackService : MediaSessionService(), Player.Listener {
         if (currentResource != null || preparing || recovering) {
             throw NativePlaybackException("stop_required", "Stop phone playback before changing audio settings.")
         }
-        if (usbBitPerfect) {
-            val status = bitPerfect.status()
-            if (!status.available) {
+        if (usbDirectEnabled) {
+            val availability = usbDirect.availability()
+            if (!availability.supported) {
                 throw NativePlaybackException(
-                    "bit_perfect_unavailable",
-                    when (status.reason) {
-                        UsbBitPerfectPolicy.UNAVAILABLE_REQUIRES_ANDROID_14 ->
-                            "USB bit-perfect output needs Android 14 or newer."
-                        UsbBitPerfectPolicy.UNAVAILABLE_NO_USB_DEVICE ->
-                            "Connect a USB audio device to use bit-perfect output."
-                        else -> "This USB audio device does not offer a bit-perfect mixer."
-                    },
+                    "usb_direct_unavailable",
+                    "This phone build has no direct USB audio driver.",
+                )
+            }
+            if (availability.reason == UsbDirectPolicy.UNAVAILABLE_NO_USB_DEVICE) {
+                throw NativePlaybackException(
+                    "usb_direct_unavailable",
+                    "Connect a USB audio device to use bit-perfect output.",
+                )
+            }
+            if (!usbDirect.requestPermission()) {
+                throw NativePlaybackException(
+                    "usb_direct_permission_required",
+                    "USB access is needed to send audio straight to the USB device.",
                 )
             }
         }
-        bitPerfect.setEnabled(usbBitPerfect)
-        bitPerfectError = null
-        if (usbBitPerfect) player.volume = 1f else releaseBitPerfect()
+        usbDirect.setSettings(usbDirectEnabled, unsupportedFormat)
+        if (usbDirectEnabled) player.volume = 1f else releaseUsbDirect()
         publicError = null
         notifyState()
         return state(server)
-    }
-
-    /**
-     * Opens the attached USB Audio Class DAC and reports what its descriptors say. Debug builds
-     * only, and only on an explicit press: nothing here runs on connection, startup or playback.
-     */
-    internal suspend fun usbDirectScan(server: ServerEndpoint): JSONObject {
-        val session = requireUsbDirect(server)
-        try {
-            session.scan()
-        } catch (failure: UsbDirectException) {
-            throw NativePlaybackException(failure.code, failure.message.orEmpty())
-        }
-        notifyState()
-        return state(server)
-    }
-
-    /**
-     * Decodes the Server track this phone loaded most recently and streams it straight to the DAC.
-     * Refused while the Media3 engine still holds a track, so the two paths never share a device.
-     *
-     * The track is identified by library id and read from its own authenticated per-track artifact.
-     * The playback media URL cannot be reused: the Server revokes that grant the moment playback
-     * stops, which is precisely the state this test requires.
-     */
-    internal suspend fun usbDirectStart(server: ServerEndpoint): JSONObject {
-        val session = requireUsbDirect(server)
-        val registration = requireRegistration(server)
-        if (currentResource != null || preparing || recovering || player.isPlaying) {
-            throw NativePlaybackException(
-                "stop_required",
-                "Stop phone playback before running the USB direct test.",
-            )
-        }
-        if (usbDirectTrack == null) {
-            throw NativePlaybackException(
-                "usb_direct_no_track",
-                "Play a track on this phone from the Server once, then stop it, so the test has something to decode.",
-            )
-        }
-        val track = resolveUsbDirectTrack(registration)
-        try {
-            session.start(track, UsbDirectSource(server))
-        } catch (failure: UsbDirectException) {
-            throw NativePlaybackException(failure.code, failure.message.orEmpty())
-        }
-        notifyState()
-        return state(server)
-    }
-
-    /**
-     * Asks the Server which track it still has loaded and remembers its id. The remembered id is
-     * reused when the Server has since cleared its current track, so a stopped phone can still
-     * replay the track it last loaded.
-     */
-    private suspend fun resolveUsbDirectTrack(registration: Registration): UsbDirectTrack {
-        val remembered = usbDirectTrack
-        val current = try {
-            withTimeout(UsbDirectTestPolicy.RESOLVE_TIMEOUT_MILLIS) {
-                registration.client.json("GET", "/api/v1/player")
-            }
-        } catch (error: CancellationException) {
-            throw error
-        } catch (_: Throwable) {
-            null
-        }
-        val resolved = current?.optJSONObject("track")?.optString("id")?.trim().orEmpty()
-        val trackId = resolved.takeIf { it.isNotEmpty() && it.length <= MAX_TRACK_ID_CHARACTERS }
-            ?: remembered?.trackId?.takeIf(String::isNotEmpty)
-            ?: throw NativePlaybackException(
-                "usb_direct_no_track",
-                "The Server no longer reports a loaded track for this phone.",
-            )
-        val label = remembered?.label.orEmpty()
-        val track = UsbDirectTrack(trackId, label)
-        usbDirectTrack = track
-        return track
-    }
-
-    internal fun usbDirectStop(server: ServerEndpoint): JSONObject {
-        val session = requireUsbDirect(server)
-        session.stop()
-        notifyState()
-        return state(server)
-    }
-
-    private fun requireUsbDirect(server: ServerEndpoint): UsbDirectTestSession {
-        requireRegistration(server)
-        if (owner != PlaybackOwner.SERVER) {
-            throw NativePlaybackException("not_connected", "Phone playback is not owned by this server.")
-        }
-        return usbDirect
-            ?: throw NativePlaybackException(
-                "usb_direct_unavailable",
-                "The USB direct test exists only in debug builds.",
-            )
-    }
-
-    /** The debug-only USB direct experiment, as the developer panel reports it. */
-    private fun usbDirectState(session: UsbDirectTestSession): JSONObject {
-        val capabilities = session.capabilities
-        val formats = JSONArray()
-        capabilities?.formats?.take(MAX_USB_DIRECT_FORMATS)?.forEach { format ->
-            val rates = JSONArray()
-            format.rates.take(MAX_USB_DIRECT_RATES).forEach(rates::put)
-            formats.put(
-                JSONObject()
-                    .put("bits", format.bits)
-                    .put("subslot_bytes", format.subslotBytes)
-                    .put("channels", format.channels)
-                    .put("sync", format.sync)
-                    .put("feedback", format.feedback)
-                    .put("rates", rates),
-            )
-        }
-        val live = session.status()
-        val requested = session.requested
-        val actual = session.actual
-        return JSONObject()
-            .put("state", session.state)
-            .put("device_name", session.deviceName)
-            .put(
-                "can_start",
-                session.supported &&
-                    !session.busy &&
-                    usbDirectTrack != null &&
-                    currentResource == null &&
-                    !preparing &&
-                    !recovering,
-            )
-            .put("track", usbDirectTrack?.label.orEmpty())
-            .put("decoder", session.decoder)
-            .put("decoder_encoding", session.decoderEncoding)
-            .put("uac_version", capabilities?.uacVersion ?: 0)
-            .put("high_speed", capabilities?.highSpeed ?: false)
-            .put("formats", formats)
-            .put(
-                "requested",
-                JSONObject()
-                    .put("sample_rate", requested?.sampleRate ?: 0)
-                    .put("bits", requested?.bits ?: 0)
-                    .put("channels", requested?.channels ?: 0),
-            )
-            .put(
-                "actual",
-                JSONObject()
-                    .put("sample_rate", actual?.actualSampleRate?.takeIf { it > 0 } ?: actual?.sampleRate ?: 0)
-                    .put("bits", actual?.bits ?: 0)
-                    .put("channels", actual?.channels ?: 0)
-                    .put("subslot_bytes", actual?.subslotBytes ?: 0)
-                    .put("sync", actual?.sync.orEmpty())
-                    .put("feedback", actual?.feedback ?: false),
-            )
-            .put("packets", live?.packets ?: 0L)
-            .put("underruns", live?.underruns ?: 0L)
-            .put("feedback_rate", live?.feedbackRate ?: 0)
-            .also { value ->
-                session.error?.let { (code, message) ->
-                    value.put("error", JSONObject().put("code", code).put("message", message))
-                }
-            }
     }
 
     internal fun state(server: ServerEndpoint): JSONObject {
@@ -1460,7 +1335,7 @@ class NativePlaybackService : MediaSessionService(), Player.Listener {
             .put("recovering", recovering)
             .put(
                 "volume",
-                if (existing != null && owner == PlaybackOwner.SERVER && !bitPerfect.enabled) {
+                if (existing != null && owner == PlaybackOwner.SERVER && !usbDirect.enabled) {
                     player.volume.toDouble()
                 } else {
                     JSONObject.NULL
@@ -1474,67 +1349,35 @@ class NativePlaybackService : MediaSessionService(), Player.Listener {
 
     /** The requested and the actually active local audio path, as the settings panel reports them. */
     private fun audioState(): JSONObject {
-        val status = bitPerfect.status()
+        val availability = usbDirect.availability()
         val devices = JSONArray()
-        status.devices.forEach { device ->
+        availability.devices.forEach { device ->
             devices.put(JSONObject().put("id", device.id).put("name", device.name))
         }
         return JSONObject()
-            .put("supported", status.supported)
-            .put("available", status.available)
-            .put("reason", status.reason)
+            .put("supported", availability.supported)
+            .put("available", availability.available)
+            .put("reason", availability.reason)
             .put("devices", devices)
-            .put("api_level", status.apiLevel)
-            .put("mixer_report", mixerReport(status.reports))
-            .put("enabled", bitPerfect.enabled)
-            .put("requested", JSONObject().put("bit_perfect", bitPerfect.enabled))
+            .put("enabled", usbDirect.enabled)
+            .put("unsupported_format", usbDirect.unsupportedFormat)
+            .put(
+                "requested",
+                JSONObject()
+                    .put(
+                        "mode",
+                        if (usbDirect.enabled) UsbDirectPolicy.ENGINE_USB_DIRECT else UsbDirectPolicy.ENGINE_SYSTEM,
+                    )
+                    .put("device_name", if (usbDirect.enabled) usbDirect.deviceLabel() else ""),
+            )
             .put("state", engineState())
             .put("can_configure", owner == PlaybackOwner.SERVER && currentResource == null && !preparing && !recovering)
             .put("actual", actualAudio() ?: JSONObject.NULL)
-            .put("debug_build", BuildConfig.DEBUG)
             .also { value ->
-                usbDirect?.let { value.put("usb_direct", usbDirectState(it)) }
-                bitPerfectError?.let {
-                    value.put("error", JSONObject().put("code", it.code).put("message", it.message))
+                usbDirect.rejection?.let {
+                    value.put("error", JSONObject().put("code", it.code).put("message", it.detail))
                 }
             }
-    }
-
-    /**
-     * The raw `getSupportedMixerAttributes` list per USB device, bounded, so a device that reports
-     * nothing usable can be told apart from one that reports nothing at all.
-     */
-    private fun mixerReport(reports: List<UsbMixerReport>): JSONArray {
-        val value = JSONArray()
-        var remaining = MAX_REPORTED_MIXER_ENTRIES
-        reports.forEach { report ->
-            val entries = JSONArray()
-            report.entries.take(remaining.coerceAtLeast(0)).forEach { reported ->
-                entries.put(
-                    JSONObject()
-                        .put("bit_perfect", reported.entry.bitPerfect)
-                        .put("encoding", reported.entry.encoding)
-                        .put("encoding_label", reported.encodingLabel)
-                        .put("sample_rate", reported.entry.sampleRate)
-                        .put("channel_mask", reported.entry.channelMask)
-                        .put("channel_index_mask", reported.entry.channelIndexMask)
-                        .put("rejection", reported.rejection),
-                )
-            }
-            remaining -= entries.length()
-            value.put(
-                JSONObject()
-                    .put("device_id", report.deviceId)
-                    .put("device_name", report.deviceName)
-                    .put("device_type", report.deviceType)
-                    .put("total", report.total)
-                    .put("bit_perfect", report.bitPerfect)
-                    .put("usable_bit_perfect", report.usableBitPerfect)
-                    .put("rejected", report.rejected)
-                    .put("entries", entries),
-            )
-        }
-        return value
     }
 
     private fun engineState(): String = when {
@@ -1545,30 +1388,31 @@ class NativePlaybackService : MediaSessionService(), Player.Listener {
         else -> "loaded"
     }
 
+    /**
+     * The path carrying audio right now: the running USB stream when the DAC has it, otherwise the
+     * Android output the shared sink opened.
+     */
     private fun actualAudio(): JSONObject? {
         if (owner != PlaybackOwner.SERVER) return null
-        val stream = audioTrackStream ?: return null
-        val active = bitPerfect.active(stream)
-        val source = bitPerfectSource
-        val verdict = if (source == null) {
-            BitPerfectVerdict(false, UsbBitPerfectPolicy.REASON_SOURCE_PROVENANCE_UNKNOWN)
-        } else {
-            UsbBitPerfectPolicy.transparency(
-                source = source,
-                actual = stream,
-                bitPerfectActive = active?.bitPerfect == true,
-                unityGain = player.volume == 1f,
-            )
-        }
+        val stream = usbDirect.activeStream ?: audioTrackStream ?: return null
+        val direct = stream.engine == UsbDirectPolicy.ENGINE_USB_DIRECT
+        val counters = if (direct) usbDirect.counters() else null
+        val verdict = UsbDirectPolicy.transparency(
+            source = currentSource,
+            actual = stream,
+            unityGain = player.volume == 1f,
+        )
         return JSONObject()
-            .put("device_id", active?.deviceId.orEmpty())
-            .put("name", active?.deviceName ?: bitPerfect.deviceLabel())
-            .put("mode", if (active?.bitPerfect == true) "bit_perfect" else "mixed")
+            .put("engine", stream.engine)
+            .put("device_name", stream.deviceName)
             .put("sample_rate", stream.sampleRate)
-            .put("channels", stream.channelCount)
-            .put("container_bits", stream.encoding.containerBits)
-            .put("valid_bits", stream.encoding.validBits)
-            .put("encoding", stream.encoding.label)
+            .put("channels", stream.channels)
+            .put("container_bits", stream.containerBits)
+            .put("valid_bits", stream.validBits)
+            .put("encoding", stream.encoding)
+            .put("sync", if (direct) usbDirect.sync else "")
+            .put("feedback_rate", counters?.feedbackRate ?: 0)
+            .put("underruns", counters?.underruns ?: 0L)
             .put("bit_transparent", verdict.transparent)
             .put("reason", verdict.reason)
     }
@@ -1793,9 +1637,7 @@ class NativePlaybackService : MediaSessionService(), Player.Listener {
         pendingTerminal = null
         recovering = false
         publicError = null
-        // A Server track takes the phone back: the debug USB experiment never keeps the DAC
-        // while Media3 is about to open its own output.
-        usbDirect?.stop()
+        // The sink claims the DAC for the next track itself; nothing here holds it in between.
         // Keep the prior timeline while preparing the replacement. Clearing it here
         // removes Media3's notification and foreground protection between tracks.
         player.stop()
@@ -1832,19 +1674,7 @@ class NativePlaybackService : MediaSessionService(), Player.Listener {
             .build()
         val active = ActiveResource(playId, item, sequence)
         currentResource = active
-        // Debug builds remember which track the panel offers to replay. The media URL is useless
-        // here: the Server revokes its play grant on Stop, which is when the test may run at all.
-        // The library id is resolved from the Server when the test starts.
-        if (usbDirect != null) {
-            usbDirectTrack = UsbDirectTrack(
-                trackId = "",
-                label = listOf(resource.optString("title"), resource.optString("artist"))
-                    .map { it.trim() }
-                    .filter(String::isNotEmpty)
-                    .joinToString(" — ")
-                    .take(240),
-            )
-        }
+        currentSource = null
         try {
             player.setMediaSource(expected.client.mediaSource(item))
             prepareWithRecovery(expected, active, startPositionMillis = 0L, playWhenReady = false)
@@ -1855,78 +1685,41 @@ class NativePlaybackService : MediaSessionService(), Player.Listener {
         } catch (error: Throwable) {
             throw preparationFailure(active, error)
         }
-        applyBitPerfect(expected, active, resource)
+        currentSource = sourceStream(resource)
+        startUsbStatusTicker()
         notifyState()
         return observation("loaded", playId)
     }
 
     /**
-     * Configures the USB bit-perfect mixer for the freshly prepared track. The mixer attributes must
-     * exist before the `AudioTrack` is created, so a track opened under the previous preference is
-     * reopened once. An unusable format or device fails the item instead of falling back to the
-     * shared mixer.
+     * Publishes the live USB counters while a track is loaded, so the panel's underrun and
+     * feedback figures follow the running stream rather than only command replies.
      */
-    private suspend fun applyBitPerfect(expected: Registration, active: ActiveResource, resource: JSONObject) {
-        bitPerfectSource = sourceStream(resource)
-        bitPerfectError = null
-        if (!bitPerfect.enabled) {
-            if (bitPerfect.applied) releaseBitPerfect()
+    private fun startUsbStatusTicker() {
+        usbStatusJob?.cancel()
+        if (usbDirect.activeStream == null) {
+            usbStatusJob = null
             return
         }
-        val source = bitPerfectSource
-            ?: throw bitPerfectFailure("bit_perfect_format_unknown", "The decoded audio format is unknown, so bit-perfect output cannot be requested.")
-        val planned = UsbBitPerfectPolicy.plannedStream(
-            source = source,
-            channelMask = bitPerfect.channelMask(source.channelCount),
-            floatOutput = false,
-        ) ?: throw bitPerfectFailure("bit_perfect_layout_unsupported", "This channel layout cannot be sent to a USB audio device.")
-        val device = try {
-            bitPerfect.apply(planned)
-        } catch (failure: UsbBitPerfectException) {
-            throw bitPerfectFailure(failure.code, failure.message.orEmpty())
-        }
-        player.setPreferredAudioDevice(device)
-        player.volume = 1f
-        if (audioTrackStream != planned || audioTrackGeneration != bitPerfect.appliedGeneration) {
-            try {
-                player.stop()
-                player.setMediaSource(expected.client.mediaSource(active.mediaItem), 0L)
-                prepareWithRecovery(expected, active, startPositionMillis = 0L, playWhenReady = false)
-            } catch (error: CancellationException) {
-                throw error
-            } catch (error: PlaybackFailure) {
-                throw error
-            } catch (error: Throwable) {
-                throw preparationFailure(active, error)
+        usbStatusJob = scope.launch {
+            while (owner == PlaybackOwner.SERVER && currentResource != null && usbDirect.activeStream != null) {
+                delay(USB_STATUS_INTERVAL_MILLIS)
+                notifyState()
             }
         }
-        if (audioTrackStream != planned || !bitPerfect.activeBitPerfect()) {
-            releaseBitPerfect()
-            throw bitPerfectFailure(
-                "bit_perfect_not_applied",
-                "USB bit-perfect output could not be applied to this track.",
-            )
-        }
     }
 
-    /** Keeps the specific bit-perfect reason in the settings panel while the item fails normally. */
-    private fun bitPerfectFailure(code: String, message: String): CommandFailure {
-        bitPerfectError = PublicError(code, message)
-        notifyState()
-        return CommandFailure("media_unsupported", message)
-    }
-
-    /** What the Server delivered and what the extractor decoded, used for the transparency verdict. */
+    /** What the Server delivered and what the decoder reports, used for the transparency verdict. */
     private fun sourceStream(resource: JSONObject): SourceStream? {
         val format = player.audioFormat ?: return null
         if (format.sampleRate == Format.NO_VALUE || format.channelCount == Format.NO_VALUE) return null
         val transformed = if (resource.opt("transformed") is Boolean) resource.optBoolean("transformed") else null
-        val lossless = UsbBitPerfectPolicy.isLosslessMime(resource.optString("mime")) &&
-            UsbBitPerfectPolicy.isLosslessMime(format.sampleMimeType)
+        val lossless = UsbDirectPolicy.isLosslessMime(resource.optString("mime")) &&
+            UsbDirectPolicy.isLosslessMime(format.sampleMimeType)
         return SourceStream(
             sampleRate = format.sampleRate,
             channelCount = format.channelCount,
-            encoding = UsbBitPerfectController.encoding(format.pcmEncoding),
+            encoding = UsbDirectAudioSink.pcmEncoding(format.pcmEncoding),
             lossless = lossless,
             transformed = transformed,
         )
@@ -2651,6 +2444,8 @@ class NativePlaybackService : MediaSessionService(), Player.Listener {
         player.stop()
         if (clearMediaItems) player.clearMediaItems()
         currentResource = null
+        // Stopping hands the DAC back to Android: the next track claims it again.
+        releaseUsbDirect()
         notifyState()
     }
 
@@ -2994,21 +2789,23 @@ class NativePlaybackService : MediaSessionService(), Player.Listener {
         val playbackErrors: NativePlaybackErrorBuffer = NativePlaybackErrorBuffer(),
     )
 
-    /** Records the stream the sink actually opened, which is what the settings panel reports. */
+    /** Records the Android output stream, which is what the panel reports when USB direct is not used. */
     private inner class AudioTrackObserver : AnalyticsListener {
         override fun onAudioTrackInitialized(
             eventTime: AnalyticsListener.EventTime,
             audioTrackConfig: AudioSink.AudioTrackConfig,
         ) {
-            audioTrackStream = UsbBitPerfectController.encoding(audioTrackConfig.encoding)?.let { encoding ->
-                PcmStream(
-                    encoding = encoding,
+            audioTrackStream = UsbDirectAudioSink.pcmEncoding(audioTrackConfig.encoding)?.let { encoding ->
+                UsbActualStream(
+                    engine = UsbDirectPolicy.ENGINE_SYSTEM,
+                    deviceName = getString(R.string.native_audio_android_output),
                     sampleRate = audioTrackConfig.sampleRate,
-                    channelCount = Integer.bitCount(audioTrackConfig.channelConfig),
-                    channelMask = audioTrackConfig.channelConfig,
+                    channels = Integer.bitCount(audioTrackConfig.channelConfig),
+                    validBits = encoding.validBits,
+                    containerBits = encoding.containerBits,
+                    encoding = encoding.label,
                 )
             }
-            audioTrackGeneration = bitPerfect.appliedGeneration
             notifyState()
         }
 
@@ -3076,10 +2873,7 @@ class NativePlaybackService : MediaSessionService(), Player.Listener {
         private const val ARTWORK_TIMEOUT_MILLIS = 1_500L
         private const val SEEK_TOLERANCE_MILLIS = 250L
         private const val PREVIOUS_RESTART_THRESHOLD_MILLIS = 3_000L
-        private const val MAX_REPORTED_MIXER_ENTRIES = 32
-        private const val MAX_USB_DIRECT_FORMATS = 16
-        private const val MAX_USB_DIRECT_RATES = 64
-        private const val MAX_TRACK_ID_CHARACTERS = 200
+        private const val USB_STATUS_INTERVAL_MILLIS = 1_000L
 
         private fun registrationPath(id: String): String = "$REGISTRATIONS_PATH/${java.net.URLEncoder.encode(id, Charsets.UTF_8.name())}"
         private fun copyJson(value: JSONObject): JSONObject = JSONObject(value.toString())

@@ -85,6 +85,28 @@ size_t RingBuffer::Available() const {
   return head - tail;
 }
 
+size_t RingBuffer::Free() const {
+  const size_t head = head_.load(std::memory_order_relaxed);
+  const size_t tail = tail_.load(std::memory_order_acquire);
+  return capacity_ - (head - tail);
+}
+
+size_t RingBuffer::Head() const {
+  return head_.load(std::memory_order_relaxed);
+}
+
+size_t RingBuffer::SkipTo(size_t target) {
+  const size_t tail = tail_.load(std::memory_order_relaxed);
+  const size_t head = head_.load(std::memory_order_acquire);
+  const size_t limit = target - tail > head - tail ? head : target;
+  const size_t dropped = limit - tail;
+  if (dropped == 0) {
+    return 0;
+  }
+  tail_.store(limit, std::memory_order_release);
+  return dropped;
+}
+
 void RingBuffer::Reset() {
   head_.store(0, std::memory_order_relaxed);
   tail_.store(0, std::memory_order_release);

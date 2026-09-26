@@ -4,6 +4,7 @@ import NativeAndroidOutput, {
   nativeAndroidAudioBridge,
   type NativeAndroidAudioState,
   type NativeAndroidOutputHandle,
+  type NativeAndroidUnsupportedFormat,
 } from "./NativeAndroidOutput";
 import NativeWindowsOutput, {
   requestNativeWindowsAudio,
@@ -22,10 +23,7 @@ export interface LocalOutputHandle {
   rename: (name: string) => Promise<void>;
   retryPlayback?: () => void;
   configureWindows: (configuration: NativeWindowsConfiguration) => Promise<NativeWindowsState>;
-  configureAndroid: (bitPerfect: boolean) => Promise<void>;
-  usbDirectScanAndroid: () => Promise<void>;
-  usbDirectStartAndroid: () => Promise<void>;
-  usbDirectStopAndroid: () => Promise<void>;
+  configureAndroid: (usbDirect: boolean, unsupportedFormat: NativeAndroidUnsupportedFormat) => Promise<void>;
 }
 
 export interface LocalOutputProps extends BrowserOutputProps {
@@ -112,25 +110,10 @@ const LocalOutput = forwardRef<LocalOutputHandle, LocalOutputProps>(function Loc
       onWindowsStateChange(next);
       return next;
     },
-    async configureAndroid(bitPerfect) {
+    async configureAndroid(usbDirect, unsupportedFormat) {
       const output = androidRef.current;
       if (!output) throw new Error(bridgeError);
-      await output.configure(bitPerfect);
-    },
-    async usbDirectScanAndroid() {
-      const output = androidRef.current;
-      if (!output) throw new Error(bridgeError);
-      await output.usbDirectScan();
-    },
-    async usbDirectStartAndroid() {
-      const output = androidRef.current;
-      if (!output) throw new Error(bridgeError);
-      await output.usbDirectStart();
-    },
-    async usbDirectStopAndroid() {
-      const output = androidRef.current;
-      if (!output) throw new Error(bridgeError);
-      await output.usbDirectStop();
+      await output.configure(usbDirect, unsupportedFormat);
     },
     ...(!nativeAndroidPresent && !nativeWindowsEnabled
       ? { retryPlayback: () => browserRef.current?.retryPlayback() }
