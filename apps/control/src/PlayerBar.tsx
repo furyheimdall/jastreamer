@@ -1197,7 +1197,7 @@ export default function PlayerBar({ revision, phoneExpanded, onPhoneExpandedChan
                   <span className="field-label">{t("player.android.bitPerfect")}</span>
                   <select
                     value={androidAudioState.enabled ? "on" : "off"}
-                    disabled={!androidCanConfigure || (!androidAudioState.available && !androidAudioState.enabled)}
+                    disabled={!androidCanConfigure || !(androidAudioState.enabled || androidAudioState.available || androidAudioState.reason === "permission_required")}
                     onChange={(event) => void configureAndroidAudio(
                       event.target.value === "on",
                       androidAudioState.unsupported_format,
