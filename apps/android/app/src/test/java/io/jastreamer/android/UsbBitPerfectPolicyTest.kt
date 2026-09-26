@@ -84,19 +84,19 @@ class UsbBitPerfectPolicyTest {
     fun `availability reports the platform before the device and the device before the mixer`() {
         assertEquals(
             UsbBitPerfectPolicy.UNAVAILABLE_REQUIRES_ANDROID_14,
-            UsbBitPerfectPolicy.unavailableReason(apiLevel = 33, usbDeviceCount = 1, bitPerfectOptionCount = 4),
+            UsbBitPerfectPolicy.unavailableReason(apiLevel = 33, usbDeviceCount = 1, bitPerfectEntryCount = 4),
         )
         assertEquals(
             UsbBitPerfectPolicy.UNAVAILABLE_NO_USB_DEVICE,
-            UsbBitPerfectPolicy.unavailableReason(apiLevel = 34, usbDeviceCount = 0, bitPerfectOptionCount = 0),
+            UsbBitPerfectPolicy.unavailableReason(apiLevel = 34, usbDeviceCount = 0, bitPerfectEntryCount = 0),
         )
         assertEquals(
             UsbBitPerfectPolicy.UNAVAILABLE_NO_BIT_PERFECT_MIXER,
-            UsbBitPerfectPolicy.unavailableReason(apiLevel = 36, usbDeviceCount = 1, bitPerfectOptionCount = 0),
+            UsbBitPerfectPolicy.unavailableReason(apiLevel = 36, usbDeviceCount = 1, bitPerfectEntryCount = 0),
         )
         assertEquals(
             "",
-            UsbBitPerfectPolicy.unavailableReason(apiLevel = 34, usbDeviceCount = 1, bitPerfectOptionCount = 1),
+            UsbBitPerfectPolicy.unavailableReason(apiLevel = 34, usbDeviceCount = 1, bitPerfectEntryCount = 1),
         )
     }
 
@@ -183,5 +183,83 @@ class UsbBitPerfectPolicyTest {
         assertFalse(UsbBitPerfectPolicy.isLosslessMime("audio/mpeg"))
         assertFalse(UsbBitPerfectPolicy.isLosslessMime("audio/mp4; codecs=mp4a.40.2"))
         assertFalse(UsbBitPerfectPolicy.isLosslessMime(null))
+    }
+
+    private fun entry(
+        bitPerfect: Boolean = true,
+        encoding: Int = 2,
+        sampleRate: Int = 44_100,
+        channelMask: Int = STEREO_MASK,
+        channelIndexMask: Int = 0,
+    ) = MixerEntry(bitPerfect, encoding, sampleRate, channelMask, channelIndexMask)
+
+    @Test
+    fun `a positional entry with a known encoding is usable`() {
+        val reported = entry()
+
+        assertEquals(UsbBitPerfectPolicy.REJECT_NONE, UsbBitPerfectPolicy.rejection(reported, encodingKnown = true))
+        assertEquals(
+            PcmStream(PcmEncoding.PCM_16, 44_100, 2, STEREO_MASK),
+            UsbBitPerfectPolicy.usableStream(reported, PcmEncoding.PCM_16),
+        )
+    }
+
+    @Test
+    fun `a channel index mask entry is reported rather than matched against a positional layout`() {
+        val reported = entry(channelMask = 0, channelIndexMask = 0x3)
+
+        assertEquals(
+            UsbBitPerfectPolicy.REJECT_CHANNEL_INDEX_MASK,
+            UsbBitPerfectPolicy.rejection(reported, encodingKnown = true),
+        )
+        assertNull(UsbBitPerfectPolicy.usableStream(reported, PcmEncoding.PCM_16))
+    }
+
+    @Test
+    fun `entries without a usable encoding, rate or channel description are rejected with their reason`() {
+        assertEquals(
+            UsbBitPerfectPolicy.REJECT_ENCODING_UNRECOGNIZED,
+            UsbBitPerfectPolicy.rejection(entry(encoding = 13), encodingKnown = false),
+        )
+        assertEquals(
+            UsbBitPerfectPolicy.REJECT_INVALID_SAMPLE_RATE,
+            UsbBitPerfectPolicy.rejection(entry(sampleRate = 0), encodingKnown = true),
+        )
+        assertEquals(
+            UsbBitPerfectPolicy.REJECT_NO_CHANNEL_MASK,
+            UsbBitPerfectPolicy.rejection(entry(channelMask = 0), encodingKnown = true),
+        )
+        assertNull(UsbBitPerfectPolicy.usableStream(entry(encoding = 13), null))
+    }
+
+    @Test
+    fun `reported but unusable bit-perfect formats are distinguished from none at all`() {
+        assertEquals(
+            UsbBitPerfectPolicy.UNAVAILABLE_NO_BIT_PERFECT_MIXER,
+            UsbBitPerfectPolicy.unavailableReason(
+                apiLevel = 34,
+                usbDeviceCount = 1,
+                bitPerfectEntryCount = 0,
+                usableBitPerfectCount = 0,
+            ),
+        )
+        assertEquals(
+            UsbBitPerfectPolicy.UNAVAILABLE_NO_USABLE_BIT_PERFECT_FORMAT,
+            UsbBitPerfectPolicy.unavailableReason(
+                apiLevel = 34,
+                usbDeviceCount = 1,
+                bitPerfectEntryCount = 6,
+                usableBitPerfectCount = 0,
+            ),
+        )
+        assertEquals(
+            "",
+            UsbBitPerfectPolicy.unavailableReason(
+                apiLevel = 34,
+                usbDeviceCount = 1,
+                bitPerfectEntryCount = 6,
+                usableBitPerfectCount = 2,
+            ),
+        )
     }
 }
