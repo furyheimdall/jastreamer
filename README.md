@@ -40,7 +40,7 @@ jastreamer 0.2.0 is a self-hosted music server for a trusted private LAN. A Serv
 | Server | Windows x64 | Portable ZIP | Web interface, UPnP/DLNA, optional Cast; no AirPlay and no FFmpeg; not a Windows service |
 | Desktop client | Windows 10/11 x64 | Portable ZIP | Browser audio plus opt-in WASAPI Shared/Exclusive output and Windows media controls ([Windows audio](INSTRUCTION.md#windows-audio)) |
 | Desktop client | Linux `amd64` | DEB | Browser audio only; no ARM64 desktop package |
-| Mobile client | Android 10+ | Signed `jastreamer-android_0.2.0_release.apk` from [GitHub Releases](https://github.com/furyheimdall/jastreamer/releases) | Media3 local playback with system media controls, opt-in USB bit-perfect output on Android 14+, and an offline **Saved music** library ([Android](INSTALL.md#android)) |
+| Mobile client | Android 10+ | Signed `jastreamer-android_0.2.0_release.apk` from [GitHub Releases](https://github.com/furyheimdall/jastreamer/releases) | Media3 local playback with system media controls, opt-in bit-perfect direct USB output to a connected USB Audio Class DAC, and an offline **Saved music** library ([Android](INSTALL.md#android)) |
 | Mobile client | iOS/iPadOS 18.4+ | [iOS CI](https://github.com/furyheimdall/jastreamer/actions/workflows/ios.yml) and source only | Controller-only client; no installable package, TestFlight or App Store release ([iOS](INSTALL.md#ios)) |
 | Browser or PWA | Any current LAN browser | Served by the Server | Phone layout for iPhone and Android phone browsers; PWA installation needs trusted HTTPS ([PWA](INSTALL.md#pwa)) |
 

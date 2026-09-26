@@ -70,9 +70,9 @@ internal class UsbDirectException(val code: String, message: String) : Exception
 /**
  * Drives a USB Audio Class DAC straight from `libusb`, bypassing the Android audio stack.
  *
- * This is the debug-only proof of concept: it claims the DAC's streaming interface, so nothing else
- * on the phone can play through it while [start] is in effect. Every path releases the device —
- * [close] is safe to call repeatedly and is called from every failure branch.
+ * While [start] is in effect the DAC's streaming interface is claimed, so nothing else on the
+ * phone can play through it. Every path releases the device - [close] is safe to call repeatedly
+ * and is called from every failure branch.
  */
 internal class UsbDirectOutput(context: Context) {
     private val application = context.applicationContext
@@ -94,15 +94,16 @@ internal class UsbDirectOutput(context: Context) {
 
     val opened: Boolean get() = handle != 0L
 
+    /** Every attached device that declares a USB audio streaming interface. */
+    fun devices(): List<UsbDevice> =
+        usbManager?.deviceList?.values?.filter(::hasAudioStreaming).orEmpty()
+
     /**
      * The first attached device that declares a USB audio function. Composite dongles expose the
      * AudioControl interface on the same device as their HID volume keys, so the class check looks
      * at every interface rather than the device class.
      */
-    fun candidate(): UsbDevice? {
-        val manager = usbManager ?: return null
-        return manager.deviceList.values.firstOrNull(::hasAudioStreaming)
-    }
+    fun candidate(): UsbDevice? = devices().firstOrNull()
 
     fun hasPermission(target: UsbDevice): Boolean = usbManager?.hasPermission(target) == true
 
@@ -264,15 +265,46 @@ internal class UsbDirectOutput(context: Context) {
     }
 
     /**
-     * Copies up to [length] bytes of interleaved little-endian PCM at the negotiated subslot size
-     * into the native ring buffer and returns how many were accepted. A short result means the ring
-     * is full; the caller retries rather than dropping audio.
+     * Copies up to [length] bytes of interleaved little-endian integer PCM into the native ring
+     * buffer, widening samples into the negotiated subslot and duplicating a mono source onto a
+     * stereo device where the driver agreed to, and returns how many source bytes were accepted.
+     * A short result means the ring is full; the caller retries rather than dropping audio.
      */
-    fun write(buffer: ByteBuffer, length: Int): Int {
+    fun write(buffer: ByteBuffer, length: Int, sourceSampleBytes: Int, sourceChannels: Int): Int {
         require(buffer.isDirect) { "USB direct writes need a direct ByteBuffer" }
-        val accepted = synchronized(nativeLock) { UsbDirectNative.write(requireHandle(), buffer, length) }
+        val accepted = synchronized(nativeLock) {
+            UsbDirectNative.write(requireHandle(), buffer, length, sourceSampleBytes, sourceChannels)
+        }
         if (accepted < 0) throw UsbDirectException("usb_write_failed", nativeError("The USB ring buffer rejected audio."))
         return accepted
+    }
+
+    /**
+     * Stops and resumes feeding audio. The isochronous stream keeps running on silence, so the DAC
+     * stays locked and claimed across a pause instead of being handed back and re-acquired.
+     */
+    fun setPaused(paused: Boolean) {
+        synchronized(nativeLock) {
+            if (handle == 0L) return
+            UsbDirectNative.setPaused(handle, paused)
+        }
+    }
+
+    /** Drops the audio still queued, for a seek or a track change. */
+    fun flush() {
+        synchronized(nativeLock) {
+            if (handle == 0L) return
+            UsbDirectNative.flush(handle)
+        }
+    }
+
+    /** Frames the device has actually consumed, excluding silence and flushed audio. */
+    fun playedFrames(): Long {
+        val frames = synchronized(nativeLock) {
+            if (handle == 0L) return 0L
+            UsbDirectNative.playedFrames(handle)
+        }
+        return frames.coerceAtLeast(0L)
     }
 
     fun status(): UsbDirectStatus? {

@@ -8,7 +8,7 @@ import java.nio.ByteBuffer
  * Every entry point is deliberately narrow and takes a handle produced by [open]; the native side
  * validates handles against its own registry, so a stale value fails instead of crashing. JSON
  * strings are returned rather than object graphs because the same payloads are forwarded to the
- * developer panel unchanged. An empty string means failure and [lastError] carries the reason for
+ * settings panel unchanged. An empty string means failure and [lastError] carries the reason for
  * the calling thread.
  */
 internal object UsbDirectNative {
@@ -33,7 +33,26 @@ internal object UsbDirectNative {
 
     external fun start(handle: Long, sampleRate: Int, channels: Int, bits: Int): String
 
-    external fun write(handle: Long, buffer: ByteBuffer, length: Int): Int
+    /**
+     * Queues decoded PCM, widening it into the negotiated subslot layout when needed. Returns the
+     * number of *source* bytes accepted, which may be short when the ring is full.
+     */
+    external fun write(
+        handle: Long,
+        buffer: ByteBuffer,
+        length: Int,
+        sourceSampleBytes: Int,
+        sourceChannels: Int,
+    ): Int
+
+    /** Keeps the isochronous stream running on silence without releasing the device. */
+    external fun setPaused(handle: Long, paused: Boolean)
+
+    /** Drops everything still queued, for a seek or a track change. */
+    external fun flush(handle: Long)
+
+    /** Frames actually handed to the device since [start], excluding silence and flushed audio. */
+    external fun playedFrames(handle: Long): Long
 
     external fun status(handle: Long): String
 

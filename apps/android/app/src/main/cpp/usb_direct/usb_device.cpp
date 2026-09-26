@@ -20,6 +20,7 @@
 
 #include "format_choice.h"
 #include "json.h"
+#include "sample_pack.h"
 
 #if defined(__ANDROID__)
 #include <android/log.h>
@@ -605,7 +606,10 @@ std::string UsbDirectDevice::Start(uint32_t sample_rate, uint32_t channels,
   packets_.store(0, std::memory_order_relaxed);
   underruns_.store(0, std::memory_order_relaxed);
   frames_.store(0, std::memory_order_relaxed);
+  played_frames_.store(0, std::memory_order_relaxed);
   feedback_q16_.store(0, std::memory_order_relaxed);
+  paused_.store(false, std::memory_order_relaxed);
+  discard_target_.store(0, std::memory_order_relaxed);
   flowing_.store(false, std::memory_order_relaxed);
   active_transfers_.store(0, std::memory_order_relaxed);
   {
@@ -723,8 +727,15 @@ void UsbDirectDevice::FillDataTransfer(IsoTransfer* iso) {
   }
 
   RingBuffer* ring = ring_raw_;
+  const bool paused = paused_.load(std::memory_order_acquire);
+  if (ring != nullptr) {
+    // A flush is published by the writer and applied here, because only the
+    // feeder may move the read cursor.
+    ring->SkipTo(discard_target_.load(std::memory_order_acquire));
+  }
   size_t offset = 0;
   uint64_t frames_queued = 0;
+  uint64_t frames_played = 0;
   uint64_t underruns = 0;
   for (int i = 0; i < transfer->num_iso_packets; ++i) {
     uint32_t frames = sizer_.NextFrames(per_packet_q16, max_frames_per_packet_);
@@ -735,13 +746,17 @@ void UsbDirectDevice::FillDataTransfer(IsoTransfer* iso) {
       bytes = static_cast<size_t>(frames) * frame_bytes_;
     }
     uint8_t* destination = iso->buffer.data() + offset;
-    const size_t copied = ring == nullptr ? 0 : ring->Read(destination, bytes);
+    // While paused the stream keeps running on silence: the device stays
+    // claimed and locked, and the queued audio waits for the resume.
+    const size_t copied =
+        (ring == nullptr || paused) ? 0 : ring->Read(destination, bytes);
     if (copied > 0) {
       flowing_.store(true, std::memory_order_relaxed);
+      frames_played += copied / frame_bytes_;
     }
     if (copied < bytes) {
       std::memset(destination + copied, 0, bytes - copied);
-      if (flowing_.load(std::memory_order_relaxed)) {
+      if (!paused && flowing_.load(std::memory_order_relaxed)) {
         ++underruns;
       }
     }
@@ -753,6 +768,9 @@ void UsbDirectDevice::FillDataTransfer(IsoTransfer* iso) {
   packets_.fetch_add(static_cast<uint64_t>(transfer->num_iso_packets),
                      std::memory_order_relaxed);
   frames_.fetch_add(frames_queued, std::memory_order_relaxed);
+  if (frames_played > 0) {
+    played_frames_.fetch_add(frames_played, std::memory_order_relaxed);
+  }
   if (underruns > 0) {
     underruns_.fetch_add(underruns, std::memory_order_relaxed);
   }
@@ -848,13 +866,21 @@ void UsbDirectDevice::EventLoop() {
 }
 
 int UsbDirectDevice::Write(const uint8_t* data, size_t length,
-                           std::string* error) {
+                           uint32_t source_sample_bytes,
+                           uint32_t source_channels, std::string* error) {
   if (data == nullptr) {
     SetError(error, "write buffer is null");
     return -1;
   }
   if (!running_.load(std::memory_order_acquire)) {
     SetError(error, "usb direct stream is not running");
+    return -1;
+  }
+  const uint32_t target_sample_bytes = active_alt_.subslot_bytes;
+  const uint32_t target_channels = active_alt_.channels;
+  if (!CanPack(source_sample_bytes, source_channels, target_sample_bytes,
+               target_channels)) {
+    SetError(error, "the decoded PCM layout does not fit the negotiated stream");
     return -1;
   }
   std::shared_ptr<RingBuffer> ring;
@@ -866,7 +892,56 @@ int UsbDirectDevice::Write(const uint8_t* data, size_t length,
     SetError(error, "usb direct stream has no buffer");
     return -1;
   }
-  return static_cast<int>(ring->Write(data, length));
+
+  const size_t source_frame_bytes =
+      static_cast<size_t>(source_sample_bytes) * source_channels;
+  const size_t target_frame_bytes =
+      static_cast<size_t>(target_sample_bytes) * target_channels;
+  // Whole frames only: leaving half a frame in the ring would shift every
+  // later sample, and the writer would send those bytes a second time.
+  const size_t frames = WritableFrames(length, source_frame_bytes,
+                                       target_frame_bytes, ring->Free());
+  if (frames == 0) {
+    return 0;
+  }
+  if (source_frame_bytes == target_frame_bytes) {
+    const size_t accepted = ring->Write(data, frames * source_frame_bytes);
+    return static_cast<int>(accepted);
+  }
+
+  const size_t needed = frames * target_frame_bytes;
+  if (pack_scratch_.size() < needed) {
+    pack_scratch_.resize(needed);
+  }
+  const size_t produced =
+      PackFrames(data, frames, source_sample_bytes, source_channels,
+                 target_sample_bytes, target_channels, pack_scratch_.data());
+  if (produced == 0) {
+    SetError(error, "the decoded PCM could not be placed in the USB subslots");
+    return -1;
+  }
+  const size_t accepted = ring->Write(pack_scratch_.data(), produced);
+  return static_cast<int>((accepted / target_frame_bytes) * source_frame_bytes);
+}
+
+void UsbDirectDevice::SetPaused(bool paused) {
+  paused_.store(paused, std::memory_order_release);
+}
+
+void UsbDirectDevice::Flush() {
+  std::shared_ptr<RingBuffer> ring;
+  {
+    std::lock_guard<std::mutex> lock(ring_mutex_);
+    ring = ring_;
+  }
+  if (!ring) {
+    return;
+  }
+  discard_target_.store(ring->Head(), std::memory_order_release);
+}
+
+uint64_t UsbDirectDevice::PlayedFrames() const {
+  return played_frames_.load(std::memory_order_relaxed);
 }
 
 std::string UsbDirectDevice::Status() const {

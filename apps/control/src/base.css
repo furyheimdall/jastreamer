@@ -605,6 +605,52 @@ html[data-client] .app-shell .mobile-header {
   cursor: pointer;
 }
 
+.signal-path-badge {
+  display: inline-flex;
+  justify-self: start;
+  align-items: center;
+  max-width: 100%;
+  padding: 0.1rem 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  gap: 0.3rem;
+  color: var(--muted);
+  background: transparent;
+  font: inherit;
+  font-size: 0.72rem;
+  cursor: pointer;
+  transition: border-color 150ms ease, color 150ms ease, background-color 150ms ease;
+}
+
+.signal-path-badge svg {
+  width: 0.9rem;
+  height: 0.9rem;
+}
+
+.signal-path-badge span {
+  overflow: hidden;
+  color: inherit;
+  font-size: inherit;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.signal-path-badge-qualified {
+  border-color: #c8edb266;
+  color: var(--accent);
+  background: #c8edb212;
+}
+
+.signal-path-badge:hover {
+  border-color: #ffffff24;
+  background: #ffffff10;
+}
+
+.signal-path-badge:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
 .transport {
   display: grid;
   min-width: 0;

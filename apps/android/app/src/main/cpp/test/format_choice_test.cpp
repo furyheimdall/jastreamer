@@ -68,12 +68,42 @@ void TestNarrowestFallback() {
   CHECK_EQ(alts[static_cast<size_t>(chosen)].subslot_bytes, 4);
 }
 
+void TestWidensIntoADeeperAltSetting() {
+  // The dongle from the field report: 16-bit and 32-bit only. A 24-bit source
+  // has to go out in the 32-bit container, left-justified, instead of failing.
+  std::vector<AltSetting> alts;
+  alts.push_back(MakeAlt(1, 2, 2, 16));
+  alts.push_back(MakeAlt(2, 2, 4, 32));
+  const std::vector<std::vector<uint32_t>> rates(alts.size());
+
+  std::string error = "unset";
+  const int chosen = ChooseAltSetting(alts, rates, 44100, 2, 24, &error);
+  CHECK_EQ(chosen, 1);
+  CHECK_EQ(alts[static_cast<size_t>(chosen)].subslot_bytes, 4);
+  CHECK_EQ(alts[static_cast<size_t>(chosen)].bit_resolution, 32);
+  CHECK_EQ(error, std::string("unset"));
+
+  // A 16-bit source still takes the exact 16-bit setting.
+  CHECK_EQ(ChooseAltSetting(alts, rates, 44100, 2, 16, &error), 0);
+
+  // With a native 24-bit setting available the exact one wins over widening.
+  std::vector<AltSetting> three;
+  three.push_back(MakeAlt(1, 2, 2, 16));
+  three.push_back(MakeAlt(2, 2, 3, 24));
+  three.push_back(MakeAlt(3, 2, 4, 32));
+  const std::vector<std::vector<uint32_t>> three_rates(three.size());
+  const int exact = ChooseAltSetting(three, three_rates, 96000, 2, 24, &error);
+  CHECK_EQ(exact, 1);
+  CHECK_EQ(three[static_cast<size_t>(exact)].subslot_bytes, 3);
+}
+
 void TestNeverSubstitutesFormat() {
   std::vector<AltSetting> alts;
   alts.push_back(MakeAlt(1, 2, 2, 16));
   const std::vector<std::vector<uint32_t>> rates(alts.size());
 
-  // A 16-bit only device must not be used for a 24-bit request.
+  // A 16-bit only device must not be used for a 24-bit request: dropping the
+  // low byte is the caller's decision, never the driver's.
   std::string error;
   CHECK_EQ(ChooseAltSetting(alts, rates, 48000, 2, 24, &error), -1);
   CHECK_TRUE(!error.empty());
@@ -83,7 +113,7 @@ void TestNeverSubstitutesFormat() {
   CHECK_EQ(ChooseAltSetting(alts, rates, 48000, 6, 16, &error), -1);
   CHECK_TRUE(error.find("6-channel") != std::string::npos);
 
-  // A subslot narrower than the bit depth is unusable.
+  // A subslot narrower than the declared resolution is a malformed descriptor.
   std::vector<AltSetting> narrow;
   narrow.push_back(MakeAlt(1, 2, 2, 24));
   error.clear();
@@ -145,6 +175,7 @@ void TestEmptyDeviceList() {
 void RunFormatChoiceTests() {
   TestExactMatchWins();
   TestNarrowestFallback();
+  TestWidensIntoADeeperAltSetting();
   TestNeverSubstitutesFormat();
   TestRateFiltering();
   TestContinuousAndUnknownRates();

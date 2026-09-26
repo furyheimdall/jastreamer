@@ -20,12 +20,14 @@ void RunDescriptorTests();
 void RunFormatChoiceTests();
 void RunPacketSizingTests();
 void RunRingBufferTests();
+void RunSamplePackTests();
 
 int main() {
   RunDescriptorTests();
   RunFormatChoiceTests();
   RunPacketSizingTests();
   RunRingBufferTests();
+  RunSamplePackTests();
 
   std::cout << "usb_direct host tests: " << check::g_checks << " checks, "
             << check::g_failures << " failures" << std::endl;

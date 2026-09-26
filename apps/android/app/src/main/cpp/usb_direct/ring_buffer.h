@@ -43,6 +43,18 @@ class RingBuffer {
   // Bytes currently readable.
   size_t Available() const;
 
+  // Producer side: bytes that can be accepted right now.
+  size_t Free() const;
+
+  // Producer side: the current write cursor. Hand it to [SkipTo] to drop
+  // everything written so far without touching the consumer's cursor.
+  size_t Head() const;
+
+  // Consumer side: discards every byte written before `target` and returns how
+  // many bytes were dropped. Only the consumer moves the read cursor, so a
+  // flush issued by the producer is applied here, not behind the feeder's back.
+  size_t SkipTo(size_t target);
+
   // Total capacity in bytes.
   size_t Capacity() const { return capacity_; }
 

@@ -73,7 +73,8 @@ int ChooseAltSetting(const std::vector<AltSetting>& alts,
   bool channels_seen = false;
   bool width_seen = false;
   int best = -1;
-  bool best_exact = false;
+  uint32_t best_container = 0;
+  uint32_t best_resolution = 0;
 
   for (size_t i = 0; i < alts.size(); ++i) {
     const AltSetting& alt = alts[i];
@@ -81,11 +82,14 @@ int ChooseAltSetting(const std::vector<AltSetting>& alts,
       continue;
     }
     channels_seen = true;
-    if (alt.bit_resolution != bits) {
+    // The device must carry at least the source's valid bits: a narrower
+    // resolution would throw samples away. A wider one is fine because the
+    // feeder left-justifies the sample and zero-fills the extra low bits.
+    if (alt.bit_resolution < bits) {
       continue;
     }
     const uint32_t container_bits = static_cast<uint32_t>(alt.subslot_bytes) * 8u;
-    if (container_bits < bits) {
+    if (container_bits < alt.bit_resolution) {
       continue;
     }
     width_seen = true;
@@ -96,20 +100,15 @@ int ChooseAltSetting(const std::vector<AltSetting>& alts,
       continue;
     }
 
-    const bool exact = container_bits == bits;
-    if (best < 0) {
+    // Least padding wins: the narrowest container first, then the smallest
+    // declared resolution inside it. An exact match therefore always wins,
+    // because nothing can be narrower than the source itself.
+    if (best < 0 || container_bits < best_container ||
+        (container_bits == best_container &&
+         alt.bit_resolution < best_resolution)) {
       best = static_cast<int>(i);
-      best_exact = exact;
-      continue;
-    }
-    if (exact && !best_exact) {
-      best = static_cast<int>(i);
-      best_exact = true;
-      continue;
-    }
-    if (!exact && !best_exact &&
-        alt.subslot_bytes < alts[static_cast<size_t>(best)].subslot_bytes) {
-      best = static_cast<int>(i);
+      best_container = container_bits;
+      best_resolution = alt.bit_resolution;
     }
   }
 

@@ -26,18 +26,21 @@
 
 namespace usb_direct {
 
-// Picks the alternate setting to stream `sample_rate`/`channels`/`bits` with.
+// Picks the alternate setting to stream `sample_rate`/`channels`/`bits` with,
+// where `bits` is the number of valid bits the source actually carries.
 //
 // `rates[i]` is the effective rate list of `alts[i]`: the descriptor rates for
 // UAC1 and the rates reported by the clock source for UAC2. An empty list means
 // the rates are not enumerable, in which case the alt setting is considered
 // able to run any rate.
 //
-// An exact match (`bit_resolution == bits` and `subslot_bytes * 8 == bits`)
-// always wins because it needs no sample conversion. Otherwise the narrowest
-// container that still holds the samples is used. The bit depth and the channel
-// count are never substituted: when nothing matches, -1 is returned and `error`
-// explains why.
+// A setting qualifies when it has exactly `channels` channels and its declared
+// resolution is at least `bits`, because the feeder can only widen a sample by
+// left-justifying it and zero-filling the low bits; it can never drop bits.
+// Among the qualifying settings the one with the least padding wins: the
+// narrowest subslot first, then the smallest declared resolution inside it, so
+// an exact match always wins. The channel count is never substituted: when
+// nothing matches, -1 is returned and `error` explains why.
 int ChooseAltSetting(const std::vector<AltSetting>& alts,
                      const std::vector<std::vector<uint32_t>>& rates,
                      uint32_t sample_rate, uint32_t channels, uint32_t bits,
