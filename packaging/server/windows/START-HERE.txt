@@ -1,4 +1,4 @@
-jastreamer Windows x64 portable Server 0.2.0
+jastreamer Windows x64 portable Server 0.2.1
 
 This is the server, not the Windows desktop connection application. It carries
 no Authenticode signature, so verify the published SHA-256 before extracting.

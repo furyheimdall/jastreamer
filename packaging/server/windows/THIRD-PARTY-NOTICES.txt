@@ -1,4 +1,4 @@
-jastreamer Windows Server 0.2.0: third-party components
+jastreamer Windows Server 0.2.1: third-party components
 
 The jastreamer application is licensed under Apache-2.0. Bundled components
 retain their own licenses; this notice does not relicense those components.

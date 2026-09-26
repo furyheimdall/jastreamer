@@ -4,7 +4,7 @@
 
 jastreamer는 Server 하나와 선택 사항인 클라이언트들로 이루어집니다. 보관함, 공용 대기열, 재생과 Web 화면은 Server가 소유하고, 데스크톱 앱·Android 앱·iOS 앱·휴대전화 PWA는 신뢰할 수 있는 사설 LAN에서 그 Server를 바라보는 창입니다. Server를 먼저 설치한 뒤 필요한 클라이언트만 추가하세요.
 
-릴리즈는 [GitHub Releases](https://github.com/furyheimdall/jastreamer/releases)에 게시됩니다. 정식 릴리즈는 `vX.Y.Z` 태그로 GitHub의 **latest** 릴리즈로 표시되며 설치 대상은 이 릴리즈입니다. 이전의 `v0.2.0-preview.N` 항목은 프리릴리즈로 남고 `/releases/latest`에 포함되지 않습니다. Windows Server ZIP과 Windows 데스크톱 ZIP에는 Authenticode 서명이 없고, Android APK는 jastreamer Android release 키로 서명하며, iOS는 소스와 CI만 제공합니다. 내려받은 파일은 모두 검증한 뒤 사용하고, 실제 네트워크와 수신기에서 동작을 확인하세요.
+릴리즈는 [GitHub Releases](https://github.com/furyheimdall/jastreamer/releases)에 게시됩니다. 정식 릴리즈는 `vX.Y.Z` 태그로 GitHub의 **latest** 릴리즈로 표시되며 설치 대상은 이 릴리즈입니다. 이전 정식 릴리즈 `v0.2.0`은 게시된 상태로 남지만 더 이상 latest가 아니며, `v0.2.0-preview.N` 항목은 프리릴리즈로 남고 `/releases/latest`에 포함되지 않습니다. Windows Server ZIP과 Windows 데스크톱 ZIP에는 Authenticode 서명이 없고, Android APK는 jastreamer Android release 키로 서명하며, iOS는 소스와 CI만 제공합니다. 내려받은 파일은 모두 검증한 뒤 사용하고, 실제 네트워크와 수신기에서 동작을 확인하세요.
 
 | 하려는 작업 | 따라갈 분기 |
 | --- | --- |
@@ -27,10 +27,10 @@ jastreamer는 Server 하나와 선택 사항인 클라이언트들로 이루어�
 | 구성 요소 | 요구 사항 | 패키지 |
 | --- | --- | --- |
 | Linux·Synology Server | Docker Engine과 Compose v2가 있는 Linux `amd64`·`arm64`, 또는 Container Manager가 있는 Synology DSM. `arm/v7`은 지원하지 않으며 DS918+는 `amd64` | `ghcr.io/furyheimdall/jastreamer-server` 이미지 |
-| Windows Server | Windows x64와 쓰기 가능한 로컬 폴더, 일반 사용자 계정으로 실행. Windows 서비스로 설치되지 않음 | `jastreamer-server_0.2.0_windows-x64.zip` |
-| Windows 데스크톱 앱 | Windows 10/11 x64. ARM64 패키지는 없음 | `jastreamer-desktop_0.2.0_windows-x64.zip` |
-| Linux 데스크톱 앱 | 그래픽 환경이 있는 Linux `amd64`. Ubuntu 24.04 amd64가 검증 대상이며 ARM64 패키지는 없음 | `jastreamer-desktop_0.2.0_linux-amd64.deb` |
-| Android 클라이언트 | Android 10(API 29) 이상과 `MULTI_PROFILE`을 지원하는 Android System WebView | release 키로 서명한 `jastreamer-android_0.2.0_release.apk` |
+| Windows Server | Windows x64와 쓰기 가능한 로컬 폴더, 일반 사용자 계정으로 실행. Windows 서비스로 설치되지 않음 | `jastreamer-server_0.2.1_windows-x64.zip` |
+| Windows 데스크톱 앱 | Windows 10/11 x64. ARM64 패키지는 없음 | `jastreamer-desktop_0.2.1_windows-x64.zip` |
+| Linux 데스크톱 앱 | 그래픽 환경이 있는 Linux `amd64`. Ubuntu 24.04 amd64가 검증 대상이며 ARM64 패키지는 없음 | `jastreamer-desktop_0.2.1_linux-amd64.deb` |
+| Android 클라이언트 | Android 10(API 29) 이상과 `MULTI_PROFILE`을 지원하는 Android System WebView | release 키로 서명한 `jastreamer-android_0.2.1_release.apk` |
 | iOS 클라이언트 | iOS/iPadOS 18.4 이상. 고정된 CI 시나리오는 macOS의 Xcode 16.4와 iOS 18.5 시뮬레이터 런타임 사용 | 소스와 CI만 제공 |
 | 휴대전화 PWA | 휴대전화 브라우저와 그 기기가 신뢰하는 HTTPS origin | 별도 패키지 없음, Server가 제공 |
 
@@ -76,7 +76,7 @@ AirPlay는 Linux 이미지에 포함된 helper로만 제공됩니다. 위 포트
 
 ### 공개 레지스트리 이미지
 
-레지스트리는 `ghcr.io/furyheimdall/jastreamer-server`이며 공개 이미지는 GitHub 토큰 없이 받을 수 있습니다. 정식 릴리즈는 멀티 아키텍처 index를 `0.2.0` 태그로 게시하고 아키텍처별 다이제스트도 함께 제공하며, 가변 `latest` 이미지 태그는 만들지 않습니다. 태그 대신 릴리즈가 명시한 `linux/amd64` 또는 `linux/arm64` 이미지의 완전한 불변 다이제스트를 고정하세요.
+레지스트리는 `ghcr.io/furyheimdall/jastreamer-server`이며 공개 이미지는 GitHub 토큰 없이 받을 수 있습니다. 정식 릴리즈는 멀티 아키텍처 index를 `0.2.1` 태그로 게시하고 아키텍처별 다이제스트도 함께 제공하며, 가변 `latest` 이미지 태그는 만들지 않습니다. 태그 대신 릴리즈가 명시한 `linux/amd64` 또는 `linux/arm64` 이미지의 완전한 불변 다이제스트를 고정하세요.
 
 ```sh
 export JASTREAMER_SERVER_IMAGE='ghcr.io/furyheimdall/jastreamer-server@sha256:<digest-from-release>'
@@ -92,7 +92,7 @@ docker image inspect --format '{{.Os}}/{{.Architecture}} {{.Id}}' "$JASTREAMER_S
 ZIP에 Authenticode 서명이 없기 때문에 Windows는 인터넷에서 받은 파일로 표시하고, 압축을 푼 프로그램을 처음 실행할 때 SmartScreen 경고가 뜰 수 있습니다. 표시가 모든 파일로 복사되지 않도록 압축을 풀기 **전에** 차단을 해제하세요.
 
 - 탐색기에서: ZIP 파일 우클릭 → **속성** → **차단 해제** 체크 → **확인**
-- PowerShell에서: `Unblock-File -LiteralPath .\jastreamer-server_0.2.0_windows-x64.zip`
+- PowerShell에서: `Unblock-File -LiteralPath .\jastreamer-server_0.2.1_windows-x64.zip`
 
 차단 해제는 릴리즈의 SHA-256과 대조해 검증한 파일에만 적용하세요. SmartScreen·Defender·방화벽을 끄거나 패키지를 관리자 권한으로 실행하지 마세요.
 
@@ -112,11 +112,11 @@ sha256sum -c SHA256SUMS
 ```sh
 ARCH=amd64  # 또는 arm64
 skopeo copy --override-os linux --override-arch "$ARCH" \
-  oci-archive:jastreamer-server_0.2.0_linux_amd64-arm64.oci \
-  docker-archive:jastreamer-server_0.2.0_linux_${ARCH}.tar:jastreamer-server:0.2.0
-sha256sum jastreamer-server_0.2.0_linux_${ARCH}.tar
-docker load --input jastreamer-server_0.2.0_linux_${ARCH}.tar
-docker image inspect --format '{{.Id}}' jastreamer-server:0.2.0
+  oci-archive:jastreamer-server_0.2.1_linux_amd64-arm64.oci \
+  docker-archive:jastreamer-server_0.2.1_linux_${ARCH}.tar:jastreamer-server:0.2.1
+sha256sum jastreamer-server_0.2.1_linux_${ARCH}.tar
+docker load --input jastreamer-server_0.2.1_linux_${ARCH}.tar
+docker image inspect --format '{{.Id}}' jastreamer-server:0.2.1
 ```
 
 <a id="linux-server"></a>
@@ -192,7 +192,7 @@ Synology Container Manager에서는 같은 Compose 파일과 `.env` 값을 **프
 선택한 릴리즈에서 Windows Server ZIP과 `.sha256`, manifest, 검증 영수증을 내려받고 [ZIP 차단을 해제](#windows-unblock)한 뒤, 압축을 풀기 전에 바이트를 대조합니다.
 
 ```powershell
-$file = '.\jastreamer-server_0.2.0_windows-x64.zip'
+$file = '.\jastreamer-server_0.2.1_windows-x64.zip'
 $expected = (Get-Content "$file.sha256" -Raw).Split()[0].ToLowerInvariant()
 $actual = (Get-FileHash $file -Algorithm SHA256).Hash.ToLowerInvariant()
 if ($actual -ne $expected) { throw 'Windows Server ZIP checksum mismatch' }
@@ -222,10 +222,10 @@ if ($actual -ne $expected) { throw 'Windows Server ZIP checksum mismatch' }
 <a id="desktop-windows"></a>
 ## 선택 사항인 Windows x64 데스크톱 앱
 
-데스크톱 앱은 Windows 10/11 x64에서 기존 Server에 접속하기 위한 앱입니다. `jastreamer-desktop_0.2.0_windows-x64.zip`의 [차단을 해제](#windows-unblock)하고 릴리즈 체크섬과 대조한 뒤, `jastreamer-desktop` 폴더 전체를 쓰기 가능한 새 로컬 위치에 풀고 `jastreamer-desktop.exe`를 실행하세요. ZIP 안에서 실행하거나 EXE만 복사하면 안 됩니다.
+데스크톱 앱은 Windows 10/11 x64에서 기존 Server에 접속하기 위한 앱입니다. `jastreamer-desktop_0.2.1_windows-x64.zip`의 [차단을 해제](#windows-unblock)하고 릴리즈 체크섬과 대조한 뒤, `jastreamer-desktop` 폴더 전체를 쓰기 가능한 새 로컬 위치에 풀고 `jastreamer-desktop.exe`를 실행하세요. ZIP 안에서 실행하거나 EXE만 복사하면 안 됩니다.
 
 ```powershell
-Get-FileHash .\jastreamer-desktop_0.2.0_windows-x64.zip -Algorithm SHA256
+Get-FileHash .\jastreamer-desktop_0.2.1_windows-x64.zip -Algorithm SHA256
 ```
 
 Server 화면은 지금 검색된 Server와 최근 연결을 구분해 보여 줍니다. 카드의 연결 동작을 선택하거나 **주소로 직접 연결**에서 호스트 이름 또는 완전한 HTTP(S) 루트 주소를 입력하세요. 앱은 연결 전에 Server를 확인하며, 검색이나 연결만으로 재생이 시작되지는 않습니다. 검색은 활성 IPv4 어댑터마다 5초 간격으로 질의하고 어댑터 변경도 따라가지만, 방화벽이나 멀티캐스트 제한이 있으면 주소를 직접 입력해야 할 수 있습니다.
@@ -239,18 +239,18 @@ Server 화면은 지금 검색된 Server와 최근 연결을 구분해 보여 �
 <a id="desktop-linux"></a>
 ## 선택 사항인 Linux amd64 데스크톱 앱
 
-그래픽 환경이 있는 Linux amd64에서 `jastreamer-desktop_0.2.0_linux-amd64.deb`를 사용합니다. 릴리즈 체크섬으로 검증한 뒤 의존성이 함께 해결되도록 APT로 설치하세요.
+그래픽 환경이 있는 Linux amd64에서 `jastreamer-desktop_0.2.1_linux-amd64.deb`를 사용합니다. 릴리즈 체크섬으로 검증한 뒤 의존성이 함께 해결되도록 APT로 설치하세요.
 
 ```sh
-sha256sum -c jastreamer-desktop_0.2.0_linux-amd64.deb.sha256
-sudo apt install ./jastreamer-desktop_0.2.0_linux-amd64.deb
+sha256sum -c jastreamer-desktop_0.2.1_linux-amd64.deb.sha256
+sudo apt install ./jastreamer-desktop_0.2.1_linux-amd64.deb
 ```
 
 응용 프로그램 메뉴의 **JASTREAMER**를 일반 사용자로 실행하거나 `/usr/lib/jastreamer-desktop/jastreamer-desktop`를 실행합니다. `sudo`로 실행하거나 `--no-sandbox`를 붙이지 마세요. 검색된 Server를 고르거나 완전한 HTTP(S) 주소를 입력하면 되고, 이 클라이언트에는 별도 FFmpeg나 오디오 플레이어가 필요 없습니다. Windows와 달리 트레이 동작이나 네이티브 WASAPI 출력은 없습니다.
 
 패키지는 응용 프로그램 파일을 root 소유로 유지하고 `chrome-sandbox`를 `root:root` 4755로 설치하며, AppArmor를 지원하는 시스템에서는 `/usr/lib/jastreamer-desktop/jastreamer-desktop` 전용 user namespace 프로파일을 설치합니다. AppArmor나 시스템 전역 user namespace 제한을 끄지 않고 관리 대상이 아닌 정책은 보존하므로, 로컬 추가 설정은 `/etc/apparmor.d/local/jastreamer-desktop`에 두세요. 실행이 실패하면 sandbox 설정을 약화하지 말고 오류와 설치된 권한을 보고합니다.
 
-최근 Server 목록, 언어, cookie, 세션은 root 소유 설치 폴더가 아니라 `$XDG_CONFIG_HOME/jastreamer-desktop`(보통 `~/.config/jastreamer-desktop`)에 저장됩니다. 새 DEB를 설치하기 전에 앱을 완전히 종료하고 이 프로필은 그대로 두세요. 같은 버전을 다시 설치하려면 `sudo apt install --reinstall ./jastreamer-desktop_0.2.0_linux-amd64.deb`를 사용합니다. 이전에 검증한 DEB는 롤백용으로 보관하세요.
+최근 Server 목록, 언어, cookie, 세션은 root 소유 설치 폴더가 아니라 `$XDG_CONFIG_HOME/jastreamer-desktop`(보통 `~/.config/jastreamer-desktop`)에 저장됩니다. 새 DEB를 설치하기 전에 앱을 완전히 종료하고 이 프로필은 그대로 두세요. 같은 버전을 다시 설치하려면 `sudo apt install --reinstall ./jastreamer-desktop_0.2.1_linux-amd64.deb`를 사용합니다. 이전에 검증한 DEB는 롤백용으로 보관하세요.
 
 <a id="android"></a>
 ## 선택 사항인 네이티브 Android 클라이언트
@@ -261,20 +261,20 @@ Kotlin 앱은 `_jastreamer._tcp` Server를 검색하고 `/api/v1/discovery`로 �
 
 | 자산 | 내용 |
 | --- | --- |
-| `jastreamer-android_0.2.0_release.apk` | 설치용 앱 본체. jastreamer Android release 키로 v2·v3 서명 방식을 사용해 서명했고 application ID는 `io.jastreamer.android`, version name 0.2.0, version code 20000입니다 |
-| `jastreamer-android_0.2.0_release.apk.sha256` | 게시된 바이트에 대한 체크섬 사이드카. `SHA256SUMS`에도 모든 자산의 같은 값이 들어 있습니다 |
-| `jastreamer-android_0.2.0_release.manifest.json` | 소스 리비전, application ID, SDK 범위, 서명 방식, 서명 인증서 SHA-256, 서명 대상이 된 미서명 CI APK를 기록한 확인서 |
+| `jastreamer-android_0.2.1_release.apk` | 설치용 앱 본체. jastreamer Android release 키로 v2·v3 서명 방식을 사용해 서명했고 application ID는 `io.jastreamer.android`, version name 0.2.1, version code 20100입니다 |
+| `jastreamer-android_0.2.1_release.apk.sha256` | 게시된 바이트에 대한 체크섬 사이드카. `SHA256SUMS`에도 모든 자산의 같은 값이 들어 있습니다 |
+| `jastreamer-android_0.2.1_release.manifest.json` | 소스 리비전, application ID, SDK 범위, 서명 방식, 서명 인증서 SHA-256, 서명 대상이 된 미서명 CI APK를 기록한 확인서 |
 
 ### APK 검증과 설치
 
 1. 릴리즈에서 APK와 `.sha256` 사이드카, `SHA256SUMS`를 내려받습니다.
-2. 아래 두 명령으로 내려받은 바이트와 서명 인증서를 확인합니다. `apksigner`는 Android SDK build-tools에 들어 있으며, Windows에서는 체크섬 확인에 `Get-FileHash .\jastreamer-android_0.2.0_release.apk -Algorithm SHA256`을 사용하세요.
-3. 검증한 APK를 휴대전화로 옮겨 엽니다. Android가 물을 때만 파일을 연 앱에 **알 수 없는 앱 설치** 권한을 허용하고, 설치가 끝나면 그 권한을 해제하세요. 이미 승인된 ADB 연결이 있다면 `adb install jastreamer-android_0.2.0_release.apk`도 가능합니다.
+2. 아래 두 명령으로 내려받은 바이트와 서명 인증서를 확인합니다. `apksigner`는 Android SDK build-tools에 들어 있으며, Windows에서는 체크섬 확인에 `Get-FileHash .\jastreamer-android_0.2.1_release.apk -Algorithm SHA256`을 사용하세요.
+3. 검증한 APK를 휴대전화로 옮겨 엽니다. Android가 물을 때만 파일을 연 앱에 **알 수 없는 앱 설치** 권한을 허용하고, 설치가 끝나면 그 권한을 해제하세요. 이미 승인된 ADB 연결이 있다면 `adb install jastreamer-android_0.2.1_release.apk`도 가능합니다.
 4. Play Protect가 Google Play에서 받은 앱이 아니라고 경고할 수 있습니다. 이는 배포 경로를 알리는 것이지 문제를 찾았다는 뜻이 아닙니다. 2단계가 일치할 때만 계속하고, Play Protect·인증서 검사·기기 보안은 끄지 마세요.
 
 ```sh
-sha256sum -c jastreamer-android_0.2.0_release.apk.sha256
-apksigner verify --print-certs jastreamer-android_0.2.0_release.apk
+sha256sum -c jastreamer-android_0.2.1_release.apk.sha256
+apksigner verify --print-certs jastreamer-android_0.2.1_release.apk
 ```
 
 출력된 `Signer #1 certificate SHA-256 digest` 값은 `53285c2c239aff2927ebe6f5c6aebb82fdbb50956ed84b1e9f0222b2d925943e`여야 합니다. 도구에 따라 같은 지문을 대문자와 콜론 형식(`53:28:5C:2C:…:25:94:3E`)으로 표시하므로 릴리즈 페이지에 적힌 값과 비교하세요. 값이 다르면 중단합니다. 키가 다르면 업데이트가 아니라 다른 앱입니다.

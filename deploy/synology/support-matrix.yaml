@@ -1,6 +1,6 @@
 schema_version: 1
 product: jastreamer-server
-version: 0.2.0
+version: 0.2.1
 container:
   user: 10001:10001
   network: host

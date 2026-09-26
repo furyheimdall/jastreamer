@@ -14,7 +14,7 @@ from typing import Any
 
 import windows_package
 
-VERSION = "0.2.0"
+VERSION = "0.2.1"
 SHA256 = re.compile(r"[0-9a-f]{64}")
 CERTIFICATE_SHA256 = re.compile(r"[0-9A-F]{64}")
 REVISION = re.compile(r"[0-9a-f]{40}")
@@ -50,7 +50,7 @@ DESKTOP_TARGETS = {
 
 WINDOWS_SERVER_ARCHIVE = windows_package.ARCHIVE_NAME
 ANDROID_APPLICATION_ID = "io.jastreamer.android"
-ANDROID_VERSION_CODE = 20000
+ANDROID_VERSION_CODE = 20100
 ANDROID_MIN_SDK = 29
 ANDROID_TARGET_SDK = 36
 ANDROID_RELEASE_APK = f"jastreamer-android_{VERSION}_release.apk"

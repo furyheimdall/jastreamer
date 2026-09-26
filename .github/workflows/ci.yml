@@ -278,8 +278,8 @@ jobs:
         with:
           name: jastreamer-desktop-windows-x64
           path: |
-            apps/desktop/dist/jastreamer-desktop_0.2.0_windows-x64.zip
-            apps/desktop/dist/jastreamer-desktop_0.2.0_windows-x64.zip.sha256
+            apps/desktop/dist/jastreamer-desktop_0.2.1_windows-x64.zip
+            apps/desktop/dist/jastreamer-desktop_0.2.1_windows-x64.zip.sha256
             apps/desktop/dist/manifest.json
             apps/desktop/dist/verification.json
           if-no-files-found: error
@@ -332,7 +332,7 @@ jobs:
         shell: bash
         run: |
           sudo apt-get update
-          sudo apt-get install --yes xvfb dbus-x11 "$PWD/apps/desktop/dist/jastreamer-desktop_0.2.0_linux-amd64.deb"
+          sudo apt-get install --yes xvfb dbus-x11 "$PWD/apps/desktop/dist/jastreamer-desktop_0.2.1_linux-amd64.deb"
           test "$(stat --format='%U:%G %a' /usr/lib/jastreamer-desktop/chrome-sandbox)" = "root:root 4755"
           test -x /usr/lib/jastreamer-desktop/jastreamer-desktop
       - name: Exercise installed desktop as a normal user with Chromium sandboxing
@@ -353,8 +353,8 @@ jobs:
         with:
           name: jastreamer-desktop-linux-amd64
           path: |
-            apps/desktop/dist/jastreamer-desktop_0.2.0_linux-amd64.deb
-            apps/desktop/dist/jastreamer-desktop_0.2.0_linux-amd64.deb.sha256
+            apps/desktop/dist/jastreamer-desktop_0.2.1_linux-amd64.deb
+            apps/desktop/dist/jastreamer-desktop_0.2.1_linux-amd64.deb.sha256
             apps/desktop/dist/manifest.json
             apps/desktop/dist/verification.json
           if-no-files-found: error
