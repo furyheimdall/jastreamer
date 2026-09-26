@@ -12,6 +12,14 @@
     <!-- Required to request preferred mixer attributes for USB bit-perfect output. -->
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
 
+    <!--
+      The debug-only USB direct output talks to a USB Audio Class DAC through libusb.
+      It is never required: phones without USB host support keep the normal audio path,
+      and there is no device-attached intent filter, so connecting a DAC never launches
+      or wakes this app.
+    -->
+    <uses-feature android:name="android.hardware.usb.host" android:required="false" />
+
     <application
         android:allowBackup="false"
         android:dataExtractionRules="@xml/data_extraction_rules"

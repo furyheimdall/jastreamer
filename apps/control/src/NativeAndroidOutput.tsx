@@ -2,8 +2,9 @@ import { forwardRef, useEffect, useImperativeHandle, useRef } from "react";
 import type { Device } from "./types";
 
 const RESPONSE_TIMEOUT_MS = 10_000;
-// The state message carries the bounded mixer diagnostics list as well as the output state.
-const MAX_MESSAGE_BYTES = 16_384;
+// The state message carries the bounded mixer diagnostics list, the parsed USB descriptor
+// capabilities of the direct output test and the output state.
+const MAX_MESSAGE_BYTES = 32_768;
 const textEncoder = new TextEncoder();
 let requestSequence = 0;
 
@@ -55,6 +56,40 @@ export type NativeAndroidMixerReport = {
   entries: NativeAndroidMixerEntry[];
 };
 
+export type NativeAndroidUsbDirectFormat = {
+  bits: number;
+  subslot_bytes: number;
+  channels: number;
+  sync: string;
+  feedback: boolean;
+  rates: number[];
+};
+
+export type NativeAndroidUsbDirect = {
+  state: "idle" | "opening" | "playing" | "error";
+  device_name: string;
+  can_start: boolean;
+  track: string;
+  decoder: string;
+  decoder_encoding: string;
+  uac_version: number;
+  high_speed: boolean;
+  formats: NativeAndroidUsbDirectFormat[];
+  requested: { sample_rate: number; bits: number; channels: number };
+  actual: {
+    sample_rate: number;
+    bits: number;
+    channels: number;
+    subslot_bytes: number;
+    sync: string;
+    feedback: boolean;
+  };
+  packets: number;
+  underruns: number;
+  feedback_rate: number;
+  error?: { code: string; message: string };
+};
+
 export type NativeAndroidAudioState = {
   supported: boolean;
   available: boolean;
@@ -67,6 +102,9 @@ export type NativeAndroidAudioState = {
   api_level: number;
   mixer_report: NativeAndroidMixerReport[];
   actual: NativeAndroidActual | null;
+  // Debug builds only: the direct USB output test never ships in a release build.
+  debug_build: boolean;
+  usb_direct: NativeAndroidUsbDirect | null;
   error?: { code: string; message: string };
 };
 
@@ -77,6 +115,9 @@ export interface NativeAndroidOutputHandle {
   rename: (name: string) => Promise<void>;
   setVolume: (volume: number) => Promise<void>;
   configure: (bitPerfect: boolean) => Promise<void>;
+  usbDirectScan: () => Promise<void>;
+  usbDirectStart: () => Promise<void>;
+  usbDirectStop: () => Promise<void>;
 }
 
 interface NativeAndroidOutputProps {
@@ -91,7 +132,8 @@ interface NativeAndroidOutputProps {
   onError: (message: string) => void;
 }
 
-type BridgeAction = "status" | "connect" | "connect_if_available" | "disconnect" | "rename" | "set_volume" | "configure";
+type BridgeAction = "status" | "connect" | "connect_if_available" | "disconnect" | "rename" | "set_volume" | "configure"
+  | "usb_direct_scan" | "usb_direct_start" | "usb_direct_stop";
 
 type BridgeArgument = { name: string } | { volume: number } | { bit_perfect: boolean } | undefined;
 
@@ -249,13 +291,110 @@ function parseMixerReport(value: unknown): NativeAndroidMixerReport[] | undefine
   return reports;
 }
 
+// A USB audio class device exposes a handful of streaming alternate settings, each with a
+// short discrete rate list: anything longer is a malformed report rather than a large DAC.
+const MAX_USB_DIRECT_FORMATS = 16;
+const MAX_USB_DIRECT_RATES = 64;
+
+function parseUsbDirect(value: unknown): NativeAndroidUsbDirect | null | undefined {
+  if (value === undefined || value === null) return null;
+  const candidate = record(value);
+  const requested = record(candidate?.requested);
+  const actual = record(candidate?.actual);
+  if (!candidate || !requested || !actual
+    || !["idle", "opening", "playing", "error"].includes(String(candidate.state))
+    || typeof candidate.device_name !== "string"
+    || typeof candidate.can_start !== "boolean"
+    || typeof candidate.track !== "string"
+    || typeof candidate.decoder !== "string"
+    || typeof candidate.decoder_encoding !== "string"
+    || !nonNegativeInteger(candidate.uac_version)
+    || typeof candidate.high_speed !== "boolean"
+    || !nonNegativeInteger(candidate.packets)
+    || !nonNegativeInteger(candidate.underruns)
+    || !nonNegativeInteger(candidate.feedback_rate)
+    || !Array.isArray(candidate.formats) || candidate.formats.length > MAX_USB_DIRECT_FORMATS
+    || !nonNegativeInteger(requested.sample_rate)
+    || !nonNegativeInteger(requested.bits)
+    || !nonNegativeInteger(requested.channels)
+    || !nonNegativeInteger(actual.sample_rate)
+    || !nonNegativeInteger(actual.bits)
+    || !nonNegativeInteger(actual.channels)
+    || !nonNegativeInteger(actual.subslot_bytes)
+    || typeof actual.sync !== "string"
+    || typeof actual.feedback !== "boolean") return undefined;
+
+  const formats: NativeAndroidUsbDirectFormat[] = [];
+  for (const rawFormat of candidate.formats) {
+    const format = record(rawFormat);
+    if (!format
+      || !nonNegativeInteger(format.bits)
+      || !nonNegativeInteger(format.subslot_bytes)
+      || !nonNegativeInteger(format.channels)
+      || typeof format.sync !== "string"
+      || typeof format.feedback !== "boolean"
+      || !Array.isArray(format.rates)
+      || format.rates.length > MAX_USB_DIRECT_RATES) return undefined;
+    const rates: number[] = [];
+    for (const rate of format.rates) {
+      if (!nonNegativeInteger(rate)) return undefined;
+      rates.push(rate);
+    }
+    formats.push({
+      bits: format.bits,
+      subslot_bytes: format.subslot_bytes,
+      channels: format.channels,
+      sync: format.sync,
+      feedback: format.feedback,
+      rates,
+    });
+  }
+
+  let usbError: NativeAndroidUsbDirect["error"];
+  if (candidate.error !== undefined) {
+    const failure = record(candidate.error);
+    if (!failure || typeof failure.code !== "string" || typeof failure.message !== "string") return undefined;
+    usbError = { code: failure.code, message: failure.message };
+  }
+
+  return {
+    state: candidate.state as NativeAndroidUsbDirect["state"],
+    device_name: candidate.device_name,
+    can_start: candidate.can_start,
+    track: candidate.track,
+    decoder: candidate.decoder,
+    decoder_encoding: candidate.decoder_encoding,
+    uac_version: candidate.uac_version,
+    high_speed: candidate.high_speed,
+    formats,
+    requested: {
+      sample_rate: requested.sample_rate,
+      bits: requested.bits,
+      channels: requested.channels,
+    },
+    actual: {
+      sample_rate: actual.sample_rate,
+      bits: actual.bits,
+      channels: actual.channels,
+      subslot_bytes: actual.subslot_bytes,
+      sync: actual.sync,
+      feedback: actual.feedback,
+    },
+    packets: candidate.packets,
+    underruns: candidate.underruns,
+    feedback_rate: candidate.feedback_rate,
+    ...(usbError ? { error: usbError } : {}),
+  };
+}
+
 function parseAudio(value: unknown): NativeAndroidAudioState | null | undefined {
   if (value === undefined || value === null) return null;
   const candidate = record(value);
   const requested = record(candidate?.requested);
   const actual = parseActual(candidate?.actual);
   const mixerReport = parseMixerReport(candidate?.mixer_report);
-  if (!candidate || !requested || actual === undefined || mixerReport === undefined
+  const usbDirect = parseUsbDirect(candidate?.usb_direct);
+  if (!candidate || !requested || actual === undefined || mixerReport === undefined || usbDirect === undefined
     || (candidate.api_level !== undefined && !nonNegativeInteger(candidate.api_level))
     || typeof candidate.supported !== "boolean"
     || typeof candidate.available !== "boolean"
@@ -295,6 +434,8 @@ function parseAudio(value: unknown): NativeAndroidAudioState | null | undefined 
     api_level: nonNegativeInteger(candidate.api_level) ? candidate.api_level : 0,
     mixer_report: mixerReport,
     actual,
+    debug_build: candidate.debug_build === true,
+    usb_direct: usbDirect,
     ...(audioError ? { error: audioError } : {}),
   };
 }
@@ -395,6 +536,21 @@ const NativeAndroidOutput = forwardRef<NativeAndroidOutputHandle, NativeAndroidO
       const request = requestRef.current;
       if (!request) throw new Error(bridgeErrorRef.current);
       await request("configure", { bit_perfect: bitPerfect });
+    },
+    async usbDirectScan() {
+      const request = requestRef.current;
+      if (!request) throw new Error(bridgeErrorRef.current);
+      await request("usb_direct_scan");
+    },
+    async usbDirectStart() {
+      const request = requestRef.current;
+      if (!request) throw new Error(bridgeErrorRef.current);
+      await request("usb_direct_start");
+    },
+    async usbDirectStop() {
+      const request = requestRef.current;
+      if (!request) throw new Error(bridgeErrorRef.current);
+      await request("usb_direct_stop");
     },
   }), [bridgeError]);
 

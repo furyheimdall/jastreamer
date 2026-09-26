@@ -28,3 +28,26 @@ Android System WebView is supplied and updated by the device, not bundled
 in this APK. The Server supplies its Web interface under its own package
 notices. Gradle, Android build tools and instrumentation-only libraries
 are not part of the installed application runtime.
+
+libusb
+------
+
+This application bundles libusb 1.0.27 as the separate shared library
+lib/<abi>/libusb1.0.so, used by the debug-only USB direct audio output.
+
+  Copyright (c) 2001-2024 libusb contributors
+  License: GNU Lesser General Public License, version 2.1 or later
+  Source project: https://github.com/libusb/libusb
+  Pinned release: https://github.com/libusb/libusb/releases/download/v1.0.27/libusb-1.0.27.tar.bz2
+  SHA-256: ffaa41d741a8a3bee244ac8e54a72ea05bf2879663c098c82fc5757853441575
+
+libusb is NOT distributed under the Apache License. Its full LGPL-2.1 text
+is bundled as assets/LICENSE-LGPL-2.1.txt, and the exact sources used to
+build libusb1.0.so are kept in this repository under
+apps/android/app/src/main/cpp/third_party/libusb/ (see its README.md).
+
+libusb1.0.so is dynamically linked, so it can be replaced with a modified
+build: rebuild it from the sources above with the Android NDK and replace
+lib/<abi>/libusb1.0.so in the APK. jastreamer's own USB code
+(lib/<abi>/libusb_direct.so, sources in cpp/usb_direct/) stays under the
+Apache License, Version 2.0.

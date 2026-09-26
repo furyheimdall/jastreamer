@@ -253,6 +253,15 @@ The panel reports what is missing: Android 14 or newer, a connected USB audio de
 
 The USB preference is released when the setting is turned off, when the USB device is detached, when Server playback ownership ends (disconnect, handoff to **Saved music**, or terminal registration loss), and when the playback service stops.
 
+**USB direct test (experimental, debug builds only)**
+
+Debug APKs add a **USB direct test** section at the bottom of **Phone audio settings**. It is a developer experiment, not a playback feature: it opens the USB DAC with `libusb`, takes it away from Android for as long as it runs, and never starts by itself. Release APKs do not contain the section, and plugging a DAC in never launches the app.
+
+- **Find USB DAC** asks for USB access once and then lists what the dongle's own descriptors say: UAC version, bus speed, and one line per streaming format with its bit depth, subslot size, channel count, synchronisation type, feedback endpoint and sample rates. Report those lines when a format does not work.
+- **Play test track via USB direct** decodes the Server track this phone loaded most recently, with Android's own extractor and decoder, and sends the decoded PCM straight to the DAC. It is refused while Server playback still holds a track, so stop playback first. 24-bit output is requested where Android supports it; the panel reports the encoding the decoder actually produced rather than assuming.
+- The live status shows requested versus actual rate, bits and channels, the subslot size and synchronisation type in use, packets sent, underruns and the sample rate the DAC's feedback endpoint is asking for. Confirm the rate on the DAC's own display and by listening.
+- **Stop**, a Server track starting, a detached device, an error, and the playback service stopping all release the interface and hand the DAC back to Android.
+
 **Saved music**
 
 - **Saved music** opens the app's own **Library / Playlists / Queue / Settings** without Server HTML, network access, or login. Library defaults to **Albums**, with **Artists / Genres / Folders / Tracks / Liked**, search, and collection drill-down. Genres use saved metadata, and likes belong to this device rather than the Server. A completed import keeps its metadata and artwork and stays available after logout, session expiry, account loss, Server/profile removal, or with an older or unreachable Server.

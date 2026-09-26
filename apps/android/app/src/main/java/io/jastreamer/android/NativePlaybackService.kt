@@ -129,6 +129,13 @@ class NativePlaybackService : MediaSessionService(), Player.Listener {
     private var bitPerfectSource: SourceStream? = null
     private var bitPerfectError: PublicError? = null
 
+    /**
+     * The debug-only USB direct output experiment and the last Server track it may replay. Both stay
+     * null in release builds, so nothing in this file can reach a USB DAC outside a debug build.
+     */
+    private var usbDirect: UsbDirectTestSession? = null
+    private var usbDirectTrack: UsbDirectTrack? = null
+
     private val noisyReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             if (intent?.action != AudioManager.ACTION_AUDIO_BECOMING_NOISY) return
@@ -169,6 +176,14 @@ class NativePlaybackService : MediaSessionService(), Player.Listener {
                 it.addAnalyticsListener(AudioTrackObserver())
             }
         bitPerfect = UsbBitPerfectController(this) { notifyState() }
+        // Debug builds only: the experiment never exists in a release APK, so no release code path
+        // can open a USB device.
+        if (BuildConfig.DEBUG) {
+            usbDirect = UsbDirectTestSession(this, scope) {
+                // The decode loop runs off the main thread; state is published on it.
+                scope.launch { notifyState() }
+            }
+        }
         routedPlayer = OwnerRoutedPlayer(player)
         session = MediaSession.Builder(this, routedPlayer)
             .setCallback(SessionCallback())
@@ -231,6 +246,10 @@ class NativePlaybackService : MediaSessionService(), Player.Listener {
         cancelServerTransport()
         offlineTickerJob?.cancel()
         offlineLibraryJob?.cancel()
+        // The DAC must go back to Android before anything else tears down.
+        usbDirect?.release()
+        usbDirect = null
+        usbDirectTrack = null
         player.stop()
         releaseOfflineRetention()
         serviceJob.cancel()
@@ -963,8 +982,12 @@ class NativePlaybackService : MediaSessionService(), Player.Listener {
 
     private fun setOwner(value: PlaybackOwner) {
         if (owner == value) return
-        // Bit-perfect output belongs to Server-owned playback; Saved music keeps the normal mixer.
-        if (value != PlaybackOwner.SERVER) releaseBitPerfect()
+        // Bit-perfect output and the debug USB direct test both belong to Server-owned playback;
+        // Saved music, or losing ownership, gives the mixer and the DAC back to Android.
+        if (value != PlaybackOwner.SERVER) {
+            releaseBitPerfect()
+            usbDirect?.stop()
+        }
         owner = value
         ownershipGeneration++
     }
@@ -1262,6 +1285,131 @@ class NativePlaybackService : MediaSessionService(), Player.Listener {
         return state(server)
     }
 
+    /**
+     * Opens the attached USB Audio Class DAC and reports what its descriptors say. Debug builds
+     * only, and only on an explicit press: nothing here runs on connection, startup or playback.
+     */
+    internal suspend fun usbDirectScan(server: ServerEndpoint): JSONObject {
+        val session = requireUsbDirect(server)
+        try {
+            session.scan()
+        } catch (failure: UsbDirectException) {
+            throw NativePlaybackException(failure.code, failure.message.orEmpty())
+        }
+        notifyState()
+        return state(server)
+    }
+
+    /**
+     * Decodes the Server track this phone loaded most recently and streams it straight to the DAC.
+     * Refused while the Media3 engine still holds a track, so the two paths never share a device.
+     */
+    internal fun usbDirectStart(server: ServerEndpoint): JSONObject {
+        val session = requireUsbDirect(server)
+        if (currentResource != null || preparing || recovering || player.isPlaying) {
+            throw NativePlaybackException(
+                "stop_required",
+                "Stop phone playback before running the USB direct test.",
+            )
+        }
+        val track = usbDirectTrack
+            ?: throw NativePlaybackException(
+                "usb_direct_no_track",
+                "Play a track on this phone from the Server once, then stop it, so the test has something to decode.",
+            )
+        try {
+            session.start(track)
+        } catch (failure: UsbDirectException) {
+            throw NativePlaybackException(failure.code, failure.message.orEmpty())
+        }
+        notifyState()
+        return state(server)
+    }
+
+    internal fun usbDirectStop(server: ServerEndpoint): JSONObject {
+        val session = requireUsbDirect(server)
+        session.stop()
+        notifyState()
+        return state(server)
+    }
+
+    private fun requireUsbDirect(server: ServerEndpoint): UsbDirectTestSession {
+        requireRegistration(server)
+        if (owner != PlaybackOwner.SERVER) {
+            throw NativePlaybackException("not_connected", "Phone playback is not owned by this server.")
+        }
+        return usbDirect
+            ?: throw NativePlaybackException(
+                "usb_direct_unavailable",
+                "The USB direct test exists only in debug builds.",
+            )
+    }
+
+    /** The debug-only USB direct experiment, as the developer panel reports it. */
+    private fun usbDirectState(session: UsbDirectTestSession): JSONObject {
+        val capabilities = session.capabilities
+        val formats = JSONArray()
+        capabilities?.formats?.take(MAX_USB_DIRECT_FORMATS)?.forEach { format ->
+            val rates = JSONArray()
+            format.rates.take(MAX_USB_DIRECT_RATES).forEach(rates::put)
+            formats.put(
+                JSONObject()
+                    .put("bits", format.bits)
+                    .put("subslot_bytes", format.subslotBytes)
+                    .put("channels", format.channels)
+                    .put("sync", format.sync)
+                    .put("feedback", format.feedback)
+                    .put("rates", rates),
+            )
+        }
+        val live = session.status()
+        val requested = session.requested
+        val actual = session.actual
+        return JSONObject()
+            .put("state", session.state)
+            .put("device_name", session.deviceName)
+            .put(
+                "can_start",
+                session.supported &&
+                    !session.busy &&
+                    usbDirectTrack != null &&
+                    currentResource == null &&
+                    !preparing &&
+                    !recovering,
+            )
+            .put("track", usbDirectTrack?.label.orEmpty())
+            .put("decoder", session.decoder)
+            .put("decoder_encoding", session.decoderEncoding)
+            .put("uac_version", capabilities?.uacVersion ?: 0)
+            .put("high_speed", capabilities?.highSpeed ?: false)
+            .put("formats", formats)
+            .put(
+                "requested",
+                JSONObject()
+                    .put("sample_rate", requested?.sampleRate ?: 0)
+                    .put("bits", requested?.bits ?: 0)
+                    .put("channels", requested?.channels ?: 0),
+            )
+            .put(
+                "actual",
+                JSONObject()
+                    .put("sample_rate", actual?.actualSampleRate?.takeIf { it > 0 } ?: actual?.sampleRate ?: 0)
+                    .put("bits", actual?.bits ?: 0)
+                    .put("channels", actual?.channels ?: 0)
+                    .put("subslot_bytes", actual?.subslotBytes ?: 0)
+                    .put("sync", actual?.sync.orEmpty())
+                    .put("feedback", actual?.feedback ?: false),
+            )
+            .put("packets", live?.packets ?: 0L)
+            .put("underruns", live?.underruns ?: 0L)
+            .put("feedback_rate", live?.feedbackRate ?: 0)
+            .also { value ->
+                session.error?.let { (code, message) ->
+                    value.put("error", JSONObject().put("code", code).put("message", message))
+                }
+            }
+    }
+
     internal fun state(server: ServerEndpoint): JSONObject {
         val existing = registration
         val matches = try {
@@ -1306,7 +1454,9 @@ class NativePlaybackService : MediaSessionService(), Player.Listener {
             .put("state", engineState())
             .put("can_configure", owner == PlaybackOwner.SERVER && currentResource == null && !preparing && !recovering)
             .put("actual", actualAudio() ?: JSONObject.NULL)
+            .put("debug_build", BuildConfig.DEBUG)
             .also { value ->
+                usbDirect?.let { value.put("usb_direct", usbDirectState(it)) }
                 bitPerfectError?.let {
                     value.put("error", JSONObject().put("code", it.code).put("message", it.message))
                 }
@@ -1606,6 +1756,9 @@ class NativePlaybackService : MediaSessionService(), Player.Listener {
         pendingTerminal = null
         recovering = false
         publicError = null
+        // A Server track takes the phone back: the debug USB experiment never keeps the DAC
+        // while Media3 is about to open its own output.
+        usbDirect?.stop()
         // Keep the prior timeline while preparing the replacement. Clearing it here
         // removes Media3's notification and foreground protection between tracks.
         player.stop()
@@ -1642,6 +1795,20 @@ class NativePlaybackService : MediaSessionService(), Player.Listener {
             .build()
         val active = ActiveResource(playId, item, sequence)
         currentResource = active
+        // Debug builds keep the resolved media URL so the USB direct test can decode the same track
+        // again after the Server stops. Release builds never construct the session that reads it.
+        if (usbDirect != null) {
+            usbDirectTrack = UsbDirectTrack(
+                url = mediaUrl.toString(),
+                headers = expected.client.mediaHeaders(mediaUrl),
+                mime = mime,
+                label = listOf(resource.optString("title"), resource.optString("artist"))
+                    .map { it.trim() }
+                    .filter(String::isNotEmpty)
+                    .joinToString(" — ")
+                    .take(240),
+            )
+        }
         try {
             player.setMediaSource(expected.client.mediaSource(item))
             prepareWithRecovery(expected, active, startPositionMillis = 0L, playWhenReady = false)
@@ -2874,6 +3041,8 @@ class NativePlaybackService : MediaSessionService(), Player.Listener {
         private const val SEEK_TOLERANCE_MILLIS = 250L
         private const val PREVIOUS_RESTART_THRESHOLD_MILLIS = 3_000L
         private const val MAX_REPORTED_MIXER_ENTRIES = 32
+        private const val MAX_USB_DIRECT_FORMATS = 16
+        private const val MAX_USB_DIRECT_RATES = 64
 
         private fun registrationPath(id: String): String = "$REGISTRATIONS_PATH/${java.net.URLEncoder.encode(id, Charsets.UTF_8.name())}"
         private fun copyJson(value: JSONObject): JSONObject = JSONObject(value.toString())
@@ -2924,6 +3093,18 @@ private class AuthenticatedServerClient(val server: ServerEndpoint) {
     })
 
     fun mediaSource(item: MediaItem): MediaSource = mediaFactory.createMediaSource(item)
+
+    /**
+     * The request headers a plain HTTP reader needs to fetch the same media bytes Media3 fetches.
+     * The profile cookie stays inside this process; it is never handed to the Web UI.
+     */
+    fun mediaHeaders(url: HttpUrl): Map<String, String> {
+        val cookie = cookieManager.getCookie(url.toString())
+        return buildMap {
+            put("User-Agent", "jastreamer-android")
+            if (!cookie.isNullOrBlank()) put("Cookie", cookie)
+        }
+    }
 
     suspend fun json(
         method: String,

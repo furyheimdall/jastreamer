@@ -9,6 +9,9 @@ android {
     namespace = "io.jastreamer.android"
     compileSdk = 36
     buildToolsVersion = "35.0.0"
+    // Pinned so CI, the release build and every developer compile libusb1.0.so and
+    // libusb_direct.so with the same toolchain.
+    ndkVersion = "27.0.12077973"
 
     defaultConfig {
         applicationId = "io.jastreamer.android"
@@ -17,6 +20,26 @@ android {
         versionCode = 20_000
         versionName = "0.2.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+
+        externalNativeBuild {
+            cmake {
+                // libusb is plain C and libusb_direct.so is the only C++ consumer, so the
+                // static STL keeps an extra libc++_shared.so out of the APK.
+                arguments += listOf("-DANDROID_STL=c++_static")
+                cppFlags += "-std=c++17"
+            }
+        }
+        // Phones this client runs on plus the x86_64 emulator the instrumented CI job uses.
+        ndk {
+            abiFilters += listOf("arm64-v8a", "x86_64")
+        }
+    }
+
+    externalNativeBuild {
+        cmake {
+            path = file("src/main/cpp/CMakeLists.txt")
+            version = "3.22.1"
+        }
     }
 
     buildTypes {

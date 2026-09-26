@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { api, ApiError } from "./api";
 import LocalOutput, { hasNativeAndroidAudio, type LocalOutputHandle } from "./LocalOutput";
-import type { NativeAndroidAudioState } from "./NativeAndroidOutput";
+import type { NativeAndroidAudioState, NativeAndroidUsbDirect } from "./NativeAndroidOutput";
 import {
   nativeWindowsAudioBridge,
   parseNativeWindowsState,
@@ -37,6 +37,13 @@ const ANDROID_AUDIO_STATE_MESSAGE: Record<NativeAndroidAudioState["state"], Mess
   playing: "player.android.state.playing",
   paused: "player.android.state.paused",
   error: "player.android.state.error",
+};
+
+const ANDROID_USB_DIRECT_STATE_MESSAGE: Record<NativeAndroidUsbDirect["state"], MessageKey> = {
+  idle: "player.android.usbDirect.state.idle",
+  opening: "player.android.usbDirect.state.opening",
+  playing: "player.android.usbDirect.state.playing",
+  error: "player.android.usbDirect.state.error",
 };
 
 const ANDROID_UNAVAILABLE_MESSAGE: Record<string, MessageKey> = {
@@ -169,6 +176,7 @@ export default function PlayerBar({ revision, phoneExpanded, onPhoneExpandedChan
   const [androidSettingsOpen, setAndroidSettingsOpen] = useState(false);
   const [androidConfigurationError, setAndroidConfigurationError] = useState("");
   const [androidConfigurationBusy, setAndroidConfigurationBusy] = useState(false);
+  const [usbDirectBusy, setUsbDirectBusy] = useState(false);
   const [defaultBrowserName] = useState(() => localOutputName(usesNativeAndroid, windowsBridge !== null));
   const [browserAlias, setBrowserAlias] = useState("");
   const [nameDraft, setNameDraft] = useState("");
@@ -519,6 +527,23 @@ export default function PlayerBar({ revision, phoneExpanded, onPhoneExpandedChan
     }
   }
 
+  // Debug builds only: the direct USB test drives the DAC itself, so it neither uses nor
+  // blocks the Server playback commands and keeps its own in-flight flag.
+  async function runUsbDirect(action: "scan" | "start" | "stop") {
+    const output = localOutputRef.current;
+    if (!output || usbDirectBusy) return;
+    setUsbDirectBusy(true);
+    try {
+      if (action === "scan") await output.usbDirectScanAndroid();
+      else if (action === "start") await output.usbDirectStartAndroid();
+      else await output.usbDirectStopAndroid();
+    } catch (caught) {
+      onNotice(errorMessage(caught, t("player.android.usbDirect.actionFailed")), true);
+    } finally {
+      setUsbDirectBusy(false);
+    }
+  }
+
   // Reconnect only after the reconfigured backend has rendered: the local output handle
   // still points at the previous (browser or native) implementation until then.
   useEffect(() => {
@@ -761,6 +786,8 @@ export default function PlayerBar({ revision, phoneExpanded, onPhoneExpandedChan
   ));
   const androidUsbDevice = androidAudioState?.devices[0];
   const androidActual = androidAudioState?.actual ?? null;
+  // Release builds never report debug_build, so the test section cannot be rendered there.
+  const usbDirect = androidAudioState?.debug_build === true ? androidAudioState.usb_direct : null;
 
   function shuffleButton(labeled = false, compactChooser = false) {
     return (
@@ -1265,7 +1292,9 @@ export default function PlayerBar({ revision, phoneExpanded, onPhoneExpandedChan
                             {" — "}
                             {entry.rejection
                               ? t(ANDROID_MIXER_REJECTION_MESSAGE[entry.rejection] ?? "player.android.reject.unknown")
-                              : t("player.android.mixerReport.usable")}
+                              : t(entry.bit_perfect
+                                ? "player.android.mixerReport.usable"
+                                : "player.android.mixerReport.notBitPerfect")}
                           </li>
                         ))}
                       </ul>
@@ -1273,6 +1302,130 @@ export default function PlayerBar({ revision, phoneExpanded, onPhoneExpandedChan
                 </div>
               ))}
             </details>
+          )}
+          {usbDirect && (
+            <section className="native-audio-status" aria-labelledby="android-usb-direct-heading">
+              <h3 id="android-usb-direct-heading">{t("player.android.usbDirect.title")}</h3>
+              <p className="field-help">{t("player.android.usbDirect.warning")}</p>
+              <dl>
+                <dt>{t("player.android.usbDirect.device")}</dt>
+                <dd>
+                  {usbDirect.device_name || t("player.android.usbDirect.noDevice")}
+                  {usbDirect.uac_version > 0 && ` · ${t("player.android.usbDirect.uac", {
+                    version: usbDirect.uac_version,
+                    speed: t(usbDirect.high_speed
+                      ? "player.android.usbDirect.highSpeed"
+                      : "player.android.usbDirect.fullSpeed"),
+                  })}`}
+                </dd>
+              </dl>
+              <h4>{t("player.android.usbDirect.capabilities")}</h4>
+              {usbDirect.formats.length === 0
+                ? <p className="muted">{t("player.android.usbDirect.noFormats")}</p>
+                : (
+                  <ul>
+                    {usbDirect.formats.map((format, index) => (
+                      <li key={index}>
+                        {t("player.android.usbDirect.format", {
+                          bits: format.bits,
+                          subslot: format.subslot_bytes,
+                          channels: format.channels,
+                          sync: format.sync,
+                          feedback: t(format.feedback
+                            ? "player.android.usbDirect.feedback"
+                            : "player.android.usbDirect.noFeedback"),
+                        })}
+                        {" — "}
+                        {format.rates.length === 0
+                          ? t("player.android.usbDirect.noRates")
+                          : t("player.android.usbDirect.rates", {
+                            rates: format.rates.map((rate) => rate.toLocaleString(locale)).join(", "),
+                          })}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              <div className="native-audio-fields">
+                <button
+                  className="button button-primary"
+                  type="button"
+                  disabled={usbDirectBusy || usbDirect.state === "opening" || usbDirect.state === "playing"}
+                  onClick={() => void runUsbDirect("scan")}
+                >
+                  {t("player.android.usbDirect.scan")}
+                </button>
+                <button
+                  className="button button-primary"
+                  type="button"
+                  disabled={usbDirectBusy || !usbDirect.can_start || usbDirect.state !== "idle"}
+                  onClick={() => void runUsbDirect("start")}
+                >
+                  {t("player.android.usbDirect.start")}
+                </button>
+                <button
+                  className="button button-ghost"
+                  type="button"
+                  disabled={usbDirectBusy || (usbDirect.state !== "opening" && usbDirect.state !== "playing")}
+                  onClick={() => void runUsbDirect("stop")}
+                >
+                  {t("player.android.usbDirect.stop")}
+                </button>
+              </div>
+              <p className="field-help">
+                {usbDirect.track
+                  ? t("player.android.usbDirect.track", { track: usbDirect.track })
+                  : t("player.android.usbDirect.noTrack")}
+              </p>
+              <dl>
+                <dt>{t("player.android.usbDirect.engineState")}</dt>
+                <dd>{t(ANDROID_USB_DIRECT_STATE_MESSAGE[usbDirect.state])}</dd>
+                <dt>{t("player.android.usbDirect.requested")}</dt>
+                <dd>{usbDirect.requested.sample_rate > 0
+                  ? t("player.android.usbDirect.requestedValue", {
+                    rate: usbDirect.requested.sample_rate.toLocaleString(locale),
+                    bits: usbDirect.requested.bits,
+                    channels: usbDirect.requested.channels,
+                  })
+                  : t("player.android.usbDirect.none")}</dd>
+                <dt>{t("player.android.usbDirect.actual")}</dt>
+                <dd>{usbDirect.actual.sample_rate > 0
+                  ? t("player.android.usbDirect.actualValue", {
+                    rate: usbDirect.actual.sample_rate.toLocaleString(locale),
+                    bits: usbDirect.actual.bits,
+                    subslot: usbDirect.actual.subslot_bytes,
+                    channels: usbDirect.actual.channels,
+                    sync: usbDirect.actual.sync,
+                  })
+                  : t("player.android.usbDirect.none")}</dd>
+                {usbDirect.decoder && (
+                  <>
+                    <dt>{t("player.android.usbDirect.decoder")}</dt>
+                    <dd>{usbDirect.decoder_encoding
+                      ? t("player.android.usbDirect.decoderValue", {
+                        decoder: usbDirect.decoder,
+                        encoding: usbDirect.decoder_encoding,
+                      })
+                      : usbDirect.decoder}</dd>
+                  </>
+                )}
+                <dt>{t("player.android.usbDirect.packets")}</dt>
+                <dd>{usbDirect.packets.toLocaleString(locale)}</dd>
+                <dt>{t("player.android.usbDirect.underruns")}</dt>
+                <dd>{usbDirect.underruns.toLocaleString(locale)}</dd>
+                <dt>{t("player.android.usbDirect.feedbackRate")}</dt>
+                <dd>{usbDirect.feedback_rate > 0
+                  ? t("player.android.usbDirect.hz", { rate: usbDirect.feedback_rate.toLocaleString(locale) })
+                  : t("player.android.usbDirect.none")}</dd>
+              </dl>
+              {usbDirect.error && (
+                <p className="error-text native-audio-error" role="alert">
+                  {t("player.android.usbDirect.error", {
+                    code: usbDirect.error.code,
+                    message: usbDirect.error.message,
+                  })}
+                </p>
+              )}
+            </section>
           )}
           {androidAudioState?.error && (
             <p className="error-text native-audio-error" role="alert">
