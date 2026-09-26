@@ -192,6 +192,7 @@ export const playerMessages = {
   "player.android.usbDirect.noTrack": { en: "No test track yet. Play a Server track on this phone first: the test sends the track the Server loaded.", ko: "아직 테스트 곡이 없습니다. 이 휴대전화에서 서버 곡을 먼저 재생하세요. 테스트는 서버가 로드한 곡을 전송합니다." },
   "player.android.usbDirect.engineState": { en: "Engine state", ko: "엔진 상태" },
   "player.android.usbDirect.state.idle": { en: "Idle", ko: "대기 중" },
+  "player.android.usbDirect.state.openingSource": { en: "Opening the track…", ko: "음원을 여는 중…" },
   "player.android.usbDirect.state.opening": { en: "Opening the DAC…", ko: "DAC을 여는 중…" },
   "player.android.usbDirect.state.playing": { en: "Playing", ko: "재생 중" },
   "player.android.usbDirect.state.error": { en: "Error", ko: "오류" },

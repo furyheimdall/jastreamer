@@ -13,17 +13,16 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-/** The Server track the developer test decodes, resolved natively so no URL reaches the Web UI. */
+/** The Server track the developer test decodes, identified by library id rather than by a URL. */
 internal data class UsbDirectTrack(
-    val url: String,
-    val headers: Map<String, String>,
-    val mime: String,
+    val trackId: String,
     val label: String,
 )
 
@@ -32,8 +31,9 @@ internal data class UsbDirectTrack(
  * `MediaExtractor` + `MediaCodec` and streams the decoded PCM straight to a USB Audio Class DAC
  * through [UsbDirectOutput], bypassing Android's audio stack entirely.
  *
- * Nothing here runs on its own. [scan] and [start] happen only on an explicit press in the
- * developer panel, and every exit path releases the DAC.
+ * Nothing here runs on its own. [scan] and [start] happen only on an explicit press, the source is
+ * opened and decoded before the DAC is claimed, and every exit path releases the DAC and the
+ * prepared source.
  */
 internal class UsbDirectTestSession(
     context: Context,
@@ -46,6 +46,10 @@ internal class UsbDirectTestSession(
     /** Set while the user's own Stop tears the session down, so that teardown is not an error. */
     @Volatile
     private var stopRequested = false
+
+    /** True once the Server source is open; the DAC may not be claimed before it is. */
+    @Volatile
+    private var sourceOpen = false
 
     @Volatile
     var state: String = STATE_IDLE
@@ -74,7 +78,7 @@ internal class UsbDirectTestSession(
 
     val supported: Boolean get() = UsbDirectNative.available
 
-    val busy: Boolean get() = state == STATE_OPENING || state == STATE_PLAYING
+    val busy: Boolean get() = UsbDirectTestPolicy.busy(state)
 
     fun status(): UsbDirectStatus? = output.status()
 
@@ -110,10 +114,11 @@ internal class UsbDirectTestSession(
     }
 
     /**
-     * Decodes [track] and plays it through the DAC at the decoder's own sample rate and precision.
-     * The DAC is opened (and the user prompted) first when [scan] has not run yet.
+     * Opens the Server source for [track], decodes it, and only then claims the DAC and streams the
+     * PCM at the decoder's own sample rate and precision. Opening the source first is what keeps a
+     * dead or slow Server from taking the DAC away from Android for nothing.
      */
-    fun start(track: UsbDirectTrack) {
+    fun start(track: UsbDirectTrack, source: UsbDirectSource) {
         if (busy) throw UsbDirectException("usb_direct_busy", "The USB direct test is already running.")
         error = null
         requested = null
@@ -121,12 +126,14 @@ internal class UsbDirectTestSession(
         decoder = ""
         decoderEncoding = ""
         stopRequested = false
-        state = STATE_OPENING
+        sourceOpen = false
+        state = UsbDirectTestPolicy.requireTransition(STATE_IDLE, STATE_SOURCE)
         onChanged()
         job = scope.launch {
             try {
-                if (!output.opened) openDevice()
-                withContext(Dispatchers.IO) { play(track) }
+                val handle = source.open(track.trackId) { !stopRequested }
+                sourceOpen = true
+                withContext(Dispatchers.IO) { play(handle) }
                 releaseDevice()
                 if (state != STATE_ERROR) state = STATE_IDLE
             } catch (cancelled: CancellationException) {
@@ -142,6 +149,8 @@ internal class UsbDirectTestSession(
                 if (stopRequested) state = STATE_IDLE
                 else fail("usb_direct_failed", failure.message ?: "The USB direct test failed.")
             } finally {
+                withContext(NonCancellable) { source.release() }
+                sourceOpen = false
                 job = null
                 onChanged()
             }
@@ -171,14 +180,17 @@ internal class UsbDirectTestSession(
         output.close()
     }
 
-    private suspend fun play(track: UsbDirectTrack) {
+    private suspend fun play(handle: UsbDirectSourceHandle) {
         val extractor = MediaExtractor()
         var codec: MediaCodec? = null
         try {
+            // The URL was already proved to serve, with bounded connect and read timeouts, before
+            // this point; `MediaExtractor` itself offers no timeout of its own.
             try {
-                extractor.setDataSource(track.url, track.headers)
+                extractor.setDataSource(handle.url, handle.headers)
             } catch (failure: IOException) {
-                throw UsbDirectException("usb_source_failed", "The Server track could not be opened for decoding.")
+                val (code, message) = UsbDirectTestPolicy.sourceFailure(null, failure.message)
+                throw UsbDirectException(code, message)
             }
             val trackIndex = (0 until extractor.trackCount).firstOrNull { index ->
                 extractor.getTrackFormat(index).getString(MediaFormat.KEY_MIME)?.startsWith("audio/") == true
@@ -240,6 +252,13 @@ internal class UsbDirectTestSession(
             if (outputIndex < 0) continue
 
             if (!started) {
+                if (info.size <= 0) {
+                    // Codec configuration and empty buffers are not audio: the DAC stays Android's
+                    // until the decoder has actually produced samples.
+                    codec.releaseOutputBuffer(outputIndex, false)
+                    if (info.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM != 0) break
+                    continue
+                }
                 val format = codec.outputFormat
                 val encoding = pcmEncoding(format)
                 decoderEncoding = encodingLabel(encoding)
@@ -248,6 +267,10 @@ internal class UsbDirectTestSession(
                 val channels = format.getInteger(MediaFormat.KEY_CHANNEL_COUNT)
                 val bits = sourceBytesPerSample * 8
                 requested = UsbDirectStream(sampleRate, bits, channels)
+                UsbDirectTestPolicy.requireClaimAllowed(sourceOpen, info.size.toLong())
+                state = UsbDirectTestPolicy.requireTransition(state, STATE_OPENING)
+                onChanged()
+                if (!output.opened) openDevice()
                 val opened = output.start(sampleRate, channels, bits)
                 actual = opened
                 targetBytesPerSample = opened.subslotBytes
@@ -261,7 +284,7 @@ internal class UsbDirectTestSession(
                 if (targetBytesPerSample != sourceBytesPerSample) {
                     staging = ByteBuffer.allocateDirect(STAGING_BYTES).order(ByteOrder.LITTLE_ENDIAN)
                 }
-                state = STATE_PLAYING
+                state = UsbDirectTestPolicy.requireTransition(state, STATE_PLAYING)
                 started = true
                 onChanged()
             }
@@ -372,10 +395,11 @@ internal class UsbDirectTestSession(
     }
 
     internal companion object {
-        const val STATE_IDLE = "idle"
-        const val STATE_OPENING = "opening"
-        const val STATE_PLAYING = "playing"
-        const val STATE_ERROR = "error"
+        const val STATE_IDLE = UsbDirectTestPolicy.PHASE_IDLE
+        const val STATE_SOURCE = UsbDirectTestPolicy.PHASE_SOURCE
+        const val STATE_OPENING = UsbDirectTestPolicy.PHASE_DEVICE
+        const val STATE_PLAYING = UsbDirectTestPolicy.PHASE_PLAYING
+        const val STATE_ERROR = UsbDirectTestPolicy.PHASE_ERROR
 
         private const val DEQUEUE_TIMEOUT_MICROS = 10_000L
         private const val RING_WAIT_MILLIS = 3L

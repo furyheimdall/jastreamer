@@ -719,7 +719,7 @@ internal class NativeAudioBridge(
         private val VOLUME_ACTION_KEYS = setOf("id", "action", "volume")
         private val CONFIGURE_ACTION_KEYS = setOf("id", "action", "bit_perfect")
         private val AUDIO_STATES = setOf("stopped", "loaded", "playing", "paused", "error")
-        private val USB_DIRECT_STATES = setOf("idle", "opening", "playing", "error")
+        private val USB_DIRECT_STATES = setOf("idle", "opening_source", "opening", "playing", "error")
         private const val MAX_USB_DIRECT_FORMATS = 16
         private const val MAX_USB_DIRECT_RATES = 64
         private const val MAX_AUDIO_DEVICES = 8
