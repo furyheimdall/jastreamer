@@ -43,6 +43,10 @@ type Device struct {
 	Manufacturer string `json:"manufacturer"`
 	Model        string `json:"model"`
 	Address      string `json:"address"`
+	// MediaAddresses lists every device address discovery actually observed for this
+	// output, when the backend tracks more than one. Media grants accept requests from
+	// these addresses only; an empty list means Address is the single accepted address.
+	MediaAddresses []string `json:"-"`
 	// LocalAddress is the server interface used to reach this output, when known.
 	LocalAddress     string       `json:"-"`
 	Online           bool         `json:"online"`

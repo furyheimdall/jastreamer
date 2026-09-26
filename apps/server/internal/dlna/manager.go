@@ -34,12 +34,16 @@ type deviceRecord struct {
 	actions        map[string]bool
 	queries        map[string]bool
 	source         netip.Addr
-	network        localNetwork
-	lastSeen       time.Time
-	expiresAt      time.Time
-	bootID         string
-	configID       string
-	inspection     uint64
+	// addresses holds every address discovery observed for this renderer. Media grants
+	// accept these addresses; the set is refreshed on re-discovery and cleared when the
+	// renderer expires or announces byebye.
+	addresses  addressSet
+	network    localNetwork
+	lastSeen   time.Time
+	expiresAt  time.Time
+	bootID     string
+	configID   string
+	inspection uint64
 }
 
 type pendingInspection struct {
@@ -197,6 +201,7 @@ func cloneDevice(value output.Device) output.Device {
 	if value.ProtocolInfo == nil {
 		value.ProtocolInfo = []string{}
 	}
+	value.MediaAddresses = append([]string(nil), value.MediaAddresses...)
 	return value
 }
 
@@ -399,13 +404,10 @@ func (manager *Manager) control(ctx context.Context, record deviceRecord, action
 }
 
 func (manager *Manager) soap(ctx context.Context, record deviceRecord, action string, arguments []soapArgument) ([]byte, error) {
-	candidate := advertisement{
-		source: netip.AddrPortFrom(record.source, 0), network: record.network,
-		location: record.descriptionURL, udn: record.udn,
-	}
 	return manager.executeSOAP(ctx, soapCall{
-		candidate: candidate, url: record.controlURL, service: record.serviceType,
-		action: action, arguments: arguments,
+		scope:   endpointScope{allowed: record.addresses.with(record.source), network: record.network},
+		url:     record.controlURL,
+		service: record.serviceType, action: action, arguments: arguments,
 	})
 }
 
@@ -508,7 +510,9 @@ func (manager *Manager) acceptAdvertisement(parent context.Context, value advert
 			manager.mu.Unlock()
 			return
 		}
-		changedEndpoint := record.descriptionURL != value.location || record.source != value.source.Addr()
+		// A renderer with several addresses on one interface answers from any of them,
+		// so a sender this device already presented is the same endpoint, not a new one.
+		changedEndpoint := record.descriptionURL != value.location || !record.addresses.contains(value.source.Addr())
 		changedVersion := (value.bootID != "" && value.bootID != record.bootID) || (value.configID != "" && value.configID != record.configID)
 		if value.kind == "update" || value.nextBoot != "" {
 			changedVersion = true
@@ -606,7 +610,7 @@ func (manager *Manager) launchInspection(parent context.Context, value advertise
 			device: inspected.device, udn: inspected.udn,
 			descriptionURL: inspected.descriptionURL, controlURL: inspected.controlURL,
 			serviceType: inspected.serviceType, actions: inspected.actions, queries: inspected.queries,
-			source: inspected.source, network: inspected.network,
+			source: inspected.source, addresses: inspected.addresses, network: inspected.network,
 			lastSeen: now, bootID: value.bootID, configID: value.configID,
 		}
 		manager.mu.Lock()
@@ -618,6 +622,12 @@ func (manager *Manager) launchInspection(parent context.Context, value advertise
 		record.expiresAt = now.Add(pending.candidate.maxAge)
 		delete(manager.pending, value.udn)
 		if currentID, exists := manager.byUDN[value.udn]; exists {
+			// The same description keeps the addresses discovery already observed for
+			// this renderer; a moved description starts a fresh set.
+			if previous := manager.devices[currentID]; previous.descriptionURL == record.descriptionURL {
+				record.addresses = record.addresses.merge(previous.addresses)
+				record.device.MediaAddresses = record.addresses.strings()
+			}
 			delete(manager.devices, currentID)
 		}
 		manager.devices[record.device.ID] = record
@@ -649,9 +659,10 @@ func (manager *Manager) markOffline(value advertisement) {
 	delete(manager.pending, value.udn)
 	if id, exists := manager.byUDN[value.udn]; exists {
 		record := manager.devices[id]
-		if record.source == value.source.Addr() && record.device.Online {
+		if record.addresses.with(record.source).contains(value.source.Addr()) && record.device.Online {
 			record.device.Online = false
 			record.expiresAt = manager.now()
+			clearDeviceAddresses(&record)
 			manager.devices[id] = record
 			changed = true
 		}
@@ -668,6 +679,7 @@ func (manager *Manager) expireDevices(now time.Time) {
 	for id, record := range manager.devices {
 		if record.device.Online && !record.expiresAt.After(now) {
 			record.device.Online = false
+			clearDeviceAddresses(&record)
 			manager.devices[id] = record
 			changed = true
 		}
@@ -676,6 +688,14 @@ func (manager *Manager) expireDevices(now time.Time) {
 	if changed {
 		manager.notify("renderers")
 	}
+}
+
+// clearDeviceAddresses drops the observed addresses of a renderer that is no longer
+// present, so a returning renderer is inspected again before any media grant is bound
+// to an address that may now belong to another host.
+func clearDeviceAddresses(record *deviceRecord) {
+	record.addresses = nil
+	record.device.MediaAddresses = nil
 }
 
 func (manager *Manager) readNotifications(ctx context.Context, network localNetwork, listener notificationListener) {

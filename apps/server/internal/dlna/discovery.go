@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/netip"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -31,16 +32,67 @@ type localNetwork struct {
 	prefix netip.Prefix
 }
 
+// maxDeviceAddresses bounds the addresses recorded for one renderer. A renderer may
+// answer SSDP from one address and publish its description on another, so a device is
+// tracked as a small set rather than a single address.
+const maxDeviceAddresses = 8
+
+// addressSet is an ordered, de-duplicated and bounded list of device addresses.
+type addressSet []netip.Addr
+
+func (set addressSet) contains(address netip.Addr) bool {
+	return slices.Contains(set, address)
+}
+
+// with returns a set extended by one address. The result never shares storage with
+// the receiver, so a recorded set cannot be mutated through a copy.
+func (set addressSet) with(address netip.Addr) addressSet {
+	if !address.IsValid() || set.contains(address) || len(set) >= maxDeviceAddresses {
+		return set
+	}
+	return append(slices.Clip(set), address)
+}
+
+func (set addressSet) merge(other addressSet) addressSet {
+	for _, address := range other {
+		set = set.with(address)
+	}
+	return set
+}
+
+func (set addressSet) strings() []string {
+	values := make([]string, 0, len(set))
+	for _, address := range set {
+		values = append(values, address.String())
+	}
+	return values
+}
+
+// endpointScope names the addresses the server may contact for one renderer: the
+// address its SSDP response came from and the address its LOCATION points at.
+type endpointScope struct {
+	allowed addressSet
+	network localNetwork
+}
+
 type advertisement struct {
-	source   netip.AddrPort
-	network  localNetwork
-	location string
-	udn      string
-	maxAge   time.Duration
-	bootID   string
-	configID string
-	nextBoot string
-	kind     string
+	source       netip.AddrPort
+	locationAddr netip.Addr
+	network      localNetwork
+	location     string
+	udn          string
+	maxAge       time.Duration
+	bootID       string
+	configID     string
+	nextBoot     string
+	kind         string
+}
+
+func (value advertisement) scope() endpointScope {
+	return endpointScope{
+		allowed: addressSet{}.with(value.source.Addr()).with(value.locationAddr),
+		network: value.network,
+	}
 }
 
 type discoveryClient interface {
@@ -283,12 +335,15 @@ func isMediaRendererType(value string) bool {
 
 func advertisementFromHeaders(source netip.AddrPort, network localNetwork, header http.Header, kind string) (advertisement, error) {
 	udn := udnFromUSN(header.Get("USN"))
-	location, err := trustedAbsoluteURL(header.Get("Location"), source.Addr(), network)
-	if err != nil || udn == "" || !network.prefix.Contains(source.Addr()) {
+	if udn == "" || !network.prefix.Contains(source.Addr()) {
+		return advertisement{}, ErrInvalidResponse
+	}
+	location, locationAddr, err := parseDeviceURL(header.Get("Location"), network)
+	if err != nil {
 		return advertisement{}, ErrInvalidResponse
 	}
 	return advertisement{
-		source: source, network: network, location: location, udn: udn,
+		source: source, locationAddr: locationAddr, network: network, location: location, udn: udn,
 		maxAge:   parseMaxAge(header.Get("Cache-Control")),
 		bootID:   strings.TrimSpace(header.Get("BOOTID.UPNP.ORG")),
 		configID: strings.TrimSpace(header.Get("CONFIGID.UPNP.ORG")),
@@ -332,14 +387,26 @@ func parseMaxAge(raw string) time.Duration {
 	return defaultMaxAge
 }
 
-func trustedAbsoluteURL(raw string, source netip.Addr, network localNetwork) (string, error) {
+// trustedAbsoluteURL accepts only the addresses this renderer already presented.
+func trustedAbsoluteURL(raw string, scope endpointScope) (string, netip.Addr, error) {
+	parsed, address, err := parseDeviceURL(raw, scope.network)
+	if err != nil || !scope.allowed.contains(address) {
+		return "", netip.Addr{}, ErrUnavailable
+	}
+	return parsed, address, nil
+}
+
+// parseDeviceURL accepts a device URL that names any address on the discovery network,
+// because a renderer with several addresses on one interface answers SSDP from one of
+// them and publishes its description on another.
+func parseDeviceURL(raw string, network localNetwork) (string, netip.Addr, error) {
 	parsed, err := url.Parse(strings.TrimSpace(raw))
 	if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.User != nil || parsed.Host == "" || parsed.Fragment != "" {
-		return "", ErrUnavailable
+		return "", netip.Addr{}, ErrUnavailable
 	}
 	address, err := netip.ParseAddr(parsed.Hostname())
-	if err != nil || address != source || !network.prefix.Contains(address) {
-		return "", ErrUnavailable
+	if err != nil || !network.prefix.Contains(address) || !allowedLocalAddress(address) {
+		return "", netip.Addr{}, ErrUnavailable
 	}
-	return parsed.String(), nil
+	return parsed.String(), address, nil
 }

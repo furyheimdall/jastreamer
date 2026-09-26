@@ -14,6 +14,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -33,6 +34,9 @@ var (
 )
 
 const tokenBytes = 32
+
+// maxGrantSources bounds the renderer addresses one media grant accepts.
+const maxGrantSources = 8
 
 const diagnosticLogInterval = 30 * time.Second
 
@@ -74,7 +78,7 @@ type binding struct {
 	rendererID        string
 	playID            string
 	trackID           string
-	sourceIP          netip.Addr
+	sources           []netip.Addr
 	representation    representation
 	cast              bool
 	browser           bool
@@ -156,9 +160,9 @@ func (service *Service) Prepare(ctx context.Context, device output.Device, track
 	if playID == "" || track.ID == "" {
 		return output.Resource{}, fmt.Errorf("%w: play and track identities are required", ErrTrackUnavailable)
 	}
-	sourceIP, err := rendererIP(device.Address)
+	sources, err := grantSources(device)
 	if err != nil {
-		return output.Resource{}, fmt.Errorf("%w: renderer address is not a literal IP address", ErrInvalidConfig)
+		return output.Resource{}, err
 	}
 	file, openedTrack, err := service.library.Open(ctx, track.ID)
 	if err != nil {
@@ -205,7 +209,7 @@ func (service *Service) Prepare(ctx context.Context, device output.Device, track
 		rendererID:     device.ID,
 		playID:         playID,
 		trackID:        openedTrack.ID,
-		sourceIP:       sourceIP,
+		sources:        sources,
 		representation: representation,
 		browser:        device.Protocol == output.ProtocolBrowser,
 		cast:           device.Protocol == output.ProtocolCast,
@@ -339,6 +343,33 @@ func rendererIP(value string) (netip.Addr, error) {
 		}
 	}
 	return netip.Addr{}, errors.New("not a literal IP address")
+}
+
+// grantSources collects the addresses a media grant accepts for one selected output:
+// the control address plus every other address discovery observed for the same device.
+// Backends that track a single address keep exactly one accepted address.
+func grantSources(device output.Device) ([]netip.Addr, error) {
+	control, err := rendererIP(device.Address)
+	if err != nil {
+		return nil, fmt.Errorf("%w: renderer address is not a literal IP address", ErrInvalidConfig)
+	}
+	sources := make([]netip.Addr, 1, min(len(device.MediaAddresses)+1, maxGrantSources))
+	sources[0] = control
+	for _, raw := range device.MediaAddresses {
+		if len(sources) >= maxGrantSources {
+			break
+		}
+		observed, err := rendererIP(raw)
+		if err != nil || slices.Contains(sources, observed) {
+			continue
+		}
+		sources = append(sources, observed)
+	}
+	return sources, nil
+}
+
+func (value *binding) allows(address netip.Addr) bool {
+	return slices.Contains(value.sources, address)
 }
 
 func parseLiteralIP(value string) (netip.Addr, bool) {

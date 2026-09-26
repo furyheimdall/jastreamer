@@ -11,6 +11,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/netip"
+	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -146,12 +148,12 @@ func TestSOAPOnlyRetriesReadQueriesAfterStaleConnection(t *testing.T) {
 			candidate := fixtureAdvertisement(endpoint, "uuid:stale-soap-fixture", "1")
 
 			if _, err := manager.executeSOAP(context.Background(), soapCall{
-				candidate: candidate, url: endpoint, service: service, action: "GetTransportInfo",
+				scope: candidate.scope(), url: endpoint, service: service, action: "GetTransportInfo",
 			}); err != nil {
 				t.Fatalf("warm-up query failed: %v", err)
 			}
 			_, err := manager.executeSOAP(context.Background(), soapCall{
-				candidate: candidate, url: endpoint, service: service, action: test.action,
+				scope: candidate.scope(), url: endpoint, service: service, action: test.action,
 			})
 			if test.wantSuccess {
 				if err != nil {
@@ -543,15 +545,28 @@ func fixtureManager(client *http.Client) *Manager {
 }
 
 func fixtureAdvertisement(location, udn, bootID string) advertisement {
-	network := localNetwork{name: "loopback", index: 1, local: netip.MustParseAddr("127.0.0.1"), prefix: netip.MustParsePrefix("127.0.0.0/8")}
+	return fixtureAdvertisementFrom("127.0.0.1", location, udn, bootID)
+}
+
+func fixtureAdvertisementFrom(source, location, udn, bootID string) advertisement {
+	network := fixtureNetwork()
+	parsed, err := url.Parse(location)
+	if err != nil {
+		panic(err)
+	}
 	return advertisement{
-		source: netip.MustParseAddrPort("127.0.0.1:1900"), network: network,
-		location: location, udn: udn, bootID: bootID, maxAge: time.Minute, kind: "alive",
+		source:       netip.AddrPortFrom(netip.MustParseAddr(source), 1900),
+		locationAddr: netip.MustParseAddr(parsed.Hostname()),
+		network:      network,
+		location:     location, udn: udn, bootID: bootID, maxAge: time.Minute, kind: "alive",
 	}
 }
 
+func fixtureNetwork() localNetwork {
+	return localNetwork{name: "loopback", index: 1, local: netip.MustParseAddr("127.0.0.1"), prefix: netip.MustParsePrefix("127.0.0.0/8")}
+}
+
 func fixtureRecord(id, controlURL string) deviceRecord {
-	network := localNetwork{name: "loopback", index: 1, local: netip.MustParseAddr("127.0.0.1"), prefix: netip.MustParsePrefix("127.0.0.0/8")}
 	return deviceRecord{
 		device: output.Device{ID: id, Online: true, Protocol: output.ProtocolUPnP}, udn: "uuid:observation-fixture",
 		descriptionURL: controlURL, controlURL: controlURL,
@@ -560,8 +575,10 @@ func fixtureRecord(id, controlURL string) deviceRecord {
 			"SetAVTransportURI": true, "Play": true, "Pause": true, "Stop": true,
 			"Seek": true, "GetTransportInfo": true, "GetPositionInfo": true, "GetMediaInfo": true,
 		},
-		queries: map[string]bool{"GetPositionInfo": true},
-		source:  netip.MustParseAddr("127.0.0.1"), network: network, expiresAt: time.Now().Add(time.Minute),
+		queries:   map[string]bool{"GetPositionInfo": true},
+		source:    netip.MustParseAddr("127.0.0.1"),
+		addresses: addressSet{netip.MustParseAddr("127.0.0.1")},
+		network:   fixtureNetwork(), expiresAt: time.Now().Add(time.Minute),
 	}
 }
 
@@ -590,4 +607,104 @@ func waitForInspections(t *testing.T, manager *Manager) {
 		time.Sleep(10 * time.Millisecond)
 	}
 	t.Fatal("renderer inspections did not finish")
+}
+
+func TestDiscoveryRecordsSSDPSenderAndLocationAddressesOfOneRenderer(t *testing.T) {
+	const udn = "uuid:multi-address-fixture"
+	server, descriptions := countingRendererServer(t, udn, "multi-address")
+	defer server.Close()
+	manager := fixtureManager(server.Client())
+
+	// A renderer with two addresses on one interface answers SSDP from one of them
+	// while its LOCATION names the other.
+	manager.acceptAdvertisement(context.Background(), fixtureAdvertisementFrom("127.0.0.2", server.URL+"/description.xml", udn, "1"))
+	device := waitForDevice(t, manager, func(value output.Device) bool {
+		return value.Online && value.Model == "multi-address"
+	})
+	if device.Address != "127.0.0.2" {
+		t.Fatalf("control address = %q, want the SSDP sender", device.Address)
+	}
+	for _, address := range []string{"127.0.0.2", "127.0.0.1"} {
+		if !slices.Contains(device.MediaAddresses, address) {
+			t.Fatalf("observed addresses %v do not include %q", device.MediaAddresses, address)
+		}
+	}
+
+	// The same renderer advertising from its other address is one device, not a new
+	// endpoint, so it stays online without another description inspection.
+	manager.acceptAdvertisement(context.Background(), fixtureAdvertisementFrom("127.0.0.1", server.URL+"/description.xml", udn, "1"))
+	waitForInspections(t, manager)
+	current, ok := manager.Device(device.ID)
+	if !ok || !current.Online || descriptions.Load() != 1 {
+		t.Fatalf("second address re-inspected the renderer: online=%v found=%v inspections=%d", current.Online, ok, descriptions.Load())
+	}
+	if len(current.MediaAddresses) != 2 {
+		t.Fatalf("observed addresses = %v, want both renderer addresses", current.MediaAddresses)
+	}
+}
+
+func TestExpiredRendererDropsObservedAddressesUntilItIsInspectedAgain(t *testing.T) {
+	const udn = "uuid:expiry-address-fixture"
+	server, _ := countingRendererServer(t, udn, "expiring")
+	defer server.Close()
+	manager := fixtureManager(server.Client())
+	manager.acceptAdvertisement(context.Background(), fixtureAdvertisementFrom("127.0.0.2", server.URL+"/description.xml", udn, "1"))
+	device := waitForDevice(t, manager, func(value output.Device) bool { return value.Online && value.Model == "expiring" })
+
+	manager.expireDevices(time.Now().Add(2 * time.Minute))
+	expired, ok := manager.Device(device.ID)
+	if !ok || expired.Online || len(expired.MediaAddresses) != 0 {
+		t.Fatalf("expired renderer kept its addresses: online=%v addresses=%v found=%v", expired.Online, expired.MediaAddresses, ok)
+	}
+
+	manager.acceptAdvertisement(context.Background(), fixtureAdvertisementFrom("127.0.0.2", server.URL+"/description.xml", udn, "1"))
+	returned := waitForDevice(t, manager, func(value output.Device) bool {
+		return value.ID == device.ID && value.Online && len(value.MediaAddresses) == 2
+	})
+	// Only a completed inspection restores the observed set, so the returning renderer
+	// was inspected again rather than trusted from the cleared record.
+	if !slices.Contains(returned.MediaAddresses, "127.0.0.1") {
+		t.Fatalf("re-inspected addresses = %v", returned.MediaAddresses)
+	}
+}
+
+func countingRendererServer(t *testing.T, udn, model string) (*httptest.Server, *atomic.Int32) {
+	t.Helper()
+	descriptions := new(atomic.Int32)
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		switch request.URL.Path {
+		case "/description.xml":
+			descriptions.Add(1)
+			_, _ = io.WriteString(writer, rendererDescription(udn, model))
+		case "/avtransport.xml":
+			_, _ = io.WriteString(writer, avTransportDescription())
+		default:
+			http.NotFound(writer, request)
+		}
+	}))
+	return server, descriptions
+}
+
+func TestSearchResponseKeepsLocationOnASecondAddressOfTheSameNetwork(t *testing.T) {
+	network := localNetwork{name: "lan", index: 2, local: netip.MustParseAddr("192.168.1.9"), prefix: netip.MustParsePrefix("192.168.1.0/24")}
+	source := netip.MustParseAddrPort("192.168.1.100:1900")
+	response := "HTTP/1.1 200 OK\r\nCACHE-CONTROL: max-age=1800\r\nST: urn:schemas-upnp-org:device:MediaRenderer:1\r\n" +
+		"USN: uuid:7c0ffcb6::urn:schemas-upnp-org:device:MediaRenderer:1\r\n" +
+		"LOCATION: http://192.168.1.101:49152/uuid-7c0ffcb6/description.xml\r\n\r\n"
+
+	value, err := parseSearchResponse([]byte(response), source, network)
+	if err != nil {
+		t.Fatalf("renderer answering from a second address was discarded: %v", err)
+	}
+	if value.udn != "uuid:7c0ffcb6" || value.location != "http://192.168.1.101:49152/uuid-7c0ffcb6/description.xml" {
+		t.Fatalf("advertisement = %+v", value)
+	}
+	if value.source.Addr() != netip.MustParseAddr("192.168.1.100") || value.locationAddr != netip.MustParseAddr("192.168.1.101") {
+		t.Fatalf("observed addresses = %v and %v", value.source.Addr(), value.locationAddr)
+	}
+
+	offNetwork := strings.Replace(response, "192.168.1.101", "192.168.4.101", 1)
+	if _, err := parseSearchResponse([]byte(offNetwork), source, network); err == nil {
+		t.Fatal("a LOCATION outside the discovery network was accepted")
+	}
 }
