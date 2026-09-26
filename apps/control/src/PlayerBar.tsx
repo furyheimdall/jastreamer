@@ -1,7 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { api, ApiError } from "./api";
 import LocalOutput, { hasNativeAndroidAudio, type LocalOutputHandle } from "./LocalOutput";
-import type { NativeAndroidAudioState, NativeAndroidUnsupportedFormat } from "./NativeAndroidOutput";
+import {
+  androidUsbPermissionActionVisible,
+  type NativeAndroidAudioState,
+  type NativeAndroidUnsupportedFormat,
+} from "./NativeAndroidOutput";
 import {
   nativeWindowsAudioBridge,
   parseNativeWindowsState,
@@ -1237,6 +1241,19 @@ export default function PlayerBar({ revision, phoneExpanded, onPhoneExpandedChan
                   })}
                 </p>
               )}
+              {androidUsbPermissionActionVisible(androidAudioState) && (
+                <button
+                  type="button"
+                  className="secondary"
+                  disabled={androidConfigurationBusy}
+                  onClick={() => void configureAndroidAudio(true, androidAudioState.unsupported_format)}
+                >
+                  {t("player.android.allowUsbAccess")}
+                </button>
+              )}
+              {androidUsbPermissionActionVisible(androidAudioState) && (
+                <p className="field-help">{t("player.android.allowUsbAccessHelp")}</p>
+              )}
               {!androidCanConfigure && androidAudioState.available && (
                 <p className="field-help">{t("player.android.stopToConfigure")}</p>
               )}
@@ -1305,10 +1322,12 @@ export default function PlayerBar({ revision, phoneExpanded, onPhoneExpandedChan
           )}
           {androidAudioState?.error && (
             <p className="error-text native-audio-error" role="alert">
-              {t("player.android.error", {
-                code: androidAudioState.error.code,
-                message: androidAudioState.error.message,
-              })}
+              {androidAudioState.error.code === "usb_direct_device_detached"
+                ? t("player.android.detached")
+                : t("player.android.error", {
+                  code: androidAudioState.error.code,
+                  message: androidAudioState.error.message,
+                })}
             </p>
           )}
           {androidConfigurationError && <p className="error-text" role="alert">{androidConfigurationError}</p>}

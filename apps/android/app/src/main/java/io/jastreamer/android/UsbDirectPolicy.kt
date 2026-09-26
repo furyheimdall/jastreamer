@@ -63,6 +63,23 @@ internal data class UsbActualStream(
 
 internal data class BitPerfectVerdict(val transparent: Boolean, val reason: String)
 
+/** What has to happen when a USB audio device is unplugged. */
+internal data class UsbDetachOutcome(
+    val handled: Boolean,
+    val releaseDevice: Boolean,
+    val disableSetting: Boolean,
+    val failPlayback: Boolean,
+) {
+    internal companion object {
+        val IGNORED = UsbDetachOutcome(
+            handled = false,
+            releaseDevice = false,
+            disableSetting = false,
+            failPlayback = false,
+        )
+    }
+}
+
 /**
  * Pure decision rules for the opt-in direct USB output. [UsbDirectEngine] maps Android and USB
  * descriptor types onto these values so every rule stays unit testable.
@@ -96,6 +113,7 @@ internal object UsbDirectPolicy {
     const val FAILURE_PRECISION = "usb_direct_unsupported_precision"
     const val FAILURE_ENCODING = "usb_direct_unsupported_encoding"
     const val FAILURE_FORMAT_UNKNOWN = "usb_direct_format_unknown"
+    const val FAILURE_DEVICE_DETACHED = "usb_direct_device_detached"
 
     const val REASON_QUALIFIED = "qualified"
     const val REASON_NOT_USB_DIRECT = "not_usb_direct"
@@ -108,6 +126,43 @@ internal object UsbDirectPolicy {
     const val REASON_LAYOUT_CHANGED = "layout_changed"
     const val REASON_PRECISION_REDUCED = "precision_reduced"
     const val REASON_ENCODING_CHANGED = "encoding_changed"
+
+    /**
+     * Only a format the device cannot take unchanged is governed by the `unsupported_format`
+     * choice. A missing device, a missing permission or a driver failure is not a format problem:
+     * the track fails with its own reason so the panel can tell the user what to do.
+     */
+    fun isFormatRejection(code: String): Boolean = when (code) {
+        FAILURE_RATE, FAILURE_CHANNELS, FAILURE_PRECISION, FAILURE_ENCODING, FAILURE_FORMAT_UNKNOWN -> true
+        else -> false
+    }
+
+    /**
+     * What unplugging a USB audio device has to do. Android revokes the app's USB permission on
+     * detach, so leaving the switch on would strand the user on a device that can never open until
+     * they toggle it off and on again: the option goes off and the panel says why.
+     */
+    fun detachOutcome(
+        usbAudioDevice: Boolean,
+        heldByEngine: Boolean,
+        settingEnabled: Boolean,
+        playingThroughUsb: Boolean,
+    ): UsbDetachOutcome {
+        if (!usbAudioDevice && !heldByEngine) return UsbDetachOutcome.IGNORED
+        return UsbDetachOutcome(
+            handled = true,
+            releaseDevice = true,
+            disableSetting = settingEnabled,
+            failPlayback = playingThroughUsb,
+        )
+    }
+
+    /**
+     * Whether the panel should offer the "Allow USB access" action: the option is on, a device is
+     * attached and only the permission is missing. Playback never opens that dialog itself.
+     */
+    fun needsPermissionPrompt(settingEnabled: Boolean, reason: String): Boolean =
+        settingEnabled && reason == UNAVAILABLE_PERMISSION
 
     private val LOSSLESS_MIME_TYPES = setOf(
         "audio/flac",

@@ -253,6 +253,106 @@ class UsbDirectPolicyTest {
         assertFalse(UsbDirectPolicy.isLosslessMime(null))
     }
 
+    @Test
+    fun `unplugging a USB audio device releases it and turns the option off`() {
+        val playing = UsbDirectPolicy.detachOutcome(
+            usbAudioDevice = true,
+            heldByEngine = true,
+            settingEnabled = true,
+            playingThroughUsb = true,
+        )
+        assertTrue(playing.handled)
+        assertTrue(playing.releaseDevice)
+        assertTrue(playing.disableSetting)
+        assertTrue(playing.failPlayback)
+
+        // Stopped is the case the field report hit: nothing is playing and the device is not even
+        // held any more, but the option has to go off or a replug can never work again.
+        val stopped = UsbDirectPolicy.detachOutcome(
+            usbAudioDevice = true,
+            heldByEngine = false,
+            settingEnabled = true,
+            playingThroughUsb = false,
+        )
+        assertTrue(stopped.handled)
+        assertTrue(stopped.releaseDevice)
+        assertTrue(stopped.disableSetting)
+        assertFalse(stopped.failPlayback)
+    }
+
+    @Test
+    fun `a track playing through the Android output survives the DAC being unplugged`() {
+        val outcome = UsbDirectPolicy.detachOutcome(
+            usbAudioDevice = true,
+            heldByEngine = false,
+            settingEnabled = true,
+            playingThroughUsb = false,
+        )
+        assertFalse(outcome.failPlayback)
+    }
+
+    @Test
+    fun `unplugging something that is not the audio device changes nothing`() {
+        val outcome = UsbDirectPolicy.detachOutcome(
+            usbAudioDevice = false,
+            heldByEngine = false,
+            settingEnabled = true,
+            playingThroughUsb = true,
+        )
+        assertFalse(outcome.handled)
+        assertFalse(outcome.releaseDevice)
+        assertFalse(outcome.disableSetting)
+        assertFalse(outcome.failPlayback)
+    }
+
+    @Test
+    fun `an already off option is left alone while the device is still released`() {
+        val outcome = UsbDirectPolicy.detachOutcome(
+            usbAudioDevice = true,
+            heldByEngine = true,
+            settingEnabled = false,
+            playingThroughUsb = false,
+        )
+        assertTrue(outcome.handled)
+        assertTrue(outcome.releaseDevice)
+        assertFalse(outcome.disableSetting)
+    }
+
+    @Test
+    fun `only a format problem is handed to the unsupported format choice`() {
+        listOf(
+            UsbDirectPolicy.FAILURE_RATE,
+            UsbDirectPolicy.FAILURE_CHANNELS,
+            UsbDirectPolicy.FAILURE_PRECISION,
+            UsbDirectPolicy.FAILURE_ENCODING,
+            UsbDirectPolicy.FAILURE_FORMAT_UNKNOWN,
+        ).forEach { assertTrue(it, UsbDirectPolicy.isFormatRejection(it)) }
+
+        listOf(
+            UsbDirectPolicy.FAILURE_PERMISSION,
+            UsbDirectPolicy.FAILURE_NO_DEVICE,
+            UsbDirectPolicy.FAILURE_DRIVER,
+            UsbDirectPolicy.FAILURE_OPEN,
+            UsbDirectPolicy.FAILURE_START,
+            UsbDirectPolicy.FAILURE_DEVICE_LOST,
+            UsbDirectPolicy.FAILURE_DEVICE_DETACHED,
+        ).forEach { assertFalse(it, UsbDirectPolicy.isFormatRejection(it)) }
+    }
+
+    @Test
+    fun `the allow USB access action appears only when the option is on and permission is missing`() {
+        assertTrue(
+            UsbDirectPolicy.needsPermissionPrompt(true, UsbDirectPolicy.UNAVAILABLE_PERMISSION),
+        )
+        assertFalse(
+            UsbDirectPolicy.needsPermissionPrompt(false, UsbDirectPolicy.UNAVAILABLE_PERMISSION),
+        )
+        assertFalse(UsbDirectPolicy.needsPermissionPrompt(true, UsbDirectPolicy.UNAVAILABLE_NONE))
+        assertFalse(
+            UsbDirectPolicy.needsPermissionPrompt(true, UsbDirectPolicy.UNAVAILABLE_NO_USB_DEVICE),
+        )
+    }
+
     private fun actual(
         engine: String = UsbDirectPolicy.ENGINE_USB_DIRECT,
         sampleRate: Int = 44_100,
