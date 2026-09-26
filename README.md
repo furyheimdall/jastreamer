@@ -8,7 +8,7 @@
 
 <img src="assets/jastreamer.svg" width="80" height="80" alt="jastreamer logo" />
 
-jastreamer 0.2.0 is a self-hosted music server for a trusted private LAN. A Server on Linux or Windows indexes the local music you approve, hosts the Web interface, keeps accounts, likes, play counts, playlists and one shared queue in SQLite, and sends audio to a single selected output. UPnP/DLNA is built in, Google Cast is optional on both Server platforms, and AirPlay sending is available only in the Linux container. English is the default interface language; Korean is also supported.
+jastreamer 0.2.1 is a self-hosted music server for a trusted private LAN. A Server on Linux or Windows indexes the local music you approve, hosts the Web interface, keeps accounts, likes, play counts, playlists and one shared queue in SQLite, and sends audio to a single selected output. UPnP/DLNA is built in, Google Cast is optional on both Server platforms, and AirPlay sending is available only in the Linux container. English is the default interface language; Korean is also supported.
 
 ## Documentation
 
@@ -40,7 +40,7 @@ jastreamer 0.2.0 is a self-hosted music server for a trusted private LAN. A Serv
 | Server | Windows x64 | Portable ZIP | Web interface, UPnP/DLNA, optional Cast; no AirPlay and no FFmpeg; not a Windows service |
 | Desktop client | Windows 10/11 x64 | Portable ZIP | Browser audio plus opt-in WASAPI Shared/Exclusive output and Windows media controls ([Windows audio](INSTRUCTION.md#windows-audio)) |
 | Desktop client | Linux `amd64` | DEB | Browser audio only; no ARM64 desktop package |
-| Mobile client | Android 10+ | Signed `jastreamer-android_0.2.0_release.apk` from [GitHub Releases](https://github.com/furyheimdall/jastreamer/releases) | Media3 local playback with system media controls, opt-in bit-perfect direct USB output to a connected USB Audio Class DAC, and an offline **Saved music** library ([Android](INSTALL.md#android)) |
+| Mobile client | Android 10+ | Signed `jastreamer-android_0.2.1_release.apk` from [GitHub Releases](https://github.com/furyheimdall/jastreamer/releases) | Media3 local playback with system media controls, opt-in bit-perfect direct USB output to a connected USB Audio Class DAC, and an offline **Saved music** library ([Android](INSTALL.md#android)) |
 | Mobile client | iOS/iPadOS 18.4+ | [iOS CI](https://github.com/furyheimdall/jastreamer/actions/workflows/ios.yml) and source only | Controller-only client; no installable package, TestFlight or App Store release ([iOS](INSTALL.md#ios)) |
 | Browser or PWA | Any current LAN browser | Served by the Server | Phone layout for iPhone and Android phone browsers; PWA installation needs trusted HTTPS ([PWA](INSTALL.md#pwa)) |
 
@@ -98,7 +98,7 @@ Private-LAN HTTP encrypts neither credentials nor audio; use the built-in HTTPS 
 Before installing an APK, confirm the signer yourself and compare it with the fingerprint above and in the release notes, which carry the same value:
 
 ```
-apksigner verify --print-certs jastreamer-android_0.2.0_release.apk
+apksigner verify --print-certs jastreamer-android_0.2.1_release.apk
 ```
 
 The repository pins that fingerprint in `packaging/android/release-certificate-sha256.txt`, and the release workflow refuses to publish an APK signed by any other certificate. The digest is compared case-insensitively; `apksigner` prints it without separators. jastreamer is not published on Google Play.

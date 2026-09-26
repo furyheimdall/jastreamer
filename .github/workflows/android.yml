@@ -72,15 +72,15 @@ jobs:
             unzip -t "${apk}"
             test "$(apkanalyzer manifest min-sdk "${apk}")" = "29"
             test "$(apkanalyzer manifest target-sdk "${apk}")" = "36"
-            test "$(apkanalyzer manifest version-code "${apk}")" = "20000"
+            test "$(apkanalyzer manifest version-code "${apk}")" = "20100"
             unzip -p "${apk}" assets/LICENSE.txt | cmp LICENSE
           done
           test "$(apkanalyzer manifest application-id "${debug_apk}")" = "io.jastreamer.android.debug"
           test "$(apkanalyzer manifest application-id "${release_apk}")" = "io.jastreamer.android"
           apkanalyzer manifest print "${debug_apk}" > "${output}/debug-manifest.xml"
           apkanalyzer manifest print "${release_apk}" > "${output}/release-manifest.xml"
-          debug_name="jastreamer-android_0.2.0_${GITHUB_SHA}_debug-test-signed.apk"
-          release_name="jastreamer-android_0.2.0_${GITHUB_SHA}_release-unsigned.apk"
+          debug_name="jastreamer-android_0.2.1_${GITHUB_SHA}_debug-test-signed.apk"
+          release_name="jastreamer-android_0.2.1_${GITHUB_SHA}_release-unsigned.apk"
           cp "${debug_apk}" "${output}/${debug_name}"
           cp "${release_apk}" "${output}/${release_name}"
           (
@@ -89,7 +89,7 @@ jobs:
           )
           jq -n \
             --arg source_revision "${GITHUB_SHA}" \
-            --arg version "0.2.0" \
+            --arg version "0.2.1" \
             --arg debug_apk "${debug_name}" \
             --arg debug_signing "Android SDK generated debug/test certificate; not for release" \
             --arg debug_certificate_sha256 "${debug_cert_sha256}" \
@@ -139,7 +139,7 @@ jobs:
         shell: bash
         run: |
           cmp apps/android/app/build/outputs/apk/debug/app-debug.apk \
-            "dist/android/jastreamer-android_0.2.0_${GITHUB_SHA}_debug-test-signed.apk"
+            "dist/android/jastreamer-android_0.2.1_${GITHUB_SHA}_debug-test-signed.apk"
       - name: Upload verified non-production Android APKs
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:

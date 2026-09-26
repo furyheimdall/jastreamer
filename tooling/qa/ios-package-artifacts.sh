@@ -26,8 +26,8 @@ for app in "$device_app" "$simulator_app"; do
     plist="$app/Info.plist"
     test -f "$plist"
     test "$(plutil -extract CFBundleIdentifier raw -o - "$plist")" = "io.jastreamer.ios"
-    test "$(plutil -extract CFBundleShortVersionString raw -o - "$plist")" = "0.2.0"
-    test "$(plutil -extract CFBundleVersion raw -o - "$plist")" = "20000"
+    test "$(plutil -extract CFBundleShortVersionString raw -o - "$plist")" = "0.2.1"
+    test "$(plutil -extract CFBundleVersion raw -o - "$plist")" = "20100"
     test "$(plutil -extract MinimumOSVersion raw -o - "$plist")" = "18.4"
     cmp LICENSE "$app/LICENSE.txt"
 done
@@ -49,8 +49,8 @@ if [[ -e "$output" ]]; then
     exit 1
 fi
 mkdir -p "$output"
-device_name="jastreamer-ios_0.2.0_${GITHUB_SHA}_device-development-unsigned-not-installable.zip"
-simulator_name="jastreamer-ios_0.2.0_${GITHUB_SHA}_simulator-development-test-adhoc.zip"
+device_name="jastreamer-ios_0.2.1_${GITHUB_SHA}_device-development-unsigned-not-installable.zip"
+simulator_name="jastreamer-ios_0.2.1_${GITHUB_SHA}_simulator-development-test-adhoc.zip"
 ditto -c -k --keepParent "$device_app" "$output/$device_name"
 ditto -c -k --keepParent "$simulator_app" "$output/$simulator_name"
 unzip -t "$output/$device_name" > "$output/device-package-integrity.txt"
@@ -72,7 +72,7 @@ simulator_size="$(stat -f %z "$output/$simulator_name")"
 jq -n \
     --arg sourceRevision "$revision" \
     --arg workflowRevision "$GITHUB_SHA" \
-    --arg version "0.2.0" \
+    --arg version "0.2.1" \
     --arg minimumIOS "18.4" \
     --arg xcode "$xcode_version" \
     --arg iphoneosSDK "$iphoneos_sdk" \

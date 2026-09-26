@@ -47,9 +47,9 @@ RUN npm run build
 FROM --platform=$BUILDPLATFORM golang:1.25-alpine@sha256:1ae0735f00daffa3aaf1363a5184c0d2dc55c78e3db4ec70241cdac97bf84b59 AS server-build
 ARG TARGETOS
 ARG TARGETARCH
-ARG VERSION=0.2.0
+ARG VERSION=0.2.1
 ARG REVISION
-RUN test "$VERSION" = "0.2.0" && test -n "$REVISION"
+RUN test "$VERSION" = "0.2.1" && test -n "$REVISION"
 WORKDIR /src
 COPY apps/server/go.mod apps/server/go.sum ./apps/server/
 RUN cd apps/server && go mod download
@@ -85,7 +85,7 @@ RUN test -n "$CREATED" \
  && chown -R 10001:10001 /etc/jastreamer /var/lib/jastreamer
 
 FROM media-runtime
-ARG VERSION=0.2.0
+ARG VERSION=0.2.1
 ARG REVISION
 ARG CREATED
 LABEL org.opencontainers.image.title="jastreamer Server" \

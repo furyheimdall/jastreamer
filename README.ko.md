@@ -8,7 +8,7 @@
 
 <img src="assets/jastreamer.svg" width="80" height="80" alt="jastreamer 로고" />
 
-jastreamer 0.2.0은 신뢰하는 사설 LAN에서 쓰는 자체 호스팅 음악 서버입니다. Linux 또는 Windows Server가 사용자가 승인한 로컬 음악을 색인하고 Web 화면을 제공하며, 계정·좋아요·재생 횟수·플레이리스트와 공용 대기열 하나를 SQLite에 보관하고 선택한 출력 한 곳으로 오디오를 보냅니다. UPnP/DLNA는 기본 제공이고 Google Cast는 두 Server 플랫폼에서 선택적으로 켤 수 있으며, AirPlay 전송은 Linux 컨테이너에서만 사용할 수 있습니다. 기본 UI 언어는 영어이며 한국어도 지원합니다.
+jastreamer 0.2.1은 신뢰하는 사설 LAN에서 쓰는 자체 호스팅 음악 서버입니다. Linux 또는 Windows Server가 사용자가 승인한 로컬 음악을 색인하고 Web 화면을 제공하며, 계정·좋아요·재생 횟수·플레이리스트와 공용 대기열 하나를 SQLite에 보관하고 선택한 출력 한 곳으로 오디오를 보냅니다. UPnP/DLNA는 기본 제공이고 Google Cast는 두 Server 플랫폼에서 선택적으로 켤 수 있으며, AirPlay 전송은 Linux 컨테이너에서만 사용할 수 있습니다. 기본 UI 언어는 영어이며 한국어도 지원합니다.
 
 ## 문서
 
@@ -40,7 +40,7 @@ jastreamer 0.2.0은 신뢰하는 사설 LAN에서 쓰는 자체 호스팅 음악
 | Server | Windows x64 | 무설치 ZIP | Web 화면, UPnP/DLNA, 선택적 Cast. AirPlay와 FFmpeg은 없고 Windows 서비스도 아님 |
 | 데스크톱 앱 | Windows 10/11 x64 | 무설치 ZIP | 브라우저 오디오와 선택적 WASAPI 공유·독점 출력, Windows 미디어 제어([Windows 오디오](INSTRUCTION.ko.md#windows-audio)) |
 | 데스크톱 앱 | Linux `amd64` | DEB | 브라우저 오디오만 지원. ARM64 데스크톱 패키지는 없음 |
-| 모바일 앱 | Android 10 이상 | [GitHub Releases](https://github.com/furyheimdall/jastreamer/releases)에 첨부된 서명 APK `jastreamer-android_0.2.0_release.apk` | 시스템 미디어 제어가 있는 Media3 로컬 재생, 연결된 USB 오디오 클래스 DAC으로 직접 출력하는 선택적 USB 비트 퍼펙트, 오프라인 **저장된 음악**([Android 설치](INSTALL.ko.md#android)) |
+| 모바일 앱 | Android 10 이상 | [GitHub Releases](https://github.com/furyheimdall/jastreamer/releases)에 첨부된 서명 APK `jastreamer-android_0.2.1_release.apk` | 시스템 미디어 제어가 있는 Media3 로컬 재생, 연결된 USB 오디오 클래스 DAC으로 직접 출력하는 선택적 USB 비트 퍼펙트, 오프라인 **저장된 음악**([Android 설치](INSTALL.ko.md#android)) |
 | 모바일 앱 | iOS/iPadOS 18.4 이상 | [iOS CI](https://github.com/furyheimdall/jastreamer/actions/workflows/ios.yml)와 소스만 제공 | 제어 전용 앱. 설치 가능한 패키지, TestFlight, App Store 배포 없음([iOS 개발 범위](INSTALL.ko.md#ios)) |
 | 브라우저·PWA | LAN의 최신 브라우저 | Server가 직접 제공 | iPhone·Android 휴대전화 브라우저는 휴대전화 화면 사용, PWA 설치에는 신뢰할 수 있는 HTTPS 필요([PWA](INSTALL.ko.md#pwa)) |
 
@@ -98,7 +98,7 @@ jastreamer 0.2.0은 신뢰하는 사설 LAN에서 쓰는 자체 호스팅 음악
 APK를 설치하기 전에 서명자를 직접 확인하고 위 지문 및 같은 값이 적힌 릴리즈 노트와 비교하세요.
 
 ```
-apksigner verify --print-certs jastreamer-android_0.2.0_release.apk
+apksigner verify --print-certs jastreamer-android_0.2.1_release.apk
 ```
 
 이 지문은 저장소의 `packaging/android/release-certificate-sha256.txt`에 고정되어 있고, 릴리즈 워크플로는 다른 인증서로 서명된 APK를 게시하지 않습니다. 비교는 대소문자를 구분하지 않으며 `apksigner`는 구분 기호 없이 출력합니다. jastreamer는 Google Play로 배포하지 않습니다.

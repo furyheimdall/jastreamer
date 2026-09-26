@@ -7,8 +7,8 @@ version=$(cat "$root/apps/server/VERSION")
 revision=${JASTREAMER_SOURCE_REVISION:?set JASTREAMER_SOURCE_REVISION to the full source revision}
 created=${SOURCE_DATE_EPOCH:?set SOURCE_DATE_EPOCH for reproducible image metadata}
 case "$version" in
-  0.2.0) ;;
-  *) echo "VERSION must be 0.2.0" >&2; exit 65 ;;
+  0.2.1) ;;
+  *) echo "VERSION must be 0.2.1" >&2; exit 65 ;;
 esac
 case "$revision" in
   *[!0-9a-fA-F]*|'') echo "JASTREAMER_SOURCE_REVISION must be a hexadecimal revision" >&2; exit 65 ;;

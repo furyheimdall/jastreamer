@@ -96,14 +96,14 @@ def write_android_ci_artifact(directory: pathlib.Path, **overrides):
 
 class ReleaseChannelGrammarTests(unittest.TestCase):
     def test_plain_version_tag_selects_the_stable_channel(self):
-        identity = publish.validate_identity(REVISION, "v0.2.0", "0.2.0")
+        identity = publish.validate_identity(REVISION, "v0.2.1", "0.2.1")
         self.assertEqual(identity["channel"], "stable")
         self.assertFalse(identity["prerelease"])
         self.assertTrue(identity["latest"])
         self.assertIsNone(identity["previewNumber"])
 
     def test_preview_tag_selects_the_preview_channel(self):
-        identity = publish.validate_identity(REVISION, "v0.2.0-preview.14", "0.2.0-preview.14")
+        identity = publish.validate_identity(REVISION, "v0.2.1-preview.14", "0.2.1-preview.14")
         self.assertEqual(identity["channel"], "preview")
         self.assertTrue(identity["prerelease"])
         self.assertFalse(identity["latest"])
@@ -111,9 +111,9 @@ class ReleaseChannelGrammarTests(unittest.TestCase):
 
     def test_release_and_image_tags_must_share_one_channel(self):
         for release_tag, image_tag in (
-            ("v0.2.0", "0.2.0-preview.1"),
-            ("v0.2.0-preview.1", "0.2.0"),
-            ("v0.2.0-preview.2", "0.2.0-preview.3"),
+            ("v0.2.1", "0.2.1-preview.1"),
+            ("v0.2.1-preview.1", "0.2.1"),
+            ("v0.2.1-preview.2", "0.2.1-preview.3"),
         ):
             with self.subTest(release_tag=release_tag, image_tag=image_tag):
                 with self.assertRaises(SystemExit) as raised:
@@ -122,14 +122,14 @@ class ReleaseChannelGrammarTests(unittest.TestCase):
 
     def test_tags_outside_the_grammar_are_rejected(self):
         for release_tag, image_tag in (
-            ("0.2.0", "0.2.0"),
-            ("v0.2.0", "v0.2.0"),
+            ("0.2.1", "0.2.1"),
+            ("v0.2.1", "v0.2.1"),
             ("latest", "latest"),
-            ("v0.2.0", "latest"),
-            ("v0.2.0-preview.0", "0.2.0-preview.0"),
-            ("v0.2.0-rc.1", "0.2.0-rc.1"),
-            ("v0.2.0-preview.1-preview.2", "0.2.0-preview.1-preview.2"),
-            ("v0.2.0 ", "0.2.0"),
+            ("v0.2.1", "latest"),
+            ("v0.2.1-preview.0", "0.2.1-preview.0"),
+            ("v0.2.1-rc.1", "0.2.1-rc.1"),
+            ("v0.2.1-preview.1-preview.2", "0.2.1-preview.1-preview.2"),
+            ("v0.2.1 ", "0.2.1"),
         ):
             with self.subTest(release_tag=release_tag, image_tag=image_tag):
                 with self.assertRaises(SystemExit):
@@ -144,7 +144,7 @@ class ReleaseChannelGrammarTests(unittest.TestCase):
         for revision in ("A" * 40, "a" * 39, "", "abc"):
             with self.subTest(revision=revision):
                 with self.assertRaises(SystemExit):
-                    publish.validate_identity(revision, "v0.2.0", "0.2.0")
+                    publish.validate_identity(revision, "v0.2.1", "0.2.1")
 
 
 class SignedAndroidManifestTests(unittest.TestCase):
@@ -234,7 +234,7 @@ class SignedAndroidManifestTests(unittest.TestCase):
         for overrides in (
             {"ci": {"workflow": ".github/workflows/android.yml", "runId": 4242}},
             {"ci": {"runId": 0, "unsignedApk": {"path": ci_artifact.android_ci_apk_names(REVISION)[1], "bytes": 3, "sha256": "0" * 64}}},
-            {"ci": {"runId": 4242, "unsignedApk": {"path": "jastreamer-android_0.2.0_release-unsigned.apk", "bytes": 3, "sha256": "0" * 64}}},
+            {"ci": {"runId": 4242, "unsignedApk": {"path": "jastreamer-android_0.2.1_release-unsigned.apk", "bytes": 3, "sha256": "0" * 64}}},
         ):
             with self.subTest(overrides=overrides):
                 write_signed_android(self.directory, **overrides)
@@ -293,7 +293,7 @@ class PublicReleaseChannelTests(unittest.TestCase):
 
     def release_json(self, **overrides):
         release = {
-            "tag_name": "v0.2.0",
+            "tag_name": "v0.2.1",
             "target_commitish": REVISION,
             "draft": False,
             "prerelease": False,
@@ -304,7 +304,7 @@ class PublicReleaseChannelTests(unittest.TestCase):
                     "name": "asset.txt",
                     "state": "uploaded",
                     "size": 5,
-                    "browser_download_url": f"https://github.com/{publish.REPOSITORY}/releases/download/v0.2.0/asset.txt",
+                    "browser_download_url": f"https://github.com/{publish.REPOSITORY}/releases/download/v0.2.1/asset.txt",
                 }
             ],
         }
@@ -314,13 +314,13 @@ class PublicReleaseChannelTests(unittest.TestCase):
         return path
 
     def latest_json(self, **overrides):
-        latest = {"id": 77, "tag_name": "v0.2.0"}
+        latest = {"id": 77, "tag_name": "v0.2.1"}
         latest.update(overrides)
         path = self.root / "latest.json"
         path.write_text(json.dumps(latest), encoding="utf-8")
         return path
 
-    def arguments(self, release_json, latest_json, release_tag="v0.2.0", image_tag="0.2.0"):
+    def arguments(self, release_json, latest_json, release_tag="v0.2.1", image_tag="0.2.1"):
         return publish.argparse.Namespace(
             release_json=str(release_json),
             staged=str(self.staged),
@@ -355,22 +355,22 @@ class PublicReleaseChannelTests(unittest.TestCase):
 
     def test_preview_release_must_be_a_prerelease_that_is_not_latest(self):
         release = self.release_json(
-            tag_name="v0.2.0-preview.3",
+            tag_name="v0.2.1-preview.3",
             prerelease=True,
             assets=[
                 {
                     "name": "asset.txt",
                     "state": "uploaded",
                     "size": 5,
-                    "browser_download_url": f"https://github.com/{publish.REPOSITORY}/releases/download/v0.2.0-preview.3/asset.txt",
+                    "browser_download_url": f"https://github.com/{publish.REPOSITORY}/releases/download/v0.2.1-preview.3/asset.txt",
                 }
             ],
         )
-        arguments = self.arguments(release, self.latest_json(id=12, tag_name="v0.1.9"), "v0.2.0-preview.3", "0.2.0-preview.3")
+        arguments = self.arguments(release, self.latest_json(id=12, tag_name="v0.1.9"), "v0.2.1-preview.3", "0.2.1-preview.3")
         with patch.object(publish, "hash_public_url", return_value=(5, hashlib.sha256(b"asset").hexdigest())):
             with patch.object(publish.ci_artifact, "ANDROID_RELEASE_APK", "asset.txt"):
                 publish.verify_public_release(arguments)
-        arguments.latest_json = str(self.latest_json(id=77, tag_name="v0.2.0-preview.3"))
+        arguments.latest_json = str(self.latest_json(id=77, tag_name="v0.2.1-preview.3"))
         with patch.object(publish, "hash_public_url", return_value=(5, hashlib.sha256(b"asset").hexdigest())):
             with self.assertRaises(SystemExit) as raised:
                 publish.verify_public_release(arguments)
@@ -423,26 +423,26 @@ class ReleaseNotesTests(unittest.TestCase):
         return notes.read_text(encoding="utf-8")
 
     def test_stable_notes_state_the_channel_signing_and_digest_references(self):
-        notes = self.stage("v0.2.0", "0.2.0")
+        notes = self.stage("v0.2.1", "0.2.1")
         self.assertIn("stable release", notes)
         self.assertNotIn("prerelease", notes)
         self.assertIn(f"ghcr.io/{publish.REGISTRY_REPOSITORY}@sha256:{'1' * 64}", notes)
         self.assertIn(f"linux/amd64: `ghcr.io/{publish.REGISTRY_REPOSITORY}@sha256:{'2' * 64}`", notes)
         self.assertIn("no Authenticode signature", notes)
-        self.assertIn("blob/v0.2.0/README.md#code-signing-policy", notes)
-        self.assertIn("blob/v0.2.0/INSTALL.md#windows-unblock", notes)
+        self.assertIn("blob/v0.2.1/README.md#code-signing-policy", notes)
+        self.assertIn("blob/v0.2.1/INSTALL.md#windows-unblock", notes)
         self.assertIn(ci_artifact.release_certificate_sha256(), notes)
         self.assertIn(f"- `{ci_artifact.ANDROID_RELEASE_APK}`", notes)
         self.assertIn("AirPlay output is Linux Server-only", notes)
 
     def test_preview_notes_announce_the_prerelease_channel(self):
-        notes = self.stage("v0.2.0-preview.4", "0.2.0-preview.4")
+        notes = self.stage("v0.2.1-preview.4", "0.2.1-preview.4")
         self.assertIn("prerelease", notes)
         self.assertIn("never marked latest", notes)
-        self.assertIn("blob/v0.2.0-preview.4/INSTALL.md#windows-unblock", notes)
+        self.assertIn("blob/v0.2.1-preview.4/INSTALL.md#windows-unblock", notes)
 
     def test_notes_reject_a_staged_channel_that_contradicts_the_tag(self):
-        self.stage("v0.2.0", "0.2.0")
+        self.stage("v0.2.1", "0.2.1")
         provenance = json.loads((self.staged / "release-provenance.json").read_text(encoding="utf-8"))
         provenance["channel"] = "preview"
         (self.staged / "release-provenance.json").write_text(json.dumps(provenance), encoding="utf-8")
