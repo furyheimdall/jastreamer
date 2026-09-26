@@ -2,6 +2,8 @@ import { forwardRef, useEffect, useImperativeHandle, useRef } from "react";
 import type { Device } from "./types";
 
 const RESPONSE_TIMEOUT_MS = 10_000;
+// Enabling USB direct waits for the user to answer Android's USB access dialog.
+const CONFIGURE_TIMEOUT_MS = 120_000;
 // The state message carries the attached USB audio device list and the active output state.
 const MAX_MESSAGE_BYTES = 32_768;
 const textEncoder = new TextEncoder();
@@ -442,7 +444,7 @@ const NativeAndroidOutput = forwardRef<NativeAndroidOutputHandle, NativeAndroidO
           if (!pendingRequest) return;
           pending.delete(id);
           pendingRequest.reject(new Error(bridgeError));
-        }, RESPONSE_TIMEOUT_MS);
+        }, action === "configure" ? CONFIGURE_TIMEOUT_MS : RESPONSE_TIMEOUT_MS);
         pending.set(id, { action, timer, resolve, reject });
         try {
           bridge.postMessage(JSON.stringify({ id, action, ...(argument ?? {}) }));
