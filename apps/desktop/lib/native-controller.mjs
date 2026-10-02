@@ -15,7 +15,7 @@ const MIME_CANDIDATES = [
 const MAX_LEASE_MS = 60_000;
 const LEASE_RENEW_MS = 2_000;
 const IDENTITY_CHECK_MS = 10_000;
-const MAX_SMTC_ARTWORK_BYTES = 128 * 1024;
+const MAX_MEDIA_CONTROLS_ARTWORK_BYTES = 128 * 1024;
 
 export class NativeControllerError extends Error {
   constructor(code, message, cause) {
@@ -534,16 +534,20 @@ export class NativeDesktopController extends EventEmitter {
       seekable: resource.seekable === true,
       artwork_base64: undefined,
     };
-    this.#media = { grant, playID, sequence, metadata, readChain: Promise.resolve() };
+    const media = { grant, playID, sequence, metadata, readChain: Promise.resolve() };
+    this.#media = media;
     this.#metadata = metadata;
     const artwork = strictSameOriginURL(expected.server.origin, resource.artwork_url);
-    if (artwork && this.#platform === "win32") {
+    if (artwork && ["win32", "darwin"].includes(this.#platform)) {
       try {
-        const bytes = await expected.client.bytes(artwork.href, MAX_SMTC_ARTWORK_BYTES, { signal: expected.controller.signal });
+        const bytes = await expected.client.bytes(artwork.href, MAX_MEDIA_CONTROLS_ARTWORK_BYTES, { signal: expected.controller.signal });
         metadata.artwork_base64 = Buffer.from(bytes).toString("base64");
       } catch (error) {
         if (error instanceof NativeHTTPError && [401, 403].includes(error.status)) throw error;
       }
+    }
+    if (this.#registration !== expected || this.#media !== media || sequence <= this.#cancelBeforeSequence) {
+      throw new DOMException("Media ownership lost", "AbortError");
     }
     const params = {
       play_id: playID,
@@ -561,11 +565,15 @@ export class NativeDesktopController extends EventEmitter {
       volume: this.#settings.exclusive ? 1 : this.#settings.volume,
     };
     const result = await this.#helper.request("set_uri", params, { signal: expected.controller.signal });
+    if (this.#registration !== expected || this.#media !== media || sequence <= this.#cancelBeforeSequence) {
+      throw new DOMException("Media ownership lost", "AbortError");
+    }
     return this.#acceptHelperResult(result, playID, sequence);
   }
 
   async #transport(command, sequence, signal) {
     const playID = requireOpaque(command.play_id, "play_id");
+    const media = this.#media;
     if (this.#media && this.#media.playID !== playID) throw new NativeControllerError("action_failed", "Media identity changed.");
     const params = { play_id: playID, sequence };
     if (command.action === "seek") {
@@ -574,6 +582,9 @@ export class NativeDesktopController extends EventEmitter {
       params.position_ms = position;
     }
     const result = await this.#helper.request(command.action, params, { signal });
+    if (signal.aborted || this.#media !== media || sequence <= this.#cancelBeforeSequence) {
+      throw new DOMException("Media ownership lost", "AbortError");
+    }
     return this.#acceptHelperResult(result, playID, sequence);
   }
 
@@ -584,7 +595,7 @@ export class NativeDesktopController extends EventEmitter {
     this.#applyAudio(result.audio);
     const observation = sanitizeObservation(result.observation, playID);
     this.#lastObservation = observation;
-    this.#updateSmtc(observation);
+    this.#updateMediaControls(observation);
     this.#emitState();
     return { observation, audio: this.#audio, sequence };
   }
@@ -664,8 +675,8 @@ export class NativeDesktopController extends EventEmitter {
       this.#queuePlayerControl(value);
       return;
     }
-    if (value.event === "smtc_error") {
-      this.#surfaceSmtcError(value.error);
+    if (value.event === "media_controls_error") {
+      this.#surfaceMediaControlsError(value.error);
       return;
     }
     if (value.event === "state") {
@@ -684,6 +695,7 @@ export class NativeDesktopController extends EventEmitter {
         // Terminal notifications release the helper's transport lease immediately,
         // even when their Server report must wait for a command acknowledgement.
         media.terminalAudio = value.audio;
+        this.#withdrawMediaControls();
         this.#deferredObservation = { expected, media, value };
       }
       return;
@@ -697,7 +709,7 @@ export class NativeDesktopController extends EventEmitter {
       if (observation.event === "error") {
         this.#publicError = publicFailure(value.error, "playback_failed", "Local playback failed.");
       }
-      this.#updateSmtc(observation);
+      this.#updateMediaControls(observation);
       this.#emitState();
       const now = performance.now();
       if (observation.event === "timeupdate" && now - this.#lastTimeReportAt < 900) return;
@@ -748,22 +760,26 @@ export class NativeDesktopController extends EventEmitter {
     if (!action) return;
     const expected = this.#registration;
     const media = this.#media;
-    if (!expected || !media || this.#activeSequence !== 0 ||
+    if (!expected || !media || media.controlsWithdrawn || media.terminalAudio || this.#activeSequence !== 0 ||
       !["loaded", "playing", "paused"].includes(this.#audio.state)) return;
     const body = { action };
     if (action === "seek") {
+      if (!media.metadata.seekable) return;
       const position = nonnegativeInteger(value.position_ms);
       if (position === null) return;
       body.position_ms = position;
     }
     this.#transportChain = this.#transportChain.then(async () => {
-      if (this.#registration !== expected || this.#media !== media || this.#activeSequence !== 0) return;
+      if (this.#registration !== expected || this.#media !== media || media.controlsWithdrawn ||
+        media.terminalAudio || this.#activeSequence !== 0) return;
       try {
         const player = await expected.client.json("GET", PLAYER_PATH, { signal: expected.controller.signal });
-        if (this.#registration !== expected || this.#media !== media || this.#activeSequence !== 0 ||
+        if (this.#registration !== expected || this.#media !== media || media.controlsWithdrawn ||
+          media.terminalAudio || this.#activeSequence !== 0 ||
           !["loaded", "playing", "paused"].includes(this.#audio.state)) return;
         if (player.renderer_id !== expected.device.id) {
-          this.#withdrawSmtc();
+          media.controlsWithdrawn = true;
+          this.#withdrawMediaControls();
           return;
         }
         await expected.client.json("POST", PLAYER_PATH, { body, signal: expected.controller.signal });
@@ -780,14 +796,17 @@ export class NativeDesktopController extends EventEmitter {
     }, () => {});
   }
 
-  #updateSmtc(observation) {
-    if (this.#platform !== "win32" || !this.#registration || !this.#metadata) return;
-    if (["stopped", "ended", "error"].includes(observation.event)) {
-      this.#withdrawSmtc();
+  #updateMediaControls(observation) {
+    if (!["win32", "darwin"].includes(this.#platform) || !this.#registration || !this.#metadata ||
+      !this.#media || this.#media.controlsWithdrawn || this.#shuttingDown || !this.#helper.running) return;
+    if (["stopped", "ended", "error"].includes(observation.event) || this.#media.terminalAudio) {
+      this.#withdrawMediaControls();
       return;
     }
+    const expected = this.#registration;
+    const media = this.#media;
     const metadata = this.#metadata;
-    void this.#helper.request("smtc", {
+    void this.#helper.request("media_controls", {
       enabled: true,
       state: observation.state ?? stateForObservation(observation.event, this.#audio.state),
       position_ms: observation.position_ms,
@@ -798,25 +817,27 @@ export class NativeDesktopController extends EventEmitter {
       album: metadata.album,
       ...(metadata.artwork_base64 ? { artwork_base64: metadata.artwork_base64 } : {}),
     }).catch((error) => {
-      if (error?.code === "smtc_unavailable") this.#surfaceSmtcError(error);
+      if (this.#registration === expected && this.#media === media && error?.code === "media_controls_unavailable") {
+        this.#surfaceMediaControlsError(error);
+      }
     });
   }
 
-  #withdrawSmtc() {
-    if (this.#platform !== "win32" || !this.#helper.running) return;
-    void this.#helper.request("smtc", {
+  #withdrawMediaControls() {
+    if (!["win32", "darwin"].includes(this.#platform) || !this.#helper.running) return;
+    return this.#helper.request("media_controls", {
       enabled: false, state: "stopped", position_ms: 0, duration_ms: 0,
       title: "", artist: "", album: "", seekable: false,
     }).catch(() => {});
   }
 
-  #surfaceSmtcError(error) {
+  #surfaceMediaControlsError(error) {
     if (!this.#registration) return;
     const message = typeof error?.message === "string" && error.message.trim() &&
       error.message.length <= 240 && !/[\u0000-\u001f\u007f]/.test(error.message)
       ? error.message
-      : "Windows media controls could not be updated.";
-    this.#publicError = { code: "smtc_unavailable", message };
+      : "System media controls could not be updated.";
+    this.#publicError = { code: "media_controls_unavailable", message };
     this.#emitState();
   }
 
@@ -859,7 +880,7 @@ export class NativeDesktopController extends EventEmitter {
     this.#lastObservation = null;
     this.#lastTimeReportAt = 0;
     this.#deferredObservation = null;
-    this.#withdrawSmtc();
+    void this.#withdrawMediaControls();
   }
 
   async #stopLocal() {
@@ -886,12 +907,7 @@ export class NativeDesktopController extends EventEmitter {
       await this.#helper.shutdown();
       this.#audio = { ...emptyAudio(), state: "error", volume: this.#settings.volume };
     }
-    if (this.#platform === "win32" && this.#helper.running) {
-      await this.#helper.request("smtc", {
-        enabled: false, state: "stopped", position_ms: 0, duration_ms: 0,
-        title: "", artist: "", album: "", seekable: false,
-      }).catch(() => {});
-    }
+    await this.#withdrawMediaControls();
   }
 
   #applyAudio(value) {

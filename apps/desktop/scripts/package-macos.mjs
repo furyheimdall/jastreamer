@@ -58,7 +58,7 @@ try {
   // Copy only build inputs, never a development tree, cache, private profile or binary build output.
   for (const subdir of ['', 'tests', 'scripts']) {
     for (const item of await readdir(path.join(nativeRoot, subdir), { withFileTypes: true })) {
-      if (!item.isFile() || !(subdir === 'scripts' ? /^(?:build-ffmpeg\.sh|build-native-macos\.mjs|fetch-native-deps\.mjs)$/ : /\.(?:cpp|hpp|h|mm)$|^(?:CMakeLists\.txt|dependency-lock\.json)$/).test(item.name)) continue;
+      if (!item.isFile() || !(subdir === 'scripts' ? /^(?:build-ffmpeg\.sh|build-native-macos\.mjs|fetch-native-deps\.mjs)$/ : /\.(?:cpp|hpp|h|mm)$|^(?:CMakeLists\.txt|dependency-lock\.json|media_controls_macos\.plist)$/).test(item.name)) continue;
       await mkdir(path.join(source, subdir), { recursive: true });
       await copyFile(path.join(nativeRoot, subdir, item.name), path.join(source, subdir, item.name));
     }

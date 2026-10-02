@@ -527,8 +527,8 @@ private:
             } catch (...) {
                 withdraw_noexcept();
                 callback_->emit(nlohmann::json{
-                    {"event", "smtc_error"},
-                    {"error", {{"code", "smtc_unavailable"},
+                    {"event", "media_controls_error"},
+                    {"error", {{"code", "media_controls_unavailable"},
                                {"message", "Windows media controls could not be updated."}}},
                 }, false);
             }

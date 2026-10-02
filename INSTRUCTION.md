@@ -49,7 +49,7 @@ Supported formats are FLAC, MP3, WAV/WAVE, Ogg/Vorbis, Opus, and M4A. jastreamer
 - Escape closes the open dialog (track information, server path browser, AirPlay help, playlist chooser, download status, restart confirmation) and collapses the expanded phone player.
 - The **Settings** tab strip accepts Left/Right, Home, and End.
 - The Web interface has no global play/pause hotkey; use the on-screen player.
-- Hardware media keys work where a native output owns the session: Windows system media controls with [Windows native audio](#windows-audio), and Android's system media controls and lock screen with the [native Android app](#android-controls). Browser-backend local audio registers no OS media controls.
+- Hardware media keys work where a native output owns the session: Windows system media controls with [Windows native audio](#windows-audio), macOS Now Playing with [macOS native audio](#macos-audio) in 0.2.3, and Android's system media controls and lock screen with the [native Android app](#android-controls). Browser-backend local audio registers no OS media controls.
 
 <a id="library"></a>
 ## 2. Library: scans and file checks
@@ -196,7 +196,7 @@ Reloading the WebView on the same Server keeps native playback while the Desktop
 <a id="macos-audio"></a>
 ### macOS native audio
 
-The Apple Silicon Controller in 0.2.2 uses the same Server queue and local-output ownership as Windows, with CoreAudio instead of WASAPI. Use matching 0.2.2 Desktop and Server-hosted Web builds on both Windows and Mac; the published 0.2.1 Server lacks the new desktop bridge and that release had no official Mac package. Installation and ad-hoc signing limits are in [macOS installation](INSTALL.md#desktop-macos).
+The Apple Silicon Controller in 0.2.3 uses the same Server queue and local-output ownership as Windows, with CoreAudio instead of WASAPI. The shared desktop bridge was introduced in 0.2.2; an existing 0.2.2 Server and its hosted Web UI are sufficient for the 0.2.3 Mac desktop. The published 0.2.1 Server lacks that bridge and that release had no official Mac package. Installation and ad-hoc signing limits are in [macOS installation](INSTALL.md#desktop-macos).
 
 While stopped, select **This device**, open **macOS audio settings**, and opt in to the native CoreAudio backend. Select the connected USB DAC by name rather than the system default if you want to leave the Mac's speakers as the default for other applications. The saved choice uses the device UID, not its temporary device number. **Exclusive** requests Hog ownership and exact supported PCM formats; a busy, disconnected or unsupported device produces an error, never a silent switch to shared output or another device. Mono/stereo exclusive output is supported; unsupported channel layouts are rejected rather than guessed.
 
@@ -204,7 +204,9 @@ Exclusive mode fixes the app volume at 100%; lower listening volume on the DAC o
 
 USB DAC support is generic CoreAudio support, not a FIIO-only device path. Observed hardware qualification is limited to Apple Silicon macOS 26.6.2 with the FIIO M33R2R; it is not a guarantee for every DAC or supported macOS version. Available rates, sample formats, channels, Hog ownership and hardware volume depend on each device. Check the negotiated path and errors on your hardware rather than assuming its advertised maximum is usable.
 
-Stop before changing backend, device, mode or Server. Pause keeps device ownership. Stop and natural completion release the DAC and restore device settings changed by the session, while keeping the Server's local-output registration for the next Server-owned command. Quit also removes that registration. Device loss stops with an error and never switches to speakers or automatically resumes. A same-Server WebView reload retains valid native ownership; closing the red window button hides the app and Dock activation reopens it. **Quit** releases only this app's local output, not another selected network renderer. This macOS implementation does not add Windows SMTC or claim macOS system media-key integration. Preferences persist in `~/Library/Application Support/jastreamer-desktop`.
+Stop before changing backend, device, mode or Server. Pause keeps device ownership. Stop and natural completion release the DAC and restore device settings changed by the session, while keeping the Server's local-output registration for the next Server-owned command. Quit also removes that registration. Device loss stops with an error and never switches to speakers or automatically resumes. A same-Server WebView reload retains valid native ownership; closing the red window button hides the app and Dock activation reopens it. **Quit** releases only this app's local output, not another selected network renderer. Preferences persist in `~/Library/Application Support/jastreamer-desktop`.
+
+**System media controls (0.2.3).** The published 0.2.2 Mac package does not include this integration. The native CoreAudio backend in 0.2.3 publishes the current title, artist, album, available artwork and timeline to macOS **Now Playing**. System Play/Pause, Stop, Previous, Next and supported seeking are forwarded to the authenticated Server, which remains the queue and playback owner; they never directly control the audio engine or an unrelated network output. Pause retains the session. Stop, completion, terminal connection loss and Quit withdraw it; reloading the same Server page keeps valid native ownership. Browser audio does not opt in to this native integration.
 
 <a id="phone-controls"></a>
 ### Phone controls
