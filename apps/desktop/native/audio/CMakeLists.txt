@@ -1,11 +1,18 @@
 cmake_minimum_required(VERSION 3.25)
-project(jastreamer_native_audio VERSION 0.2.1 LANGUAGES CXX)
+project(jastreamer_native_audio VERSION 0.2.2 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 include(CTest)
+
+if(APPLE)
+  if(NOT CMAKE_SYSTEM_PROCESSOR MATCHES "^(arm64|aarch64)$" OR
+     (CMAKE_OSX_ARCHITECTURES AND NOT CMAKE_OSX_ARCHITECTURES STREQUAL "arm64"))
+    message(FATAL_ERROR "The macOS native helper supports Apple Silicon arm64 only")
+  endif()
+endif()
 
 set(JASTREAMER_FFMPEG_ROOT "" CACHE PATH "Prefix containing source-built FFmpeg headers and libraries")
 set(JASTREAMER_NLOHMANN_ROOT "" CACHE PATH "Extracted nlohmann/json source tree")
@@ -94,6 +101,11 @@ add_library(jastreamer_native STATIC
   protocol.cpp)
 target_include_directories(jastreamer_native PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")
 target_link_libraries(jastreamer_native PUBLIC jastreamer_decoder nlohmann_json::nlohmann_json)
+if(APPLE)
+  target_sources(jastreamer_native PRIVATE audio_engine_coreaudio.cpp)
+  target_link_libraries(jastreamer_native PUBLIC "-framework CoreAudio" "-framework CoreFoundation")
+  target_compile_options(jastreamer_native PRIVATE -Wall -Wextra -Wpedantic)
+endif()
 if(WIN32)
 target_sources(jastreamer_native PRIVATE smtc.cpp)
 target_compile_definitions(jastreamer_native PUBLIC
@@ -114,11 +126,22 @@ target_link_libraries(jastreamer_native PUBLIC
   user32
   uuid
   windowsapp)
+endif()
+
+if(WIN32 OR APPLE)
 
 add_executable(jastreamer-audio main.cpp)
+if(MSVC)
 target_compile_options(jastreamer-audio PRIVATE /W4 /permissive- /EHsc /utf-8)
+endif()
 target_link_libraries(jastreamer-audio PRIVATE jastreamer_native)
 set(native_dist "${CMAKE_CURRENT_SOURCE_DIR}/dist")
+if(APPLE)
+  set(native_dist "${native_dist}/macos-arm64")
+  set_target_properties(jastreamer-audio PROPERTIES
+    BUILD_RPATH "@executable_path"
+    INSTALL_RPATH "@executable_path")
+endif()
 set_target_properties(jastreamer-audio PROPERTIES
   RUNTIME_OUTPUT_DIRECTORY "${native_dist}"
   RUNTIME_OUTPUT_DIRECTORY_DEBUG "${native_dist}"
@@ -131,6 +154,23 @@ add_executable(jastreamer-packing-test tests/packing_test.cpp)
 target_link_libraries(jastreamer-packing-test PRIVATE jastreamer_native)
 add_executable(jastreamer-protocol-smoke tests/protocol_smoke.cpp)
 target_link_libraries(jastreamer-protocol-smoke PRIVATE jastreamer_native)
+add_executable(jastreamer-coreaudio-pcm-test tests/coreaudio_pcm_test.cpp)
+target_include_directories(jastreamer-coreaudio-pcm-test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
+if(APPLE)
+  add_executable(jastreamer-coreaudio-format-test tests/coreaudio_format_test.cpp)
+  target_include_directories(jastreamer-coreaudio-format-test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
+  if(BUILD_TESTING)
+    add_test(NAME coreaudio-format COMMAND jastreamer-coreaudio-format-test)
+  endif()
+  # Build-time checks use the verified dependency prefix, not the packaged
+  # helper's private dylib directory. Packaging rewrites/signs only the latter.
+  foreach(target IN ITEMS jastreamer-decoder-smoke jastreamer-decoder-behavior
+                          jastreamer-packing-test jastreamer-protocol-smoke)
+    set_target_properties(${target} PROPERTIES
+      BUILD_WITH_INSTALL_RPATH FALSE
+      BUILD_RPATH "${JASTREAMER_FFMPEG_ROOT}/lib")
+  endforeach()
+endif()
 if(WIN32)
 function(stage_ffmpeg_runtime target)
   foreach(component IN ITEMS avformat avcodec avutil swresample)
@@ -153,7 +193,8 @@ endif()
 if(BUILD_TESTING)
   add_test(NAME packing COMMAND jastreamer-packing-test)
   add_test(NAME protocol COMMAND jastreamer-protocol-smoke)
+  add_test(NAME coreaudio-pcm COMMAND jastreamer-coreaudio-pcm-test)
 endif()
-if(NOT WIN32)
-  message(STATUS "Building decoder and portable PCM/protocol checks; WASAPI and SMTC are unavailable")
+if(NOT WIN32 AND NOT APPLE)
+  message(STATUS "Building decoder and portable PCM/protocol checks; native playback is unavailable")
 endif()

@@ -14,7 +14,7 @@ from typing import Any
 
 import windows_package
 
-VERSION = "0.2.1"
+VERSION = "0.2.2"
 SHA256 = re.compile(r"[0-9a-f]{64}")
 CERTIFICATE_SHA256 = re.compile(r"[0-9A-F]{64}")
 REVISION = re.compile(r"[0-9a-f]{40}")
@@ -46,11 +46,32 @@ DESKTOP_TARGETS = {
             "renderer-os-sandbox",
         ],
     },
+    "macos-arm64": {
+        "platform": "darwin",
+        "arch": "arm64",
+        "archive": f"jastreamer-desktop_{VERSION}_macos-arm64-adhoc.dmg",
+        "checks": [
+            "exact-package-inventory",
+            "readonly-dmg-mount",
+            "thin-arm64-mach-o",
+            "relocatable-dylib-closure",
+            "ad-hoc-signatures",
+            "corresponding-source-and-licenses",
+            "native-coreaudio-decoder-packing-protocol-tests",
+            "packaged-app-loopback-lifecycle",
+        ],
+    },
 }
+MACOS_LAUNCH_CHECKS = [
+    "native-arm64-packaged-app", "isolated-profile", "real-server-session",
+    "browser-output-default", "macos-native-bridge-settings",
+    "close-hides-activate-restores", "explicit-quit-releases-helper",
+    "no-playback-commands", "cleanup",
+]
 
 WINDOWS_SERVER_ARCHIVE = windows_package.ARCHIVE_NAME
 ANDROID_APPLICATION_ID = "io.jastreamer.android"
-ANDROID_VERSION_CODE = 20100
+ANDROID_VERSION_CODE = 20200
 ANDROID_MIN_SDK = 29
 ANDROID_TARGET_SDK = 36
 ANDROID_RELEASE_APK = f"jastreamer-android_{VERSION}_release.apk"
@@ -251,6 +272,10 @@ def validate_desktop_manifest(value: Any, directory: pathlib.Path, target: str, 
     require(value.get("sourceRevision") == source_revision, "desktop source revision mismatch")
     require(value.get("electron") == "44.3.0", "unexpected Electron version")
     require(value.get("signed") is False and value.get("productionQualified") is False, "desktop artifact must remain unsigned and unqualified")
+    if target == "macos-arm64":
+        require(value.get("distribution") == "public-adhoc" and value.get("developmentBuild") is False, "Mac package is not a public ad-hoc CI artifact")
+        require(value.get("signing") == "ad-hoc" and value.get("developerIDSigned") is False and value.get("notarized") is False, "Mac signing classification mismatch")
+        require(value.get("minimumMacOS") == "13.0" and value.get("directory") == "jastreamer.app", "Mac bundle identity mismatch")
     archive = value.get("archive")
     require(isinstance(archive, dict) and archive.get("path") == expected["archive"], "unexpected desktop archive name")
     archive_path = directory / expected["archive"]
@@ -269,6 +294,22 @@ def validate_desktop_manifest(value: Any, directory: pathlib.Path, target: str, 
         if target == "windows-x64":
             require(isinstance(entry.get("bytes"), int) and entry["bytes"] >= 0, f"invalid desktop inventory size: {name}")
             require(isinstance(entry.get("sha256"), str) and SHA256.fullmatch(entry["sha256"]) is not None, f"invalid desktop inventory digest: {name}")
+            continue
+        if target == "macos-arm64":
+            require(entry.get("type") in ("file", "symlink"), f"invalid Mac inventory type: {name}")
+            if entry["type"] == "file":
+                require(type(entry.get("mode")) is int and 0 <= entry["mode"] <= 0o777, f"invalid Mac file mode: {name}")
+                require(type(entry.get("bytes")) is int and entry["bytes"] >= 0, f"invalid Mac file size: {name}")
+                require(isinstance(entry.get("sha256"), str) and SHA256.fullmatch(entry["sha256"]) is not None, f"invalid Mac file digest: {name}")
+                require("target" not in entry, f"regular Mac file has a symlink target: {name}")
+            else:
+                link = entry.get("target")
+                require(isinstance(link, str) and link and not pathlib.PurePosixPath(link).is_absolute(), f"invalid Mac symlink target: {name}")
+                depth = len(pathlib.PurePosixPath(name).parent.parts)
+                for part in pathlib.PurePosixPath(link).parts:
+                    depth += -1 if part == ".." else 1 if part != "." else 0
+                    require(depth >= 0, f"escaping Mac symlink: {name}")
+                require("sha256" not in entry and "bytes" not in entry, f"Mac symlink has file metadata: {name}")
             continue
         require(entry.get("type") in ("file", "symlink"), f"invalid Linux inventory type: {name}")
         require(isinstance(entry.get("mode"), str) and re.fullmatch(r"[0-7]{4}", entry["mode"]) is not None, f"invalid Linux inventory mode: {name}")
@@ -291,11 +332,51 @@ def validate_desktop_manifest(value: Any, directory: pathlib.Path, target: str, 
     return value
 
 
+def verify_macos_evidence(directory: pathlib.Path, manifest: dict[str, Any], source_revision: str) -> dict[str, Any]:
+    evidence = read_json(directory / "native-verification.json")
+    require(isinstance(evidence, dict) and evidence.get("schema") == 1, "invalid Mac native verification")
+    for field in ("product", "version", "platform", "arch", "sourceRevision", "distribution", "signing", "developerIDSigned", "notarized", "productionQualified", "archive"):
+        require(evidence.get(field) == manifest.get(field), f"Mac native verification {field} mismatch")
+    require(evidence.get("sourceRevision") == source_revision, "Mac native source mismatch")
+    manifest_path = directory / "manifest.json"
+    require(evidence.get("packageManifest") == {"path": "manifest.json", "bytes": manifest_path.stat().st_size, "sha256": sha256_file(manifest_path)}, "Mac native manifest digest mismatch")
+    require(evidence.get("nativeTests") == ["coreaudio-format", "coreaudio-pcm", "decoder", "packing", "protocol"], "Mac native tests are incomplete")
+    require(evidence.get("checks") == DESKTOP_TARGETS["macos-arm64"]["checks"][:-1], "Mac native verification checks are incomplete")
+    binaries = evidence.get("machOFiles")
+    require(isinstance(binaries, list) and len(binaries) == 18, "Mac Mach-O inventory is incomplete")
+    entries = {entry["path"]: entry for entry in manifest["files"]}
+    paths = set()
+    for binary in binaries:
+        require(isinstance(binary, dict), "invalid Mac Mach-O evidence")
+        name = safe_relative(binary.get("path"), "Mac Mach-O path")
+        require(name not in paths, "duplicate Mac Mach-O evidence")
+        paths.add(name)
+        entry = entries.get(name, {})
+        require(entry.get("type") == "file" and binary.get("sha256") == entry.get("sha256"), "Mac Mach-O digest differs from bundle inventory")
+        require(binary.get("arch") == "arm64", "Mac Mach-O is not thin arm64")
+    runtime = ["jastreamer-audio", "libavcodec.62.dylib", "libavformat.62.dylib", "libavutil.60.dylib", "libswresample.6.dylib"]
+    require({"Contents/MacOS/jastreamer-desktop", *(f"Contents/Resources/native-audio/{name}" for name in runtime)} <= paths, "Mac runtime binaries are missing")
+    require(manifest.get("nativeAudio") == {"helper": "Contents/Resources/native-audio/jastreamer-audio", "runtime": runtime, "ffmpeg": "8.1.2", "dynamicLinking": True}, "Mac native dependency contract mismatch")
+    launch = read_json(directory / "launch-verification.json")
+    require(isinstance(launch, dict) and launch.get("schema") == 1, "invalid Mac launch verification")
+    for field in ("product", "version", "platform", "arch", "sourceRevision", "distribution", "archive"):
+        require(launch.get(field) == manifest.get(field), f"Mac launch verification {field} mismatch")
+    require(launch.get("packageManifest") == evidence["packageManifest"], "Mac launch manifest digest mismatch")
+    require(launch.get("checks") == MACOS_LAUNCH_CHECKS, "Mac launch verification checks are incomplete")
+    executable = "Contents/MacOS/jastreamer-desktop"
+    require(launch.get("appExecutable") == {"path": executable, "sha256": entries[executable]["sha256"]}, "Mac launch executable digest mismatch")
+    helper = launch.get("helper", {})
+    require(isinstance(helper, dict) and type(helper.get("pid")) is int and helper["pid"] > 0 and helper.get("exited") is True, "Mac helper shutdown evidence is missing")
+    return evidence
+
+
 def create_desktop(args: argparse.Namespace) -> None:
     validate_revision(args.source_revision)
     directory = pathlib.Path(args.dist)
     manifest_path = directory / "manifest.json"
     manifest = validate_desktop_manifest(read_json(manifest_path), directory, args.target, args.source_revision)
+    if args.target == "macos-arm64":
+        verify_macos_evidence(directory, manifest, args.source_revision)
     receipt = {
         "schema": 1,
         "product": "jastreamer-desktop",
@@ -310,6 +391,9 @@ def create_desktop(args: argparse.Namespace) -> None:
         "signed": False,
         "productionQualified": False,
     }
+    if args.target == "macos-arm64":
+        receipt["nativeVerification"] = {"path": "native-verification.json", "sha256": sha256_file(directory / "native-verification.json")}
+        receipt["launchVerification"] = {"path": "launch-verification.json", "sha256": sha256_file(directory / "launch-verification.json")}
     canonical_json(directory / "verification.json", receipt)
     verify_desktop_artifact(directory, args.target, args.source_revision, subset=True)
     print(json.dumps(receipt, sort_keys=True))
@@ -318,6 +402,8 @@ def create_desktop(args: argparse.Namespace) -> None:
 def verify_desktop_artifact(directory: pathlib.Path, target: str, source_revision: str, subset: bool = False) -> dict[str, Any]:
     expected = DESKTOP_TARGETS[target]
     expected_files = {expected["archive"], f"{expected['archive']}.sha256", "manifest.json", "verification.json"}
+    if target == "macos-arm64":
+        expected_files.update({"native-verification.json", "launch-verification.json"})
     require(directory.is_dir(), f"desktop artifact directory not found: {directory}")
     if not subset:
         require({entry.name for entry in directory.iterdir()} == expected_files, "desktop artifact contains missing or unexpected files")
@@ -334,6 +420,10 @@ def verify_desktop_artifact(directory: pathlib.Path, target: str, source_revisio
     require(receipt.get("packageManifest") == {"path": "manifest.json", "bytes": manifest_path.stat().st_size, "sha256": sha256_file(manifest_path)}, "desktop receipt manifest mismatch")
     require(receipt.get("checks") == expected["checks"], "desktop verification checks are incomplete")
     require(receipt.get("signed") is False and receipt.get("productionQualified") is False, "desktop receipt must remain unsigned and unqualified")
+    if target == "macos-arm64":
+        verify_macos_evidence(directory, manifest, source_revision)
+        require(receipt.get("nativeVerification") == {"path": "native-verification.json", "sha256": sha256_file(directory / "native-verification.json")}, "Mac native verification receipt digest mismatch")
+        require(receipt.get("launchVerification") == {"path": "launch-verification.json", "sha256": sha256_file(directory / "launch-verification.json")}, "Mac launch verification receipt digest mismatch")
     return receipt
 
 

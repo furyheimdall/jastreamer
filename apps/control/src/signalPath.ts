@@ -1,5 +1,5 @@
 import type { NativeAndroidAudioState } from "./NativeAndroidOutput";
-import type { NativeWindowsState } from "./NativeWindowsOutput";
+import type { NativeDesktopState } from "./NativeDesktopOutput";
 
 // The player bar badge summarises the one thing both native outputs agree on: whether the
 // active path bypasses the platform mixer and whether that path stayed bit-transparent.
@@ -9,9 +9,9 @@ export type SignalPathBadge = {
   detail: { rate: number; validBits: number; containerBits: number; device: string };
 } | null;
 
-// Normalised input so Windows exclusive mode and Android direct USB share one rule set.
+// Normalised input so Desktop exclusive mode and Android direct USB share one rule set.
 export type SignalPathInput = {
-  // The active engine bypasses the platform mixer (WASAPI exclusive / direct USB).
+  // The active engine bypasses the platform mixer (WASAPI / CoreAudio exclusive / direct USB).
   direct: boolean;
   stopped: boolean;
   bitTransparent: boolean;
@@ -35,7 +35,7 @@ export function signalPathBadge(input: SignalPathInput | null): SignalPathBadge 
     : { tone: "muted", reasonKey: input.reason || null, detail };
 }
 
-export function windowsSignalPath(audio: NativeWindowsState["audio"] | null | undefined): SignalPathBadge {
+export function desktopSignalPath(audio: NativeDesktopState["audio"] | null | undefined): SignalPathBadge {
   const actual = audio?.actual;
   if (!audio || !audio.enabled || !actual) return null;
   return signalPathBadge({

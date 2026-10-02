@@ -14,12 +14,12 @@ on:
       release_tag:
         description: Public GitHub release tag (vX.Y.Z for stable, vX.Y.Z-preview.N for a preview)
         required: true
-        default: v0.2.1
+        default: v0.2.2
         type: string
       image_tag:
         description: GHCR image tag without a leading v (X.Y.Z or X.Y.Z-preview.N)
         required: true
-        default: 0.2.1
+        default: 0.2.2
         type: string
 
 permissions:
@@ -45,7 +45,7 @@ jobs:
       ANDROID_RUN_ID: ${{ inputs.android_run_id }}
       RELEASE_TAG: ${{ inputs.release_tag }}
       IMAGE_TAG: ${{ inputs.image_tag }}
-      ANDROID_ASSET: jastreamer-android_0.2.1_release.apk
+      ANDROID_ASSET: jastreamer-android_0.2.2_release.apk
     steps:
       - name: Restrict dispatch origin
         shell: bash
@@ -240,8 +240,8 @@ jobs:
           test -n "${certificate}"
           test "${certificate}" = "${pinned}"
           test "$(apkanalyzer manifest application-id "${signed}")" = "io.jastreamer.android"
-          test "$(apkanalyzer manifest version-code "${signed}")" = "20100"
-          test "$(apkanalyzer manifest version-name "${signed}")" = "0.2.1"
+          test "$(apkanalyzer manifest version-code "${signed}")" = "20200"
+          test "$(apkanalyzer manifest version-name "${signed}")" = "0.2.2"
           test "$(apkanalyzer manifest min-sdk "${signed}")" = "29"
           test "$(apkanalyzer manifest target-sdk "${signed}")" = "36"
           sha256="$(sha256sum "${signed}" | cut -d ' ' -f 1)"
@@ -257,9 +257,9 @@ jobs:
             '{
               schema: 1,
               product: "jastreamer-android",
-              version: "0.2.1",
-              versionName: "0.2.1",
-              versionCode: 20100,
+              version: "0.2.2",
+              versionName: "0.2.2",
+              versionCode: 20200,
               applicationId: "io.jastreamer.android",
               minSdk: 29,
               targetSdk: 36,
@@ -449,6 +449,7 @@ jobs:
           python3 packaging/server/ci_artifact.py verify-windows-server --artifact-dir "${ARTIFACT_DIR}/jastreamer-server-windows-x64" --source-revision "${SOURCE_SHA}"
           python3 packaging/server/ci_artifact.py verify-desktop --artifact-dir "${ARTIFACT_DIR}/jastreamer-desktop-windows-x64" --target windows-x64 --source-revision "${SOURCE_SHA}"
           python3 packaging/server/ci_artifact.py verify-desktop --artifact-dir "${ARTIFACT_DIR}/jastreamer-desktop-linux-amd64" --target linux-amd64 --source-revision "${SOURCE_SHA}"
+          python3 packaging/server/ci_artifact.py verify-desktop --artifact-dir "${ARTIFACT_DIR}/jastreamer-desktop-macos-arm64" --target macos-arm64 --source-revision "${SOURCE_SHA}"
           python3 packaging/server/ci_artifact.py verify-android-release --artifact-dir "${ANDROID_DIR}" --source-revision "${SOURCE_SHA}"
       - uses: docker/setup-buildx-action@v3
       - name: Authenticate to GHCR for publication

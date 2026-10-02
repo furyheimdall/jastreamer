@@ -39,6 +39,16 @@ test("uses portable Windows storage and per-user installed Linux storage", () =>
   }), path.resolve("workspace", "apps", "desktop", ".user-data"));
 });
 
+test("installed macOS profile stays outside an app bundle on a read-only DMG", () => {
+  assert.equal(resolveUserDataPath({
+    isPackaged: true,
+    platform: "darwin",
+    executablePath: path.resolve("Volumes", "jastreamer", "Jastreamer.app", "Contents", "MacOS", "jastreamer-desktop"),
+    appDirectory: path.resolve("Volumes", "jastreamer", "Jastreamer.app", "Contents", "Resources", "app"),
+    appDataPath: path.resolve("Users", "listener", "Library", "Application Support"),
+  }), path.resolve("Users", "listener", "Library", "Application Support", "jastreamer-desktop"));
+});
+
 test("requires an OS per-user data root for installed non-Windows builds", () => {
   assert.throws(() => resolveUserDataPath({
     isPackaged: true,

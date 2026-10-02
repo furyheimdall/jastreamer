@@ -6,13 +6,13 @@ import NativeAndroidOutput, {
   type NativeAndroidOutputHandle,
   type NativeAndroidUnsupportedFormat,
 } from "./NativeAndroidOutput";
-import NativeWindowsOutput, {
-  requestNativeWindowsAudio,
-  type JastreamerWindowsAudioBridge,
-  type NativeWindowsConfiguration,
-  type NativeWindowsOutputHandle,
-  type NativeWindowsState,
-} from "./NativeWindowsOutput";
+import NativeDesktopOutput, {
+  requestNativeDesktopAudio,
+  type JastreamerDesktopAudioBridge,
+  type NativeDesktopConfiguration,
+  type NativeDesktopOutputHandle,
+  type NativeDesktopState,
+} from "./NativeDesktopOutput";
 import type { Device } from "./types";
 
 export interface LocalOutputHandle {
@@ -22,16 +22,16 @@ export interface LocalOutputHandle {
   setVolume: (volume: number) => Promise<void>;
   rename: (name: string) => Promise<void>;
   retryPlayback?: () => void;
-  configureWindows: (configuration: NativeWindowsConfiguration) => Promise<NativeWindowsState>;
+  configureDesktop: (configuration: NativeDesktopConfiguration) => Promise<NativeDesktopState>;
   configureAndroid: (usbDirect: boolean, unsupportedFormat: NativeAndroidUnsupportedFormat) => Promise<void>;
 }
 
 export interface LocalOutputProps extends BrowserOutputProps {
   bridgeError: string;
   onRecoveryChange: (recovering: boolean, message: string) => void;
-  windowsBridge: JastreamerWindowsAudioBridge | null;
-  windowsState: NativeWindowsState | null;
-  onWindowsStateChange: (state: NativeWindowsState) => void;
+  desktopBridge: JastreamerDesktopAudioBridge | null;
+  desktopState: NativeDesktopState | null;
+  onDesktopStateChange: (state: NativeDesktopState) => void;
   onAndroidAudioChange: (audio: NativeAndroidAudioState | null) => void;
 }
 
@@ -43,9 +43,9 @@ const LocalOutput = forwardRef<LocalOutputHandle, LocalOutputProps>(function Loc
   {
     bridgeError,
     onRecoveryChange,
-    windowsBridge,
-    windowsState,
-    onWindowsStateChange,
+    desktopBridge,
+    desktopState,
+    onDesktopStateChange,
     onAndroidAudioChange,
     ...browserProps
   },
@@ -53,17 +53,17 @@ const LocalOutput = forwardRef<LocalOutputHandle, LocalOutputProps>(function Loc
 ) {
   const nativeAndroidPresent = hasNativeAndroidAudio();
   const androidBridge = nativeAndroidAudioBridge();
-  const nativeWindowsEnabled = Boolean(windowsBridge && windowsState?.audio.enabled);
+  const nativeDesktopEnabled = Boolean(desktopBridge && desktopState?.audio.enabled);
   const browserRef = useRef<BrowserOutputHandle>(null);
   const androidRef = useRef<NativeAndroidOutputHandle>(null);
-  const windowsRef = useRef<NativeWindowsOutputHandle>(null);
+  const desktopRef = useRef<NativeDesktopOutputHandle>(null);
 
   useImperativeHandle(ref, () => ({
     connect() {
       const output = nativeAndroidPresent
         ? androidRef.current
-        : nativeWindowsEnabled
-          ? windowsRef.current
+        : nativeDesktopEnabled
+          ? desktopRef.current
           : browserRef.current;
       return output
         ? output.connect()
@@ -71,22 +71,22 @@ const LocalOutput = forwardRef<LocalOutputHandle, LocalOutputProps>(function Loc
     },
     connectAutomatically() {
       if (nativeAndroidPresent) return androidRef.current?.connectAutomatically() ?? Promise.resolve(null);
-      if (nativeWindowsEnabled) return windowsRef.current?.connectAutomatically() ?? Promise.resolve(null);
+      if (nativeDesktopEnabled) return desktopRef.current?.connectAutomatically() ?? Promise.resolve(null);
       return browserRef.current?.connect() ?? Promise.resolve(null);
     },
     async disconnect() {
       const output = nativeAndroidPresent
         ? androidRef.current
-        : nativeWindowsEnabled
-          ? windowsRef.current
+        : nativeDesktopEnabled
+          ? desktopRef.current
           : browserRef.current;
       await output?.disconnect();
     },
     async setVolume(volume) {
       const output = nativeAndroidPresent
         ? androidRef.current
-        : nativeWindowsEnabled
-          ? windowsRef.current
+        : nativeDesktopEnabled
+          ? desktopRef.current
           : browserRef.current;
       if (!output) throw new Error(browserProps.actionError);
       await output.setVolume(volume);
@@ -94,20 +94,20 @@ const LocalOutput = forwardRef<LocalOutputHandle, LocalOutputProps>(function Loc
     rename(name) {
       const output = nativeAndroidPresent
         ? androidRef.current
-        : nativeWindowsEnabled
-          ? windowsRef.current
+        : nativeDesktopEnabled
+          ? desktopRef.current
           : browserRef.current;
       return output
         ? output.rename(name)
         : Promise.reject(new Error(browserProps.registrationError));
     },
-    async configureWindows(configuration) {
-      if (!windowsBridge) throw new Error(bridgeError);
-      if (!nativeWindowsEnabled) {
+    async configureDesktop(configuration) {
+      if (!desktopBridge) throw new Error(bridgeError);
+      if (!nativeDesktopEnabled) {
         await browserRef.current?.disconnect({ onlyWhenStopped: true });
       }
-      const next = await requestNativeWindowsAudio(windowsBridge, "configure", configuration);
-      onWindowsStateChange(next);
+      const next = await requestNativeDesktopAudio(desktopBridge, "configure", configuration);
+      onDesktopStateChange(next);
       return next;
     },
     async configureAndroid(usbDirect, unsupportedFormat) {
@@ -115,7 +115,7 @@ const LocalOutput = forwardRef<LocalOutputHandle, LocalOutputProps>(function Loc
       if (!output) throw new Error(bridgeError);
       await output.configure(usbDirect, unsupportedFormat);
     },
-    ...(!nativeAndroidPresent && !nativeWindowsEnabled
+    ...(!nativeAndroidPresent && !nativeDesktopEnabled
       ? { retryPlayback: () => browserRef.current?.retryPlayback() }
       : {}),
   }), [
@@ -123,9 +123,9 @@ const LocalOutput = forwardRef<LocalOutputHandle, LocalOutputProps>(function Loc
     browserProps.actionError,
     browserProps.registrationError,
     nativeAndroidPresent,
-    nativeWindowsEnabled,
-    onWindowsStateChange,
-    windowsBridge,
+    nativeDesktopEnabled,
+    onDesktopStateChange,
+    desktopBridge,
   ]);
 
   if (nativeAndroidPresent) {
@@ -145,18 +145,18 @@ const LocalOutput = forwardRef<LocalOutputHandle, LocalOutputProps>(function Loc
     );
   }
 
-  if (windowsBridge && !windowsState) return null;
+  if (desktopBridge && !desktopState) return null;
 
-  if (windowsBridge && windowsState?.audio.enabled) {
+  if (desktopBridge && desktopState?.audio.enabled) {
     return (
-      <NativeWindowsOutput
-        ref={windowsRef}
-        bridge={windowsBridge}
-        state={windowsState}
+      <NativeDesktopOutput
+        ref={desktopRef}
+        bridge={desktopBridge}
+        state={desktopState}
         name={browserProps.name}
         registrationError={browserProps.registrationError}
         bridgeError={bridgeError}
-        onStateChange={onWindowsStateChange}
+        onStateChange={onDesktopStateChange}
         onDeviceChange={browserProps.onDeviceChange}
         onRecoveryChange={onRecoveryChange}
         onError={browserProps.onError}

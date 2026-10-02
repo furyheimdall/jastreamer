@@ -56,8 +56,9 @@ namespace pcm {
 // container. At unity this function deliberately does not touch the buffer.
 void apply_gain(std::uint8_t* data, std::size_t frames, const AudioFormat& format, double gain);
 
-// Validate that a decoded source can be expressed as WAVEFORMATEXTENSIBLE.
-// Endpoint acceptance remains an exact IsFormatSupported negotiation.
+// Validate decoded PCM container bounds. Windows additionally requires a
+// representable WAVEFORMATEXTENSIBLE block alignment. Each platform negotiates
+// and verifies the actual endpoint format independently.
 void validate_exclusive_source_format(const AudioFormat& format);
 
 std::uint32_t default_channel_mask(int channels);

@@ -1,9 +1,13 @@
 #include "audio_engine.hpp"
 #include "protocol.hpp"
+#ifdef _WIN32
 #include "smtc.hpp"
 
 #include <windows.h>
 #include <objbase.h>
+#else
+#include <csignal>
+#endif
 
 #include <algorithm>
 #include <array>
@@ -483,6 +487,7 @@ void require_fence(const TransportFenceDecision& decision) {
     throw EngineError("action_failed", "Transport command was rejected");
 }
 
+#ifdef _WIN32
 void validate_smtc(nlohmann::json& params) {
     (void)required_bool(params, "enabled");
     const auto state = required_string(params, "state", 32);
@@ -500,6 +505,7 @@ void validate_smtc(nlohmann::json& params) {
          params["artwork_base64"].get_ref<const std::string&>().size() > 192 * 1024))
         throw EngineError("invalid_argument", "SMTC artwork is too large");
 }
+#endif
 
 } // namespace
 } // namespace jastreamer
@@ -512,7 +518,11 @@ int main(int argc, char** argv) {
         return 0;
     }
     if (argc != 1) return 2;
+#ifdef _WIN32
     if (FAILED(CoInitializeEx(nullptr, COINIT_MULTITHREADED))) return 3;
+#else
+    std::signal(SIGPIPE, SIG_IGN);
+#endif
     JsonLineProtocol protocol(std::cin, std::cout);
     MediaReads reads(protocol);
     CommandQueue commands;
@@ -545,9 +555,11 @@ int main(int argc, char** argv) {
         reads.finish(*lease);
         fence.release(*lease);
     };
+#ifdef _WIN32
     Smtc smtc([&](nlohmann::json event) {
         try { protocol.notify(event); } catch (...) { reads.close(); }
     });
+#endif
     AudioEngine engine([&](nlohmann::json event) {
         if (event.contains("event") && event["event"] == "observation" &&
             event.contains("play_id") && event["play_id"].is_string() &&
@@ -563,7 +575,9 @@ int main(int argc, char** argv) {
     bool requested_shutdown = false;
 
     std::thread worker([&] {
+#ifdef _WIN32
         const auto worker_com = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
+#endif
         while (auto next = commands.pop()) {
             auto queued = std::move(*next);
             auto& command = queued.command;
@@ -595,8 +609,10 @@ int main(int argc, char** argv) {
                 }
             };
             try {
+#ifdef _WIN32
                 if (FAILED(worker_com))
                     throw EngineError("device_unavailable", "Windows audio COM initialization failed");
+#endif
                 nlohmann::json result;
                 if (command.method == "devices") {
                     result = devices_result();
@@ -633,14 +649,18 @@ int main(int argc, char** argv) {
                                          signed_integer(command.params, "position_ms"));
                 } else if (command.method == "set_volume") {
                     result = engine.set_volume(required_volume(command.params));
+#ifdef _WIN32
                 } else if (command.method == "smtc") {
                     validate_smtc(command.params);
                     smtc.update(command.params);
                     result = engine.status();
+#endif
                 } else if (command.method == "shutdown") {
                     reads.close();
                     engine.shutdown();
+#ifdef _WIN32
                     smtc.clear();
+#endif
                     result = nlohmann::json::object();
                     shutdown = true;
                 } else {
@@ -661,8 +681,10 @@ int main(int argc, char** argv) {
         }
         reads.close();
         engine.shutdown();
+#ifdef _WIN32
         smtc.clear();
         if (SUCCEEDED(worker_com)) CoUninitialize();
+#endif
     });
 
     while (!shutdown.load()) {
@@ -727,6 +749,8 @@ int main(int argc, char** argv) {
     if (requested_shutdown) commands.close();
     else commands.abort();
     if (worker.joinable()) worker.join();
+#ifdef _WIN32
     CoUninitialize();
+#endif
     return 0;
 }

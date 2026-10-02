@@ -25,7 +25,7 @@ export class NativeControllerError extends Error {
   }
 }
 
-export class NativeWindowsController extends EventEmitter {
+export class NativeDesktopController extends EventEmitter {
   #preferences;
   #helper;
   #probe;
@@ -64,7 +64,7 @@ export class NativeWindowsController extends EventEmitter {
   async initialize() {
     this.#settings = await this.#preferences.load();
     this.#audio.volume = this.#settings.volume;
-    if (this.#platform !== "win32" || !this.#helper) return this.state();
+    if (!["win32", "darwin"].includes(this.#platform) || !this.#helper) return this.state();
     try {
       const devices = await this.#helper.request("devices");
       this.#available = devices.available === true;
@@ -74,7 +74,7 @@ export class NativeWindowsController extends EventEmitter {
       await this.#helper.request("set_volume", { volume: this.#settings.volume });
     } catch (error) {
       this.#available = false;
-      this.#publicError = publicFailure(error, "native_unavailable", "Native Windows audio is unavailable.");
+      this.#publicError = publicFailure(error, "native_unavailable", "Native desktop audio is unavailable.");
     }
     this.#emitState();
     return this.state();
@@ -88,6 +88,7 @@ export class NativeWindowsController extends EventEmitter {
       volume: this.#registration && !this.#settings.exclusive ? this.#settings.volume : null,
       ...(this.#publicError ? { error: { ...this.#publicError } } : {}),
       audio: {
+        platform: this.#platform === "darwin" ? "macos" : "windows",
         available: this.#available,
         enabled: this.#settings.enabled,
         devices: this.#devices.map((value) => ({ ...value })),
@@ -105,7 +106,7 @@ export class NativeWindowsController extends EventEmitter {
       const status = await this.#helper.request("status");
       this.#applyAudio(status);
       if (["loaded", "playing", "paused"].includes(this.#audio.state) || this.#media) {
-        throw new NativeControllerError("stop_required", "Stop Windows playback before changing servers.");
+        throw new NativeControllerError("stop_required", "Stop local playback before changing servers.");
       }
     });
   }
@@ -122,16 +123,16 @@ export class NativeWindowsController extends EventEmitter {
       const status = await this.#helper.request("status");
       this.#applyAudio(status);
       if (["loaded", "playing", "paused"].includes(this.#audio.state) || this.#media) {
-        throw new NativeControllerError("stop_required", "Stop Windows playback before changing servers.");
+        throw new NativeControllerError("stop_required", "Stop local playback before changing servers.");
       }
       await this.#disconnectRegistration(existing, true);
     });
   }
 
   async request(server, targetSession, action, args = {}, { signal } = {}) {
-    if (this.#platform !== "win32") throw new NativeControllerError("unavailable", "Native Windows audio is unavailable.");
+    if (!["win32", "darwin"].includes(this.#platform)) throw new NativeControllerError("unavailable", "Native desktop audio is unavailable.");
     if (!server || !targetSession) throw new NativeControllerError("invalid_sender", "The native audio request was denied.");
-    if (this.#shuttingDown) throw new NativeControllerError("shutting_down", "Windows playback is shutting down.");
+    if (this.#shuttingDown) throw new NativeControllerError("shutting_down", "Local playback is shutting down.");
     if (signal?.aborted) throw signal.reason ?? new DOMException("Cancelled", "AbortError");
     if (action === "status") {
       requireKeys(args, []);
@@ -198,14 +199,14 @@ export class NativeWindowsController extends EventEmitter {
     }
     if (!this.#available || !this.#settings.enabled) {
       if (onlyIfAvailable) return;
-      throw new NativeControllerError("native_disabled", "Enable native Windows audio before connecting.");
+      throw new NativeControllerError("native_disabled", "Enable native desktop audio before connecting.");
     }
     const key = serverKey(server);
     if (this.#registration?.key === key) return;
     if (this.#registration) {
       if (onlyIfAvailable) return;
       if (["loaded", "playing", "paused"].includes(this.#audio.state) || this.#media) {
-        throw new NativeControllerError("stop_required", "Stop Windows playback before changing servers.");
+        throw new NativeControllerError("stop_required", "Stop local playback before changing servers.");
       }
       await this.#disconnectRegistration(this.#registration, true);
     }
@@ -217,7 +218,7 @@ export class NativeWindowsController extends EventEmitter {
         body: { name, protocol_info: MIME_CANDIDATES }, signal: AbortSignal.timeout(15_000),
       });
     } catch (error) {
-      throw publicNativeError(error, "registration_failed", "Windows playback could not connect.");
+      throw publicNativeError(error, "registration_failed", "Local playback could not connect.");
     }
     let parsed;
     try {
@@ -245,7 +246,7 @@ export class NativeWindowsController extends EventEmitter {
       await this.#helper.request("set_volume", { volume: this.#settings.volume }, { signal });
       this.#devices = sanitizeDevices(devices.devices);
       this.#available = devices.available === true;
-      if (!this.#available) throw new NativeControllerError("native_unavailable", "Native Windows audio is unavailable.");
+      if (!this.#available) throw new NativeControllerError("native_unavailable", "Native desktop audio is unavailable.");
       this.#applyAudio(status);
       this.#terminal = false;
       this.#publicError = null;
@@ -253,7 +254,7 @@ export class NativeWindowsController extends EventEmitter {
     } catch (error) {
       this.#terminal = true;
       this.#available = false;
-      throw publicNativeError(error, "native_unavailable", "Native Windows audio could not restart.");
+      throw publicNativeError(error, "native_unavailable", "Native desktop audio could not restart.");
     }
   }
 
@@ -280,7 +281,7 @@ export class NativeWindowsController extends EventEmitter {
     }
     if (release) await this.#release(existing).catch(() => {});
     this.#publicError = stopFailure
-      ? { code: "stop_failed", message: "Windows audio could not confirm that playback stopped." }
+      ? { code: "stop_failed", message: "Native audio could not confirm that playback stopped." }
       : null;
     this.#emitState();
     if (stopFailure) throw new NativeControllerError("stop_failed", this.#publicError.message, stopFailure);
@@ -298,13 +299,13 @@ export class NativeWindowsController extends EventEmitter {
       const device = await existing.client.json("PUT", registrationPath(existing.id), {
         ownerToken: existing.ownerToken, body: { name }, signal,
       });
-      if (this.#registration !== existing) throw new NativeControllerError("not_connected", "Windows playback disconnected.");
+      if (this.#registration !== existing) throw new NativeControllerError("not_connected", "Local playback disconnected.");
       existing.device = sanitizeDevice(device);
       this.#publicError = null;
       this.#emitState();
     } catch (error) {
       this.#handleTransportFailure(existing, error);
-      throw publicNativeError(error, "rename_failed", "The Windows output name could not be changed.");
+      throw publicNativeError(error, "rename_failed", "The local output name could not be changed.");
     }
   }
 
@@ -336,12 +337,12 @@ export class NativeWindowsController extends EventEmitter {
     }
     if (["loaded", "playing", "paused"].includes(this.#audio.state) || this.#media) {
       this.#emitState();
-      throw new NativeControllerError("stop_required", "Stop Windows playback before changing audio settings.");
+      throw new NativeControllerError("stop_required", "Stop local playback before changing audio settings.");
     }
     if (args.enabled) {
-      if (!this.#available) throw new NativeControllerError("native_unavailable", "Native Windows audio is unavailable.");
+      if (!this.#available) throw new NativeControllerError("native_unavailable", "Native desktop audio is unavailable.");
       if (args.device_id !== "default" && !this.#devices.some((value) => value.id === args.device_id)) {
-        throw new NativeControllerError("device_unavailable", "The selected Windows audio endpoint is unavailable.");
+        throw new NativeControllerError("device_unavailable", "The selected native audio endpoint is unavailable.");
       }
     }
     // Endpoint and exclusive mode apply when the next track loads, so the Server output
@@ -358,7 +359,7 @@ export class NativeWindowsController extends EventEmitter {
   #requireRegistration(server) {
     const existing = this.#registration;
     if (!existing || existing.key !== serverKey(server)) {
-      throw new NativeControllerError("not_connected", "Windows playback is not connected to this Server.");
+      throw new NativeControllerError("not_connected", "Local playback is not connected to this Server.");
     }
     return existing;
   }
@@ -438,7 +439,7 @@ export class NativeWindowsController extends EventEmitter {
     if (!this.#owns(expected, generation)) return;
     const duration = Number(response.lease_duration_ms);
     if (!Number.isFinite(duration) || duration <= 0 || duration > MAX_LEASE_MS) {
-      void this.#loseRegistration("invalid_lease", "The Windows playback connection ended.", true, expected);
+      void this.#loseRegistration("invalid_lease", "The local playback connection ended.", true, expected);
       return;
     }
     expected.leaseDeadline = Math.max(expected.leaseDeadline, started + duration);
@@ -455,7 +456,7 @@ export class NativeWindowsController extends EventEmitter {
     clearTimeout(expected.leaseTimer);
     expected.leaseTimer = setTimeout(() => {
       if (this.#owns(expected, generation) && performance.now() >= expected.leaseDeadline) {
-        void this.#loseRegistration("lease_expired", "The Windows playback connection expired.", true, expected);
+        void this.#loseRegistration("lease_expired", "The local playback connection expired.", true, expected);
       }
     }, Math.max(0, expected.leaseDeadline - performance.now()));
     expected.leaseTimer.unref?.();
@@ -491,7 +492,7 @@ export class NativeWindowsController extends EventEmitter {
     } catch (error) {
       if (!this.#owns(expected, generation) || sequence <= this.#cancelBeforeSequence || isAbort(error)) return;
       if (isAuthenticationFailure(error)) {
-        await this.#loseRegistration("authentication_required", "Sign in again to use Windows playback.", true, expected);
+        await this.#loseRegistration("authentication_required", "Sign in again to use local playback.", true, expected);
         return;
       }
       const errorCode = reportErrorCode(error, command.action);
@@ -500,7 +501,7 @@ export class NativeWindowsController extends EventEmitter {
         this.#completedSequence = sequence;
       } catch {}
       if (command.action === "set_uri") this.#clearMedia();
-      this.#publicError = publicFailure(error, "playback_failed", "Windows playback failed.");
+      this.#publicError = publicFailure(error, "playback_failed", "Local playback failed.");
       this.#emitState();
     } finally {
       if (this.#activeSequence === sequence) this.#activeSequence = 0;
@@ -536,7 +537,7 @@ export class NativeWindowsController extends EventEmitter {
     this.#media = { grant, playID, sequence, metadata, readChain: Promise.resolve() };
     this.#metadata = metadata;
     const artwork = strictSameOriginURL(expected.server.origin, resource.artwork_url);
-    if (artwork) {
+    if (artwork && this.#platform === "win32") {
       try {
         const bytes = await expected.client.bytes(artwork.href, MAX_SMTC_ARTWORK_BYTES, { signal: expected.controller.signal });
         metadata.artwork_base64 = Buffer.from(bytes).toString("base64");
@@ -593,7 +594,7 @@ export class NativeWindowsController extends EventEmitter {
     while (this.#owns(expected, generation)) {
       if (expectedMedia && this.#media !== expectedMedia) throw new DOMException("Superseded", "AbortError");
       if (performance.now() >= expected.leaseDeadline) {
-        await this.#loseRegistration("lease_expired", "The Windows playback connection expired.", true, expected);
+        await this.#loseRegistration("lease_expired", "The local playback connection expired.", true, expected);
         throw new DOMException("Lease expired", "AbortError");
       }
       try {
@@ -614,7 +615,7 @@ export class NativeWindowsController extends EventEmitter {
         if (this.#handleTransportFailure(expected, error)) throw new DOMException("Registration lost", "AbortError");
         const remaining = expected.leaseDeadline - performance.now();
         if (remaining <= retryMS) {
-          await this.#loseRegistration("lease_expired", "The Windows playback connection expired.", true, expected);
+          await this.#loseRegistration("lease_expired", "The local playback connection expired.", true, expected);
           throw new DOMException("Lease expired", "AbortError");
         }
         await delay(retryMS, expected.controller.signal);
@@ -680,6 +681,9 @@ export class NativeWindowsController extends EventEmitter {
     if (this.#activeSequence !== 0) {
       if (sequence >= media.sequence && sequence <= this.#activeSequence &&
         ["ended", "error"].includes(value.observation?.event)) {
+        // Terminal notifications release the helper's transport lease immediately,
+        // even when their Server report must wait for a command acknowledgement.
+        media.terminalAudio = value.audio;
         this.#deferredObservation = { expected, media, value };
       }
       return;
@@ -687,10 +691,11 @@ export class NativeWindowsController extends EventEmitter {
     if (sequence !== media.sequence || sequence !== this.#completedSequence) return;
     try {
       const observation = sanitizeObservation(value.observation, media.playID);
+      if (["ended", "error"].includes(observation.event)) media.terminalAudio = value.audio;
       this.#applyAudio(value.audio);
       this.#lastObservation = observation;
       if (observation.event === "error") {
-        this.#publicError = publicFailure(value.error, "playback_failed", "Windows playback failed.");
+        this.#publicError = publicFailure(value.error, "playback_failed", "Local playback failed.");
       }
       this.#updateSmtc(observation);
       this.#emitState();
@@ -729,7 +734,7 @@ export class NativeWindowsController extends EventEmitter {
       });
     } catch (error) {
       if (isAuthenticationFailure(error)) {
-        await this.#loseRegistration("authentication_required", "Sign in again to use Windows playback.", true, expected);
+        await this.#loseRegistration("authentication_required", "Sign in again to use local playback.", true, expected);
       }
       this.#helper.notify("read_result", {
         read_id: readID, play_id: media.playID, data: "", eof: true,
@@ -776,7 +781,7 @@ export class NativeWindowsController extends EventEmitter {
   }
 
   #updateSmtc(observation) {
-    if (!this.#registration || !this.#metadata) return;
+    if (this.#platform !== "win32" || !this.#registration || !this.#metadata) return;
     if (["stopped", "ended", "error"].includes(observation.event)) {
       this.#withdrawSmtc();
       return;
@@ -798,7 +803,7 @@ export class NativeWindowsController extends EventEmitter {
   }
 
   #withdrawSmtc() {
-    if (!this.#helper.running) return;
+    if (this.#platform !== "win32" || !this.#helper.running) return;
     void this.#helper.request("smtc", {
       enabled: false, state: "stopped", position_ms: 0, duration_ms: 0,
       title: "", artist: "", album: "", seekable: false,
@@ -820,6 +825,13 @@ export class NativeWindowsController extends EventEmitter {
     if (!media) return;
     const expected = this.#registration;
     this.#clearMedia();
+    if (media.terminalAudio) {
+      // The Server retires completed sequences too. There is no helper lease left
+      // to Stop; retain the actual terminal state instead of restarting transport.
+      this.#applyAudio(media.terminalAudio);
+      this.#emitState();
+      return;
+    }
     this.#localStop = this.#helper.request("stop", { play_id: media.playID, sequence }).then((result) => {
       if (result?.observation?.event !== "stopped" || result.observation.play_id !== media.playID ||
         result?.audio?.state !== "stopped") {
@@ -836,7 +848,7 @@ export class NativeWindowsController extends EventEmitter {
         await this.#helper.shutdown();
         this.#audio = { ...emptyAudio(), state: "error", volume: this.#settings.volume };
       } catch {}
-      await this.#loseRegistration("stop_failed", "Windows audio could not confirm cancellation.", false, expected);
+      await this.#loseRegistration("stop_failed", "Native audio could not confirm cancellation.", false, expected);
     });
   }
 
@@ -852,7 +864,8 @@ export class NativeWindowsController extends EventEmitter {
 
   async #stopLocal() {
     const media = this.#media;
-    const active = media || ["loaded", "playing", "paused"].includes(this.#audio.state);
+    if (media?.terminalAudio) this.#applyAudio(media.terminalAudio);
+    const active = (media && !media.terminalAudio) || ["loaded", "playing", "paused"].includes(this.#audio.state);
     const playID = media?.playID || this.#audio.play_id;
     const sequence = Math.max(media?.sequence ?? 0, this.#audio.sequence, this.#completedSequence, 1);
     this.#clearMedia();
@@ -861,7 +874,7 @@ export class NativeWindowsController extends EventEmitter {
         await this.#helper.shutdown().catch(() => {});
         this.#terminal = true;
         this.#available = false;
-        throw new NativeControllerError("stop_failed", "Windows audio identity was lost while stopping.");
+        throw new NativeControllerError("stop_failed", "Native audio identity was lost while stopping.");
       }
       const result = await this.#helper.request("stop", { play_id: playID, sequence });
       if (result?.observation?.event !== "stopped" || result.observation.play_id !== playID ||
@@ -873,7 +886,7 @@ export class NativeWindowsController extends EventEmitter {
       await this.#helper.shutdown();
       this.#audio = { ...emptyAudio(), state: "error", volume: this.#settings.volume };
     }
-    if (this.#helper.running) {
+    if (this.#platform === "win32" && this.#helper.running) {
       await this.#helper.request("smtc", {
         enabled: false, state: "stopped", position_ms: 0, duration_ms: 0,
         title: "", artist: "", album: "", seekable: false,
@@ -903,12 +916,12 @@ export class NativeWindowsController extends EventEmitter {
       return true;
     }
     if (status === 401 || status === 403) {
-      void this.#loseRegistration("authentication_required", "Sign in again to use Windows playback.", true, expected);
+      void this.#loseRegistration("authentication_required", "Sign in again to use local playback.", true, expected);
       return true;
     }
     if (status === 404) {
       // The Server no longer knows this output, e.g. after a Server restart; the sign-in is still valid.
-      void this.#loseRegistration("registration_lost", "The Windows playback connection ended because the Server restarted or released it. Select This device again.", true, expected);
+      void this.#loseRegistration("registration_lost", "The local playback connection ended because the Server restarted or released it. Select This device again.", true, expected);
       return true;
     }
     return false;

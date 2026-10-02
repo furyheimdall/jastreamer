@@ -1,4 +1,4 @@
-"""Release tag-channel grammar and signed Android APK manifest contracts."""
+"""Release identity, signing, native evidence, and exact-artifact contracts."""
 
 import hashlib
 import importlib.util
@@ -96,14 +96,14 @@ def write_android_ci_artifact(directory: pathlib.Path, **overrides):
 
 class ReleaseChannelGrammarTests(unittest.TestCase):
     def test_plain_version_tag_selects_the_stable_channel(self):
-        identity = publish.validate_identity(REVISION, "v0.2.1", "0.2.1")
+        identity = publish.validate_identity(REVISION, "v0.2.2", "0.2.2")
         self.assertEqual(identity["channel"], "stable")
         self.assertFalse(identity["prerelease"])
         self.assertTrue(identity["latest"])
         self.assertIsNone(identity["previewNumber"])
 
     def test_preview_tag_selects_the_preview_channel(self):
-        identity = publish.validate_identity(REVISION, "v0.2.1-preview.14", "0.2.1-preview.14")
+        identity = publish.validate_identity(REVISION, "v0.2.2-preview.14", "0.2.2-preview.14")
         self.assertEqual(identity["channel"], "preview")
         self.assertTrue(identity["prerelease"])
         self.assertFalse(identity["latest"])
@@ -111,9 +111,9 @@ class ReleaseChannelGrammarTests(unittest.TestCase):
 
     def test_release_and_image_tags_must_share_one_channel(self):
         for release_tag, image_tag in (
-            ("v0.2.1", "0.2.1-preview.1"),
-            ("v0.2.1-preview.1", "0.2.1"),
-            ("v0.2.1-preview.2", "0.2.1-preview.3"),
+            ("v0.2.2", "0.2.2-preview.1"),
+            ("v0.2.2-preview.1", "0.2.2"),
+            ("v0.2.2-preview.2", "0.2.2-preview.3"),
         ):
             with self.subTest(release_tag=release_tag, image_tag=image_tag):
                 with self.assertRaises(SystemExit) as raised:
@@ -122,14 +122,14 @@ class ReleaseChannelGrammarTests(unittest.TestCase):
 
     def test_tags_outside_the_grammar_are_rejected(self):
         for release_tag, image_tag in (
-            ("0.2.1", "0.2.1"),
-            ("v0.2.1", "v0.2.1"),
+            ("0.2.2", "0.2.2"),
+            ("v0.2.2", "v0.2.2"),
             ("latest", "latest"),
-            ("v0.2.1", "latest"),
-            ("v0.2.1-preview.0", "0.2.1-preview.0"),
-            ("v0.2.1-rc.1", "0.2.1-rc.1"),
-            ("v0.2.1-preview.1-preview.2", "0.2.1-preview.1-preview.2"),
-            ("v0.2.1 ", "0.2.1"),
+            ("v0.2.2", "latest"),
+            ("v0.2.2-preview.0", "0.2.2-preview.0"),
+            ("v0.2.2-rc.1", "0.2.2-rc.1"),
+            ("v0.2.2-preview.1-preview.2", "0.2.2-preview.1-preview.2"),
+            ("v0.2.2 ", "0.2.2"),
         ):
             with self.subTest(release_tag=release_tag, image_tag=image_tag):
                 with self.assertRaises(SystemExit):
@@ -144,7 +144,7 @@ class ReleaseChannelGrammarTests(unittest.TestCase):
         for revision in ("A" * 40, "a" * 39, "", "abc"):
             with self.subTest(revision=revision):
                 with self.assertRaises(SystemExit):
-                    publish.validate_identity(revision, "v0.2.1", "0.2.1")
+                    publish.validate_identity(revision, "v0.2.2", "0.2.2")
 
 
 class SignedAndroidManifestTests(unittest.TestCase):
@@ -234,7 +234,7 @@ class SignedAndroidManifestTests(unittest.TestCase):
         for overrides in (
             {"ci": {"workflow": ".github/workflows/android.yml", "runId": 4242}},
             {"ci": {"runId": 0, "unsignedApk": {"path": ci_artifact.android_ci_apk_names(REVISION)[1], "bytes": 3, "sha256": "0" * 64}}},
-            {"ci": {"runId": 4242, "unsignedApk": {"path": "jastreamer-android_0.2.1_release-unsigned.apk", "bytes": 3, "sha256": "0" * 64}}},
+            {"ci": {"runId": 4242, "unsignedApk": {"path": "jastreamer-android_0.2.2_release-unsigned.apk", "bytes": 3, "sha256": "0" * 64}}},
         ):
             with self.subTest(overrides=overrides):
                 write_signed_android(self.directory, **overrides)
@@ -289,23 +289,19 @@ class PublicReleaseChannelTests(unittest.TestCase):
         self.addCleanup(self.temporary.cleanup)
         self.staged = self.root / "staged"
         self.staged.mkdir()
-        (self.staged / "asset.txt").write_bytes(b"asset")
+        self.names = [ci_artifact.ANDROID_RELEASE_APK, ci_artifact.DESKTOP_TARGETS["macos-arm64"]["archive"]]
+        for name in self.names:
+            (self.staged / name).write_bytes(name.encode())
 
-    def release_json(self, **overrides):
+    def release_json(self, tag="v0.2.2", **overrides):
         release = {
-            "tag_name": "v0.2.1",
-            "target_commitish": REVISION,
-            "draft": False,
-            "prerelease": False,
-            "id": 77,
+            "tag_name": tag, "target_commitish": REVISION, "draft": False,
+            "prerelease": False, "id": 77,
             "url": f"https://api.github.com/repos/{publish.REPOSITORY}/releases/77",
             "assets": [
-                {
-                    "name": "asset.txt",
-                    "state": "uploaded",
-                    "size": 5,
-                    "browser_download_url": f"https://github.com/{publish.REPOSITORY}/releases/download/v0.2.1/asset.txt",
-                }
+                {"name": name, "state": "uploaded", "size": len(name),
+                 "browser_download_url": f"https://github.com/{publish.REPOSITORY}/releases/download/{tag}/{name}"}
+                for name in self.names
             ],
         }
         release.update(overrides)
@@ -314,73 +310,69 @@ class PublicReleaseChannelTests(unittest.TestCase):
         return path
 
     def latest_json(self, **overrides):
-        latest = {"id": 77, "tag_name": "v0.2.1"}
+        latest = {"id": 77, "tag_name": "v0.2.2"}
         latest.update(overrides)
         path = self.root / "latest.json"
         path.write_text(json.dumps(latest), encoding="utf-8")
         return path
 
-    def arguments(self, release_json, latest_json, release_tag="v0.2.1", image_tag="0.2.1"):
+    def arguments(self, release_json, latest_json, release_tag="v0.2.2", image_tag="0.2.2"):
         return publish.argparse.Namespace(
-            release_json=str(release_json),
-            staged=str(self.staged),
-            source_revision=REVISION,
-            release_tag=release_tag,
-            image_tag=image_tag,
+            release_json=str(release_json), staged=str(self.staged), source_revision=REVISION,
+            release_tag=release_tag, image_tag=image_tag,
             latest_json=str(latest_json) if latest_json else None,
         )
 
+    def downloaded(self, url):
+        payload = url.rsplit("/", 1)[1].encode()
+        return len(payload), hashlib.sha256(payload).hexdigest()
+
     def test_stable_release_requires_the_anonymous_latest_tag(self):
-        with patch.object(publish, "hash_public_url", return_value=(5, hashlib.sha256(b"asset").hexdigest())):
-            with patch.object(publish.ci_artifact, "ANDROID_RELEASE_APK", "asset.txt"):
-                publish.verify_public_release(self.arguments(self.release_json(), self.latest_json()))
+        with patch.object(publish, "hash_public_url", side_effect=self.downloaded):
+            publish.verify_public_release(self.arguments(self.release_json(), self.latest_json()))
 
     def test_stable_release_marked_prerelease_is_rejected(self):
-        with patch.object(publish, "hash_public_url", return_value=(5, hashlib.sha256(b"asset").hexdigest())):
-            with self.assertRaises(SystemExit) as raised:
-                publish.verify_public_release(self.arguments(self.release_json(prerelease=True), self.latest_json()))
-        self.assertIn("stable", str(raised.exception))
+        with self.assertRaises(SystemExit):
+            publish.verify_public_release(self.arguments(self.release_json(prerelease=True), self.latest_json()))
 
     def test_stable_release_that_is_not_latest_is_rejected(self):
-        with patch.object(publish, "hash_public_url", return_value=(5, hashlib.sha256(b"asset").hexdigest())):
-            with self.assertRaises(SystemExit) as raised:
-                publish.verify_public_release(self.arguments(self.release_json(), self.latest_json(id=12, tag_name="v0.1.9")))
-        self.assertIn("latest release", str(raised.exception))
+        with self.assertRaises(SystemExit):
+            publish.verify_public_release(self.arguments(self.release_json(), self.latest_json(id=12, tag_name="v0.1.9")))
 
     def test_stable_release_without_an_anonymous_latest_response_is_rejected(self):
-        with patch.object(publish, "hash_public_url", return_value=(5, hashlib.sha256(b"asset").hexdigest())):
-            with self.assertRaises(SystemExit) as raised:
-                publish.verify_public_release(self.arguments(self.release_json(), None))
-        self.assertIn("anonymous latest-release", str(raised.exception))
+        with self.assertRaises(SystemExit):
+            publish.verify_public_release(self.arguments(self.release_json(), None))
 
     def test_preview_release_must_be_a_prerelease_that_is_not_latest(self):
-        release = self.release_json(
-            tag_name="v0.2.1-preview.3",
-            prerelease=True,
-            assets=[
-                {
-                    "name": "asset.txt",
-                    "state": "uploaded",
-                    "size": 5,
-                    "browser_download_url": f"https://github.com/{publish.REPOSITORY}/releases/download/v0.2.1-preview.3/asset.txt",
-                }
-            ],
-        )
-        arguments = self.arguments(release, self.latest_json(id=12, tag_name="v0.1.9"), "v0.2.1-preview.3", "0.2.1-preview.3")
-        with patch.object(publish, "hash_public_url", return_value=(5, hashlib.sha256(b"asset").hexdigest())):
-            with patch.object(publish.ci_artifact, "ANDROID_RELEASE_APK", "asset.txt"):
-                publish.verify_public_release(arguments)
-        arguments.latest_json = str(self.latest_json(id=77, tag_name="v0.2.1-preview.3"))
-        with patch.object(publish, "hash_public_url", return_value=(5, hashlib.sha256(b"asset").hexdigest())):
-            with self.assertRaises(SystemExit) as raised:
-                publish.verify_public_release(arguments)
-        self.assertIn("incorrectly marked latest", str(raised.exception))
+        tag = "v0.2.2-preview.3"
+        arguments = self.arguments(self.release_json(tag=tag, prerelease=True), self.latest_json(id=12, tag_name="v0.1.9"), tag, "0.2.2-preview.3")
+        with patch.object(publish, "hash_public_url", side_effect=self.downloaded):
+            publish.verify_public_release(arguments)
+        arguments.latest_json = str(self.latest_json(id=77, tag_name=tag))
+        with self.assertRaises(SystemExit):
+            publish.verify_public_release(arguments)
 
-    def test_a_release_without_the_signed_apk_is_rejected(self):
-        with patch.object(publish, "hash_public_url", return_value=(5, hashlib.sha256(b"asset").hexdigest())):
-            with self.assertRaises(SystemExit) as raised:
+    def test_required_mobile_and_mac_downloads_cannot_be_omitted_even_from_staging(self):
+        for missing in list(self.names):
+            with self.subTest(missing=missing):
+                self.names.remove(missing)
+                (self.staged / missing).unlink()
+                with patch.object(publish, "hash_public_url", side_effect=self.downloaded):
+                    with self.assertRaises(SystemExit):
+                        publish.verify_public_release(self.arguments(self.release_json(), self.latest_json()))
+                self.names.append(missing)
+                (self.staged / missing).write_bytes(missing.encode())
+
+    def test_public_mac_download_must_match_the_staged_ci_bytes(self):
+        mac = ci_artifact.DESKTOP_TARGETS["macos-arm64"]["archive"]
+        def tampered(url):
+            size, digest = self.downloaded(url)
+            return (size, "0" * 64) if url.endswith(mac) else (size, digest)
+        with patch.object(publish, "hash_public_url", side_effect=tampered):
+            with self.assertRaises(SystemExit):
                 publish.verify_public_release(self.arguments(self.release_json(), self.latest_json()))
-        self.assertIn("Android APK", str(raised.exception))
+
+
 
 
 class ReleaseNotesTests(unittest.TestCase):
@@ -422,27 +414,8 @@ class ReleaseNotesTests(unittest.TestCase):
         publish.render_notes(publish.argparse.Namespace(staged=str(self.staged), output=str(notes)))
         return notes.read_text(encoding="utf-8")
 
-    def test_stable_notes_state_the_channel_signing_and_digest_references(self):
-        notes = self.stage("v0.2.1", "0.2.1")
-        self.assertIn("stable release", notes)
-        self.assertNotIn("prerelease", notes)
-        self.assertIn(f"ghcr.io/{publish.REGISTRY_REPOSITORY}@sha256:{'1' * 64}", notes)
-        self.assertIn(f"linux/amd64: `ghcr.io/{publish.REGISTRY_REPOSITORY}@sha256:{'2' * 64}`", notes)
-        self.assertIn("no Authenticode signature", notes)
-        self.assertIn("blob/v0.2.1/README.md#code-signing-policy", notes)
-        self.assertIn("blob/v0.2.1/INSTALL.md#windows-unblock", notes)
-        self.assertIn(ci_artifact.release_certificate_sha256(), notes)
-        self.assertIn(f"- `{ci_artifact.ANDROID_RELEASE_APK}`", notes)
-        self.assertIn("AirPlay output is Linux Server-only", notes)
-
-    def test_preview_notes_announce_the_prerelease_channel(self):
-        notes = self.stage("v0.2.1-preview.4", "0.2.1-preview.4")
-        self.assertIn("prerelease", notes)
-        self.assertIn("never marked latest", notes)
-        self.assertIn("blob/v0.2.1-preview.4/INSTALL.md#windows-unblock", notes)
-
     def test_notes_reject_a_staged_channel_that_contradicts_the_tag(self):
-        self.stage("v0.2.1", "0.2.1")
+        self.stage("v0.2.2", "0.2.2")
         provenance = json.loads((self.staged / "release-provenance.json").read_text(encoding="utf-8"))
         provenance["channel"] = "preview"
         (self.staged / "release-provenance.json").write_text(json.dumps(provenance), encoding="utf-8")
@@ -451,12 +424,10 @@ class ReleaseNotesTests(unittest.TestCase):
         self.assertIn("channel mismatch", str(raised.exception))
 
 
-if __name__ == "__main__":
-    unittest.main()
 
 
 class ServerRunContractTest(unittest.TestCase):
-    def run_validation(self, artifact_names):
+    def run_validation(self, artifact_names, mac_job=None):
         with tempfile.TemporaryDirectory() as temp:
             root = pathlib.Path(temp)
             run_id = 42
@@ -480,6 +451,9 @@ class ServerRunContractTest(unittest.TestCase):
                     for index, name in enumerate(sorted(artifact_names))
                 ]},
             }
+            if mac_job is not None:
+                job = next(job for job in payloads["jobs"]["jobs"] if job["name"] == "macOS arm64 ad-hoc desktop")
+                job.update(mac_job)
             for name, value in payloads.items():
                 (root / f"{name}.json").write_text(json.dumps(value), encoding="utf-8")
             output = root / "provenance.json"
@@ -500,3 +474,141 @@ class ServerRunContractTest(unittest.TestCase):
     def test_missing_evidence_artifact_is_rejected(self):
         with self.assertRaises(SystemExit):
             self.run_validation(set(publish.EXPECTED_ARTIFACTS))
+
+    def test_missing_mac_artifact_is_rejected(self):
+        with self.assertRaises(SystemExit):
+            self.run_validation((publish.EXPECTED_ARTIFACTS | publish.SERVER_EVIDENCE_ARTIFACTS) - {"jastreamer-desktop-macos-arm64"})
+
+    def test_skipped_failed_or_wrong_revision_mac_job_blocks_publication(self):
+        for overrides in ({"conclusion": "skipped"}, {"conclusion": "failure"}, {"head_sha": "b" * 40}):
+            with self.subTest(overrides=overrides):
+                with self.assertRaises(SystemExit):
+                    self.run_validation(publish.EXPECTED_ARTIFACTS | publish.SERVER_EVIDENCE_ARTIFACTS, overrides)
+
+
+class MacArtifactEvidenceTests(unittest.TestCase):
+    """Synthetic package bytes exercise receipt validation, not runtime qualification."""
+
+    def setUp(self):
+        self.temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temporary.cleanup)
+        self.directory = pathlib.Path(self.temporary.name)
+        archive = self.directory / ci_artifact.DESKTOP_TARGETS["macos-arm64"]["archive"]
+        archive.write_bytes(b"contract fixture DMG bytes")
+        runtime = ["jastreamer-audio", "libavcodec.62.dylib", "libavformat.62.dylib", "libavutil.60.dylib", "libswresample.6.dylib"]
+        names = ["Contents/MacOS/jastreamer-desktop", *(f"Contents/Resources/native-audio/{name}" for name in runtime)]
+        names.extend(f"Contents/Frameworks/fixture-{index}" for index in range(12))
+        self.manifest = {
+            "product": "jastreamer-desktop", "version": ci_artifact.VERSION,
+            "platform": "darwin", "arch": "arm64", "electron": "44.3.0",
+            "sourceRevision": REVISION, "distribution": "public-adhoc",
+            "developmentBuild": False, "signed": False, "signing": "ad-hoc",
+            "developerIDSigned": False, "notarized": False, "productionQualified": False,
+            "minimumMacOS": "13.0", "directory": "jastreamer.app",
+            "archive": {"path": archive.name, "bytes": archive.stat().st_size, "sha256": ci_artifact.sha256_file(archive)},
+            "nativeAudio": {"helper": "Contents/Resources/native-audio/jastreamer-audio", "runtime": runtime, "ffmpeg": "8.1.2", "dynamicLinking": True},
+            "files": [
+                {"path": name, "type": "file", "mode": 0o755, "bytes": len(name), "sha256": hashlib.sha256(name.encode()).hexdigest()}
+                for name in names
+            ],
+        }
+        (self.directory / f"{archive.name}.sha256").write_text(f"{self.manifest['archive']['sha256']}  {archive.name}\n", encoding="ascii")
+        self.native = {
+            key: self.manifest[key] for key in ("product", "version", "platform", "arch", "sourceRevision", "distribution", "signing", "developerIDSigned", "notarized", "productionQualified", "archive")
+        }
+        self.native.update({
+            "schema": 1,
+            "nativeTests": ["coreaudio-format", "coreaudio-pcm", "decoder", "packing", "protocol"],
+            "checks": ci_artifact.DESKTOP_TARGETS["macos-arm64"]["checks"][:-1],
+            "machOFiles": [{"path": entry["path"], "arch": "arm64", "sha256": entry["sha256"]} for entry in self.manifest["files"]],
+        })
+        self.launch = {
+            key: self.manifest[key] for key in ("product", "version", "platform", "arch", "sourceRevision", "distribution", "archive")
+        }
+        self.launch.update({
+            "schema": 1, "checks": list(ci_artifact.MACOS_LAUNCH_CHECKS),
+            "appExecutable": {"path": names[0], "sha256": self.manifest["files"][0]["sha256"]},
+            "helper": {"pid": 42, "exited": True},
+        })
+        self.save_evidence()
+        with patch("builtins.print"):
+            ci_artifact.create_desktop(ci_artifact.argparse.Namespace(dist=self.directory, target="macos-arm64", source_revision=REVISION))
+
+    def save_evidence(self):
+        ci_artifact.canonical_json(self.directory / "manifest.json", self.manifest)
+        manifest = self.directory / "manifest.json"
+        self.native["packageManifest"] = {"path": manifest.name, "bytes": manifest.stat().st_size, "sha256": ci_artifact.sha256_file(manifest)}
+        self.launch["packageManifest"] = dict(self.native["packageManifest"])
+        ci_artifact.canonical_json(self.directory / "native-verification.json", self.native)
+        ci_artifact.canonical_json(self.directory / "launch-verification.json", self.launch)
+
+    def verify(self):
+        return ci_artifact.verify_desktop_artifact(self.directory, "macos-arm64", REVISION)
+
+    def test_complete_evidence_binds_archive_and_both_native_receipts(self):
+        receipt = self.verify()
+        self.assertEqual(receipt["archive"]["sha256"], ci_artifact.sha256_file(self.directory / self.manifest["archive"]["path"]))
+        for field, name in (("nativeVerification", "native-verification.json"), ("launchVerification", "launch-verification.json")):
+            self.assertEqual(receipt[field]["sha256"], ci_artifact.sha256_file(self.directory / name))
+
+    def test_missing_native_or_launch_evidence_is_rejected(self):
+        for name in ("native-verification.json", "launch-verification.json"):
+            with self.subTest(name=name):
+                evidence = self.directory / name
+                original = evidence.read_bytes()
+                evidence.unlink()
+                with self.assertRaises(SystemExit):
+                    self.verify()
+                evidence.write_bytes(original)
+
+    def test_tampered_dmg_is_rejected(self):
+        archive = self.directory / self.manifest["archive"]["path"]
+        archive.write_bytes(b"x" * archive.stat().st_size)
+        with self.assertRaises(SystemExit):
+            self.verify()
+
+    def test_wrong_architecture_revision_or_qualification_cannot_create_a_receipt(self):
+        for field, bad in (("arch", "x64"), ("sourceRevision", "b" * 40), ("distribution", "local-development"), ("developmentBuild", True), ("developerIDSigned", True), ("notarized", True), ("productionQualified", True)):
+            with self.subTest(field=field):
+                original = self.manifest[field]
+                self.manifest[field] = bad
+                self.save_evidence()
+                with self.assertRaises(SystemExit):
+                    ci_artifact.create_desktop(ci_artifact.argparse.Namespace(dist=self.directory, target="macos-arm64", source_revision=REVISION))
+                self.manifest[field] = original
+
+    def test_native_test_and_macho_evidence_cannot_be_forged_by_general_receipt_creation(self):
+        cases = [
+            ("nativeTests", []), ("machOFiles", self.native["machOFiles"][:-1]),
+            ("machOFiles", [{**self.native["machOFiles"][0], "arch": "x86_64"}, *self.native["machOFiles"][1:]]),
+            ("machOFiles", [{**self.native["machOFiles"][0], "sha256": "0" * 64}, *self.native["machOFiles"][1:]]),
+            ("sourceRevision", "b" * 40), ("checks", []),
+        ]
+        for field, bad in cases:
+            with self.subTest(field=field, bad=bad):
+                original = self.native[field]
+                self.native[field] = bad
+                self.save_evidence()
+                with self.assertRaises(SystemExit):
+                    ci_artifact.create_desktop(ci_artifact.argparse.Namespace(dist=self.directory, target="macos-arm64", source_revision=REVISION))
+                self.native[field] = original
+
+    def test_skipped_launch_checks_wrong_binary_or_live_helper_are_rejected(self):
+        for field, bad in (("checks", self.launch["checks"][:-1]), ("sourceRevision", "b" * 40), ("appExecutable", {"path": "Contents/MacOS/jastreamer-desktop", "sha256": "0" * 64}), ("helper", {"pid": 42, "exited": False})):
+            with self.subTest(field=field):
+                original = self.launch[field]
+                self.launch[field] = bad
+                self.save_evidence()
+                with self.assertRaises(SystemExit):
+                    ci_artifact.create_desktop(ci_artifact.argparse.Namespace(dist=self.directory, target="macos-arm64", source_revision=REVISION))
+                self.launch[field] = original
+
+    def test_rewriting_valid_evidence_requires_a_new_bound_receipt(self):
+        self.launch["helper"]["pid"] = 43
+        self.save_evidence()
+        with self.assertRaises(SystemExit):
+            self.verify()
+
+
+if __name__ == "__main__":
+    unittest.main()

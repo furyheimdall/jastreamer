@@ -3,13 +3,13 @@ import type { Device } from "./types";
 
 const textEncoder = new TextEncoder();
 
-export type NativeWindowsDevice = {
+export type NativeDesktopDevice = {
   id: string;
   name: string;
   is_default: boolean;
 };
 
-export type NativeWindowsActual = {
+export type NativeDesktopActual = {
   device_id: string;
   name: string;
   mode: "shared" | "exclusive";
@@ -21,40 +21,41 @@ export type NativeWindowsActual = {
   reason: string;
 };
 
-export type NativeWindowsState = {
+export type NativeDesktopState = {
   device: Device | null;
   recovering: false;
   volume: number | null;
   error?: { code: string; message: string };
   audio: {
+    platform: "windows" | "macos";
     available: boolean;
     enabled: boolean;
-    devices: NativeWindowsDevice[];
+    devices: NativeDesktopDevice[];
     requested: { device_id: string; exclusive: boolean };
     state: "stopped" | "loaded" | "playing" | "paused" | "error";
-    actual: NativeWindowsActual | null;
+    actual: NativeDesktopActual | null;
     can_configure: boolean;
   };
 };
 
-export interface JastreamerWindowsAudioBridge {
-  request(action: string, args?: Record<string, unknown>): Promise<NativeWindowsState>;
-  subscribe(listener: (state: NativeWindowsState) => void): () => void;
+export interface JastreamerDesktopAudioBridge {
+  request(action: string, args?: Record<string, unknown>): Promise<NativeDesktopState>;
+  subscribe(listener: (state: NativeDesktopState) => void): () => void;
 }
 
 declare global {
   interface Window {
-    JastreamerWindowsAudio?: JastreamerWindowsAudioBridge;
+    JastreamerDesktopAudio?: JastreamerDesktopAudioBridge;
   }
 }
 
-export type NativeWindowsConfiguration = {
+export type NativeDesktopConfiguration = {
   enabled: boolean;
   device_id: string;
   exclusive: boolean;
 };
 
-export interface NativeWindowsOutputHandle {
+export interface NativeDesktopOutputHandle {
   connect: () => Promise<Device>;
   connectAutomatically: () => Promise<Device | null>;
   disconnect: () => Promise<void>;
@@ -62,13 +63,13 @@ export interface NativeWindowsOutputHandle {
   setVolume: (volume: number) => Promise<void>;
 }
 
-interface NativeWindowsOutputProps {
-  bridge: JastreamerWindowsAudioBridge;
-  state: NativeWindowsState;
+interface NativeDesktopOutputProps {
+  bridge: JastreamerDesktopAudioBridge;
+  state: NativeDesktopState;
   name: string;
   registrationError: string;
   bridgeError: string;
-  onStateChange: (state: NativeWindowsState) => void;
+  onStateChange: (state: NativeDesktopState) => void;
   onDeviceChange: (device: Device | null) => void;
   onVolumeChange: (volume: number | null) => void;
   onRecoveryChange: (recovering: boolean, message: string) => void;
@@ -131,7 +132,7 @@ function positiveInteger(value: unknown): value is number {
   return typeof value === "number" && Number.isSafeInteger(value) && value > 0;
 }
 
-function parseActual(value: unknown): NativeWindowsActual | null | undefined {
+function parseActual(value: unknown): NativeDesktopActual | null | undefined {
   if (value === null) return null;
   const candidate = record(value);
   if (!candidate
@@ -158,7 +159,7 @@ function parseActual(value: unknown): NativeWindowsActual | null | undefined {
   };
 }
 
-export function parseNativeWindowsState(value: unknown): NativeWindowsState | null {
+export function parseNativeDesktopState(value: unknown): NativeDesktopState | null {
   const candidate = record(value);
   const audio = record(candidate?.audio);
   const requested = record(audio?.requested);
@@ -166,6 +167,7 @@ export function parseNativeWindowsState(value: unknown): NativeWindowsState | nu
   const device = parseDevice(candidate.device);
   const actual = parseActual(audio.actual);
   if (device === undefined || actual === undefined
+    || (audio.platform !== "windows" && audio.platform !== "macos")
     || typeof audio.available !== "boolean"
     || typeof audio.enabled !== "boolean"
     || !Array.isArray(audio.devices)
@@ -174,7 +176,7 @@ export function parseNativeWindowsState(value: unknown): NativeWindowsState | nu
     || !["stopped", "loaded", "playing", "paused", "error"].includes(String(audio.state))
     || typeof audio.can_configure !== "boolean") return null;
 
-  const devices: NativeWindowsDevice[] = [];
+  const devices: NativeDesktopDevice[] = [];
   const deviceIDs = new Set<string>();
   for (const value of audio.devices) {
     const item = record(value);
@@ -192,7 +194,7 @@ export function parseNativeWindowsState(value: unknown): NativeWindowsState | nu
     volume = candidate.volume;
   }
 
-  let error: NativeWindowsState["error"];
+  let error: NativeDesktopState["error"];
   if (candidate.error !== undefined) {
     const parsedError = record(candidate.error);
     if (!parsedError || typeof parsedError.code !== "string" || typeof parsedError.message !== "string") return null;
@@ -205,29 +207,30 @@ export function parseNativeWindowsState(value: unknown): NativeWindowsState | nu
     volume,
     ...(error ? { error } : {}),
     audio: {
+      platform: audio.platform,
       available: audio.available,
       enabled: audio.enabled,
       devices,
       requested: { device_id: requested.device_id, exclusive: requested.exclusive },
-      state: audio.state as NativeWindowsState["audio"]["state"],
+      state: audio.state as NativeDesktopState["audio"]["state"],
       actual,
       can_configure: audio.can_configure,
     },
   };
 }
 
-export function nativeWindowsAudioBridge(): JastreamerWindowsAudioBridge | null {
+export function nativeDesktopAudioBridge(): JastreamerDesktopAudioBridge | null {
   if (typeof window === "undefined" || window.top !== window) return null;
-  const bridge = window.JastreamerWindowsAudio;
+  const bridge = window.JastreamerDesktopAudio;
   return bridge && typeof bridge.request === "function" && typeof bridge.subscribe === "function" ? bridge : null;
 }
 
-export async function requestNativeWindowsAudio(
-  bridge: JastreamerWindowsAudioBridge,
+export async function requestNativeDesktopAudio(
+  bridge: JastreamerDesktopAudioBridge,
   action: string,
   args?: Record<string, unknown>,
-): Promise<NativeWindowsState> {
-  const state = parseNativeWindowsState(await bridge.request(action, args));
+): Promise<NativeDesktopState> {
+  const state = parseNativeDesktopState(await bridge.request(action, args));
   if (!state) throw new Error();
   return state;
 }
@@ -236,7 +239,7 @@ function validOutputName(name: string): boolean {
   return name.length > 0 && name === name.trim() && textEncoder.encode(name).length <= 80;
 }
 
-const NativeWindowsOutput = forwardRef<NativeWindowsOutputHandle, NativeWindowsOutputProps>(function NativeWindowsOutput(
+const NativeDesktopOutput = forwardRef<NativeDesktopOutputHandle, NativeDesktopOutputProps>(function NativeDesktopOutput(
   { bridge, state, name, registrationError, bridgeError, onStateChange, onDeviceChange, onVolumeChange, onRecoveryChange, onError },
   ref,
 ) {
@@ -244,9 +247,9 @@ const NativeWindowsOutput = forwardRef<NativeWindowsOutputHandle, NativeWindowsO
   propsRef.current = { name, registrationError, bridgeError, onStateChange };
   const reportedErrorRef = useRef("");
 
-  const request = useCallback(async (action: string, args?: Record<string, unknown>): Promise<NativeWindowsState> => {
+  const request = useCallback(async (action: string, args?: Record<string, unknown>): Promise<NativeDesktopState> => {
     try {
-      const next = await requestNativeWindowsAudio(bridge, action, args);
+      const next = await requestNativeDesktopAudio(bridge, action, args);
       propsRef.current.onStateChange(next);
       return next;
     } catch (caught) {
@@ -298,4 +301,4 @@ const NativeWindowsOutput = forwardRef<NativeWindowsOutputHandle, NativeWindowsO
   return null;
 });
 
-export default NativeWindowsOutput;
+export default NativeDesktopOutput;

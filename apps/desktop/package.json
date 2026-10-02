@@ -1,8 +1,8 @@
 {
   "name": "@jastreamer/desktop",
   "productName": "jastreamer",
-  "version": "0.2.1",
-  "description": "Windows and Linux desktop connection shell for jastreamer servers",
+  "version": "0.2.2",
+  "description": "Windows, Linux and Apple Silicon macOS desktop connection shell for jastreamer servers",
   "author": "jastreamer contributors",
   "license": "Apache-2.0",
   "private": true,
@@ -12,6 +12,9 @@
     "start": "electron .",
     "test": "node --test",
     "build:native:win": "powershell -NoProfile -ExecutionPolicy Bypass -File native/audio/scripts/build-native.ps1",
+    "build:native:mac": "node native/audio/scripts/build-native-macos.mjs",
+    "package:mac": "npm run build:native:mac && node scripts/package-macos.mjs && npm run verify:package:mac",
+    "verify:package:mac": "node scripts/verify-package-macos.mjs",
     "package:win": "npm run build:native:win && node scripts/package.mjs",
     "package:linux": "node scripts/package-linux.mjs",
     "verify:package": "node scripts/verify-package.mjs"
@@ -21,6 +24,7 @@
     "multicast-dns": "7.2.5"
   },
   "devDependencies": {
+    "@electron/asar": "4.3.0",
     "@electron/packager": "20.3.0",
     "electron": "44.3.0",
     "playwright-core": "1.63.0",

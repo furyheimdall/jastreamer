@@ -17,8 +17,8 @@ android {
         applicationId = "io.jastreamer.android"
         minSdk = 29
         targetSdk = 36
-        versionCode = 20_100
-        versionName = "0.2.1"
+        versionCode = 20_200
+        versionName = "0.2.2"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
         externalNativeBuild {

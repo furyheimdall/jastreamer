@@ -86,12 +86,15 @@ test("shell IPC accepts equivalent file URL encoding without trusting other docu
 
 test("remote native IPC is bound to the selected origin, WebContents and current main frame", () => {
   const origin = "https://media-box.local:8443";
-  const mainFrame = { url: `${origin}/settings?tab=output` };
+  const mainFrame = { url: `${origin}/settings?tab=output`, origin };
   const contents = { mainFrame };
   const event = { sender: contents, senderFrame: mainFrame };
   assert.equal(isTrustedRemoteSender(event, contents, origin), true);
   assert.equal(isTrustedRemoteSender({ ...event, sender: {} }, contents, origin), false);
   assert.equal(isTrustedRemoteSender({ ...event, senderFrame: { ...mainFrame } }, contents, origin), false);
+  mainFrame.origin = "null";
+  assert.equal(isTrustedRemoteSender(event, contents, origin), false, "An opaque sandboxed document is not the verified Server");
+  mainFrame.origin = origin;
   mainFrame.url = "https://other.local/";
   assert.equal(isTrustedRemoteSender(event, contents, origin), false);
   mainFrame.url = "file:///C:/secret.txt";

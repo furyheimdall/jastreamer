@@ -14,9 +14,9 @@ export const embeddedClient = /\bJaStreamerAndroid\//i.test(userAgent) ? "androi
 export const isAppleMobile = /\biPhone\b|\biPad\b|\biPod\b/i.test(userAgent)
   || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
 
-export function localOutputName(nativeAndroid: boolean, windowsDesktop = false): string {
+export function localOutputName(nativeAndroid: boolean, desktopPlatform?: "windows" | "macos"): string {
   if (nativeAndroid) return "Android · jastreamer";
-  return windowsDesktop ? "Windows · jastreamer" : browserOutputName();
+  return desktopPlatform ? `${desktopPlatform === "macos" ? "macOS" : "Windows"} · jastreamer` : browserOutputName();
 }
 
 // Browser-provided hints, not the operating system's private hostname.
