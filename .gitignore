@@ -30,6 +30,7 @@ __pycache__/
 /apps/desktop/.user-data/
 /apps/desktop/user-data/
 /apps/desktop/native/audio/build/
+/apps/desktop/native/audio/build-macos-arm64/
 /apps/desktop/native/audio/deps/
 /apps/desktop/native/audio/dist/
 /dist/

@@ -10,6 +10,14 @@ case "$toolchain" in
   native)
     toolchain_args="--enable-rpath"
     ;;
+  macos-arm64)
+    [ "$(uname -s)" = Darwin ] && [ "$(uname -m)" = arm64 ] || {
+      echo "macos-arm64 requires a native Apple Silicon macOS shell (not Rosetta)" >&2
+      exit 1
+    }
+    export MACOSX_DEPLOYMENT_TARGET=13.0
+    toolchain_args="--arch=arm64 --target-os=darwin --cc=clang --cxx=clang++ --install-name-dir=@rpath --disable-rpath"
+    ;;
   msvc)
     msvc_bin=$(cygpath -u "${JASTREAMER_MSVC_BIN:?run from the MSVC developer environment}")
     PATH="$msvc_bin:$PATH"

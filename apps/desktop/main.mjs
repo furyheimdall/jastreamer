@@ -38,7 +38,7 @@ import {
   RecentServerStore,
   resolveUserDataPath,
 } from "./lib/storage.mjs";
-import { NativeWindowsController } from "./lib/native-controller.mjs";
+import { NativeDesktopController } from "./lib/native-controller.mjs";
 import { NativePreferenceStore } from "./lib/native-preferences.mjs";
 import { NativeAudioProcess, nativeHelperPath } from "./lib/native-process.mjs";
 
@@ -52,6 +52,8 @@ const RECENT_PROBE_INTERVAL_MS = 60_000;
 const MAX_PARALLEL_RECENT_PROBES = 3;
 const LANGUAGE_COOKIE_LIFETIME_SECONDS = 365 * 24 * 60 * 60;
 const IS_WINDOWS = process.platform === "win32";
+const IS_MACOS = process.platform === "darwin";
+const HAS_NATIVE_AUDIO = IS_WINDOWS || (IS_MACOS && process.arch === "arm64");
 const TRAY_ICON_PATH = path.join(APP_DIRECTORY, "assets", "jastreamer.ico");
 
 const userDataPath = resolveUserDataPath({
@@ -296,6 +298,7 @@ function isTrustedRemoteDocument(view, server) {
     view &&
       !view.webContents.isDestroyed() &&
       view.webContents.mainFrame &&
+      view.webContents.mainFrame.origin === server.origin &&
       isSameCurrentRemoteURL(view.webContents.mainFrame.url, server.origin),
   );
 }
@@ -303,7 +306,7 @@ function isTrustedRemoteDocument(view, server) {
 function isSameCurrentRemoteURL(value, origin) {
   try {
     const url = new URL(value);
-    return url.origin === origin && !url.username && !url.password;
+    return ["http:", "https:"].includes(url.protocol) && url.origin === origin && !url.username && !url.password;
   } catch {
     return false;
   }
@@ -311,11 +314,11 @@ function isSameCurrentRemoteURL(value, origin) {
 
 function sendNativeState() {
   const document = remoteDocument;
-  if (!IS_WINDOWS || !nativeController || !document?.ready || remoteView !== document.view ||
+  if (!HAS_NATIVE_AUDIO || !nativeController || !document?.ready || remoteView !== document.view ||
       document.view.webContents.isDestroyed() || !isTrustedRemoteDocument(document.view, document.server)) {
     return;
   }
-  document.view.webContents.send("windows-audio:state", nativeController.state());
+  document.view.webContents.send("desktop-audio:state", nativeController.state());
 }
 
 function closeRemoteView() {
@@ -365,7 +368,10 @@ async function loadRemoteServer(server, token) {
   const view = new WebContentsView({
     webPreferences: {
       partition,
-      ...(IS_WINDOWS ? { preload: REMOTE_PRELOAD_PATH } : {}),
+      ...(HAS_NATIVE_AUDIO ? {
+        preload: REMOTE_PRELOAD_PATH,
+        additionalArguments: [`--jastreamer-server-origin=${server.origin}`],
+      } : {}),
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
@@ -373,13 +379,13 @@ async function loadRemoteServer(server, token) {
       webviewTag: false,
       devTools: false,
       spellcheck: false,
-      backgroundThrottling: !IS_WINDOWS,
+      backgroundThrottling: !HAS_NATIVE_AUDIO,
       safeDialogs: true,
     },
   });
-  if (IS_WINDOWS) beginRemoteDocument(view, server);
+  if (HAS_NATIVE_AUDIO) beginRemoteDocument(view, server);
   view.webContents.on("did-start-navigation", (_event, _url, isInPlace, isMainFrame) => {
-    if (IS_WINDOWS && isMainFrame && !isInPlace) beginRemoteDocument(view, server);
+    if (HAS_NATIVE_AUDIO && isMainFrame && !isInPlace) beginRemoteDocument(view, server);
   });
   remoteView = view;
   view.webContents.setUserAgent(`${view.webContents.getUserAgent()} JaStreamerDesktop/${app.getVersion()}`);
@@ -423,7 +429,7 @@ async function loadRemoteServer(server, token) {
       remoteAttached = true;
       layoutRemoteView();
     }
-    if (IS_WINDOWS) finishRemoteDocument(view, server);
+    if (HAS_NATIVE_AUDIO) finishRemoteDocument(view, server);
     updateState({ mode: "connected", error: null });
     clearTimeout(loadTimer);
   });
@@ -488,7 +494,7 @@ async function connectToServer(input) {
       signal: controller.signal,
     });
     if (token !== operationGeneration) return;
-    if (IS_WINDOWS) await nativeController?.prepareRemoteServer(server);
+    if (HAS_NATIVE_AUDIO) await nativeController?.prepareRemoteServer(server);
     if (token !== operationGeneration) return;
     try {
       await store.upsert(server);
@@ -587,7 +593,7 @@ async function refreshServers() {
 }
 
 async function changeServer() {
-  if (IS_WINDOWS) await nativeController?.assertCanChangeServer();
+  if (HAS_NATIVE_AUDIO) await nativeController?.assertCanChangeServer();
   cancelConnection();
   closeRemoteView();
   lastAttempt = null;
@@ -603,7 +609,7 @@ function assertTrustedSender(event) {
 function trustedRemoteDocument(event) {
   const document = remoteDocument;
   if (
-    !IS_WINDOWS ||
+    !HAS_NATIVE_AUDIO ||
     !nativeController ||
     !document?.ready ||
     remoteView !== document.view ||
@@ -655,8 +661,8 @@ function registerIpc() {
     }
     return publicState();
   });
-  if (IS_WINDOWS) {
-    ipcMain.handle("windows-audio:request", async (event, action, args) => {
+  if (HAS_NATIVE_AUDIO) {
+    ipcMain.handle("desktop-audio:request", async (event, action, args) => {
       const document = trustedRemoteDocument(event);
       const generation = document.generation;
       const result = await nativeController.request(
@@ -707,7 +713,7 @@ function createShellWindow() {
   window.webContents.on("will-attach-webview", (event) => event.preventDefault());
   window.on("resize", layoutRemoteView);
   window.on("close", (event) => {
-    if (!IS_WINDOWS || shuttingDown || !tray || tray.isDestroyed()) return;
+    if (shuttingDown || (!IS_MACOS && (!IS_WINDOWS || !tray || tray.isDestroyed()))) return;
     event.preventDefault();
     window.hide();
   });
@@ -737,14 +743,14 @@ async function startApplication() {
     appState.language = language;
     store = new RecentServerStore(userDataPath);
     await store.load();
-    if (IS_WINDOWS) {
+    if (HAS_NATIVE_AUDIO) {
       const preferences = new NativePreferenceStore(userDataPath);
       const helper = new NativeAudioProcess(nativeHelperPath({
         isPackaged: app.isPackaged,
         resourcesPath: process.resourcesPath,
         appDirectory: APP_DIRECTORY,
       }));
-      nativeController = new NativeWindowsController({
+      nativeController = new NativeDesktopController({
         preferences,
         helper,
         probe: probeServer,
@@ -761,7 +767,12 @@ async function startApplication() {
     return;
   }
 
-  Menu.setApplicationMenu(null);
+  Menu.setApplicationMenu(IS_MACOS ? Menu.buildFromTemplate([
+    { role: "appMenu" },
+    { role: "fileMenu" },
+    { role: "editMenu" },
+    { role: "windowMenu" },
+  ]) : null);
   configureSession(session.defaultSession);
   registerIpc();
   createShellWindow();
@@ -774,8 +785,15 @@ async function startApplication() {
 }
 
 app.on("second-instance", showShellWindow);
+app.on("activate", () => {
+  if (!IS_MACOS || shuttingDown || !store) return;
+  if (!shellWindow || shellWindow.isDestroyed()) createShellWindow();
+  else showShellWindow();
+});
 
-app.on("window-all-closed", () => app.quit());
+app.on("window-all-closed", () => {
+  if (!IS_MACOS) app.quit();
+});
 app.on("before-quit", (event) => {
   if (quitCleanupStarted) return;
   event.preventDefault();

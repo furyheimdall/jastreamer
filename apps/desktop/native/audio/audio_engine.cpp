@@ -1524,7 +1524,7 @@ nlohmann::json AudioEngine::status() const {
 
 void AudioEngine::shutdown() { impl_->shutdown(); }
 
-#else
+#elif !defined(__APPLE__)
 
 class AudioEngine::Impl {};
 

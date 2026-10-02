@@ -146,6 +146,7 @@ export function isTrustedRemoteSender(event, remoteContents, endpoint) {
       remoteContents &&
       event.sender === remoteContents &&
       event.senderFrame === remoteContents.mainFrame &&
+      event.senderFrame?.origin === endpoint &&
       isSameServerNavigation(event.senderFrame?.url, endpoint),
   );
 }

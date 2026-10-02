@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
 import test from "node:test";
-import { NativeControllerError, NativeWindowsController } from "../lib/native-controller.mjs";
+import { NativeControllerError, NativeDesktopController } from "../lib/native-controller.mjs";
 
 const SERVER = {
   id: "11111111-1111-4111-8111-111111111111",
@@ -50,9 +50,9 @@ function registration() {
     },
   };
 }
-async function controller(targetSession, helper = new FakeHelper()) {
-  const value = new NativeWindowsController({
-    platform: "win32",
+async function controller(targetSession, helper = new FakeHelper(), platform = "win32") {
+  const value = new NativeDesktopController({
+    platform,
     preferences: new MemoryPreferences(),
     helper,
     probe: async () => SERVER,
@@ -273,7 +273,11 @@ class PlaybackHelper extends FakeHelper {
     }
     if (!["set_uri", "play", "pause", "stop", "seek"].includes(method)) return super.request(method, params);
     this.requests.push({ method, params });
+    if (method !== "set_uri" && !this.current) {
+      throw Object.assign(new Error("No media is loaded"), { code: "action_failed" });
+    }
     if (method === "set_uri") this.current = { play_id: params.play_id, sequence: params.sequence };
+    this.current.sequence = params.sequence;
     this.statusState = method === "play" ? "playing" : method === "stop" ? "stopped" : "paused";
     const event = { set_uri: "loaded", play: "playing", pause: "pause", stop: "stopped", seek: "seeked" }[method];
     return {
@@ -281,18 +285,31 @@ class PlaybackHelper extends FakeHelper {
       audio: { ...audio(method === "set_uri" ? "loaded" : this.statusState), play_id: params.play_id, sequence: params.sequence },
     };
   }
+  finish() {
+    const current = this.current;
+    this.current = null;
+    this.statusState = "stopped";
+    this.emit("notification", {
+      event: "observation", ...current,
+      observation: { ...observation("ended", current.play_id), position_ms: 1_000, duration_ms: 1_000, has_position: true },
+      audio: { ...audio("stopped"), ...current },
+    });
+  }
 }
 
-async function playbackFixture(t, onReport = () => undefined) {
+async function playbackFixture(t, onReport = () => undefined, platform = "win32") {
   const commands = [];
   const reports = [];
+  const requests = [];
   let polls = 0;
+  let cancelBefore = 0;
   const targetSession = { fetch: async (url, init) => {
+    requests.push({ url: String(url), method: init.method });
     const pathname = new URL(url).pathname;
     if (pathname.endsWith("/registrations") && init.method === "POST") return json(registration());
     if (pathname.endsWith("/commands")) {
       polls++;
-      return json({ lease_duration_ms: 15_000, poll_after_ms: 100, command: commands.shift() });
+      return json({ lease_duration_ms: 15_000, poll_after_ms: 100, cancel_before_sequence: cancelBefore, command: commands.shift() });
     }
     if (pathname.endsWith("/reports")) {
       const report = JSON.parse(init.body);
@@ -300,17 +317,17 @@ async function playbackFixture(t, onReport = () => undefined) {
       return await onReport(report) ?? new Response(null, { status: 204 });
     }
     if (init.method === "DELETE") return new Response(null, { status: 204 });
-    return json({ lease_duration_ms: 15_000 });
+    return json({ lease_duration_ms: 15_000, cancel_before_sequence: cancelBefore });
   } };
   const helper = new PlaybackHelper();
-  const { value } = await controller(targetSession, helper);
+  const { value } = await controller(targetSession, helper, platform);
   t.after(() => value.shutdown());
   const load = (playID, sequence) => commands.push({
     action: "set_uri", play_id: playID, sequence,
     resource: { url: `/media/${playID}/fixture.wav`, mime: "audio/wav", seekable: true, size: 128, duration_ms: 1_000 },
   }, { action: "play", play_id: playID, sequence: sequence + 1 });
   await value.request(SERVER, targetSession, "connect", { name: "Windows output" });
-  return { value, helper, commands, reports, load, polls: () => polls };
+  return { value, helper, commands, reports, requests, load, polls: () => polls, cancel: (sequence) => { cancelBefore = sequence; } };
 }
 
 test("completion during Play acknowledgement is delivered after the command and withdraws SMTC", async (t) => {
@@ -371,4 +388,84 @@ test("confirmed helper exit permits browser recovery without restarting native a
   });
   assert.equal(state.audio.enabled, false);
   assert.equal(state.device, null);
+});
+
+test("macOS document reload retains Server-owned playback and Quit releases only its local transport", async (t) => {
+  const fixture = await playbackFixture(t, undefined, "darwin");
+  fixture.load("mac-reload", 1);
+  await waitFor(() => fixture.reports.some((report) => report.sequence === 2 && report.result === "succeeded"));
+  const registeredDevice = fixture.value.state().device.id;
+  const beforeStops = fixture.helper.requests.filter((request) => request.method === "stop").length;
+  await fixture.value.prepareRemoteServer({ ...SERVER });
+  const resumed = await fixture.value.request(SERVER, {}, "connect_if_available", { name: "macOS output" });
+  assert.equal(resumed.device.id, registeredDevice);
+  assert.equal(resumed.audio.platform, "macos");
+  assert.equal(resumed.audio.state, "playing");
+  assert.equal(fixture.helper.requests.filter((request) => request.method === "stop").length, beforeStops);
+  assert.equal(fixture.requests.filter((request) => request.method === "POST" && request.url.endsWith("/registrations")).length, 1);
+  assert.equal(fixture.helper.smtc, null, "macOS must not send Windows media-control methods");
+  await assert.rejects(
+    fixture.value.prepareRemoteServer({ ...SERVER, origin: "https://another.local" }),
+    (error) => error.code === "stop_required",
+  );
+  await fixture.value.shutdown();
+  assert.equal(fixture.helper.running, false);
+  assert.equal(fixture.helper.requests.filter((request) => request.method === "stop").length, beforeStops + 1);
+  assert.equal(fixture.requests.filter((request) => request.method === "DELETE").length, 1);
+  assert.equal(fixture.requests.some((request) => new URL(request.url).pathname === "/api/v1/player"), false,
+    "Quit must never send Stop to the Server's selected network receiver");
+  assert.equal(fixture.helper.smtc, null);
+});
+
+test("macOS terminal helper loss does not auto-register or replay after a document reload", async (t) => {
+  const fixture = await playbackFixture(t, undefined, "darwin");
+  fixture.load("mac-terminal", 1);
+  await waitFor(() => fixture.reports.some((report) => report.sequence === 2 && report.result === "succeeded"));
+  fixture.helper.running = false;
+  fixture.helper.emit("terminal", new Error("DAC helper exited"));
+  await waitFor(() => fixture.value.state().error?.code === "helper_terminated");
+  await fixture.value.prepareRemoteServer({ ...SERVER });
+  const afterLoss = await fixture.value.request(SERVER, {}, "connect_if_available", { name: "macOS output" });
+  assert.equal(afterLoss.device, null);
+  assert.notEqual(afterLoss.audio.state, "playing");
+  assert.equal(fixture.requests.filter((request) => request.method === "POST" && request.url.endsWith("/registrations")).length, 1);
+  assert.equal(fixture.helper.requests.filter((request) => request.method === "set_uri").length, 1);
+});
+
+test("Server retirement after EOF preserves registration while a terminal report acknowledgement is pending", async (t) => {
+  let acknowledge;
+  const pending = new Promise((resolve) => { acknowledge = resolve; });
+  t.after(() => acknowledge(new Response(null, { status: 204 })));
+  const fixture = await playbackFixture(t, (report) => report.observation?.event === "ended" ? pending : undefined, "darwin");
+  fixture.load("completed", 1);
+  await waitFor(() => fixture.reports.some((report) => report.sequence === 2 && report.result === "succeeded"));
+  fixture.helper.finish();
+  await waitFor(() => fixture.reports.some((report) => report.observation?.event === "ended"));
+  const polls = fixture.polls();
+  fixture.cancel(2);
+  await waitFor(() => fixture.polls() > polls + 1);
+  assert.equal(fixture.value.state().audio.state, "stopped");
+  assert.equal(fixture.value.state().error, undefined);
+  assert.equal(fixture.value.state().device.id, "browser:windows");
+  assert.equal(fixture.helper.running, true);
+  assert.equal(fixture.helper.requests.filter((request) => request.method === "stop").length, 0);
+  acknowledge(new Response(null, { status: 204 }));
+  fixture.load("following", 3);
+  await waitFor(() => fixture.reports.some((report) => report.sequence === 4 && report.result === "succeeded"));
+  assert.equal(fixture.value.state().audio.state, "playing");
+  assert.equal(fixture.helper.current.play_id, "following");
+  assert.equal(fixture.requests.filter((request) => request.method === "POST" && request.url.endsWith("/registrations")).length, 1);
+});
+
+test("Quit after EOF does not Stop a helper transport lease already released by its terminal notification", async (t) => {
+  const fixture = await playbackFixture(t, undefined, "darwin");
+  fixture.load("finished-before-quit", 1);
+  await waitFor(() => fixture.reports.some((report) => report.sequence === 2 && report.result === "succeeded"));
+  fixture.helper.finish();
+  await waitFor(() => fixture.reports.some((report) => report.observation?.event === "ended"));
+  await fixture.value.shutdown();
+  assert.equal(fixture.helper.requests.filter((request) => request.method === "stop").length, 0);
+  assert.equal(fixture.helper.running, false);
+  assert.equal(fixture.value.state().error, undefined);
+  assert.equal(fixture.requests.filter((request) => request.method === "DELETE").length, 1);
 });

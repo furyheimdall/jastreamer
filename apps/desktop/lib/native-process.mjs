@@ -14,10 +14,13 @@ export class NativeProcessError extends Error {
   }
 }
 
-export function nativeHelperPath({ isPackaged, resourcesPath, appDirectory }) {
+export function nativeHelperPath({ isPackaged, resourcesPath, appDirectory, platform = process.platform }) {
+  const filename = platform === "darwin" ? "jastreamer-audio" : "jastreamer-audio.exe";
   return isPackaged
-    ? path.join(resourcesPath, "native-audio", "jastreamer-audio.exe")
-    : path.join(appDirectory, "native", "audio", "dist", "jastreamer-audio.exe");
+    ? path.join(resourcesPath, "native-audio", filename)
+    : platform === "darwin"
+      ? path.join(appDirectory, "native", "audio", "dist", "macos-arm64", filename)
+      : path.join(appDirectory, "native", "audio", "dist", filename);
 }
 
 export class NativeAudioProcess extends EventEmitter {

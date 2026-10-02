@@ -278,8 +278,8 @@ jobs:
         with:
           name: jastreamer-desktop-windows-x64
           path: |
-            apps/desktop/dist/jastreamer-desktop_0.2.1_windows-x64.zip
-            apps/desktop/dist/jastreamer-desktop_0.2.1_windows-x64.zip.sha256
+            apps/desktop/dist/jastreamer-desktop_0.2.2_windows-x64.zip
+            apps/desktop/dist/jastreamer-desktop_0.2.2_windows-x64.zip.sha256
             apps/desktop/dist/manifest.json
             apps/desktop/dist/verification.json
           if-no-files-found: error
@@ -332,7 +332,7 @@ jobs:
         shell: bash
         run: |
           sudo apt-get update
-          sudo apt-get install --yes xvfb dbus-x11 "$PWD/apps/desktop/dist/jastreamer-desktop_0.2.1_linux-amd64.deb"
+          sudo apt-get install --yes xvfb dbus-x11 "$PWD/apps/desktop/dist/jastreamer-desktop_0.2.2_linux-amd64.deb"
           test "$(stat --format='%U:%G %a' /usr/lib/jastreamer-desktop/chrome-sandbox)" = "root:root 4755"
           test -x /usr/lib/jastreamer-desktop/jastreamer-desktop
       - name: Exercise installed desktop as a normal user with Chromium sandboxing
@@ -353,10 +353,83 @@ jobs:
         with:
           name: jastreamer-desktop-linux-amd64
           path: |
-            apps/desktop/dist/jastreamer-desktop_0.2.1_linux-amd64.deb
-            apps/desktop/dist/jastreamer-desktop_0.2.1_linux-amd64.deb.sha256
+            apps/desktop/dist/jastreamer-desktop_0.2.2_linux-amd64.deb
+            apps/desktop/dist/jastreamer-desktop_0.2.2_linux-amd64.deb.sha256
             apps/desktop/dist/manifest.json
             apps/desktop/dist/verification.json
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 30
+
+  desktop-macos:
+    name: macOS arm64 ad-hoc desktop
+    # Standard native Apple Silicon, not the Intel or larger-runner labels:
+    # https://docs.github.com/en/actions/reference/runners/github-hosted-runners
+    runs-on: macos-15
+    timeout-minutes: 60
+    env:
+      JASTREAMER_SOURCE_REVISION: ${{ github.sha }}
+      JASTREAMER_MACOS_DISTRIBUTION: public-adhoc
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.20.0
+          architecture: arm64
+          cache: npm
+          cache-dependency-path: apps/desktop/package-lock.json
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: apps/server/go.mod
+          cache-dependency-path: apps/server/go.sum
+      - name: Require native Apple Silicon tools without translation
+        shell: bash
+        run: |
+          test "$(uname -m)" = arm64
+          test "${RUNNER_ARCH}" = ARM64
+          test "$(node -p 'process.platform + "/" + process.arch')" = darwin/arm64
+          test "$(go env GOOS)/$(go env GOARCH)" = darwin/arm64
+          test "$(sysctl -in sysctl.proc_translated 2>/dev/null || true)" != 1
+          cmake --version
+          ninja --version
+      - name: Install pinned desktop dependencies and verify boundaries
+        working-directory: apps/desktop
+        run: npm ci && npm test
+      - name: Build pinned native FFmpeg and helper, package and verify ad-hoc DMG
+        working-directory: apps/desktop
+        run: npm run package:mac
+      - name: Build shared Web for the isolated packaged-app smoke
+        working-directory: apps/control
+        run: npm ci && npm run build
+      - name: Build native loopback Server
+        working-directory: apps/server
+        env:
+          CGO_ENABLED: "0"
+        run: go build -trimpath -o dist/jastreamer-server ./cmd/jastreamer-server
+      - name: Exercise packaged Mac app and real loopback Web without audio
+        working-directory: apps/desktop
+        run: >-
+          node scripts/smoke-macos.mjs
+          ../server/dist/jastreamer-server
+          dist/macos-arm64/jastreamer.app
+          dist/macos-arm64/launch-verification.json
+      - name: Require complete native Mac package and launch evidence
+        run: >-
+          python3 packaging/server/ci_artifact.py create-desktop
+          --dist apps/desktop/dist/macos-arm64
+          --target macos-arm64
+          --source-revision "${GITHUB_SHA}"
+      - name: Upload exact verified ad-hoc Mac DMG and receipts
+        uses: actions/upload-artifact@v4
+        with:
+          name: jastreamer-desktop-macos-arm64
+          path: |
+            apps/desktop/dist/macos-arm64/jastreamer-desktop_0.2.2_macos-arm64-adhoc.dmg
+            apps/desktop/dist/macos-arm64/jastreamer-desktop_0.2.2_macos-arm64-adhoc.dmg.sha256
+            apps/desktop/dist/macos-arm64/manifest.json
+            apps/desktop/dist/macos-arm64/native-verification.json
+            apps/desktop/dist/macos-arm64/launch-verification.json
+            apps/desktop/dist/macos-arm64/verification.json
           if-no-files-found: error
           compression-level: 0
           retention-days: 30

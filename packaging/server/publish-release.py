@@ -28,7 +28,7 @@ CI_WORKFLOW = ".github/workflows/ci.yml"
 CI_NAME = "Server, Web, and Desktop CI"
 ANDROID_WORKFLOW = ".github/workflows/android.yml"
 ANDROID_NAME = "Android CI"
-VERSION = "0.2.1"
+VERSION = "0.2.2"
 SHA = re.compile(r"[0-9a-f]{40}")
 RELEASE_TAG = re.compile(r"v(?P<version>[0-9]+\.[0-9]+\.[0-9]+)(?:-preview\.(?P<preview>[1-9][0-9]*))?")
 IMAGE_TAG = re.compile(r"(?P<version>[0-9]+\.[0-9]+\.[0-9]+)(?:-preview\.(?P<preview>[1-9][0-9]*))?")
@@ -40,6 +40,7 @@ EXPECTED_JOBS = {
     "Windows x64 portable desktop",
     "Windows x64 portable Server",
     "Linux amd64 DEB desktop",
+    "macOS arm64 ad-hoc desktop",
 }
 EXPECTED_ARTIFACTS = {
     "server-image-amd64",
@@ -47,6 +48,7 @@ EXPECTED_ARTIFACTS = {
     "jastreamer-server-windows-x64",
     "jastreamer-desktop-windows-x64",
     "jastreamer-desktop-linux-amd64",
+    "jastreamer-desktop-macos-arm64",
 }
 # Verification evidence uploaded by the Server CI run; required to exist, never published.
 SERVER_EVIDENCE_ARTIFACTS = {"windows-audio-settings"}
@@ -373,6 +375,7 @@ def stage_release(args: argparse.Namespace) -> None:
     desktop_receipts = {
         "windows-x64": ci_artifact.verify_desktop_artifact(root / "jastreamer-desktop-windows-x64", "windows-x64", args.source_revision),
         "linux-amd64": ci_artifact.verify_desktop_artifact(root / "jastreamer-desktop-linux-amd64", "linux-amd64", args.source_revision),
+        "macos-arm64": ci_artifact.verify_desktop_artifact(root / "jastreamer-desktop-macos-arm64", "macos-arm64", args.source_revision),
     }
     windows_server_receipt = ci_artifact.verify_windows_server_artifact(
         root / "jastreamer-server-windows-x64",
@@ -398,7 +401,7 @@ def stage_release(args: argparse.Namespace) -> None:
     windows_server_prefix = f"jastreamer-server_{VERSION}_windows-x64"
     copy_regular(windows_server_source / "manifest.json", output / f"{windows_server_prefix}.manifest.json")
     copy_regular(windows_server_source / "verification.json", output / f"{windows_server_prefix}.verification.json")
-    for target in ("windows-x64", "linux-amd64"):
+    for target in ci_artifact.DESKTOP_TARGETS:
         source = root / f"jastreamer-desktop-{target}"
         archive_name = ci_artifact.DESKTOP_TARGETS[target]["archive"]
         copy_regular(source / archive_name, output / archive_name)
@@ -406,6 +409,9 @@ def stage_release(args: argparse.Namespace) -> None:
         prefix = f"jastreamer-desktop_{VERSION}_{target}"
         copy_regular(source / "manifest.json", output / f"{prefix}.manifest.json")
         copy_regular(source / "verification.json", output / f"{prefix}.verification.json")
+        if target == "macos-arm64":
+            for evidence in ("native-verification", "launch-verification"):
+                copy_regular(source / f"{evidence}.json", output / f"{prefix}.{evidence}.json")
     for architecture in ("amd64", "arm64"):
         copy_regular(root / f"server-image-{architecture}" / "manifest.json", output / f"jastreamer-server_{VERSION}_linux-{architecture}.manifest.json")
     android_apk = ci_artifact.ANDROID_RELEASE_APK
@@ -461,6 +467,7 @@ def stage_release(args: argparse.Namespace) -> None:
         "codeSigning": {
             "windowsAuthenticode": False,
             "linuxServerImages": False,
+            "macos": {"signing": "ad-hoc", "developerIDSigned": False, "notarized": False},
             "androidApk": android_manifest["signerCertificateSha256"],
         },
         "prerelease": identity["prerelease"],
@@ -516,6 +523,13 @@ def render_notes(args: argparse.Namespace) -> None:
         "",
         "The Windows Server ZIP and the Windows desktop ZIP carry no Authenticode signature, so Windows marks the downloads as coming from the internet.",
         f"Verify the published SHA-256 sums and unblock the archive before extracting: [code signing policy]({DOCUMENTATION}/{tag}/README.md#code-signing-policy), [Windows unblock steps]({DOCUMENTATION}/{tag}/INSTALL.md#windows-unblock).",
+        "",
+        "## Apple Silicon macOS ad-hoc package",
+        "",
+        "The macOS arm64 DMG contains the exact app built and verified on a native Apple Silicon CI runner.",
+        "It is ad-hoc signed only: not Developer ID signed, not notarized, and not production qualified.",
+        "The receipt covers native tests, package integrity and isolated loopback app lifecycle checks; it does not qualify a physical DAC or audible playback.",
+        "macOS may block this download. Do not disable Gatekeeper or other system security. Use a local source build if your macOS policy does not permit it.",
         "",
         "## Android APK",
         "",
@@ -686,6 +700,7 @@ def verify_public_release(args: argparse.Namespace) -> None:
         require(downloaded_digest == sha256_file(expected[name]), f"public release asset bytes differ from CI-verified bytes: {name}")
     require(seen == set(expected), "public GitHub release assets are incomplete")
     require(ci_artifact.ANDROID_RELEASE_APK in seen, "public GitHub release is missing the signed Android APK")
+    require(ci_artifact.DESKTOP_TARGETS["macos-arm64"]["archive"] in seen, "public GitHub release is missing the ad-hoc Mac DMG")
     print(json.dumps({"channel": identity["channel"], "prerelease": identity["prerelease"], "latest": identity["latest"], "assets": sorted(seen)}, sort_keys=True))
 
 

@@ -1,4 +1,4 @@
-.PHONY: verify web-verify go-verify build web-build server-build server-build-only browser-smoke browser-smoke-only desktop-verify desktop-native-windows desktop-native-dependencies desktop-native-decoder desktop-native-decoder-check desktop-package package package-verify windows-server-package clean
+.PHONY: verify web-verify go-verify build web-build server-build server-build-only browser-smoke browser-smoke-only desktop-verify desktop-native-windows desktop-native-macos desktop-package-macos desktop-native-dependencies desktop-native-decoder desktop-native-decoder-check desktop-package package package-verify windows-server-package clean
 
 VERSION := $(shell cat apps/server/VERSION)
 SOURCE_REVISION ?= $(shell git rev-parse --verify HEAD)
@@ -41,6 +41,12 @@ desktop-verify:
 	cd apps/desktop && npm ci && npm test
 desktop-native-windows:
 	cd apps/desktop && SOURCE_DATE_EPOCH=$(SOURCE_DATE_EPOCH) JASTREAMER_SOURCE_REVISION=$(SOURCE_REVISION) npm run build:native:win
+
+desktop-native-macos:
+	cd apps/desktop && npm run build:native:mac
+
+desktop-package-macos:
+	cd apps/desktop && npm ci && npm run package:mac
 
 desktop-native-dependencies:
 	node $(NATIVE_AUDIO_DIR)/scripts/fetch-native-deps.mjs

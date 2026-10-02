@@ -193,6 +193,19 @@ Windows system media controls show the current track, available artwork, and the
 
 Reloading the WebView on the same Server keeps native playback while the Desktop owner and registration remain valid. **X** still hides the window; tray **Exit** releases the local endpoint and registration without stopping network outputs. Terminal helper or registration loss never re-registers or autoplays: reconnect **This device** and press Play, or switch back to **Browser** while stopped. Windows compilation, real endpoint Shared/Exclusive behaviour, media-key integration, and audible output require verification on Windows hardware; decoder hashes and UI state are not physical-audio evidence.
 
+<a id="macos-audio"></a>
+### macOS native audio
+
+The Apple Silicon Controller in 0.2.2 uses the same Server queue and local-output ownership as Windows, with CoreAudio instead of WASAPI. Use matching 0.2.2 Desktop and Server-hosted Web builds on both Windows and Mac; the published 0.2.1 Server lacks the new desktop bridge and that release had no official Mac package. Installation and ad-hoc signing limits are in [macOS installation](INSTALL.md#desktop-macos).
+
+While stopped, select **This device**, open **macOS audio settings**, and opt in to the native CoreAudio backend. Select the connected USB DAC by name rather than the system default if you want to leave the Mac's speakers as the default for other applications. The saved choice uses the device UID, not its temporary device number. **Exclusive** requests Hog ownership and exact supported PCM formats; a busy, disconnected or unsupported device produces an error, never a silent switch to shared output or another device. Mono/stereo exclusive output is supported; unsupported channel layouts are rejected rather than guessed.
+
+Exclusive mode fixes the app volume at 100%; lower listening volume on the DAC or amplifier. Lossless integer widening adds zero low bits without reducing source precision. The panel reports the negotiated physical/virtual path, not just the requested mode. A bit-perfect badge requires verified running I/O, original lossless provenance, unchanged rate/channels, preserved integer precision, unity gain and verified exclusive non-mixing output; loading a track alone does not qualify. Shared, float, unknown provenance, altered hardware gain or an underrun cannot qualify. This is application-path evidence, not a measurement of the DAC's internal DSP or physical output bits.
+
+USB DAC support is generic CoreAudio support, not a FIIO-only device path. Observed hardware qualification is limited to Apple Silicon macOS 26.6.2 with the FIIO M33R2R; it is not a guarantee for every DAC or supported macOS version. Available rates, sample formats, channels, Hog ownership and hardware volume depend on each device. Check the negotiated path and errors on your hardware rather than assuming its advertised maximum is usable.
+
+Stop before changing backend, device, mode or Server. Pause keeps device ownership. Stop and natural completion release the DAC and restore device settings changed by the session, while keeping the Server's local-output registration for the next Server-owned command. Quit also removes that registration. Device loss stops with an error and never switches to speakers or automatically resumes. A same-Server WebView reload retains valid native ownership; closing the red window button hides the app and Dock activation reopens it. **Quit** releases only this app's local output, not another selected network renderer. This macOS implementation does not add Windows SMTC or claim macOS system media-key integration. Preferences persist in `~/Library/Application Support/jastreamer-desktop`.
+
 <a id="phone-controls"></a>
 ### Phone controls
 

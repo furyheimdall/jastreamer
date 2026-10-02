@@ -7,7 +7,8 @@ The packaged FFmpeg shared libraries are built from the adjacent, SHA-256-verifi
 source archive using the packaged build-ffmpeg.sh recipe. This configuration is
 LGPL-only: GPL, nonfree, network and external autodetected components are disabled.
 The full applicable LGPL v2.1 license is in legal/ffmpeg/COPYING.LGPLv2.1.
-The DLLs are separate shared libraries and may be replaced with compatible builds.
+The DLLs (Windows) and dylibs (macOS) are separate shared libraries and may be
+replaced with compatible builds; see the package's replacement instructions.
 
 JSON for Modern C++ 3.12.0
 Copyright (c) 2013-2025 Niels Lohmann
@@ -15,9 +16,13 @@ https://github.com/nlohmann/json
 Licensed under the MIT License. The full license is in
 legal/nlohmann-json/LICENSE.MIT.
 
-No third-party binary in native-audio was downloaded prebuilt. FFmpeg DLLs are
-compiled from the pinned source archive during the Windows package build;
+No third-party binary in native-audio was downloaded prebuilt. FFmpeg shared
+libraries are compiled from the pinned source archive during the package build;
 nlohmann/json is compiled from its pinned source archive as a header-only library.
-The helper and source-built FFmpeg DLLs use the statically linked MSVC/UCRT
+On Windows, the helper and FFmpeg DLLs use the statically linked MSVC/UCRT
 runtime, so the portable package does not require a separately installed Visual
 C++ Redistributable or package redistributable runtime DLLs.
+On macOS, the arm64 helper uses the system CoreAudio/CoreFoundation frameworks
+and dynamically links the bundled FFmpeg dylibs. Corresponding source, build
+recipes and ad-hoc re-signing instructions are in corresponding-source and
+RELINKING.txt. The development package is not Developer ID signed or notarized.
