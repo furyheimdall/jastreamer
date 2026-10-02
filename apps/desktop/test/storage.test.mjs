@@ -43,10 +43,10 @@ test("installed macOS profile stays outside an app bundle on a read-only DMG", (
   assert.equal(resolveUserDataPath({
     isPackaged: true,
     platform: "darwin",
-    executablePath: "/Volumes/jastreamer/Jastreamer.app/Contents/MacOS/jastreamer-desktop",
-    appDirectory: "/Volumes/jastreamer/Jastreamer.app/Contents/Resources/app",
-    appDataPath: "/Users/listener/Library/Application Support",
-  }), "/Users/listener/Library/Application Support/jastreamer-desktop");
+    executablePath: path.resolve("Volumes", "jastreamer", "Jastreamer.app", "Contents", "MacOS", "jastreamer-desktop"),
+    appDirectory: path.resolve("Volumes", "jastreamer", "Jastreamer.app", "Contents", "Resources", "app"),
+    appDataPath: path.resolve("Users", "listener", "Library", "Application Support"),
+  }), path.resolve("Users", "listener", "Library", "Application Support", "jastreamer-desktop"));
 });
 
 test("requires an OS per-user data root for installed non-Windows builds", () => {
