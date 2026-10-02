@@ -276,22 +276,22 @@ async function smoke() {
   });
   assert.equal(session.user?.username, "macos-smoke");
   checks.push("real-server-session");
-  await nativeStopped(page);
-  await page.getByRole("button", { name: "macOS audio settings", exact: true }).click();
-  const panel = page.locator("#desktop-audio-panel");
-  await panel.getByRole("heading", { name: "macOS local audio", exact: true }).waitFor({ state: "visible" });
-  const backend = panel.getByLabel("Local audio backend", { exact: true });
-  assert.equal(await backend.inputValue(), "browser");
-  assert.equal(await backend.locator('option[value="browser"]').textContent(), "Browser (default)");
-  assert.equal(await backend.locator('option[value="native"]').textContent(), "CoreAudio native (opt in)");
-  assert.equal((await panel.innerText()).includes("Windows"), false, "macOS settings must not display Windows labels");
-  await panel.getByRole("button", { name: "Close", exact: true }).click();
   await page.locator("#player-output").selectOption("browser:local");
   const output = await until(async () => {
     const state = await browserState(page);
     return state.player.renderer_id?.startsWith("browser:") && state.renderer?.online ? state : null;
   }, "Real browser output registration did not become selected and online");
   assert.equal(output.player.state, "stopped");
+  await nativeStopped(page);
+  await page.getByRole("button", { name: "macOS audio settings", exact: true }).click();
+  const panel = page.locator("#desktop-audio-panel");
+  await panel.getByRole("heading", { name: "macOS local audio", exact: true }).waitFor({ state: "visible" });
+  const backend = panel.getByRole("combobox", { name: "Local audio backend", exact: true });
+  assert.equal(await backend.inputValue(), "browser");
+  assert.equal(await backend.locator('option[value="browser"]').textContent(), "Browser (default)");
+  assert.equal(await backend.locator('option[value="native"]').textContent(), "CoreAudio native (opt in)");
+  assert.equal((await panel.innerText()).includes("Windows"), false, "macOS settings must not display Windows labels");
+  await panel.getByRole("button", { name: "Close", exact: true }).click();
   checks.push("browser-output-default", "macos-native-bridge-settings");
 
   const before = await application.evaluate(({ BrowserWindow, webContents }, url) => {
