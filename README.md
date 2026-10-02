@@ -8,7 +8,7 @@
 
 <img src="assets/jastreamer.svg" width="80" height="80" alt="jastreamer logo" />
 
-jastreamer 0.2.2 is a self-hosted music server for a trusted private LAN. A Server on Linux or Windows indexes the local music you approve, hosts the Web interface, keeps accounts, likes, play counts, playlists and one shared queue in SQLite, and sends audio to a single selected output. UPnP/DLNA is built in, Google Cast is optional on both Server platforms, and AirPlay sending is available only in the Linux container. English is the default interface language; Korean is also supported.
+jastreamer 0.2.3 is a self-hosted music server for a trusted private LAN. A Server on Linux or Windows indexes the local music you approve, hosts the Web interface, keeps accounts, likes, play counts, playlists and one shared queue in SQLite, and sends audio to a single selected output. UPnP/DLNA is built in, Google Cast is optional on both Server platforms, and AirPlay sending is available only in the Linux container. English is the default interface language; Korean is also supported.
 
 ## Documentation
 
@@ -40,8 +40,8 @@ jastreamer 0.2.2 is a self-hosted music server for a trusted private LAN. A Serv
 | Server | Windows x64 | Portable ZIP | Web interface, UPnP/DLNA, optional Cast; no AirPlay and no FFmpeg; not a Windows service |
 | Desktop client | Windows 10/11 x64 | Portable ZIP | Browser audio plus opt-in WASAPI Shared/Exclusive output and Windows media controls ([Windows audio](INSTRUCTION.md#windows-audio)) |
 | Desktop client | Linux `amd64` | DEB | Browser audio only; no Linux ARM64 desktop package |
-| Desktop client | Apple Silicon macOS 13+ (`arm64`) | Official `jastreamer-desktop_0.2.2_macos-arm64-adhoc.dmg` containing `jastreamer.app` | Ad-hoc signed, not notarized; browser audio plus opt-in CoreAudio Shared/Exclusive USB DAC output. No Intel, Rosetta or Universal build ([macOS](INSTALL.md#desktop-macos)) |
-| Mobile client | Android 10+ | Signed `jastreamer-android_0.2.2_release.apk` from [GitHub Releases](https://github.com/furyheimdall/jastreamer/releases) | Media3 local playback with system media controls, opt-in bit-perfect direct USB output to a connected USB Audio Class DAC, and an offline **Saved music** library ([Android](INSTALL.md#android)) |
+| Desktop client | Apple Silicon macOS 13+ (`arm64`) | Official `jastreamer-desktop_0.2.3_macos-arm64-adhoc.dmg` containing `jastreamer.app` | Ad-hoc signed, not notarized; browser audio plus opt-in CoreAudio Shared/Exclusive USB DAC output and macOS Now Playing/system media controls. No Intel, Rosetta or Universal build ([macOS](INSTALL.md#desktop-macos)) |
+| Mobile client | Android 10+ | Signed `jastreamer-android_0.2.3_release.apk` from [GitHub Releases](https://github.com/furyheimdall/jastreamer/releases) | Media3 local playback with system media controls, opt-in bit-perfect direct USB output to a connected USB Audio Class DAC, and an offline **Saved music** library ([Android](INSTALL.md#android)) |
 | Mobile client | iOS/iPadOS 18.4+ | [iOS CI](https://github.com/furyheimdall/jastreamer/actions/workflows/ios.yml) and source only | Controller-only client; no installable package, TestFlight or App Store release ([iOS](INSTALL.md#ios)) |
 | Browser or PWA | Any current LAN browser | Served by the Server | Phone layout for iPhone and Android phone browsers; PWA installation needs trusted HTTPS ([PWA](INSTALL.md#pwa)) |
 
@@ -65,7 +65,7 @@ Send the following request to your AI agent. Review the proposed paths and servi
 
 An update replaces only the container image or the package-owned files: configuration, database, accounts, sessions, playlists, queue and music paths are preserved, and playback does not resume automatically. There is no in-app version check or automatic updater, so download and verify the exact artifacts first. Desktop, Android and iOS clients are updated separately from the Server.
 
-Version 0.2.2 introduces the shared `JastreamerDesktopAudio` bridge: update Windows or Mac Desktop and the Server-hosted Web UI together from this release. The 0.2.1 Server lacks this bridge and had no official Mac artifact. Server configuration and database schemas are unchanged; this is not a new installation and needs no account, data or client-profile reset.
+Version 0.2.3 adds macOS Now Playing and Server-owned system media controls to native CoreAudio playback; the published 0.2.2 Mac package lacks this integration. Version 0.2.2 introduced the shared `JastreamerDesktopAudio` bridge, and an existing 0.2.2 Server and its hosted Web UI are sufficient for the 0.2.3 Mac desktop. The 0.2.1 Server lacks this bridge and had no official Mac artifact; upgrade older Desktop/Server bridge pairs together with deployment approval. Server configuration and database schemas are unchanged; this is not a new installation and needs no account, data or client-profile reset.
 
 Procedures and post-update checks are in [upgrade](INSTALL.md#upgrade) and [rollback](INSTALL.md#rollback).
 
@@ -102,7 +102,7 @@ Private-LAN HTTP encrypts neither credentials nor audio; use the built-in HTTPS 
 Before installing an APK, confirm the signer yourself and compare it with the fingerprint above and in the release notes, which carry the same value:
 
 ```
-apksigner verify --print-certs jastreamer-android_0.2.2_release.apk
+apksigner verify --print-certs jastreamer-android_0.2.3_release.apk
 ```
 
 The repository pins that fingerprint in `packaging/android/release-certificate-sha256.txt`, and the release workflow refuses to publish an APK signed by any other certificate. The digest is compared case-insensitively; `apksigner` prints it without separators. jastreamer is not published on Google Play.

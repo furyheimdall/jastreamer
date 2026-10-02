@@ -28,7 +28,7 @@ CI_WORKFLOW = ".github/workflows/ci.yml"
 CI_NAME = "Server, Web, and Desktop CI"
 ANDROID_WORKFLOW = ".github/workflows/android.yml"
 ANDROID_NAME = "Android CI"
-VERSION = "0.2.2"
+VERSION = "0.2.3"
 SHA = re.compile(r"[0-9a-f]{40}")
 RELEASE_TAG = re.compile(r"v(?P<version>[0-9]+\.[0-9]+\.[0-9]+)(?:-preview\.(?P<preview>[1-9][0-9]*))?")
 IMAGE_TAG = re.compile(r"(?P<version>[0-9]+\.[0-9]+\.[0-9]+)(?:-preview\.(?P<preview>[1-9][0-9]*))?")
@@ -505,6 +505,19 @@ def render_notes(args: argparse.Namespace) -> None:
         ]
     lines += [
         f"Every asset was published from the protected-main CI run {provenance['ciRunId']} and the Android CI run {provenance['androidRunId']}, both built from commit `{provenance['sourceRevision']}`.",
+        "",
+        "## What's new in 0.2.3",
+        "",
+        "The native CoreAudio backend now publishes title, artist, album, available artwork and timeline to macOS Now Playing.",
+        "System Play/Pause, Stop, Previous, Next and supported seeking are forwarded to the authenticated Server, which remains the queue and playback owner; they never directly control the audio engine or another network output.",
+        "Pause retains the session. Stop, completion, terminal connection loss and Quit withdraw it; a same-Server WebView reload preserves valid native ownership. Browser audio does not opt in.",
+        "",
+        "## Compatibility and updates",
+        "",
+        "The published 0.2.2 Mac package lacks this system media integration; update the Mac desktop to 0.2.3 to use it.",
+        "The shared JastreamerDesktopAudio bridge was introduced in 0.2.2. An existing 0.2.2 Server and its hosted Web UI are sufficient for the 0.2.3 Mac desktop; this feature does not require a Server upgrade.",
+        "The 0.2.1 Server lacks that bridge and that release had no official Mac package. Upgrade older Desktop/Server bridge pairs together only with deployment approval.",
+        "No Server configuration or database schema migration is introduced. Preserve accounts, data and client profiles; no new-install reset is needed.",
         "",
         "## Linux Server images",
         "",

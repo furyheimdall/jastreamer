@@ -1,7 +1,7 @@
 {
   "name": "@jastreamer/desktop",
   "productName": "jastreamer",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "description": "Windows, Linux and Apple Silicon macOS desktop connection shell for jastreamer servers",
   "author": "jastreamer contributors",
   "license": "Apache-2.0",

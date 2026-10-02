@@ -116,7 +116,7 @@ export async function verifyBundle(app, metadata, lock, packageLock) {
   for (const name of runtimeNames) await access(path.join(native, name));
   assert.deepEqual(JSON.parse(await readFile(path.join(native, 'dependencies.json'), 'utf8')), lock);
   for (const dependency of [lock.ffmpeg, lock.nlohmannJson]) assert.equal(await digest(path.join(native, 'corresponding-source/deps/downloads', dependency.archive)), dependency.sha256);
-  for (const required of ['THIRD-PARTY-NOTICES.txt', 'RELINKING.txt', `legal/ffmpeg/${lock.ffmpeg.license}`, `legal/nlohmann-json/${lock.nlohmannJson.license}`, 'legal/jastreamer/LICENSE.Apache-2.0', 'corresponding-source/CMakeLists.txt', 'corresponding-source/audio_engine_coreaudio.cpp', 'corresponding-source/scripts/build-native-macos.mjs', 'corresponding-source/scripts/build-ffmpeg.sh', 'corresponding-source/scripts/fetch-native-deps.mjs']) await access(path.join(native, required));
+  for (const required of ['THIRD-PARTY-NOTICES.txt', 'RELINKING.txt', `legal/ffmpeg/${lock.ffmpeg.license}`, `legal/nlohmann-json/${lock.nlohmannJson.license}`, 'legal/jastreamer/LICENSE.Apache-2.0', 'corresponding-source/CMakeLists.txt', 'corresponding-source/audio_engine_coreaudio.cpp', 'corresponding-source/media_controls_macos.hpp', 'corresponding-source/media_controls_macos.mm', 'corresponding-source/media_controls_macos.plist', 'corresponding-source/scripts/build-native-macos.mjs', 'corresponding-source/scripts/build-ffmpeg.sh', 'corresponding-source/scripts/fetch-native-deps.mjs']) await access(path.join(native, required));
   const main = path.join(app, 'Contents/MacOS/jastreamer-desktop');
   const mainRpaths = loadPaths(main);
   const machOFiles = [];

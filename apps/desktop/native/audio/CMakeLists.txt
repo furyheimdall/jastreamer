@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.25)
-project(jastreamer_native_audio VERSION 0.2.2 LANGUAGES CXX)
+project(jastreamer_native_audio VERSION 0.2.3 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -8,6 +8,10 @@ set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 include(CTest)
 
 if(APPLE)
+  enable_language(OBJCXX)
+  set(CMAKE_OBJCXX_STANDARD 20)
+  set(CMAKE_OBJCXX_STANDARD_REQUIRED ON)
+  set(CMAKE_OBJCXX_EXTENSIONS OFF)
   if(NOT CMAKE_SYSTEM_PROCESSOR MATCHES "^(arm64|aarch64)$" OR
      (CMAKE_OSX_ARCHITECTURES AND NOT CMAKE_OSX_ARCHITECTURES STREQUAL "arm64"))
     message(FATAL_ERROR "The macOS native helper supports Apple Silicon arm64 only")
@@ -102,8 +106,11 @@ add_library(jastreamer_native STATIC
 target_include_directories(jastreamer_native PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")
 target_link_libraries(jastreamer_native PUBLIC jastreamer_decoder nlohmann_json::nlohmann_json)
 if(APPLE)
-  target_sources(jastreamer_native PRIVATE audio_engine_coreaudio.cpp)
-  target_link_libraries(jastreamer_native PUBLIC "-framework CoreAudio" "-framework CoreFoundation")
+  target_sources(jastreamer_native PRIVATE audio_engine_coreaudio.cpp media_controls_macos.mm)
+  set_source_files_properties(media_controls_macos.mm PROPERTIES COMPILE_OPTIONS "-fobjc-arc")
+  target_link_libraries(jastreamer_native PUBLIC
+    "-framework CoreAudio" "-framework CoreFoundation" "-framework AppKit"
+    "-framework MediaPlayer" "-framework ImageIO")
   target_compile_options(jastreamer_native PRIVATE -Wall -Wextra -Wpedantic)
 endif()
 if(WIN32)
@@ -138,6 +145,10 @@ target_link_libraries(jastreamer-audio PRIVATE jastreamer_native)
 set(native_dist "${CMAKE_CURRENT_SOURCE_DIR}/dist")
 if(APPLE)
   set(native_dist "${native_dist}/macos-arm64")
+  target_link_options(jastreamer-audio PRIVATE
+    "LINKER:-sectcreate,__TEXT,__info_plist,${CMAKE_CURRENT_SOURCE_DIR}/media_controls_macos.plist")
+  set_property(TARGET jastreamer-audio APPEND PROPERTY LINK_DEPENDS
+    "${CMAKE_CURRENT_SOURCE_DIR}/media_controls_macos.plist")
   set_target_properties(jastreamer-audio PROPERTIES
     BUILD_RPATH "@executable_path"
     INSTALL_RPATH "@executable_path")

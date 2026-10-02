@@ -28,11 +28,11 @@ For agent-assisted installation or updates, start at [AGENTS.md](AGENTS.md); its
 | Component | Requirements | Package |
 | --- | --- | --- |
 | Linux or Synology Server | Linux `amd64`/`arm64` with Docker Engine and Compose v2, or Synology DSM with Container Manager. `arm/v7` is unsupported; DS918+ is `amd64` | `ghcr.io/furyheimdall/jastreamer-server` image |
-| Windows Server | Windows x64 and a writable local folder, run by an ordinary account. Not installed as a Windows service | `jastreamer-server_0.2.2_windows-x64.zip` |
-| Windows desktop | Windows 10/11 x64; no ARM64 package | `jastreamer-desktop_0.2.2_windows-x64.zip` |
-| Linux desktop | Graphical Linux `amd64`; Ubuntu 24.04 amd64 is the qualification target; no ARM64 package | `jastreamer-desktop_0.2.2_linux-amd64.deb` |
-| macOS desktop | Apple Silicon macOS 13+; no Intel/Rosetta or Universal build | Official `jastreamer-desktop_0.2.2_macos-arm64-adhoc.dmg` containing `.app`; ad-hoc signed, not notarized |
-| Android client | Android 10 (API 29) or newer, plus an Android System WebView that supports `MULTI_PROFILE` | `jastreamer-android_0.2.2_release.apk`, signed with the release key |
+| Windows Server | Windows x64 and a writable local folder, run by an ordinary account. Not installed as a Windows service | `jastreamer-server_0.2.3_windows-x64.zip` |
+| Windows desktop | Windows 10/11 x64; no ARM64 package | `jastreamer-desktop_0.2.3_windows-x64.zip` |
+| Linux desktop | Graphical Linux `amd64`; Ubuntu 24.04 amd64 is the qualification target; no ARM64 package | `jastreamer-desktop_0.2.3_linux-amd64.deb` |
+| macOS desktop | Apple Silicon macOS 13+; no Intel/Rosetta or Universal build | Official `jastreamer-desktop_0.2.3_macos-arm64-adhoc.dmg` containing `.app`; ad-hoc signed, not notarized |
+| Android client | Android 10 (API 29) or newer, plus an Android System WebView that supports `MULTI_PROFILE` | `jastreamer-android_0.2.3_release.apk`, signed with the release key |
 | iOS client | iOS/iPadOS 18.4 or newer; macOS with Xcode 16.4 and the iOS 18.5 simulator runtime for the pinned CI scenario | Source and CI only |
 | Phone PWA | A phone browser and an HTTPS origin the phone trusts | None; served by the Server |
 
@@ -78,7 +78,7 @@ Verify the release provenance, source revision, package or image manifest, SHA-2
 
 ### Public registry image
 
-The registry is `ghcr.io/furyheimdall/jastreamer-server` and public images pull without a GitHub token. A stable release publishes the multi-architecture index as tag `0.2.2` together with per-architecture digests, and no mutable `latest` image tag exists. Pin the complete immutable digest the release lists for the `linux/amd64` or `linux/arm64` image rather than any tag:
+The registry is `ghcr.io/furyheimdall/jastreamer-server` and public images pull without a GitHub token. A stable release publishes the multi-architecture index as tag `0.2.3` together with per-architecture digests, and no mutable `latest` image tag exists. Pin the complete immutable digest the release lists for the `linux/amd64` or `linux/arm64` image rather than any tag:
 
 ```sh
 export JASTREAMER_SERVER_IMAGE='ghcr.io/furyheimdall/jastreamer-server@sha256:<digest-from-release>'
@@ -94,7 +94,7 @@ Save the verified digest in the deployment's persistent environment file, not on
 Because the ZIPs are not Authenticode-signed, Windows marks them as downloaded from the Internet and SmartScreen may warn the first time you run the extracted program. Unblock the archive **before** extracting, so the mark is not copied onto every extracted file:
 
 - In Explorer: right-click the ZIP → **Properties** → check **Unblock** → **OK**.
-- Or in PowerShell: `Unblock-File -LiteralPath .\jastreamer-server_0.2.2_windows-x64.zip`
+- Or in PowerShell: `Unblock-File -LiteralPath .\jastreamer-server_0.2.3_windows-x64.zip`
 
 Only unblock a file whose SHA-256 you verified against the release. Do not disable SmartScreen, Defender, or the firewall, and do not run the packages as Administrator.
 
@@ -114,11 +114,11 @@ A supplied multi-platform `.oci` cannot be passed to `docker load` directly. Whe
 ```sh
 ARCH=amd64  # or arm64
 skopeo copy --override-os linux --override-arch "$ARCH" \
-  oci-archive:jastreamer-server_0.2.2_linux_amd64-arm64.oci \
-  docker-archive:jastreamer-server_0.2.2_linux_${ARCH}.tar:jastreamer-server:0.2.2
-sha256sum jastreamer-server_0.2.2_linux_${ARCH}.tar
-docker load --input jastreamer-server_0.2.2_linux_${ARCH}.tar
-docker image inspect --format '{{.Id}}' jastreamer-server:0.2.2
+  oci-archive:jastreamer-server_0.2.3_linux_amd64-arm64.oci \
+  docker-archive:jastreamer-server_0.2.3_linux_${ARCH}.tar:jastreamer-server:0.2.3
+sha256sum jastreamer-server_0.2.3_linux_${ARCH}.tar
+docker load --input jastreamer-server_0.2.3_linux_${ARCH}.tar
+docker image inspect --format '{{.Id}}' jastreamer-server:0.2.3
 ```
 
 <a id="linux-server"></a>
@@ -194,7 +194,7 @@ An empty music folder has nothing to play: put music in the approved root, then 
 Download the Windows Server ZIP, its `.sha256`, the manifest, and the verification receipt from the selected release, then [unblock the ZIP](#windows-unblock) and compare its bytes before extracting:
 
 ```powershell
-$file = '.\jastreamer-server_0.2.2_windows-x64.zip'
+$file = '.\jastreamer-server_0.2.3_windows-x64.zip'
 $expected = (Get-Content "$file.sha256" -Raw).Split()[0].ToLowerInvariant()
 $actual = (Get-FileHash $file -Algorithm SHA256).Hash.ToLowerInvariant()
 if ($actual -ne $expected) { throw 'Windows Server ZIP checksum mismatch' }
@@ -224,10 +224,10 @@ Adding samples to an existing installation is a separate opt-in step described u
 <a id="desktop-windows"></a>
 ## Optional Windows x64 desktop
 
-The desktop app is a connection shell for an existing Server on Windows 10/11 x64. [Unblock](#windows-unblock) `jastreamer-desktop_0.2.2_windows-x64.zip`, compare it with the release checksum, then extract the complete `jastreamer-desktop` folder to a new writable local location and run `jastreamer-desktop.exe`. Do not run inside the ZIP or copy only the EXE.
+The desktop app is a connection shell for an existing Server on Windows 10/11 x64. [Unblock](#windows-unblock) `jastreamer-desktop_0.2.3_windows-x64.zip`, compare it with the release checksum, then extract the complete `jastreamer-desktop` folder to a new writable local location and run `jastreamer-desktop.exe`. Do not run inside the ZIP or copy only the EXE.
 
 ```powershell
-Get-FileHash .\jastreamer-desktop_0.2.2_windows-x64.zip -Algorithm SHA256
+Get-FileHash .\jastreamer-desktop_0.2.3_windows-x64.zip -Algorithm SHA256
 ```
 
 The Server screen separates discovered and recent Servers; pick a card's connection action, or use **Connect by address** and enter a host name or complete HTTP(S) root URL. The app verifies the Server before connecting, and neither discovery nor connection starts playback. Discovery queries every active IPv4 adapter every five seconds and follows adapter changes, but firewall or multicast restrictions can still force manual address entry.
@@ -241,23 +241,23 @@ To upgrade, verify and extract the new ZIP to a separate temporary folder, quit 
 <a id="desktop-macos"></a>
 ## Apple Silicon macOS Controller
 
-This is a client of an existing Server, not a Mac Server or an offline player. Install `jastreamer-desktop_0.2.2_macos-arm64-adhoc.dmg` from the official release, with its published checksum, manifest, verification and native-verification evidence from the same protected-main source revision. Do not substitute a local, private or pull-request DMG. The `JastreamerDesktopAudio` bridge requires matching 0.2.2 Windows/Mac Desktop and Server-hosted Web builds; the published 0.2.1 Server lacks it and 0.2.1 had no official Mac package. Update the Server and Desktop together with deployment approval, preserving configuration, database and client profiles: their schemas are unchanged and no new-install reset is needed.
+This is a client of an existing Server, not a Mac Server or an offline player. Install `jastreamer-desktop_0.2.3_macos-arm64-adhoc.dmg` from the official release, with its published checksum, manifest, verification and native-verification evidence from the same protected-main source revision. Do not substitute a local, private or pull-request DMG. The `JastreamerDesktopAudio` bridge was introduced in 0.2.2; an existing 0.2.2 Server and its hosted Web UI are sufficient for the 0.2.3 Mac desktop and its new system media controls. The published 0.2.1 Server lacks that bridge and 0.2.1 had no official Mac package. Upgrade older Desktop/Server bridge pairs together with deployment approval, preserving configuration, database and client profiles: their schemas are unchanged and no new-install reset is needed.
 
 Download the DMG and all five evidence/sidecar files from the same release:
 
 | Asset | Purpose |
 | --- | --- |
-| `jastreamer-desktop_0.2.2_macos-arm64-adhoc.dmg` | Read-only installer image containing the arm64 app |
-| `jastreamer-desktop_0.2.2_macos-arm64-adhoc.dmg.sha256` | DMG SHA-256 sidecar, also covered by release `SHA256SUMS` |
-| `jastreamer-desktop_0.2.2_macos-arm64.manifest.json` | Source revision, archive identity, architecture and signing limits |
-| `jastreamer-desktop_0.2.2_macos-arm64.verification.json` | Package verification receipt |
-| `jastreamer-desktop_0.2.2_macos-arm64.native-verification.json` | Native architecture and test evidence, not physical DAC qualification |
-| `jastreamer-desktop_0.2.2_macos-arm64.launch-verification.json` | Packaged UI launch against an isolated CI Server, not audible-output evidence |
+| `jastreamer-desktop_0.2.3_macos-arm64-adhoc.dmg` | Read-only installer image containing the arm64 app |
+| `jastreamer-desktop_0.2.3_macos-arm64-adhoc.dmg.sha256` | DMG SHA-256 sidecar, also covered by release `SHA256SUMS` |
+| `jastreamer-desktop_0.2.3_macos-arm64.manifest.json` | Source revision, archive identity, architecture and signing limits |
+| `jastreamer-desktop_0.2.3_macos-arm64.verification.json` | Package verification receipt |
+| `jastreamer-desktop_0.2.3_macos-arm64.native-verification.json` | Native architecture and test evidence, not physical DAC qualification |
+| `jastreamer-desktop_0.2.3_macos-arm64.launch-verification.json` | Packaged UI launch against an isolated CI Server, not audible-output evidence |
 
 On the Mac, verify the downloaded DMG before opening it:
 
 ```sh
-shasum -a 256 -c jastreamer-desktop_0.2.2_macos-arm64-adhoc.dmg.sha256
+shasum -a 256 -c jastreamer-desktop_0.2.3_macos-arm64-adhoc.dmg.sha256
 ```
 
 For local development only, build on native Apple Silicon macOS 13 or newer with Node.js 22.12+, Xcode Command Line Tools, CMake 3.25+ and Ninja already installed. Tool installation needs explicit approval; the build scripts do not install host software. These local builds are not promoted to official releases. From `apps/desktop`:
@@ -268,7 +268,7 @@ npm run package:mac
 ctest --test-dir native/audio/build-macos-arm64 --output-on-failure
 ```
 
-The local build verifies pinned FFmpeg and JSON source archives, builds the arm64 helper and shared FFmpeg libraries, and creates `dist/macos-arm64/jastreamer.app`, `jastreamer-desktop_0.2.2_macos-arm64-development.dmg`, its `.sha256` and `manifest.json`. `npm run verify:package:mac` checks architectures, relocatable libraries, signatures and the read-only DMG contents. An existing output app is not overwritten: retain it separately before rebuilding. Official CI instead produces the explicitly named `-adhoc.dmg` public artifact; its ad-hoc signature is not an Apple signing identity.
+The local build verifies pinned FFmpeg and JSON source archives, builds the arm64 helper and shared FFmpeg libraries, and creates `dist/macos-arm64/jastreamer.app`, `jastreamer-desktop_0.2.3_macos-arm64-development.dmg`, its `.sha256` and `manifest.json`. `npm run verify:package:mac` checks architectures, relocatable libraries, signatures and the read-only DMG contents. An existing output app is not overwritten: retain it separately before rebuilding. Official CI instead produces the explicitly named `-adhoc.dmg` public artifact; its ad-hoc signature is not an Apple signing identity.
 
 Verify the checksum, open the DMG and drag the app to Applications. Quit an existing app before replacing only its application bundle. Preserve `~/Library/Application Support/jastreamer-desktop`; accounts, recent Servers and audio preferences live there, not inside the app or DMG. Start the app and connect to the intended Server; browser audio remains the default. See [macOS audio](INSTRUCTION.md#macos-audio) before selecting a USB DAC.
 
@@ -277,18 +277,18 @@ The official DMG/app and local development builds are ad-hoc signed, not Develop
 <a id="desktop-linux"></a>
 ## Optional Linux amd64 desktop
 
-Use `jastreamer-desktop_0.2.2_linux-amd64.deb` on a graphical Linux amd64 system. Verify it against the release checksum and install through APT so dependencies resolve:
+Use `jastreamer-desktop_0.2.3_linux-amd64.deb` on a graphical Linux amd64 system. Verify it against the release checksum and install through APT so dependencies resolve:
 
 ```sh
-sha256sum -c jastreamer-desktop_0.2.2_linux-amd64.deb.sha256
-sudo apt install ./jastreamer-desktop_0.2.2_linux-amd64.deb
+sha256sum -c jastreamer-desktop_0.2.3_linux-amd64.deb.sha256
+sudo apt install ./jastreamer-desktop_0.2.3_linux-amd64.deb
 ```
 
 Launch **JASTREAMER** from the application menu as your ordinary user, or run `/usr/lib/jastreamer-desktop/jastreamer-desktop`. Never launch it with `sudo` or add `--no-sandbox`. Select a discovered Server or enter its complete HTTP(S) URL; this client needs no separate FFmpeg or audio player, and it has no Windows-style tray behaviour or native WASAPI output.
 
 The package keeps application files root-owned, installs `chrome-sandbox` as `root:root` mode `4755`, and on compatible AppArmor systems installs an executable-specific user-namespace profile for `/usr/lib/jastreamer-desktop/jastreamer-desktop`. It disables neither AppArmor nor the system-wide user-namespace restriction and preserves unmanaged policy; put local additions in `/etc/apparmor.d/local/jastreamer-desktop`. If launching fails, report the error and the installed permissions instead of weakening the sandbox.
 
-Recent Servers, language, cookies, and sessions live in `$XDG_CONFIG_HOME/jastreamer-desktop` (normally `~/.config/jastreamer-desktop`), not in the root-owned installation directory. Exit the app before installing an updated DEB and leave that profile in place. To reinstall the same package version, use `sudo apt install --reinstall ./jastreamer-desktop_0.2.2_linux-amd64.deb`. Keep the previous verified DEB for rollback.
+Recent Servers, language, cookies, and sessions live in `$XDG_CONFIG_HOME/jastreamer-desktop` (normally `~/.config/jastreamer-desktop`), not in the root-owned installation directory. Exit the app before installing an updated DEB and leave that profile in place. To reinstall the same package version, use `sudo apt install --reinstall ./jastreamer-desktop_0.2.3_linux-amd64.deb`. Keep the previous verified DEB for rollback.
 
 <a id="android"></a>
 ## Optional native Android client
@@ -299,20 +299,20 @@ The stable release attaches a signed APK built by CI from the same commit as the
 
 | Asset | What it is |
 | --- | --- |
-| `jastreamer-android_0.2.2_release.apk` | The installable app, signed with the jastreamer Android release key using the v2 and v3 signature schemes. Application ID `io.jastreamer.android`, version name 0.2.2, version code 20200 |
-| `jastreamer-android_0.2.2_release.apk.sha256` | Checksum sidecar for the exact published bytes; `SHA256SUMS` repeats the same value for every asset |
-| `jastreamer-android_0.2.2_release.manifest.json` | Receipt recording the source revision, application ID, SDK range, signature schemes, signer certificate SHA-256, and the unsigned CI APK that was signed |
+| `jastreamer-android_0.2.3_release.apk` | The installable app, signed with the jastreamer Android release key using the v2 and v3 signature schemes. Application ID `io.jastreamer.android`, version name 0.2.3, version code 20300 |
+| `jastreamer-android_0.2.3_release.apk.sha256` | Checksum sidecar for the exact published bytes; `SHA256SUMS` repeats the same value for every asset |
+| `jastreamer-android_0.2.3_release.manifest.json` | Receipt recording the source revision, application ID, SDK range, signature schemes, signer certificate SHA-256, and the unsigned CI APK that was signed |
 
 ### Verify and install the APK
 
 1. Download the APK, its `.sha256` sidecar, and `SHA256SUMS` from the release.
-2. Compare the downloaded bytes and the signer certificate with the two commands below. `apksigner` ships with the Android SDK build-tools; on Windows use `Get-FileHash .\jastreamer-android_0.2.2_release.apk -Algorithm SHA256` for the checksum.
-3. Transfer the verified APK to the phone and open it. Grant **Install unknown apps** to the app you opened it with only when Android asks, and revoke that permission afterwards. With an already-authorized ADB connection you can run `adb install jastreamer-android_0.2.2_release.apk` instead.
+2. Compare the downloaded bytes and the signer certificate with the two commands below. `apksigner` ships with the Android SDK build-tools; on Windows use `Get-FileHash .\jastreamer-android_0.2.3_release.apk -Algorithm SHA256` for the checksum.
+3. Transfer the verified APK to the phone and open it. Grant **Install unknown apps** to the app you opened it with only when Android asks, and revoke that permission afterwards. With an already-authorized ADB connection you can run `adb install jastreamer-android_0.2.3_release.apk` instead.
 4. Play Protect may warn that the app did not come from Google Play. That warning describes the distribution channel, not a detected problem: continue only if step 2 matched, and never disable Play Protect, certificate checks, or device security.
 
 ```sh
-sha256sum -c jastreamer-android_0.2.2_release.apk.sha256
-apksigner verify --print-certs jastreamer-android_0.2.2_release.apk
+sha256sum -c jastreamer-android_0.2.3_release.apk.sha256
+apksigner verify --print-certs jastreamer-android_0.2.3_release.apk
 ```
 
 The reported `Signer #1 certificate SHA-256 digest` must be `53285c2c239aff2927ebe6f5c6aebb82fdbb50956ed84b1e9f0222b2d925943e`. Some tools print the same fingerprint in uppercase with colons (`53:28:5C:2C:…:25:94:3E`); compare it with the value shown on the release page. If it differs, stop — a different key means a different app, not an update.
@@ -448,7 +448,7 @@ An upgrade preserves the current music, config, and data and adds no samples. On
 
 ### Desktop and client updates
 
-Ordinary Server-hosted Web updates need no desktop package replacement, but 0.2.2 changes the native desktop bridge: update Windows/Mac Desktop and Server Web together rather than mixing either side with 0.2.1. Server configuration and database schemas are unchanged; preserve the existing installation and do not rerun account setup or reset data. Follow the [Windows](#desktop-windows), [Linux](#desktop-linux) or [macOS](#desktop-macos) package procedure, preserving Windows `user-data`, the Linux per-user profile or `~/Library/Application Support/jastreamer-desktop` on Mac. A newer Android APK signed with the same release key installs over the existing app and keeps its data; iOS updates follow its own section.
+Ordinary Server-hosted Web updates need no desktop package replacement. Version 0.2.2 introduced the native desktop bridge: upgrade older Windows/Mac Desktop and Server Web bridge pairs together rather than mixing either side with 0.2.1. Version 0.2.3 adds Mac system media controls, which are absent from the 0.2.2 Mac package; an existing 0.2.2 Server and its hosted Web UI already support the 0.2.3 Mac desktop, so this feature needs no Server upgrade. Server configuration and database schemas are unchanged; preserve the existing installation and do not rerun account setup or reset data. Follow the [Windows](#desktop-windows), [Linux](#desktop-linux) or [macOS](#desktop-macos) package procedure, preserving Windows `user-data`, the Linux per-user profile or `~/Library/Application Support/jastreamer-desktop` on Mac. A newer Android APK signed with the same release key installs over the existing app and keeps its data; iOS updates follow its own section.
 
 <a id="rollback"></a>
 ## Rollback

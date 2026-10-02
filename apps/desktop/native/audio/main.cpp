@@ -8,6 +8,9 @@
 #else
 #include <csignal>
 #endif
+#ifdef __APPLE__
+#include "media_controls_macos.hpp"
+#endif
 
 #include <algorithm>
 #include <array>
@@ -487,37 +490,29 @@ void require_fence(const TransportFenceDecision& decision) {
     throw EngineError("action_failed", "Transport command was rejected");
 }
 
-#ifdef _WIN32
-void validate_smtc(nlohmann::json& params) {
+void validate_media_controls(nlohmann::json& params) {
     (void)required_bool(params, "enabled");
     const auto state = required_string(params, "state", 32);
     if (state != "playing" && state != "paused" && state != "changing" && state != "stopped")
-        throw EngineError("invalid_argument", "Invalid SMTC playback state");
+        throw EngineError("invalid_argument", "Invalid media controls playback state");
     const auto position = signed_integer(params, "position_ms");
     const auto duration = signed_integer(params, "duration_ms");
-    if (position < 0 || duration < 0) throw EngineError("invalid_argument", "SMTC timeline cannot be negative");
+    if (position < 0 || duration < 0) throw EngineError("invalid_argument", "Media controls timeline cannot be negative");
     if (params.contains("seekable") && !params["seekable"].is_boolean())
-        throw EngineError("invalid_argument", "SMTC seekable must be boolean");
+        throw EngineError("invalid_argument", "Media controls seekable must be boolean");
     if (!params.contains("seekable")) params["seekable"] = false;
     for (const auto* key : {"title", "artist", "album"}) require_bounded_string(params, key);
     if (params.contains("artwork_base64") &&
         (!params["artwork_base64"].is_string() ||
          params["artwork_base64"].get_ref<const std::string&>().size() > 192 * 1024))
-        throw EngineError("invalid_argument", "SMTC artwork is too large");
+        throw EngineError("invalid_argument", "Media controls artwork is too large");
 }
-#endif
 
 } // namespace
 } // namespace jastreamer
 
-int main(int argc, char** argv) {
+static int run_native_audio() {
     using namespace jastreamer;
-    if (argc == 2 && std::string(argv[1]) == "--protocol-version") {
-        std::cout << nlohmann::json{{"protocol", "jastreamer-native-audio"},
-                                    {"version", kNativeAudioProtocolVersion}}.dump() << '\n';
-        return 0;
-    }
-    if (argc != 1) return 2;
 #ifdef _WIN32
     if (FAILED(CoInitializeEx(nullptr, COINIT_MULTITHREADED))) return 3;
 #else
@@ -556,7 +551,11 @@ int main(int argc, char** argv) {
         fence.release(*lease);
     };
 #ifdef _WIN32
-    Smtc smtc([&](nlohmann::json event) {
+    Smtc media_controls([&](nlohmann::json event) {
+        try { protocol.notify(event); } catch (...) { reads.close(); }
+    });
+#else
+    MacMediaControls media_controls([&](nlohmann::json event) {
         try { protocol.notify(event); } catch (...) { reads.close(); }
     });
 #endif
@@ -566,8 +565,10 @@ int main(int argc, char** argv) {
             event.contains("observation") && event["observation"].is_object() &&
             event["observation"].contains("event") && event["observation"]["event"].is_string()) {
             const auto& name = event["observation"]["event"].get_ref<const std::string&>();
-            if (name == "ended" || name == "error")
+            if (name == "ended" || name == "error") {
                 complete_engine_media(event["play_id"].get_ref<const std::string&>());
+                media_controls.clear();
+            }
         }
         try { protocol.notify(event); } catch (...) { reads.close(); }
     });
@@ -637,6 +638,7 @@ int main(int argc, char** argv) {
                     result = engine.pause(play_id, sequence);
                 } else if (command.method == "stop") {
                     const auto [play_id, sequence] = transport(true);
+                    media_controls.clear();
                     result = engine.stop(play_id, sequence);
                     if (queued.media) {
                         reads.finish(*queued.media);
@@ -649,18 +651,14 @@ int main(int argc, char** argv) {
                                          signed_integer(command.params, "position_ms"));
                 } else if (command.method == "set_volume") {
                     result = engine.set_volume(required_volume(command.params));
-#ifdef _WIN32
-                } else if (command.method == "smtc") {
-                    validate_smtc(command.params);
-                    smtc.update(command.params);
+                } else if (command.method == "media_controls") {
+                    validate_media_controls(command.params);
+                    media_controls.update(command.params);
                     result = engine.status();
-#endif
                 } else if (command.method == "shutdown") {
                     reads.close();
                     engine.shutdown();
-#ifdef _WIN32
-                    smtc.clear();
-#endif
+                    media_controls.clear();
                     result = nlohmann::json::object();
                     shutdown = true;
                 } else {
@@ -681,8 +679,8 @@ int main(int argc, char** argv) {
         }
         reads.close();
         engine.shutdown();
+        media_controls.clear();
 #ifdef _WIN32
-        smtc.clear();
         if (SUCCEEDED(worker_com)) CoUninitialize();
 #endif
     });
@@ -753,4 +751,18 @@ int main(int argc, char** argv) {
     CoUninitialize();
 #endif
     return 0;
+}
+
+int main(int argc, char** argv) {
+    if (argc == 2 && std::string(argv[1]) == "--protocol-version") {
+        std::cout << nlohmann::json{{"protocol", "jastreamer-native-audio"},
+                                  {"version", jastreamer::kNativeAudioProtocolVersion}}.dump() << '\n';
+        return 0;
+    }
+    if (argc != 1) return 2;
+#ifdef __APPLE__
+    return jastreamer::run_macos_audio_application(run_native_audio);
+#else
+    return run_native_audio();
+#endif
 }
