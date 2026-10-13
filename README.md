@@ -14,6 +14,7 @@ jastreamer 0.2.3 is a self-hosted music server for a trusted private LAN. A Serv
 
 | Topic | English | 한국어 |
 | --- | --- | --- |
+| Product website | [English](https://furyheimdall.github.io/jastreamer/) | [한국어](https://furyheimdall.github.io/jastreamer/ko/) |
 | Install, upgrade, rollback | [INSTALL.md](INSTALL.md) | [INSTALL.ko.md](INSTALL.ko.md) |
 | Everyday use and troubleshooting | [INSTRUCTION.md](INSTRUCTION.md) | [INSTRUCTION.ko.md](INSTRUCTION.ko.md) |
 | Product overview | README.md (this file) | [README.ko.md](README.ko.md) |
@@ -118,6 +119,8 @@ Stable releases (`vX.Y.Z`) are marked latest; older `vX.Y.Z-preview.N` entries r
 ## Contributing and support
 
 Questions, bug reports and feature requests belong in [GitHub Issues](https://github.com/furyheimdall/jastreamer/issues). Private vulnerability reporting is not enabled here, so report security problems through an issue without including credentials, private keys, tokens, secret-bearing logs or personal data. Contributor and agent rules — repository layout, build targets and safety boundaries — are in [AGENTS.md](AGENTS.md). Release notes and downloads are on the [Releases](https://github.com/furyheimdall/jastreamer/releases) page.
+
+The bilingual product website lives in [`site/`](site/): [English](site/index.html) and [한국어](site/ko/index.html), with real Web UI screenshots from an isolated synthetic library. Preview it with `python3 -m http.server 8000 --bind 127.0.0.1 --directory site`. Keep its release links in sync when publishing a new product version. Publishing is separate: after approved changes reach `main`, configure GitHub Pages to use **GitHub Actions**, then manually run the **Product website** workflow. It uploads only `site/`, never the Server, music, or application state.
 
 ## License
 

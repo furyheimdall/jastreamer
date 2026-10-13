@@ -1,0 +1,420 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>jastreamer — self-hosted music server for your private LAN</title>
+  <meta name="description" content="jastreamer 0.2.3 is a self-hosted music server for a trusted private LAN. A Linux or Windows Server indexes your local music, hosts the Web interface, keeps one shared queue and plays to the output you select: this device, UPnP/DLNA, optional Google Cast, or AirPlay from the Linux container.">
+  <meta name="color-scheme" content="dark">
+  <meta name="theme-color" content="#111315">
+  <meta name="referrer" content="strict-origin-when-cross-origin">
+  <link rel="alternate" hreflang="en" href="index.html">
+  <link rel="alternate" hreflang="ko" href="ko/index.html">
+  <link rel="icon" href="assets/jastreamer.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="assets/styles.css">
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="jastreamer — self-hosted music server for your private LAN">
+  <meta property="og:description" content="Index your own music on a Linux or Windows Server, keep one shared queue, and play to the output you choose.">
+  <meta property="og:locale" content="en_US">
+  <meta property="og:locale:alternate" content="ko_KR">
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+
+  <header class="site-header">
+    <div class="container header-inner">
+      <a class="brand" href="index.html" aria-label="jastreamer home">
+        <img src="assets/jastreamer.svg" width="32" height="32" alt="">
+        <span>jastreamer</span>
+      </a>
+      <nav class="site-nav" aria-label="Main">
+        <ul>
+          <li><a href="#features">Features</a></li>
+          <li><a href="#phone">Phone</a></li>
+          <li><a href="#download">Download</a></li>
+          <li><a href="#setup">Setup</a></li>
+          <li><a href="https://github.com/furyheimdall/jastreamer/blob/main/INSTALL.md">Docs</a></li>
+          <li><a href="https://github.com/furyheimdall/jastreamer">Source</a></li>
+        </ul>
+      </nav>
+      <a class="lang-switch" href="ko/index.html" hreflang="ko" lang="ko">
+        <span aria-hidden="true">KO</span>
+        <span>한국어</span>
+      </a>
+    </div>
+  </header>
+
+  <main id="main" tabindex="-1">
+    <section class="hero" aria-labelledby="hero-title">
+      <div class="container">
+        <p class="eyebrow">
+          <span>Self-hosted music server</span>
+          <span class="version-tag">v0.2.3</span>
+        </p>
+        <h1 id="hero-title">Your music.<br><em>The output you choose.</em></h1>
+        <p class="hero-lead">
+          Keep your music on your own Linux or Windows Server. Browse your library and control one shared queue from your computer or phone, then play through this device or a supported network output — all on your private LAN.
+        </p>
+        <div class="actions">
+          <a class="button button-primary" href="#download">Download 0.2.3</a>
+          <a class="button button-secondary" href="#setup">How setup works</a>
+        </div>
+        <ul class="hero-facts" aria-label="At a glance">
+          <li>Linux and Windows Server</li>
+          <li>No telemetry or analytics</li>
+          <li>English and Korean interface</li>
+          <li>Apache License 2.0</li>
+        </ul>
+
+        <figure class="hero-shot">
+          <div class="screen-frame">
+            <img src="assets/library-en.webp" width="1440" height="900" fetchpriority="high" decoding="async"
+              alt="The jastreamer Web interface in a desktop browser: the Albums view of the music library with eight sample albums and abstract artwork, the sidebar, and a stopped player bar.">
+          </div>
+          <figcaption class="shot-caption">
+            <span class="sample-badge">Sample library</span>
+            <span>Captured from the real jastreamer Web interface using synthetic sample tracks and original abstract artwork — not anyone’s personal music.</span>
+          </figcaption>
+        </figure>
+      </div>
+    </section>
+
+    <section class="section" id="features" aria-labelledby="features-title">
+      <div class="container">
+        <div class="section-head">
+          <p class="section-kicker">What it does</p>
+          <h2 id="features-title">A music library that lives on your network, not in someone else’s cloud.</h2>
+          <p>jastreamer plays only local files you own. The Server keeps the state; every browser, desktop app and phone shows the same Server-hosted interface.</p>
+        </div>
+
+        <ul class="feature-list">
+          <li>
+            <div>
+              <h3>Scans without touching your files</h3>
+              <p>FLAC, MP3, WAV/WAVE, Ogg/Vorbis, Opus and M4A from a read-only library. <strong>Scan now</strong> reuses saved results for unchanged files; a confirmed <strong>Full rescan</strong> rereads everything.</p>
+            </div>
+          </li>
+          <li>
+            <div>
+              <h3>Browse the way you think</h3>
+              <p>Tracks, albums, artists, genres and folders with embedded artwork and search. Folder actions apply to every matching track in subfolders.</p>
+            </div>
+          </li>
+          <li>
+            <div>
+              <h3>One queue for the whole house</h3>
+              <p>A Server-wide queue that preserves order and duplicates and survives restarts, with shared <strong>Shuffle</strong> and <strong>Repeat off / all / one</strong>, plus playlists.</p>
+            </div>
+          </li>
+          <li>
+            <div>
+              <h3>Likes and Most Played</h3>
+              <p>Server-wide likes and play counts, a <strong>Most Played</strong> view, and a one-time <strong>Shuffle liked into queue</strong> action. Counts live in the database, never in your file tags.</p>
+            </div>
+          </li>
+          <li>
+            <div>
+              <h3>Checks every file end to end</h3>
+              <p>Background audio verification with a filterable error and file-check history that you can export as CSV.</p>
+            </div>
+          </li>
+          <li>
+            <div>
+              <h3>Accounts on your terms</h3>
+              <p>First-account setup, password login, change and recovery, durable sessions, and an optional built-in HTTPS listener with your own trusted certificate.</p>
+            </div>
+          </li>
+        </ul>
+
+        <h3 class="visually-hidden">Supported outputs</h3>
+        <ul class="outputs">
+          <li><strong>This device</strong><span>Browser audio with a per-device output name and local volume.</span></li>
+          <li><strong>UPnP/DLNA</strong><span>Built in: discovers and controls renderers on your LAN.</span></li>
+          <li><strong>Google Cast</strong><span>Optional on both Server platforms; off by default.</span></li>
+          <li><strong>AirPlay</strong><span>Sending from the Linux container only, including PIN/password pairing.</span></li>
+        </ul>
+        <p class="fine-print">
+          Discovery needs multicast and private-LAN routes between Server, client and output (SSDP UDP 1900 for UPnP, mDNS UDP 5353 for Cast and AirPlay). Receivers differ — some lack pause or seeking, reject formats or require authentication — so confirm playback and sound on your own equipment.
+        </p>
+      </div>
+    </section>
+
+    <section class="section section-alt" id="phone" aria-labelledby="phone-title">
+      <div class="container split">
+        <div>
+          <div class="section-head">
+            <p class="section-kicker">On your phone</p>
+            <h2 id="phone-title">Made for the couch, too.</h2>
+            <p>iPhone and Android phone browsers get a four-tab layout with collapsible playback controls. Pick your phone as an output, or use it as a remote for the speaker across the room.</p>
+          </div>
+          <ul class="plain-list">
+            <li>
+              <h3>Android app</h3>
+              <p>A signed APK for Android 10+ adds system media controls, opt-in direct USB output to a USB Audio Class DAC, and <strong>Saved music</strong> — an independent offline library that plays without a Server or sign-in.</p>
+            </li>
+            <li>
+              <h3>Installable Web app (PWA)</h3>
+              <p>Optional, and needs a trusted HTTPS origin. It is a network client with no library cache, so it does not play offline.</p>
+            </li>
+            <li>
+              <h3>iPhone and iPad</h3>
+              <p>Use the Web interface in a browser: iPhone gets the phone layout; iPad keeps the standard layout. The native iOS client is controller-only and available as source and CI builds only — there is no App Store or TestFlight release.</p>
+            </li>
+          </ul>
+        </div>
+        <figure class="phone-shot">
+          <div class="phone-frame">
+            <img src="assets/mobile-en.webp" width="780" height="1688" loading="lazy" decoding="async"
+              alt="The jastreamer Web interface in a phone-sized browser window: the sample album After the Rain with its track list, a stopped compact player, and the four-tab bar.">
+          </div>
+          <figcaption>
+            <span class="sample-badge">Sample library</span>
+            Phone browser layout of the Server-hosted Web interface — not the native Android app.
+          </figcaption>
+        </figure>
+      </div>
+    </section>
+
+    <section class="section" id="download" aria-labelledby="download-title">
+      <div class="container">
+        <div class="section-head">
+          <p class="section-kicker">Download · version 0.2.3</p>
+          <h2 id="download-title">Start with a Server, then add the clients you want.</h2>
+          <p>All packages come from the <a href="https://github.com/furyheimdall/jastreamer/releases/tag/v0.2.3">v0.2.3 release on GitHub</a>. Verify each download before installing — the <a href="https://github.com/furyheimdall/jastreamer/blob/main/INSTALL.md">install guide</a> has the exact steps.</p>
+        </div>
+
+        <div class="notice" role="note" aria-labelledby="server-note-title">
+          <span class="notice-icon" aria-hidden="true">i</span>
+          <div>
+            <p id="server-note-title"><strong>Every client needs a running jastreamer Server.</strong></p>
+            <p>Desktop apps, phone browsers and the PWA all display the Server-hosted Web interface. The only exception is the Android app’s <strong>Saved music</strong>, which plays music already imported to the phone without a Server.</p>
+          </div>
+        </div>
+
+        <div class="dl-group">
+          <h3 id="dl-server">Server <small>Required. Runs on a Linux host, a Synology NAS or Windows.</small></h3>
+          <ul class="dl-rows" aria-labelledby="dl-server">
+            <li class="dl-row">
+              <div>
+                <h4>Linux or Synology <span class="tag tag-ok">amd64 · arm64</span></h4>
+                <p class="dl-meta">Container image <code>ghcr.io/furyheimdall/jastreamer-server</code></p>
+                <p class="limits">Includes the Web interface, audio-only FFmpeg and the AirPlay sender. Pin the immutable digest listed in the release, not a tag. <code>arm/v7</code> is not supported.</p>
+              </div>
+              <div class="dl-actions">
+                <a class="button button-primary" href="https://github.com/furyheimdall/jastreamer/blob/main/INSTALL.md#linux-server">Linux install guide</a>
+                <a class="text-link" href="https://github.com/furyheimdall/jastreamer/releases/tag/v0.2.3">Image digests</a>
+              </div>
+            </li>
+            <li class="dl-row">
+              <div>
+                <h4>Windows x64 <span class="tag">Not Authenticode-signed</span></h4>
+                <p class="dl-meta">Portable ZIP · <code>jastreamer-server_0.2.3_windows-x64.zip</code></p>
+                <p class="limits">Web interface, UPnP/DLNA and optional Cast. No AirPlay, no FFmpeg, and not a Windows service. SmartScreen may warn: verify the SHA-256 and unblock the ZIP before extracting.</p>
+              </div>
+              <div class="dl-actions">
+                <a class="button button-primary" href="https://github.com/furyheimdall/jastreamer/releases/download/v0.2.3/jastreamer-server_0.2.3_windows-x64.zip">Download ZIP</a>
+                <a class="text-link" href="https://github.com/furyheimdall/jastreamer/blob/main/INSTALL.md#windows-server">Windows Server guide</a>
+              </div>
+            </li>
+          </ul>
+        </div>
+
+        <div class="dl-group">
+          <h3 id="dl-desktop">Desktop apps <small>Optional clients of an existing Server. Browser audio by default.</small></h3>
+          <ul class="dl-rows" aria-labelledby="dl-desktop">
+            <li class="dl-row">
+              <div>
+                <h4>Windows 10/11 x64 <span class="tag">Not Authenticode-signed</span></h4>
+                <p class="dl-meta">Portable ZIP · <code>jastreamer-desktop_0.2.3_windows-x64.zip</code></p>
+                <p class="limits">Adds opt-in WASAPI Shared/Exclusive output and Windows media controls. No ARM64 package. Verify the SHA-256 and unblock the ZIP before extracting.</p>
+              </div>
+              <div class="dl-actions">
+                <a class="button button-primary" href="https://github.com/furyheimdall/jastreamer/releases/download/v0.2.3/jastreamer-desktop_0.2.3_windows-x64.zip">Download ZIP</a>
+                <a class="text-link" href="https://github.com/furyheimdall/jastreamer/blob/main/INSTALL.md#desktop-windows">Windows desktop guide</a>
+              </div>
+            </li>
+            <li class="dl-row">
+              <div>
+                <h4>macOS 13+ on Apple Silicon <span class="tag">Ad-hoc signed · not notarized</span></h4>
+                <p class="dl-meta">Disk image · <code>jastreamer-desktop_0.2.3_macos-arm64-adhoc.dmg</code></p>
+                <p class="limits">Adds opt-in CoreAudio Shared/Exclusive output to a USB DAC, plus Now Playing and system media controls. This official package has no Apple Developer ID signature and is not notarized, so Gatekeeper can block it — do not bypass macOS security. No Intel, Rosetta or Universal build.</p>
+              </div>
+              <div class="dl-actions">
+                <a class="button button-primary" href="https://github.com/furyheimdall/jastreamer/releases/download/v0.2.3/jastreamer-desktop_0.2.3_macos-arm64-adhoc.dmg">Download DMG</a>
+                <a class="text-link" href="https://github.com/furyheimdall/jastreamer/blob/main/INSTALL.md#desktop-macos">macOS guide</a>
+              </div>
+            </li>
+            <li class="dl-row">
+              <div>
+                <h4>Linux amd64</h4>
+                <p class="dl-meta">Debian package · <code>jastreamer-desktop_0.2.3_linux-amd64.deb</code></p>
+                <p class="limits">Browser audio only. Ubuntu 24.04 amd64 is the qualification target; no ARM64 package. Install through APT so dependencies resolve.</p>
+              </div>
+              <div class="dl-actions">
+                <a class="button button-primary" href="https://github.com/furyheimdall/jastreamer/releases/download/v0.2.3/jastreamer-desktop_0.2.3_linux-amd64.deb">Download DEB</a>
+                <a class="text-link" href="https://github.com/furyheimdall/jastreamer/blob/main/INSTALL.md#desktop-linux">Linux desktop guide</a>
+              </div>
+            </li>
+          </ul>
+        </div>
+
+        <div class="dl-group">
+          <h3 id="dl-mobile">Phones and browsers <small>Android app, iOS source, or any current browser on your LAN.</small></h3>
+          <ul class="dl-rows" aria-labelledby="dl-mobile">
+            <li class="dl-row">
+              <div>
+                <h4>Android 10+ <span class="tag tag-ok">Signed release APK</span></h4>
+                <p class="dl-meta">APK · <code>jastreamer-android_0.2.3_release.apk</code></p>
+                <p class="limits">Signed with the jastreamer release key; check the signer certificate before installing. Not distributed through Google Play, so Play Protect may warn about the source. <strong>Saved music</strong> works independently of the Server.</p>
+              </div>
+              <div class="dl-actions">
+                <a class="button button-primary" href="https://github.com/furyheimdall/jastreamer/releases/download/v0.2.3/jastreamer-android_0.2.3_release.apk">Download APK</a>
+                <a class="text-link" href="https://github.com/furyheimdall/jastreamer/blob/main/INSTALL.md#android">Android guide</a>
+              </div>
+            </li>
+            <li class="dl-row">
+              <div>
+                <h4>iOS / iPadOS 18.4+ <span class="tag">Source and CI only</span></h4>
+                <p class="dl-meta">No installable package</p>
+                <p class="limits">A controller-only native client built from source in CI. There is no App Store, TestFlight or other distributed build — on iPhone, use the browser layout.</p>
+              </div>
+              <div class="dl-actions">
+                <a class="button button-secondary" href="https://github.com/furyheimdall/jastreamer/blob/main/INSTALL.md#ios">iOS source and CI</a>
+              </div>
+            </li>
+            <li class="dl-row">
+              <div>
+                <h4>Browser or PWA</h4>
+                <p class="dl-meta">Served by your Server · nothing to download</p>
+                <p class="limits">Open the Server’s LAN address in any current browser. Installing it as a PWA needs a trusted HTTPS origin, and it is not an offline player.</p>
+              </div>
+              <div class="dl-actions">
+                <a class="button button-secondary" href="https://github.com/furyheimdall/jastreamer/blob/main/INSTALL.md#pwa">PWA guide</a>
+              </div>
+            </li>
+          </ul>
+        </div>
+
+        <div class="verify">
+          <h3>Verify before you install</h3>
+          <div>
+            <p>Every asset is listed in <a href="https://github.com/furyheimdall/jastreamer/releases/download/v0.2.3/SHA256SUMS"><code>SHA256SUMS</code></a>, each package ships a <code>.sha256</code> sidecar and manifest on the release page, and <a href="https://github.com/furyheimdall/jastreamer/releases/download/v0.2.3/release-provenance.json"><code>release-provenance.json</code></a> records the source revision and CI runs.</p>
+            <p>The Android signer certificate SHA-256 is <code>53285C2C239AFF2927EBE6F5C6AEBB82FDBB50956ED84B1E9F0222B2D925943E</code>. Read the <a href="https://github.com/furyheimdall/jastreamer/blob/main/README.md#code-signing-policy">code signing policy</a> for the status of every artifact.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section section-alt" id="setup" aria-labelledby="setup-title">
+      <div class="container">
+        <div class="section-head">
+          <p class="section-kicker">Setup</p>
+          <h2 id="setup-title">From release to first track in four steps.</h2>
+          <p>The Server needs writable <code>config</code> and <code>data</code> folders and read-only access to your music. Details for each platform are in the <a href="https://github.com/furyheimdall/jastreamer/blob/main/INSTALL.md">install guide</a>.</p>
+        </div>
+
+        <ol class="steps">
+          <li>
+            <h3>Pick and verify</h3>
+            <p>Choose a release and verify its checksums or image digest.</p>
+          </li>
+          <li>
+            <h3>Install the Server</h3>
+            <p>On <a href="https://github.com/furyheimdall/jastreamer/blob/main/INSTALL.md#linux-server">Linux or Synology</a> or <a href="https://github.com/furyheimdall/jastreamer/blob/main/INSTALL.md#windows-server">Windows</a>, with your music root read-only.</p>
+          </li>
+          <li>
+            <h3>Create your account</h3>
+            <p>Open the Server’s LAN URL, create the first account privately, set the music folder and run <strong>Settings → Library → Scan now</strong>.</p>
+          </li>
+          <li>
+            <h3>Pick an output and play</h3>
+            <p>Select an output, play a track and confirm you hear it. Everyday controls are in the <a href="https://github.com/furyheimdall/jastreamer/blob/main/INSTRUCTION.md">user guide</a>.</p>
+          </li>
+        </ol>
+
+        <div class="agent-note">
+          <p><strong>Prefer help from an AI agent?</strong> Send it this request, review the proposed paths and service changes yourself, and never paste passwords, private keys or tokens into the prompt.</p>
+          <blockquote>
+            <p>Help me install or update jastreamer from https://github.com/furyheimdall/jastreamer. Read and follow the repository’s AGENTS.md first.</p>
+          </blockquote>
+        </div>
+      </div>
+    </section>
+
+    <section class="section" id="boundaries" aria-labelledby="boundaries-title">
+      <div class="container">
+        <div class="section-head">
+          <p class="section-kicker">Know the limits</p>
+          <h2 id="boundaries-title">What jastreamer is not.</h2>
+          <p>Clear boundaries keep your music, your network and your expectations safe.</p>
+        </div>
+        <ul class="not-grid">
+          <li>
+            <h3>Not an Internet service</h3>
+            <p>It is designed for a trusted private LAN and must not be exposed publicly. Plain LAN HTTP encrypts neither credentials nor audio; use the built-in HTTPS listener where that matters.</p>
+          </li>
+          <li>
+            <h3>Not a cloud or subscription</h3>
+            <p>It plays only local files you own and never modifies them. There is no telemetry, analytics, update check or externally hosted content.</p>
+          </li>
+          <li>
+            <h3>Not a media server for other apps</h3>
+            <p>It discovers and controls UPnP/DLNA renderers and serves media to them; it is not a DLNA library for third-party players.</p>
+          </li>
+          <li>
+            <h3>Not an offline browser player</h3>
+            <p>The PWA has no library cache. Offline listening exists only in the Android app’s <strong>Saved music</strong>.</p>
+          </li>
+          <li>
+            <h3>Not self-updating or app-store software</h3>
+            <p>There is no in-app updater, Windows service or app-store listing. Download and verify each update yourself; Server updates keep your data.</p>
+          </li>
+        </ul>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <div class="container">
+      <div class="footer-grid">
+        <div class="footer-brand">
+          <a class="brand" href="index.html">
+            <img src="assets/jastreamer.svg" width="32" height="32" alt="">
+            <span>jastreamer</span>
+          </a>
+          <p>Self-hosted music server for a trusted private LAN. Maintained by <a href="https://github.com/furyheimdall">@furyheimdall</a>.</p>
+        </div>
+        <nav aria-labelledby="footer-docs">
+          <h2 id="footer-docs">Documentation</h2>
+          <ul>
+            <li><a href="https://github.com/furyheimdall/jastreamer/blob/main/README.md">Product overview</a></li>
+            <li><a href="https://github.com/furyheimdall/jastreamer/blob/main/INSTALL.md">Install, upgrade, rollback</a></li>
+            <li><a href="https://github.com/furyheimdall/jastreamer/blob/main/INSTRUCTION.md">User guide and troubleshooting</a></li>
+            <li><a href="https://github.com/furyheimdall/jastreamer/blob/main/AGENTS.md">Agent and contributor rules</a></li>
+          </ul>
+        </nav>
+        <nav aria-labelledby="footer-project">
+          <h2 id="footer-project">Project</h2>
+          <ul>
+            <li><a href="https://github.com/furyheimdall/jastreamer">Source code</a></li>
+            <li><a href="https://github.com/furyheimdall/jastreamer/releases">All releases</a></li>
+            <li><a href="https://github.com/furyheimdall/jastreamer/issues">Issues and support</a></li>
+            <li><a href="https://github.com/furyheimdall/jastreamer/blob/main/README.md#code-signing-policy">Code signing policy</a></li>
+          </ul>
+        </nav>
+        <nav aria-labelledby="footer-lang">
+          <h2 id="footer-lang">Language</h2>
+          <ul>
+            <li><a href="index.html" aria-current="page">English</a></li>
+            <li><a href="ko/index.html" hreflang="ko" lang="ko">한국어</a></li>
+          </ul>
+        </nav>
+      </div>
+      <div class="footer-base">
+        <p>jastreamer is licensed under the <a href="https://github.com/furyheimdall/jastreamer/blob/main/LICENSE">Apache License 2.0</a>.</p>
+        <p>This page uses no cookies, analytics or external resources.</p>
+      </div>
+    </div>
+  </footer>
+</body>
+</html>
