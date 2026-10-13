@@ -3,8 +3,8 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>jastreamer — self-hosted music server for your private LAN</title>
-  <meta name="description" content="jastreamer 0.2.3 is a self-hosted music server for a trusted private LAN. A Linux or Windows Server indexes your local music, hosts the Web interface, keeps one shared queue and plays to the output you select: this device, UPnP/DLNA, optional Google Cast, or AirPlay from the Linux container.">
+  <title>jastreamer — self-hosted music player and controller for your private LAN</title>
+  <meta name="description" content="jastreamer 0.2.3 is a self-hosted music player for a trusted private LAN. Control one shared queue from any computer or phone; your Linux or Windows Server plays it to the output you choose — a USB DAC on this device, UPnP/DLNA, optional Google Cast, or AirPlay from the Linux container.">
   <meta name="color-scheme" content="dark">
   <meta name="theme-color" content="#111315">
   <meta name="referrer" content="strict-origin-when-cross-origin">
@@ -13,8 +13,8 @@
   <link rel="icon" href="assets/jastreamer.svg" type="image/svg+xml">
   <link rel="stylesheet" href="assets/styles.css">
   <meta property="og:type" content="website">
-  <meta property="og:title" content="jastreamer — self-hosted music server for your private LAN">
-  <meta property="og:description" content="Index your own music on a Linux or Windows Server, keep one shared queue, and play to the output you choose.">
+  <meta property="og:title" content="jastreamer — self-hosted music player and controller for your private LAN">
+  <meta property="og:description" content="Control one shared queue from any computer or phone, and let your own Server play it to a USB DAC or a network receiver you choose.">
   <meta property="og:locale" content="en_US">
   <meta property="og:locale:alternate" content="ko_KR">
 </head>
@@ -29,8 +29,9 @@
       </a>
       <nav class="site-nav" aria-label="Main">
         <ul>
-          <li><a href="#features">Features</a></li>
-          <li><a href="#phone">Phone</a></li>
+          <li><a href="#player">Player</a></li>
+          <li><a href="#listening">Listening</a></li>
+          <li><a href="#features">Library</a></li>
           <li><a href="#download">Download</a></li>
           <li><a href="#setup">Setup</a></li>
           <li><a href="https://github.com/furyheimdall/jastreamer/blob/main/INSTALL.md">Docs</a></li>
@@ -48,41 +49,196 @@
     <section class="hero" aria-labelledby="hero-title">
       <div class="container">
         <p class="eyebrow">
-          <span>Self-hosted music server</span>
+          <span>Self-hosted music player</span>
           <span class="version-tag">v0.2.3</span>
         </p>
-        <h1 id="hero-title">Your music.<br><em>The output you choose.</em></h1>
+        <h1 id="hero-title">Play from any screen.<br><em>Hear it where you choose.</em></h1>
         <p class="hero-lead">
-          Keep your music on your own Linux or Windows Server. Browse your library and control one shared queue from your computer or phone, then play through this device or a supported network output — all on your private LAN.
+          jastreamer is a carefully designed player for the music on your own Linux or Windows Server. Queue and control it from any computer or phone on your private LAN, and the Server plays to the output you pick — a USB DAC on this device, or a UPnP/DLNA, Google Cast or AirPlay receiver across the room.
         </p>
         <div class="actions">
           <a class="button button-primary" href="#download">Download 0.2.3</a>
-          <a class="button button-secondary" href="#setup">How setup works</a>
+          <a class="button button-secondary" href="#player">Tour the Player</a>
         </div>
         <ul class="hero-facts" aria-label="At a glance">
+          <li>One shared queue on every device</li>
           <li>Linux and Windows Server</li>
           <li>No telemetry or analytics</li>
           <li>English and Korean interface</li>
-          <li>Apache License 2.0</li>
         </ul>
 
         <figure class="hero-shot">
           <div class="screen-frame">
-            <img src="assets/library-en.webp" width="1440" height="900" fetchpriority="high" decoding="async"
-              alt="The jastreamer Web interface in a desktop browser: the Albums view of the music library with eight sample albums and abstract artwork, the sidebar, and a stopped player bar.">
+            <img src="assets/player-en.webp" width="1440" height="900" fetchpriority="high" decoding="async"
+              alt="The jastreamer Web interface in a desktop browser: the Queue view with four sample tracks and their reorder, like, remove and save actions, and the Player bar below with Open Windows loaded and stopped at 0:00 of 3:00, transport, shuffle and repeat, output selector and local volume.">
           </div>
           <figcaption class="shot-caption">
             <span class="sample-badge">Sample library</span>
-            <span>Captured from the real jastreamer Web interface using synthetic sample tracks and original abstract artwork — not anyone’s personal music.</span>
+            <span>The real jastreamer Player, captured with synthetic sample tracks and original abstract artwork — not anyone’s personal music.</span>
           </figcaption>
         </figure>
+      </div>
+    </section>
+
+    <section class="section" id="player" aria-labelledby="player-title">
+      <div class="container">
+        <div class="section-head">
+          <p class="section-kicker">The Player</p>
+          <h2 id="player-title">Every control you reach for, right where you expect it.</h2>
+          <p>The player stays with you in every view and shows what is playing and where. Every computer and phone drives the same Server queue, so moving from the desk to the couch never means rebuilding what you were listening to.</p>
+        </div>
+
+        <div class="player-grid">
+          <div>
+            <ul class="control-list">
+              <li>
+                <h3>Transport that follows the output</h3>
+                <p>Play/Pause, Stop, Previous, Next and a seek bar. Commands go to the Server, which drives the selected output; seeking is offered where that output supports it.</p>
+              </li>
+              <li>
+                <h3>Shuffle and repeat, shared</h3>
+                <p><strong>Sequential / Shuffle</strong> and <strong>Repeat off / all / one</strong> apply to the shared queue on every device. Shuffle plays a random order without scrambling the list you see, and <strong>Play next</strong> stays next.</p>
+              </li>
+              <li>
+                <h3>A queue you can edit mid-song</h3>
+                <p><strong>Play next</strong>, <strong>Add to queue end</strong>, or remove any entry — even the one playing — without interrupting the music. Order and duplicates are kept, and the queue survives Server restarts without playing by itself.</p>
+              </li>
+              <li>
+                <h3>Outputs inside the player</h3>
+                <p>Choose the <strong>Output device</strong> while stopped, use <strong>Find output devices again</strong> after switching a receiver on, pair AirPlay with its PIN, and set <strong>Local volume</strong> for this device without touching system volume.</p>
+              </li>
+              <li>
+                <h3>Know what you are hearing</h3>
+                <p><strong>Track information</strong> shows codec, sample rate, bit depth, channels and play count. On a native exclusive or direct-USB path, a badge beside the track reads <strong>Bit-perfect</strong> or <strong>Not bit-perfect</strong> with the reason — <a href="#bit-perfect">see what it covers</a>.</p>
+              </li>
+            </ul>
+
+            <div class="phone-note" id="phone">
+              <h3>On your phone</h3>
+              <p>iPhone and Android phone browsers switch to a four-tab layout automatically. The compact player keeps Play/Pause, Stop and <strong>Playback modes</strong> under your thumb; expand it for seek, Previous/Next, shuffle, repeat and output selection. Controls are at least 44×44 pixels, and changing tabs collapses the player without stopping the music.</p>
+              <p>The Android app adds system media controls, direct USB output to a DAC for Server playback, and an offline <strong>Saved music</strong> library. The native iOS client is controller-only and available as source and CI builds only.</p>
+            </div>
+          </div>
+
+          <figure class="phone-pair">
+            <div class="phone-pair-shots">
+              <div class="phone-pair-item">
+                <div class="phone-frame">
+                  <img src="assets/mobile-en.webp" width="780" height="1688" loading="lazy" decoding="async"
+                    alt="Phone browser layout while browsing: the sample album After the Rain with its track list, the compact player and the four-tab bar.">
+                </div>
+                <p class="phone-label">Compact player</p>
+              </div>
+              <div class="phone-pair-item">
+                <div class="phone-frame">
+                  <img src="assets/player-phone-en.webp" width="780" height="1688" loading="lazy" decoding="async"
+                    alt="Phone-sized browser with Playback controls expanded: the sample track Open Windows stopped at 0:00, the seek bar, Previous and Next, Sequential and Repeat off, the output selector set to Desk browser [Local audio], and Play and Stop.">
+                </div>
+                <p class="phone-label">Expanded player</p>
+              </div>
+            </div>
+            <figcaption>
+              <span class="sample-badge">Sample library</span>
+              Phone browser layout of the Server-hosted Web interface, captured with synthetic sample tracks — not the native Android app.
+            </figcaption>
+          </figure>
+        </div>
+      </div>
+    </section>
+
+    <section class="section section-alt" id="listening" aria-labelledby="listening-title">
+      <div class="container">
+        <div class="section-head">
+          <p class="section-kicker">How listening works</p>
+          <h2 id="listening-title">Your phone is the remote. The Server plays the music.</h2>
+          <p>Every jastreamer screen is a controller. It sends commands to one Server, which owns the library, the queue and the selected output and streams to that output itself. For network listening, the audio never detours through the phone in your hand.</p>
+        </div>
+
+        <div class="listening-split">
+          <div>
+            <ol class="roles" aria-label="Roles in jastreamer">
+              <li>
+                <h3>Controller</h3>
+                <p>A browser, the desktop app or a phone. Browses the library and sends Play, Pause, Next, Seek and output choices.</p>
+              </li>
+              <li>
+                <h3>Server</h3>
+                <p>Your Linux or Windows machine. Keeps the library, the one shared queue and playback state, and sends audio to the one selected output.</p>
+              </li>
+              <li>
+                <h3>Output</h3>
+                <p>Where sound comes out: <strong>This device</strong> — speakers or a USB DAC on the computer or phone you are using — or a network receiver.</p>
+              </li>
+            </ol>
+
+            <div class="use-cases">
+              <div>
+                <h3>Close listening: a USB DAC on this device</h3>
+                <p>Select <strong>This device</strong> on the computer or Android phone your DAC is plugged into. The Windows and Mac apps can opt in to native WASAPI or CoreAudio output, and the Android app to experimental direct USB. The Server still owns the queue, so another controller can pause or skip from across the room.</p>
+              </div>
+              <div>
+                <h3>Around the house: network receivers</h3>
+                <p>Select a UPnP/DLNA renderer, a Google Cast device or an AirPlay receiver. The Server streams to it directly, so your phone can lock or close the page and the music keeps playing — pick it up again from any controller.</p>
+              </div>
+            </div>
+          </div>
+
+          <figure class="concept-shot">
+            <img src="assets/listening-en.svg" width="720" height="1400" loading="lazy" decoding="async"
+              alt="Concept illustration in three parts. Control: a phone and a laptop browser send commands only to the jastreamer Server, which holds the library, the queue and one selected output. Local listening: the Server’s audio goes to the Windows or macOS desktop app with a USB DAC and headphones, or to the Android app with a USB DAC dongle, using opt-in exclusive or USB-direct output. Or network listening: the Server streams to a UPnP/DLNA renderer or AirPlay receiver with speakers; AirPlay sending needs the Linux container Server.">
+            <figcaption>
+              <span class="concept-badge">Concept illustration</span>
+              A simplified diagram of roles and audio paths — not a screenshot or a specific product.
+            </figcaption>
+          </figure>
+        </div>
+
+        <h3 class="visually-hidden">Supported outputs</h3>
+        <ul class="outputs">
+          <li><strong>This device</strong><span>The computer or phone you are using. The Windows, Mac and Android apps add opt-in exclusive or direct-USB output to a DAC.</span></li>
+          <li><strong>UPnP/DLNA</strong><span>Built in: discovers and controls renderers on your LAN.</span></li>
+          <li><strong>Google Cast</strong><span>Optional on both Server platforms; off by default.</span></li>
+          <li><strong>AirPlay</strong><span>Sending from the Linux container only, including PIN/password pairing.</span></li>
+        </ul>
+        <p class="fine-print">
+          Discovery needs multicast and private-LAN routes between Server, controller and output (SSDP UDP 1900 for UPnP, mDNS UDP 5353 for Cast and AirPlay). Receivers differ — some lack pause or seeking, reject formats or require authentication — so confirm playback and sound on your own equipment.
+        </p>
+
+        <div class="bit-perfect" id="bit-perfect">
+          <div class="bit-perfect-head">
+            <h3>Bit-perfect, with the conditions spelled out</h3>
+            <p>On a native exclusive path, jastreamer can pass the samples of a lossless file toward your DAC without a system mixer, resampling or volume scaling in between. The player shows when that is actually happening instead of assuming it from a switch.</p>
+          </div>
+          <div class="bit-perfect-grid">
+            <div>
+              <h4>Where it is available</h4>
+              <ul class="check-list">
+                <li><strong>Windows 10/11 app</strong> — Windows native backend with <strong>Exclusive</strong> on (WASAPI Exclusive); confirm the actual path on your own Windows audio hardware. <a href="https://github.com/furyheimdall/jastreamer/blob/main/INSTRUCTION.md#windows-audio">Windows audio guide</a></li>
+                <li><strong>Apple Silicon Mac app</strong> — CoreAudio backend with <strong>Exclusive</strong> on, to a USB DAC; hardware-tested so far with one DAC (FIIO M33R2R on macOS 26.6.2). <a href="https://github.com/furyheimdall/jastreamer/blob/main/INSTRUCTION.md#macos-audio">macOS audio guide</a></li>
+                <li><strong>Android app</strong> — <strong>USB bit-perfect (direct USB)</strong> to a USB Audio Class DAC for Server playback on the phone; <strong>Saved music</strong> keeps the standard Android output. An experimental option shown after turning on Settings → General → Experimental features. <a href="https://github.com/furyheimdall/jastreamer/blob/main/INSTRUCTION.md#android-controls">Android guide</a></li>
+              </ul>
+              <h4>The badge reads Bit-perfect only when</h4>
+              <ul class="check-list">
+                <li>the source is lossless and the Server reports it untransformed;</li>
+                <li>sample rate, channels and precision are unchanged (zero-padding into a wider container keeps the original bits);</li>
+                <li>app volume is at 100% — exclusive and direct-USB modes fix it there, so set the level on your DAC or amplifier;</li>
+                <li>the exclusive or direct-USB path is actually running, not just requested.</li>
+              </ul>
+              <p>While that native path is active, an altered signal is reported as <strong>Not bit-perfect</strong> with the reason. Merely selecting the mode does not earn a badge.</p>
+            </div>
+            <div class="scope-notes">
+              <p><strong>What it covers.</strong> The badge describes jastreamer’s application path only. It does not verify the driver, DSP inside the DAC, or the physical output, and results depend on each device — check the negotiated path on your own hardware.</p>
+              <p><strong>Where it never appears.</strong> Browser audio (including the PWA and Linux desktop), shared or system output, UPnP/DLNA, Google Cast and AirPlay. Network delivery and receiver processing can involve conversion or resampling, so jastreamer does not claim bit-perfect playback for these paths.</p>
+            </div>
+          </div>
+        </div>
       </div>
     </section>
 
     <section class="section" id="features" aria-labelledby="features-title">
       <div class="container">
         <div class="section-head">
-          <p class="section-kicker">What it does</p>
+          <p class="section-kicker">Your library</p>
           <h2 id="features-title">A music library that lives on your network, not in someone else’s cloud.</h2>
           <p>jastreamer plays only local files you own. The Server keeps the state; every browser, desktop app and phone shows the same Server-hosted interface.</p>
         </div>
@@ -102,8 +258,8 @@
           </li>
           <li>
             <div>
-              <h3>One queue for the whole house</h3>
-              <p>A Server-wide queue that preserves order and duplicates and survives restarts, with shared <strong>Shuffle</strong> and <strong>Repeat off / all / one</strong>, plus playlists.</p>
+              <h3>Playlists for every device</h3>
+              <p>Build playlists on the Server and queue them from any computer or phone with <strong>Play all</strong>, <strong>Play next</strong> or <strong>Add to queue end</strong>.</p>
             </div>
           </li>
           <li>
@@ -125,53 +281,6 @@
             </div>
           </li>
         </ul>
-
-        <h3 class="visually-hidden">Supported outputs</h3>
-        <ul class="outputs">
-          <li><strong>This device</strong><span>Browser audio with a per-device output name and local volume.</span></li>
-          <li><strong>UPnP/DLNA</strong><span>Built in: discovers and controls renderers on your LAN.</span></li>
-          <li><strong>Google Cast</strong><span>Optional on both Server platforms; off by default.</span></li>
-          <li><strong>AirPlay</strong><span>Sending from the Linux container only, including PIN/password pairing.</span></li>
-        </ul>
-        <p class="fine-print">
-          Discovery needs multicast and private-LAN routes between Server, client and output (SSDP UDP 1900 for UPnP, mDNS UDP 5353 for Cast and AirPlay). Receivers differ — some lack pause or seeking, reject formats or require authentication — so confirm playback and sound on your own equipment.
-        </p>
-      </div>
-    </section>
-
-    <section class="section section-alt" id="phone" aria-labelledby="phone-title">
-      <div class="container split">
-        <div>
-          <div class="section-head">
-            <p class="section-kicker">On your phone</p>
-            <h2 id="phone-title">Made for the couch, too.</h2>
-            <p>iPhone and Android phone browsers get a four-tab layout with collapsible playback controls. Pick your phone as an output, or use it as a remote for the speaker across the room.</p>
-          </div>
-          <ul class="plain-list">
-            <li>
-              <h3>Android app</h3>
-              <p>A signed APK for Android 10+ adds system media controls, opt-in direct USB output to a USB Audio Class DAC, and <strong>Saved music</strong> — an independent offline library that plays without a Server or sign-in.</p>
-            </li>
-            <li>
-              <h3>Installable Web app (PWA)</h3>
-              <p>Optional, and needs a trusted HTTPS origin. It is a network client with no library cache, so it does not play offline.</p>
-            </li>
-            <li>
-              <h3>iPhone and iPad</h3>
-              <p>Use the Web interface in a browser: iPhone gets the phone layout; iPad keeps the standard layout. The native iOS client is controller-only and available as source and CI builds only — there is no App Store or TestFlight release.</p>
-            </li>
-          </ul>
-        </div>
-        <figure class="phone-shot">
-          <div class="phone-frame">
-            <img src="assets/mobile-en.webp" width="780" height="1688" loading="lazy" decoding="async"
-              alt="The jastreamer Web interface in a phone-sized browser window: the sample album After the Rain with its track list, a stopped compact player, and the four-tab bar.">
-          </div>
-          <figcaption>
-            <span class="sample-badge">Sample library</span>
-            Phone browser layout of the Server-hosted Web interface — not the native Android app.
-          </figcaption>
-        </figure>
       </div>
     </section>
 
@@ -368,6 +477,10 @@
           <li>
             <h3>Not self-updating or app-store software</h3>
             <p>There is no in-app updater, Windows service or app-store listing. Download and verify each update yourself; Server updates keep your data.</p>
+          </li>
+          <li>
+            <h3>Not a multiroom or phone-relay system</h3>
+            <p>The Server plays to one selected output at a time; there is no synchronized multiroom playback. For network outputs the phone only sends commands — audio goes from the Server to the receiver.</p>
           </li>
         </ul>
       </div>
