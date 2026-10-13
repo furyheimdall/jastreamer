@@ -2,8 +2,14 @@ name: Server, Web, and Desktop CI
 
 on:
   pull_request:
+    paths-ignore:
+      - 'site/**'
+      - '**/*.md'
   push:
     branches: [main]
+    paths-ignore:
+      - 'site/**'
+      - '**/*.md'
 
 permissions:
   contents: read

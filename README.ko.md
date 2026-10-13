@@ -122,6 +122,8 @@ apksigner verify --print-certs jastreamer-android_0.2.3_release.apk
 
 영문·한국어 제품 소개 사이트는 [`site/`](site/)에 있습니다([English](site/index.html) · [한국어](site/ko/index.html)). 별도 합성 보관함에서 촬영한 실제 Web 화면·플레이어 캡처와 개념도임을 명시한 청취 방식 그림을 포함하며, `python3 -m http.server 8000 --bind 127.0.0.1 --directory site`로 미리 볼 수 있습니다. 제품 릴리즈를 갱신할 때 사이트의 다운로드 링크도 함께 맞추세요. 공개 게시는 별도입니다. 승인된 변경이 `main`에 반영되면 GitHub Pages 소스를 **GitHub Actions**로 설정하고 **Product website** 워크플로를 수동 실행합니다. `site/`만 게시하며 Server·음악·앱 상태는 올리지 않습니다.
 
+PR과 `main` 푸시에서 변경 파일이 모두 `site/` 아래이거나 Markdown(`**/*.md`) 문서이면 Server·Web·Desktop, Android, iOS 자동 CI를 건너뜁니다. 앱 리소스, 빌드·배포 설정, 워크플로 등 다른 경로가 하나라도 함께 바뀌면 기존 CI를 그대로 실행합니다. 기존 iOS 수동 검증, 제품 사이트 게시, 릴리즈 워크플로는 변경하지 않습니다.
+
 ## 라이선스
 
 jastreamer는 [Apache License 2.0](LICENSE)으로 배포합니다. 패키지에 포함된 제3자 구성 요소에는 각자의 라이선스가 적용되므로, 전달받은 서버 패키지의 `THIRD-PARTY-NOTICES.txt` 또는 컨테이너의 `/usr/share/jastreamer/THIRD-PARTY-NOTICES.txt`를 확인하세요.
