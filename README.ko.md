@@ -14,6 +14,7 @@ jastreamer 0.2.3은 신뢰하는 사설 LAN에서 쓰는 자체 호스팅 음악
 
 | 주제 | 한국어 | English |
 | --- | --- | --- |
+| 제품 소개 사이트 | [한국어](https://furyheimdall.github.io/jastreamer/ko/) | [English](https://furyheimdall.github.io/jastreamer/) |
 | 설치·업데이트·복구 | [INSTALL.ko.md](INSTALL.ko.md) | [INSTALL.md](INSTALL.md) |
 | 일상적인 사용과 문제 해결 | [INSTRUCTION.ko.md](INSTRUCTION.ko.md) | [INSTRUCTION.md](INSTRUCTION.md) |
 | 제품 소개 | README.ko.md (이 문서) | [README.md](README.md) |
@@ -118,6 +119,8 @@ apksigner verify --print-certs jastreamer-android_0.2.3_release.apk
 ## 기여와 지원
 
 질문, 버그 신고, 기능 제안은 [GitHub Issues](https://github.com/furyheimdall/jastreamer/issues)에 남겨 주세요. 이 저장소는 비공개 취약점 신고 기능을 켜 두지 않았으므로 보안 문제도 이슈로 알리되, 인증 정보·개인 키·토큰·비밀이 담긴 로그·개인정보는 넣지 마세요. 저장소 구성, 빌드 대상, 안전 규칙 같은 기여자·에이전트 지침은 [AGENTS.md](AGENTS.md)(영어)에 있습니다. 변경 내역과 내려받기는 [Releases](https://github.com/furyheimdall/jastreamer/releases) 페이지에서 확인하세요.
+
+영문·한국어 제품 소개 사이트는 [`site/`](site/)에 있습니다([English](site/index.html) · [한국어](site/ko/index.html)). 별도 합성 보관함에서 촬영한 실제 Web 화면을 포함하며, `python3 -m http.server 8000 --bind 127.0.0.1 --directory site`로 미리 볼 수 있습니다. 제품 릴리즈를 갱신할 때 사이트의 다운로드 링크도 함께 맞추세요. 공개 게시는 별도입니다. 승인된 변경이 `main`에 반영되면 GitHub Pages 소스를 **GitHub Actions**로 설정하고 **Product website** 워크플로를 수동 실행합니다. `site/`만 게시하며 Server·음악·앱 상태는 올리지 않습니다.
 
 ## 라이선스
 
