@@ -1,0 +1,165 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 1400" width="720" height="1400" role="img" aria-labelledby="t d" lang="en">
+  <title id="t">Concept illustration: how listening works with jastreamer</title>
+  <desc id="d">Three stacked scenes. 1 Control: a phone and a laptop browser send commands only (dashed line) to the home Server; audio is not relayed through the controlling screen. The Server keeps the library and queue and sends audio (solid line) to one selected output at a time. 2 Local listening: the desktop app on a computer plays to a USB DAC and headphones, or the Android app plays to a USB DAC dongle, with opt-in exclusive or USB-direct output. Or 3 Network listening: a living-room network receiver with speakers, acting as a UPnP/DLNA renderer or an AirPlay receiver; AirPlay sending needs the Linux container Server.</desc>
+  <style>
+    svg {
+      --page: #111315; --nas-top: #2d3438; --nas-bottom: #1f2427; --panel: #1b1f22; --panel-raised: #252b2f; --deep: #0c0e0f; --wood: #2c3236;
+      --text: #f4f4ec; --muted: #9aa3a6; --soft: #c9cec7;
+      --accent: #c8edb2; --accent-strong: #e3f7c8; --accent-ink: #162111; --tile: #344c3d;
+      --border: #ffffff1f; --border-strong: #ffffff33;
+      --sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Apple SD Gothic Neo", "Malgun Gothic", "Noto Sans KR", "Noto Sans CJK KR", sans-serif;
+      --mono: ui-monospace, "SFMono-Regular", "Cascadia Mono", Menlo, Consolas, "Liberation Mono", monospace;
+    }
+    text { font-family: var(--sans); fill: var(--text); }
+    .concept { font: 700 22px var(--mono); fill: var(--muted); letter-spacing: 0.12em; }
+    .k { font: 700 22px var(--mono); fill: var(--accent); letter-spacing: 0.12em; }
+    .h { font-size: 30px; font-weight: 700; }
+    .b { font-size: 26px; font-weight: 700; }
+    .m { font-size: 24px; fill: var(--soft); }
+    .em { font-size: 24px; fill: var(--accent-strong); }
+    .s { font-size: 22px; fill: var(--muted); }
+    .lbl { font: 700 22px var(--mono); fill: var(--text); }
+    .chip { font-size: 22px; font-weight: 700; fill: var(--accent-strong); }
+    .panel { fill: var(--panel); stroke: var(--border); stroke-width: 2; }
+    .dev { fill: var(--panel-raised); stroke: var(--border-strong); stroke-width: 2; }
+    .scr { fill: var(--deep); }
+    .tile { fill: var(--tile); }
+    .ac { fill: var(--accent); }
+    .line { fill: none; stroke: var(--border-strong); stroke-width: 3; stroke-linecap: round; }
+    .gear { fill: none; stroke: var(--soft); stroke-width: 3; stroke-linecap: round; }
+    .cmd { fill: none; stroke: var(--text); stroke-width: 3; stroke-dasharray: 10 9; stroke-linecap: round; }
+    .audio { fill: none; stroke: var(--accent); stroke-width: 5; stroke-linejoin: round; stroke-linecap: round; }
+    .wave { fill: none; stroke: var(--accent); stroke-width: 3; stroke-linecap: round; opacity: .55; }
+  </style>
+  <defs>
+    <marker id="ha" viewBox="0 0 12 12" refX="10" refY="6" markerWidth="4" markerHeight="4" orient="auto"><path d="M1 1 11 6 1 11z" style="fill: var(--accent)"/></marker>
+    <marker id="hc" viewBox="0 0 12 12" refX="10" refY="6" markerWidth="5" markerHeight="5" orient="auto"><path d="M1 1 11 6 1 11z" style="fill: var(--text)"/></marker>
+    <linearGradient id="nas" x1="0" y1="0" x2="0" y2="1"><stop offset="0" style="stop-color: var(--nas-top)"/><stop offset="1" style="stop-color: var(--nas-bottom)"/></linearGradient>
+  </defs>
+
+  <text class="concept" x="4" y="30">CONCEPT ILLUSTRATION</text>
+
+  <!-- 1 Control -->
+  <rect class="panel" x="1" y="56" width="718" height="320" rx="24"/>
+  <text class="k" x="32" y="104">1 · CONTROL</text>
+  <text class="h" x="32" y="144">Phone, tablet or browser</text>
+  <g aria-hidden="true">
+    <rect class="dev" x="48" y="176" width="88" height="168" rx="16"/>
+    <rect class="scr" x="56" y="190" width="72" height="140" rx="8"/>
+    <rect class="tile" x="64" y="200" width="56" height="56" rx="6"/>
+    <path class="ac" d="M86 216v24l18-12z"/>
+    <rect x="64" y="272" width="56" height="4" rx="2" style="fill: var(--border-strong)"/>
+    <rect class="ac" x="64" y="272" width="30" height="4" rx="2"/>
+    <circle cx="72" cy="304" r="5" style="fill: var(--muted)"/><circle cx="92" cy="304" r="9" class="ac"/><circle cx="112" cy="304" r="5" style="fill: var(--muted)"/>
+    <rect class="dev" x="160" y="196" width="168" height="112" rx="8"/>
+    <rect class="scr" x="168" y="204" width="152" height="96" rx="4"/>
+    <rect class="tile" x="176" y="214" width="40" height="40" rx="4"/>
+    <rect x="226" y="218" width="82" height="6" rx="3" style="fill: var(--soft)"/>
+    <rect x="226" y="234" width="56" height="6" rx="3" style="fill: var(--muted)"/>
+    <rect x="176" y="266" width="132" height="5" rx="2.5" style="fill: var(--border-strong)"/>
+    <rect x="176" y="282" width="110" height="5" rx="2.5" style="fill: var(--border-strong)"/>
+    <path class="dev" d="M148 308h192l-10 18H158z"/>
+  </g>
+  <text class="b" x="368" y="206">Sends commands only</text>
+  <text class="m" x="368" y="244">Play, queue, volume</text>
+  <text class="m" x="368" y="276">and output choice.</text>
+  <text class="em" x="368" y="324">Audio is not relayed</text>
+  <text class="em" x="368" y="356">through this screen.</text>
+
+  <!-- Commands: dashed, controller to Server -->
+  <path class="cmd" d="M190 336V420" marker-end="url(#hc)"/>
+  <text class="lbl" x="208" y="410">commands</text>
+
+  <!-- Server -->
+  <g aria-hidden="true">
+    <rect x="120" y="430" width="140" height="130" rx="14" fill="url(#nas)" style="stroke: var(--border-strong); stroke-width: 2"/>
+    <rect x="136" y="448" width="22" height="80" rx="4" class="scr"/>
+    <rect x="166" y="448" width="22" height="80" rx="4" class="scr"/>
+    <rect x="196" y="448" width="22" height="80" rx="4" class="scr"/>
+    <rect x="226" y="448" width="22" height="80" rx="4" class="scr"/>
+    <circle class="ac" cx="147" cy="516" r="3"/><circle class="ac" cx="177" cy="516" r="3"/><circle class="ac" cx="207" cy="516" r="3"/><circle class="ac" cx="237" cy="516" r="3"/>
+    <rect x="136" y="540" width="40" height="5" rx="2.5" style="fill: var(--border-strong)"/>
+    <circle class="ac" cx="244" cy="543" r="5"/>
+    <rect x="134" y="560" width="20" height="6" rx="2" style="fill: var(--wood)"/><rect x="226" y="560" width="20" height="6" rx="2" style="fill: var(--wood)"/>
+  </g>
+  <text class="h" x="288" y="474">Server</text>
+  <text class="m" x="288" y="508">Library, queue and</text>
+  <text class="m" x="288" y="540">one selected output</text>
+
+  <!-- Audio: solid, Server to the one selected output -->
+  <path class="audio" d="M118 496H56q-16 0-16 16V1204q0 16 16 16H108" marker-end="url(#ha)"/>
+  <path class="audio" d="M40 844q0 16 16 16H96" marker-end="url(#ha)"/>
+  <rect x="64" y="590" width="372" height="44" rx="22" style="fill: var(--accent-ink); stroke: var(--accent); stroke-width: 2"/>
+  <text class="chip" x="86" y="619">audio → one selected output</text>
+
+  <!-- 2 Local listening -->
+  <rect class="panel" x="72" y="660" width="647" height="330" rx="24"/>
+  <text class="k" x="104" y="708">2 · LOCAL LISTENING</text>
+  <text class="h" x="104" y="748">This computer or Android</text>
+  <g aria-hidden="true">
+    <rect x="100" y="930" width="600" height="10" rx="4" style="fill: var(--wood)"/>
+    <rect class="dev" x="104" y="782" width="176" height="112" rx="10"/>
+    <rect class="scr" x="112" y="790" width="160" height="96" rx="5"/>
+    <rect class="tile" x="122" y="800" width="52" height="52" rx="5"/>
+    <path class="ac" d="M141 814v24l17-12z"/>
+    <rect x="184" y="806" width="76" height="6" rx="3" style="fill: var(--soft)"/>
+    <rect x="184" y="822" width="52" height="6" rx="3" style="fill: var(--muted)"/>
+    <rect x="122" y="866" width="138" height="5" rx="2.5" style="fill: var(--border-strong)"/>
+    <rect class="ac" x="122" y="866" width="64" height="5" rx="2.5"/>
+    <rect x="182" y="894" width="20" height="26" style="fill: var(--panel-raised)"/>
+    <rect class="dev" x="152" y="918" width="80" height="12" rx="4"/>
+    <path class="gear" d="M280 880c18 0 22 26 32 28"/>
+    <rect class="dev" x="312" y="888" width="100" height="42" rx="8"/>
+    <circle class="ac" cx="330" cy="909" r="4"/>
+    <rect x="342" y="905" width="22" height="8" rx="2" class="scr"/>
+    <circle cx="390" cy="909" r="12" style="fill: none; stroke: var(--accent); stroke-width: 3"/>
+    <path d="M326 850a36 40 0 0 1 72 0" style="fill: none; stroke: var(--text); stroke-width: 8; stroke-linecap: round"/>
+    <rect x="314" y="836" width="22" height="40" rx="9" style="fill: var(--text)"/>
+    <rect x="388" y="836" width="22" height="40" rx="9" style="fill: var(--text)"/>
+    <path class="gear" d="M410 864c22 8 18 34 2 44"/>
+    <path class="wave" d="M300 818a44 44 0 0 1 0 -44M424 818a44 44 0 0 0 0 -44"/>
+    <rect class="dev" x="476" y="790" width="72" height="136" rx="14"/>
+    <rect class="scr" x="483" y="802" width="58" height="112" rx="7"/>
+    <rect class="tile" x="490" y="812" width="44" height="44" rx="5"/>
+    <path class="ac" d="M506 824v20l14-10z"/>
+    <circle class="ac" cx="512" cy="892" r="8"/>
+    <path class="gear" d="M548 900c16 0 18 14 24 14"/>
+    <rect class="dev" x="572" y="902" width="56" height="26" rx="8"/>
+    <circle class="ac" cx="588" cy="915" r="3"/>
+    <path class="gear" d="M628 912c22 0 24-28 20-58M628 920c34 0 44-32 42-52"/>
+    <circle cx="646" cy="842" r="13" style="fill: var(--text)"/>
+    <circle cx="676" cy="856" r="13" style="fill: var(--text)"/>
+  </g>
+  <text class="m" x="104" y="972">Opt-in exclusive or USB-direct output</text>
+
+  <!-- One output at a time -->
+  <rect x="8.0" y="1004" width="64" height="40" rx="20" style="fill: var(--page); stroke: var(--accent); stroke-width: 2"/>
+  <text x="40" y="1031" text-anchor="middle" style="font-size: 22px; font-weight: 700; fill: var(--accent)">or</text>
+
+  <!-- 3 Network listening -->
+  <rect class="panel" x="72" y="1060" width="647" height="330" rx="24"/>
+  <text class="k" x="104" y="1108">3 · NETWORK LISTENING</text>
+  <text class="h" x="104" y="1148">A receiver in the living room</text>
+  <g aria-hidden="true">
+    <path class="line" d="M100 1300H696"/>
+    <rect x="104" y="1250" width="300" height="20" rx="6" style="fill: var(--wood)"/>
+    <rect x="120" y="1270" width="8" height="30" style="fill: var(--wood)"/>
+    <rect x="380" y="1270" width="8" height="30" style="fill: var(--wood)"/>
+    <rect class="dev" x="116" y="1192" width="180" height="58" rx="8"/>
+    <rect class="scr" x="132" y="1208" width="76" height="26" rx="4"/>
+    <path class="ac" d="M144 1214v14l11-7z"/>
+    <rect x="162" y="1219" width="36" height="4" rx="2" style="fill: var(--accent)"/>
+    <circle class="ac" cx="226" cy="1221" r="4"/>
+    <circle cx="266" cy="1221" r="15" style="fill: var(--deep); stroke: var(--soft); stroke-width: 3"/>
+    <path d="M336 1226h32l-4 24h-24z" style="fill: var(--wood); stroke: var(--border-strong); stroke-width: 2"/>
+    <path d="M352 1226c-2-18-14-26-24-28 4 12 12 22 24 28zM352 1226c2-22 12-32 24-34-2 14-10 26-24 34zM352 1226c0-16 0-26 0-36" style="fill: var(--tile); stroke: var(--accent); stroke-width: 2; stroke-linejoin: round"/>
+    <path class="gear" d="M296 1242c80 40 120 56 154 48M296 1246c160 60 260 60 324 44" style="opacity: .5"/>
+    <rect class="dev" x="440" y="1168" width="62" height="132" rx="10"/>
+    <circle cx="471" cy="1194" r="9" class="scr"/><circle cx="471" cy="1246" r="22" class="scr"/><circle class="ac" cx="471" cy="1246" r="6"/>
+    <rect class="dev" x="610" y="1168" width="62" height="132" rx="10"/>
+    <circle cx="641" cy="1194" r="9" class="scr"/><circle cx="641" cy="1246" r="22" class="scr"/><circle class="ac" cx="641" cy="1246" r="6"/>
+    <path class="wave" d="M522 1222a28 28 0 0 1 0 36M540 1210a46 46 0 0 1 0 60M588 1222a28 28 0 0 0 0 36M570 1210a46 46 0 0 0 0 60"/>
+  </g>
+  <text class="m" x="104" y="1338">UPnP/DLNA renderer or AirPlay receiver</text>
+  <text class="s" x="104" y="1372">AirPlay sending: Linux container Server only</text>
+</svg>
