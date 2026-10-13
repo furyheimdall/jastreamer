@@ -122,6 +122,8 @@ Questions, bug reports and feature requests belong in [GitHub Issues](https://gi
 
 The bilingual product website lives in [`site/`](site/): [English](site/index.html) and [한국어](site/ko/index.html), with real Web UI and Player screenshots from an isolated synthetic library plus clearly labelled conceptual listening illustrations. Preview it with `python3 -m http.server 8000 --bind 127.0.0.1 --directory site`. Keep its release links in sync when publishing a new product version. Publishing is separate: after approved changes reach `main`, configure GitHub Pages to use **GitHub Actions**, then manually run the **Product website** workflow. It uploads only `site/`, never the Server, music, or application state.
 
+Automatic Server/Web/Desktop, Android and iOS CI is skipped when every changed file is under `site/` or is Markdown (`**/*.md`), on both pull requests and pushes to `main`. Any other changed path—including application assets, build/deployment configuration or workflows—keeps the normal CI runs, even when documentation changes alongside it. Existing manual iOS verification, product website publication and release workflows are unchanged.
+
 ## License
 
 jastreamer is licensed under the [Apache License 2.0](LICENSE). Packaged third-party components keep their own licenses; see `THIRD-PARTY-NOTICES.txt` in the supplied Server artifact set or `/usr/share/jastreamer/THIRD-PARTY-NOTICES.txt` in the container.
