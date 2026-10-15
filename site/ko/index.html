@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>jastreamer — 사설 LAN용 자체 호스팅 음악 플레이어·컨트롤러</title>
-  <meta name="description" content="jastreamer 0.2.4는 신뢰하는 사설 LAN용 자체 호스팅 음악 플레이어입니다. 어느 화면에서든 공용 대기열 하나를 제어하면 Linux·Windows Server가 이 기기, UPnP/DLNA, 선택적 Google Cast, Linux 컨테이너의 AirPlay 또는 기본값이 꺼짐인 실험적 RAAT로 재생합니다.">
+  <meta name="description" content="jastreamer 0.2.4는 신뢰하는 사설 LAN용 자체 호스팅 음악 플레이어입니다. 어느 화면에서든 공용 대기열 하나를 제어하면 Linux·Windows Server가 이 기기, UPnP/DLNA, 선택적 Google Cast, Linux 컨테이너의 AirPlay 또는 실험 기능인 RAAT로 재생합니다.">
   <meta name="color-scheme" content="dark">
   <meta name="theme-color" content="#111315">
   <meta name="referrer" content="strict-origin-when-cross-origin">
@@ -12,6 +12,7 @@
   <link rel="alternate" hreflang="ko" href="index.html">
   <link rel="icon" href="../assets/jastreamer.svg" type="image/svg+xml">
   <link rel="stylesheet" href="../assets/styles.css">
+  <script src="../assets/image-viewer.js" defer></script>
   <meta property="og:type" content="website">
   <meta property="og:title" content="jastreamer — 사설 LAN용 자체 호스팅 음악 플레이어·컨트롤러">
   <meta property="og:description" content="어느 컴퓨터나 휴대전화에서든 공용 대기열 하나를 제어하고, 내 Server가 고른 USB DAC이나 네트워크 수신기로 재생하게 하세요.">
@@ -54,7 +55,7 @@
         </p>
         <h1 id="hero-title">어느 화면에서든 재생하고,<br><em>원하는 곳에서 듣습니다.</em></h1>
         <p class="hero-lead">
-          jastreamer는 내 Linux·Windows Server에 있는 음악을 위해 세심하게 설계한 플레이어입니다. 사설 LAN 안의 컴퓨터나 휴대전화 어디서든 대기열을 담고 제어하면, Server가 고른 출력으로 재생합니다. 이 기기에 연결한 USB DAC, 방 건너편의 UPnP/DLNA·Google Cast·AirPlay 수신기, 또는 기본값이 꺼짐인 실험적 <a href="#raat">RAAT</a>를 선택할 수 있습니다.
+          내 Linux·Windows Server에 둔 음악을 사설 LAN의 PC나 휴대전화에서 제어하세요. 그 기기·USB DAC 또는 UPnP/DLNA·Cast·AirPlay·<a href="#raat">RAAT</a> 수신기로 재생할 수 있습니다. RAAT 전송은 설정에서 켜서 쓰는 실험 기능입니다.
         </p>
         <div class="actions">
           <a class="button button-primary" href="#download">0.2.4 내려받기</a>
@@ -66,17 +67,6 @@
           <li>사용 기록 수집·분석 도구 없음</li>
           <li>영어·한국어 화면</li>
         </ul>
-
-        <figure class="hero-shot">
-          <div class="screen-frame">
-            <img src="../assets/player-ko.webp" width="1440" height="900" fetchpriority="high" decoding="async"
-              alt="데스크톱 브라우저의 jastreamer Web 화면. 샘플 곡 네 개가 담긴 대기열 보기와 순서 이동·좋아요·삭제·저장 동작, 그 아래 Open Windows가 불러와져 3:00 중 0:00에 정지된 플레이어 막대의 재생 제어, 랜덤·반복, 재생 기기 선택기, 로컬 음량이 보입니다.">
-          </div>
-          <figcaption class="shot-caption">
-            <span class="sample-badge">샘플 보관함</span>
-            <span>실제 jastreamer 플레이어를 합성 샘플 곡과 직접 만든 추상 앨범 아트로 캡처했습니다. 누군가의 개인 음악이 아닙니다. 이전 버전의 화면이므로 새 RAAT 출력과 서버 전송 배지는 보이지 않습니다.</span>
-          </figcaption>
-        </figure>
       </div>
     </section>
 
@@ -84,65 +74,60 @@
       <div class="container">
         <div class="section-head">
           <p class="section-kicker">플레이어</p>
-          <h2 id="player-title">손이 가는 제어는 모두, 있어야 할 자리에.</h2>
-          <p>플레이어는 어느 화면에서나 함께 있으며 지금 무엇이 어디서 재생되는지 보여 줍니다. 모든 컴퓨터와 휴대전화가 같은 Server 대기열을 제어하므로, 책상에서 소파로 옮겨도 듣던 목록을 다시 만들 필요가 없습니다.</p>
+          <h2 id="player-title">책상에서도 소파에서도, 같은 곡과 같은 대기열.</h2>
+          <p>컴퓨터와 휴대전화는 Server가 가진 플레이어 하나를 함께 조작하는 리모컨입니다. 두 화면이 같은 대기열과 같은 선택 출력을 제어하므로, 책상에서 소파로 옮겨도 듣던 목록을 다시 만들 필요가 없습니다.</p>
         </div>
 
-        <div class="player-grid">
-          <div>
-            <ul class="control-list">
-              <li>
-                <h3>출력에 맞춘 재생 제어</h3>
-                <p>재생/일시 정지, 정지, 이전 곡, 다음 곡과 탐색 막대. 명령은 Server로 가고 Server가 선택한 출력을 구동하며, 탐색은 그 출력이 지원할 때 제공됩니다.</p>
-              </li>
-              <li>
-                <h3>함께 쓰는 랜덤·반복</h3>
-                <p><strong>순차 재생 / 랜덤 재생</strong>과 <strong>반복 없음 / 전체 반복 / 한 곡 반복</strong>은 모든 기기의 공용 대기열에 적용됩니다. 랜덤 재생은 보이는 목록을 뒤섞지 않고 무작위 순서로 재생하며, <strong>다음 순서에 추가</strong>한 곡은 계속 다음 순서를 지킵니다.</p>
-              </li>
-              <li>
-                <h3>곡이 흐르는 중에도 고치는 대기열</h3>
-                <p><strong>다음 순서에 추가</strong>, <strong>대기열 끝에 추가</strong>는 물론, 지금 재생 중인 곡을 포함한 어떤 항목이든 음악을 끊지 않고 삭제할 수 있습니다. 순서와 중복 곡을 유지하며, Server를 재시작해도 대기열이 남고 저절로 재생되지는 않습니다.</p>
-              </li>
-              <li>
-                <h3>플레이어 안에서 고르는 출력</h3>
-                <p>정지 상태에서 <strong>재생 기기</strong>를 고르고, 수신기를 켠 뒤에는 <strong>재생 기기 다시 찾기</strong>를 누르세요. AirPlay는 PIN으로 페어링하고, <strong>로컬 음량</strong>은 시스템 음량을 건드리지 않고 이 기기만 조절합니다.</p>
-              </li>
-              <li>
-                <h3>지금 듣는 소리를 정확히</h3>
-                <p><strong>곡 정보</strong>에서 코덱, 샘플 레이트, 비트 깊이, 채널, 재생 횟수를 확인할 수 있습니다. 네이티브 독점·USB 다이렉트 출력에는 <strong>비트 퍼펙트</strong> 또는 <strong>비트 퍼펙트 아님</strong>이, 조건을 충족한 UPnP·Cast·RAAT 스트림에는 <strong>비트 퍼펙트 · 서버 전송</strong>이 표시될 수 있습니다. <a href="#bit-perfect">각 배지가 뜻하는 범위 보기</a></p>
-              </li>
-            </ul>
-
-            <div class="phone-note" id="phone">
-              <h3>휴대전화에서</h3>
-              <p>iPhone·Android 휴대전화 브라우저는 자동으로 네 탭 화면을 사용합니다. 작은 플레이어에는 재생/일시 정지, 정지, <strong>재생 모드</strong>가 늘 손 닿는 곳에 있고, 펼치면 탐색, 이전·다음 곡, 랜덤·반복, 재생 기기 선택이 나타납니다. 버튼은 최소 44×44픽셀이며, 다른 탭으로 옮기면 재생을 멈추지 않고 플레이어만 접힙니다.</p>
-              <p>Android 앱은 시스템 미디어 제어, Server 재생을 DAC으로 보내는 USB 다이렉트 출력, 오프라인 보관함 <strong>저장된 음악</strong>을 더합니다. 네이티브 iOS 앱은 제어 전용이며 소스와 CI 빌드로만 제공됩니다.</p>
-            </div>
+        <figure class="device-showcase">
+          <div class="device-stage">
+            <a class="device device-desktop" href="../assets/player-ko.webp" data-image-viewer target="_blank" rel="noopener">
+              <span class="device-label">책상에서 <span>브라우저 · Windows·Mac 앱</span></span>
+              <span class="device-screen">
+                <img src="../assets/player-ko.webp" width="1440" height="900" loading="lazy" decoding="async"
+                  alt="데스크톱 브라우저의 jastreamer Web 화면. 샘플 곡 네 개가 담긴 대기열 보기와 순서 이동·좋아요·삭제·저장 동작, 그 아래 Open Windows가 불러와져 3:00 중 0:00에 정지된 플레이어 막대의 재생 제어, 랜덤·반복, Desk browser로 설정된 재생 기기 선택기, 로컬 음량이 보입니다.">
+              </span>
+            </a>
+            <a class="device device-phone" href="../assets/player-phone-ko.webp?v=queue" data-image-viewer target="_blank" rel="noopener">
+              <span class="device-label">소파에서 <span>브라우저 · 모바일 앱</span></span>
+              <span class="device-screen">
+                <img src="../assets/player-phone-ko.webp?v=queue" width="780" height="1688" loading="lazy" decoding="async"
+                  alt="PC와 같은 대기열을 보여주는 휴대전화 Web 화면. Mira Field의 Open Windows, After the Rain, Soft Landing, Homeward와 Open Windows의 접힌 미니 플레이어, 네 탭 메뉴가 보입니다.">
+              </span>
+            </a>
           </div>
+          <figcaption>
+            <span class="sample-badge">샘플 보관함</span>
+            <span>샘플 음악 데이터로 렌더링한 실제 Web UI이며, PC 캡처는 이전 버전입니다. 화면을 선택하면 확대해서 볼 수 있고, 이미지 바깥이나 닫기를 누르면 돌아옵니다.</span>
+          </figcaption>
+        </figure>
 
-          <figure class="phone-pair">
-            <div class="phone-pair-shots">
-              <div class="phone-pair-item">
-                <div class="phone-frame">
-                  <img src="../assets/mobile-ko.webp" width="780" height="1688" loading="lazy" decoding="async"
-                    alt="탐색 중인 휴대전화 브라우저 화면. 샘플 앨범 After the Rain의 곡 목록, 작은 플레이어, 네 탭 메뉴가 보입니다.">
-                </div>
-                <p class="phone-label">작은 플레이어</p>
-              </div>
-              <div class="phone-pair-item">
-                <div class="phone-frame">
-                  <img src="../assets/player-phone-ko.webp" width="780" height="1688" loading="lazy" decoding="async"
-                    alt="재생 제어를 펼친 휴대전화 크기 브라우저 화면. 0:00에 정지된 샘플 곡 Open Windows, 탐색 막대, 이전·다음 곡, 순차 재생과 반복 없음, Desk browser [로컬 오디오]로 설정된 재생 기기 선택기, 재생과 정지 버튼이 보입니다.">
-                </div>
-                <p class="phone-label">펼친 플레이어</p>
-              </div>
-            </div>
-            <figcaption>
-              <span class="sample-badge">샘플 보관함</span>
-              Server가 제공하는 Web 화면의 휴대전화 브라우저 레이아웃을 합성 샘플 곡으로 캡처했습니다. 네이티브 Android 앱 화면이 아닙니다.
-            </figcaption>
-          </figure>
-        </div>
+        <ul class="control-list">
+          <li>
+            <h3>출력에 맞춘 재생 제어</h3>
+            <p>재생/일시 정지, 정지, 이전 곡, 다음 곡과 탐색 막대. 명령은 Server로 가고 Server가 선택한 출력을 구동하며, 탐색은 그 출력이 지원할 때 제공됩니다.</p>
+          </li>
+          <li>
+            <h3>함께 쓰는 랜덤·반복</h3>
+            <p><strong>순차 재생 / 랜덤 재생</strong>과 <strong>반복 없음 / 전체 반복 / 한 곡 반복</strong>은 모든 기기의 공용 대기열에 적용됩니다. 랜덤 재생은 보이는 목록을 뒤섞지 않고 무작위 순서로 재생하며, <strong>다음 순서에 추가</strong>한 곡은 계속 다음 순서를 지킵니다.</p>
+          </li>
+          <li>
+            <h3>곡이 흐르는 중에도 고치는 대기열</h3>
+            <p><strong>다음 순서에 추가</strong>, <strong>대기열 끝에 추가</strong>는 물론, 지금 재생 중인 곡을 포함한 어떤 항목이든 음악을 끊지 않고 삭제할 수 있습니다. 순서와 중복 곡을 유지하며, Server를 재시작해도 대기열이 남고 저절로 재생되지는 않습니다.</p>
+          </li>
+          <li>
+            <h3>플레이어 안에서 고르는 출력</h3>
+            <p>정지 상태에서 <strong>재생 기기</strong>를 고르고, 수신기를 켠 뒤에는 <strong>재생 기기 다시 찾기</strong>를 누르세요. AirPlay는 PIN·암호로 페어링하고, <strong>로컬 음량</strong>은 시스템 음량을 건드리지 않고 이 기기만 조절합니다.</p>
+          </li>
+          <li>
+            <h3>지금 듣는 소리를 정확히</h3>
+            <p><strong>곡 정보</strong>에서 코덱, 샘플 레이트, 비트 깊이, 채널, 재생 횟수를 확인할 수 있습니다. 네이티브 독점·USB 다이렉트 출력에는 <strong>비트 퍼펙트</strong> 또는 <strong>비트 퍼펙트 아님</strong>이, 조건을 충족한 UPnP·Cast·RAAT 스트림에는 <strong>비트 퍼펙트 · 서버 전송</strong>이 표시될 수 있습니다. <a href="#bit-perfect">각 배지가 뜻하는 범위 보기</a></p>
+          </li>
+          <li id="phone">
+            <h3>휴대전화에서</h3>
+            <p>iPhone·Android 휴대전화 브라우저에서는 네 탭 화면을 사용합니다. 작은 플레이어에서 재생/일시 정지, 정지, <strong>재생 모드</strong>를 바로 조절하고, 펼치면 탐색, 이전·다음 곡, 재생 기기 선택이 나타납니다. 다른 탭으로 옮겨도 재생은 계속되고 플레이어만 접힙니다.</p>
+            <p>Android 앱은 시스템 미디어 제어, Server 재생용 실험 기능인 USB 다이렉트 출력, 오프라인 보관함 <strong>저장된 음악</strong>을 더합니다. USB 다이렉트는 설정에서 켜서 사용합니다. 네이티브 iOS 앱은 제어 전용이며 소스와 CI 빌드로만 제공됩니다.</p>
+          </li>
+        </ul>
       </div>
     </section>
 
@@ -159,7 +144,7 @@
             <ol class="roles" aria-label="jastreamer의 역할">
               <li>
                 <h3>컨트롤러</h3>
-                <p>브라우저, Desktop 앱, 휴대전화. 보관함을 탐색하고 재생·일시 정지·다음 곡·탐색과 출력 선택 명령을 보냅니다.</p>
+                <p>브라우저, 데스크톱 앱, 휴대전화. 보관함을 탐색하고 재생·일시 정지·다음 곡·탐색과 출력 선택 명령을 보냅니다.</p>
               </li>
               <li>
                 <h3>Server</h3>
@@ -184,11 +169,13 @@
           </div>
 
           <figure class="concept-shot">
-            <img src="../assets/listening-ko.svg" width="720" height="1400" loading="lazy" decoding="async"
-              alt="세 부분으로 된 개념도. 제어: 휴대전화와 노트북 브라우저는 jastreamer Server에 명령만 보내고, Server는 보관함·대기열·선택한 출력 하나를 가집니다. 로컬 청취: Server 오디오가 USB DAC을 연결한 Desktop·Android 앱으로 가며 선택적 독점·USB 다이렉트 출력을 씁니다. 또는 네트워크 청취: UPnP/DLNA, 선택적 Cast, AirPlay, 기본값이 꺼짐인 실험적 RAAT로 수신기에 스트리밍합니다. AirPlay에는 Linux 컨테이너 Server가, RAAT에는 호환 수신기와 설정된 FFmpeg이 필요합니다.">
+            <a href="../assets/listening-ko.svg" aria-label="듣는 방식 개념도 확대해서 보기" data-image-viewer target="_blank" rel="noopener">
+              <img src="../assets/listening-ko.svg" width="720" height="1260" loading="lazy" decoding="async"
+                alt="컨트롤러는 Server에 명령을 보냅니다. Server는 하나의 보관함과 대기열을 관리하며 이 기기의 브라우저·앱 또는 UPnP/DLNA·Cast·AirPlay·RAAT 수신기 중 선택한 한 곳으로 재생합니다. 네트워크 오디오는 컨트롤러를 거치지 않습니다. RAAT는 PCM·곡 정보·앨범 아트를 수신기로 보내고, 지원되는 수신기 제어는 Server로 돌아옵니다.">
+            </a>
             <figcaption>
               <span class="concept-badge">개념도</span>
-              역할과 오디오 경로를 단순화한 그림입니다. 화면 캡처나 특정 제품이 아닙니다.
+              Server 하나에서 선택한 출력 한 곳으로. 그림을 선택하면 확대해서 볼 수 있고, 이미지 바깥이나 닫기를 누르면 돌아옵니다.
             </figcaption>
           </figure>
         </div>
@@ -197,46 +184,44 @@
         <ul class="outputs">
           <li><strong>이 기기</strong><span>지금 쓰는 컴퓨터나 휴대전화. Windows·Mac·Android 앱은 DAC으로 보내는 독점·USB 다이렉트 출력을 선택해 쓸 수 있습니다.</span></li>
           <li><strong>UPnP/DLNA</strong><span>기본 제공. LAN의 재생 기기를 찾아 제어합니다.</span></li>
-          <li><strong>Google Cast</strong><span>두 Server 플랫폼에서 선택 사항이며 기본값은 꺼짐입니다.</span></li>
+          <li><strong>Google Cast</strong><span>Linux·Windows Server에서 선택해 쓰며 기본값은 꺼짐입니다.</span></li>
           <li><strong>AirPlay</strong><span>Linux 컨테이너에서만 전송하며 PIN·암호 인증을 지원합니다.</span></li>
-          <li><strong>RAAT · 실험 기능</strong><span>두 Server 플랫폼 모두 기본값은 꺼짐입니다. 호환 수신기와 설정된 FFmpeg이 필요합니다. <a href="#raat">필수 조건과 한계</a>를 확인하세요. Roon Ready 인증이 아닙니다.</span></li>
+          <li id="raat"><strong>RAAT</strong><span>호환 RAAT 수신기로 음악과 앨범 아트를 보내고 공용 대기열로 제어합니다. 설정에서 켜서 쓰는 실험적 전송 기능입니다. <a href="https://github.com/furyheimdall/jastreamer/blob/main/INSTRUCTION.ko.md#raat">RAAT 사용 안내</a></span></li>
         </ul>
         <p class="fine-print">
-          자동 검색에는 멀티캐스트와 Server·컨트롤러·출력 사이의 사설 LAN 경로가 필요합니다(UPnP는 SSDP UDP 1900, Cast와 AirPlay는 mDNS UDP 5353). 수신기마다 일시 정지나 탐색을 지원하지 않거나 특정 형식을 거부하거나 인증을 요구할 수 있으므로, 실제 장비에서 재생과 소리를 직접 확인하세요.
+          수신기는 사설 LAN에서 Server와 통신하고 멀티캐스트로 검색될 수 있어야 합니다. <a href="https://github.com/furyheimdall/jastreamer/blob/main/INSTALL.ko.md#requirements">네트워크 요구 사항</a>을 확인하세요. 지원 형식과 제어 기능은 수신기마다 다릅니다.
         </p>
-
-        <div class="bit-perfect" id="raat">
-          <div class="bit-perfect-head">
-            <h3>같은 플레이어와 대기열로 쓰는 RAAT</h3>
-            <p>독자적으로 구현한 실험적 출력이며 기본값은 꺼짐입니다. Roon Ready 인증이 아닙니다. 재생 주체는 여전히 Server, 각 화면은 컨트롤러이며 수신기에 별도 대기열을 만들지 않습니다.</p>
-          </div>
-          <div class="bit-perfect-grid">
-            <div>
-              <h4>화면 표시, 제어와 전달</h4>
-              <ul class="check-list">
-                <li>지원되는 수신기 플러그인에 곡 메타데이터, JPEG 앨범 아트 썸네일과 재생 상태를 전달합니다. 재생/일시 정지·정지·이전·다음·탐색은 같은 Server 대기열을 사용하며 기기에서 발생한 제어 이벤트도 그 대기열로 돌아옵니다.</li>
-                <li>PCM의 원래 샘플 레이트·채널·정밀도를 유지하며 이득 1로 전달합니다. 리샘플링·정규화·DSP는 하지 않습니다. 정수 컨테이너 확장은 0 채움만 허용하며, 지원하지 않는 형식은 몰래 변환하지 않고 실패합니다.</li>
-                <li>연속 오디오 연결이 크기가 제한된 수신기 버퍼를 채우며, 사전 버퍼링과 기기 시계에 맞춰 재생합니다. Server의 전송 완료만으로 다음 곡을 시작하지 않고 오디오 소비를 기다립니다. 갭리스나 동기화된 멀티룸 재생을 보장하지 않습니다.</li>
-              </ul>
-            </div>
-            <div class="scope-notes">
-              <p><strong>켜기 전에.</strong> 신뢰하는 사설 IPv4 LAN과 어댑터를 받아들이는 프로토콜 3 호환 수신기가 필요합니다. 서명 키를 광고하는 수신기는 우회하지 않고 거부합니다. 검색된다고 호환성이 입증되지는 않습니다. RAAT 제어·오디오 채널은 암호화되지 않습니다.</p>
-              <p><strong>FFmpeg 필수.</strong> Linux 컨테이너에는 포함되어 있습니다. Windows Server는 호환 FFmpeg을 별도로 설치하고 실행 파일의 절대 경로를 설정해야 하며, 필요한 입력 프로토콜·디코더·PCM 인코더가 있어야 합니다. Settings → 재생·출력에서 RAAT를 켜고 저장한 뒤 재시작하세요. 먼저 <a href="https://github.com/furyheimdall/jastreamer/blob/main/INSTALL.ko.md#raat-development">RAAT 필수 조건</a>을 읽으세요.</p>
-              <p><strong>검증 범위는 제한적입니다.</strong> FiiO K17의 전체 곡·재생 제어 확인과 FiiO R7으로 광고하는 수신기의 다음 곡·정지 확인은 실제 소리·물리 버튼·DAC 검증이 아닙니다. 일반적인 하드웨어 호환성을 입증하지도 않습니다. <a href="https://github.com/furyheimdall/jastreamer/blob/main/INSTRUCTION.ko.md#raat">RAAT 안내와 검증 한계</a>를 확인하세요.</p>
-            </div>
-          </div>
-        </div>
 
         <div class="bit-perfect" id="bit-perfect">
           <div class="bit-perfect-head">
-            <h3>신호 경로 배지, 한계까지 분명하게</h3>
-            <p>네이티브 출력 배지와 <strong>서버 전송</strong> 배지는 서로 다른 경로 구간을 설명합니다. 어느 쪽도 물리적 DAC의 소리를 인증하지 않습니다. 배지를 선택하면 재생을 바꾸지 않고 근거와 검증 범위를 확인할 수 있습니다.</p>
+            <h3>오디오 경로가 보존하는 것을 확인하세요</h3>
+            <p>네이티브 출력 배지와 <strong>서버 전송</strong> 배지는 서로 다른 경로 구간을 설명합니다. 배지를 선택하면 현재 곡과 출력의 근거를 확인할 수 있습니다.</p>
+          </div>
+          <div class="bit-perfect-examples" aria-labelledby="bit-perfect-examples-title">
+            <div>
+              <h4 id="bit-perfect-examples-title">배지 표시 예시</h4>
+              <p>예시 상태로 렌더링한 실제 플레이어 UI이며, 하드웨어 검증 화면은 아닙니다. 이미지를 선택하면 확대됩니다.</p>
+            </div>
+            <figure class="bit-perfect-example">
+              <figcaption>네이티브 출력 · 비트 퍼펙트</figcaption>
+              <a href="../assets/bit-perfect-native-ko.webp?v=desktop" aria-label="네이티브 비트 퍼펙트 배지 예시 확대해서 보기" data-image-viewer target="_blank" rel="noopener">
+                <img src="../assets/bit-perfect-native-ko.webp?v=desktop" width="814" height="210" loading="lazy" decoding="async"
+                  alt="예시 상태로 렌더링한 PC 플레이어의 곡 정보와 네이티브 비트 퍼펙트 배지.">
+              </a>
+            </figure>
+            <figure class="bit-perfect-example">
+              <figcaption>서버 전송 · 비트 퍼펙트</figcaption>
+              <a href="../assets/bit-perfect-server-ko.webp?v=desktop" aria-label="서버 전송 비트 퍼펙트 배지 예시 확대해서 보기" data-image-viewer target="_blank" rel="noopener">
+                <img src="../assets/bit-perfect-server-ko.webp?v=desktop" width="814" height="210" loading="lazy" decoding="async"
+                  alt="예시 상태로 렌더링한 PC 플레이어의 곡 정보와 비트 퍼펙트 서버 전송 배지.">
+              </a>
+            </figure>
           </div>
           <div class="bit-perfect-grid">
             <div>
               <h4>네이티브 출력: 사용할 수 있는 곳</h4>
               <ul class="check-list">
-                <li><strong>Windows 10/11 앱</strong> — Windows 네이티브 백엔드에서 <strong>독점 모드</strong> 켬(WASAPI 독점). 실제 경로는 내 Windows 오디오 장비에서 확인하세요. <a href="https://github.com/furyheimdall/jastreamer/blob/main/INSTRUCTION.ko.md#windows-audio">Windows 오디오 안내</a></li>
+                <li><strong>Windows 10/11 앱</strong> — WASAPI <strong>독점 모드</strong>. 실제 Windows 오디오 장비에서의 동작은 미검증입니다. <a href="https://github.com/furyheimdall/jastreamer/blob/main/INSTRUCTION.ko.md#windows-audio">Windows 오디오 안내</a></li>
                 <li><strong>Apple Silicon Mac 앱</strong> — CoreAudio 백엔드에서 <strong>독점 모드</strong>를 켜고 USB DAC으로 출력. 하드웨어 검증은 아직 DAC 한 대(macOS 26.6.2의 FIIO M33R2R)뿐입니다. <a href="https://github.com/furyheimdall/jastreamer/blob/main/INSTRUCTION.ko.md#macos-audio">macOS 오디오 안내</a></li>
                 <li><strong>Android 앱</strong> — 휴대전화의 Server 재생을 USB 오디오 클래스 DAC으로 보내는 <strong>USB 비트 퍼펙트(USB 다이렉트)</strong>. <strong>저장된 음악</strong>은 계속 표준 Android 출력을 사용합니다. Settings → 일반 → 실험 기능을 켜야 나타나는 실험 기능입니다. <a href="https://github.com/furyheimdall/jastreamer/blob/main/INSTRUCTION.ko.md#android-controls">Android 안내</a></li>
               </ul>
@@ -250,10 +235,8 @@
               <p>해당 네이티브 경로가 동작 중이지만 신호가 바뀌었다면 <strong>비트 퍼펙트 아님</strong>과 그 이유를 표시합니다. 모드를 선택하기만 한 상태에 배지를 붙이지 않습니다.</p>
             </div>
             <div class="scope-notes">
-              <p><strong>네이티브 출력 범위.</strong> 배지는 jastreamer 애플리케이션 경로만 설명합니다. 드라이버, DAC 내부 DSP, 물리적 출력까지 검증하지 않으므로 내 장비에서 실제 협상된 경로를 확인하세요.</p>
-              <p><strong>비트 퍼펙트 · 서버 전송.</strong> 알려진 무손실 원본과 현재 곡·출력에 연결된 근거가 필요합니다. UPnP·Cast는 검사한 원본 파일 바이트를 Server가 변환 없이 전달하기 시작해야 합니다. RAAT는 소유권이 있는 활성 스트림이 원래 레이트·채널·정밀도를 유지한 PCM을 이득 1, DSP 없이 받아들여야 합니다. 언더런·오버런 근거가 있으면 RAAT는 자격을 잃습니다.</p>
-              <p><strong>전달과 DAC 비트 투명성은 다릅니다.</strong> 수신기 음량·DSP·믹싱·리샘플링·변환은 검증되지 않습니다. 원본 파일 전달이 수신기와 협상된 PCM 형식을 입증하지도 않습니다. 배지는 물리적 비트 투명성이나 인증을 주장하지 않습니다.</p>
-              <p><strong>조건을 충족하는 배지가 없는 곳.</strong> 브라우저 오디오(PWA와 Linux Desktop 포함), 공유·시스템 출력, AirPlay에는 이 배지를 붙이지 않습니다. 출력을 선택하거나 리샘플링을 피하는 것만으로는 부족합니다. <a href="https://github.com/furyheimdall/jastreamer/blob/main/INSTRUCTION.ko.md#signal-path">신호 경로 안내</a></p>
+              <p><strong>서버 전송.</strong> 알려진 무손실 원본과 현재 전송 근거가 필요합니다. UPnP·Cast는 검사한 원본 파일을 변환 없이 전달해야 합니다. RAAT는 원래 레이트·채널·정밀도의 PCM을 이득 1, DSP 없이 받아들여야 하며, 언더런·오버런이 있으면 자격을 잃습니다.</p>
+              <p><strong>배지의 범위.</strong> 네이티브 배지는 jastreamer 애플리케이션 경로를, 서버 전송 배지는 Server가 내보내는 스트림을 설명합니다. 수신기 내부 처리·드라이버·물리적 DAC 출력까지 검증하지는 않습니다. 브라우저 오디오, 공유·시스템 출력, AirPlay에는 적용되지 않습니다. <a href="https://github.com/furyheimdall/jastreamer/blob/main/INSTRUCTION.ko.md#signal-path">신호 경로 안내</a></p>
             </div>
           </div>
         </div>
@@ -314,7 +297,7 @@
         <div class="section-head">
           <p class="section-kicker">내려받기 · 버전 0.2.4</p>
           <h2 id="download-title">먼저 Server를 설치하고, 필요한 앱을 더하세요.</h2>
-          <p>모든 패키지는 <a href="https://github.com/furyheimdall/jastreamer/releases/tag/v0.2.4">GitHub의 v0.2.4 릴리즈</a>에서 제공합니다. 설치 전에 각 파일을 검증하세요. 정확한 절차는 <a href="https://github.com/furyheimdall/jastreamer/blob/main/INSTALL.ko.md">설치 안내</a>에 있습니다.</p>
+          <p>패키지와 검증 파일은 <a href="https://github.com/furyheimdall/jastreamer/releases/tag/v0.2.4">GitHub의 v0.2.4 릴리즈</a>에서 제공합니다.</p>
         </div>
 
         <div class="notice" role="note" aria-labelledby="server-note-title">
@@ -343,7 +326,7 @@
               <div>
                 <h4>Windows x64 <span class="tag">Authenticode 서명 없음</span></h4>
                 <p class="dl-meta">무설치 ZIP · <code>jastreamer-server_0.2.4_windows-x64.zip</code></p>
-                <p class="limits">Web 화면, UPnP/DLNA, 선택적 Cast와 실험적 RAAT. AirPlay와 FFmpeg은 포함하지 않으며 Windows 서비스도 아닙니다. RAAT에는 별도로 설정한 호환 FFmpeg이 필요하고 Windows 재생은 검증되지 않았습니다. SmartScreen 경고가 뜰 수 있으니 SHA-256을 검증하고 압축을 풀기 전에 ZIP 차단을 해제하세요.</p>
+                <p class="limits">Web 화면, UPnP/DLNA, 선택적 Cast와 실험적 RAAT. AirPlay와 FFmpeg은 포함하지 않으며 Windows 서비스도 아닙니다. RAAT에는 별도로 설정한 호환 FFmpeg이 필요하며, RAAT의 Windows 재생은 검증되지 않았습니다. SmartScreen 경고가 뜰 수 있으니 SHA-256을 검증하고 압축을 풀기 전에 ZIP 차단을 해제하세요.</p>
               </div>
               <div class="dl-actions">
                 <a class="button button-primary" href="https://github.com/furyheimdall/jastreamer/releases/download/v0.2.4/jastreamer-server_0.2.4_windows-x64.zip">ZIP 내려받기</a>
@@ -450,7 +433,7 @@
         <ol class="steps">
           <li>
             <h3>고르고 검증하기</h3>
-            <p>릴리즈를 고르고 checksum이나 이미지 다이제스트를 검증합니다.</p>
+            <p>릴리즈를 고르고 체크섬이나 이미지 다이제스트를 검증합니다.</p>
           </li>
           <li>
             <h3>Server 설치</h3>
@@ -480,7 +463,6 @@
         <div class="section-head">
           <p class="section-kicker">한계 알기</p>
           <h2 id="boundaries-title">jastreamer가 아닌 것.</h2>
-          <p>분명한 경계가 음악과 네트워크, 그리고 기대치를 안전하게 지켜 줍니다.</p>
         </div>
         <ul class="not-grid">
           <li>
@@ -496,16 +478,12 @@
             <p>UPnP/DLNA 재생 기기를 찾아 제어하고 음원을 전달하는 쪽이며, 다른 플레이어용 DLNA 보관함이 아닙니다.</p>
           </li>
           <li>
-            <h3>브라우저용 오프라인 플레이어가 아닙니다</h3>
-            <p>PWA는 보관함을 저장하지 않습니다. 오프라인 재생은 Android 앱의 <strong>저장된 음악</strong>에서만 가능합니다.</p>
-          </li>
-          <li>
             <h3>자동 업데이트나 앱 스토어 제품이 아닙니다</h3>
             <p>앱 안의 업데이트 기능, Windows 서비스, 앱 스토어 등록이 없습니다. 업데이트는 직접 내려받아 검증하세요. Server 업데이트는 데이터를 그대로 유지합니다.</p>
           </li>
           <li>
-            <h3>멀티룸이나 휴대전화 중계 시스템이 아닙니다</h3>
-            <p>Server는 한 번에 선택한 출력 하나로만 재생하며 동기화된 멀티룸 재생은 없습니다. 네트워크 출력에서 휴대전화는 명령만 보내고, 오디오는 Server에서 수신기로 바로 갑니다.</p>
+            <h3>멀티룸 시스템이 아닙니다</h3>
+            <p>Server는 한 번에 선택한 출력 하나로만 재생하며 동기화된 멀티룸 재생은 없습니다.</p>
           </li>
         </ul>
       </div>
@@ -520,7 +498,7 @@
             <img src="../assets/jastreamer.svg" width="32" height="32" alt="">
             <span>jastreamer</span>
           </a>
-          <p>신뢰하는 사설 LAN용 자체 호스팅 음악 서버. <a href="https://github.com/furyheimdall">@furyheimdall</a>이 관리합니다.</p>
+          <p>신뢰하는 사설 LAN용 자체 호스팅 음악 플레이어. <a href="https://github.com/furyheimdall">@furyheimdall</a>이 관리합니다.</p>
         </div>
         <nav aria-labelledby="footer-docs">
           <h2 id="footer-docs">문서</h2>
@@ -554,5 +532,16 @@
       </div>
     </div>
   </footer>
+
+  <dialog class="image-viewer" id="image-viewer" aria-labelledby="image-viewer-title">
+    <h2 class="visually-hidden" id="image-viewer-title">확대 이미지</h2>
+    <div class="image-viewer-toolbar">
+      <p>이미지 바깥을 누르거나 Esc 키를 누르면 돌아옵니다.</p>
+      <button class="button button-primary image-viewer-close" type="button" autofocus>닫기</button>
+    </div>
+    <div class="image-viewer-stage" tabindex="0" role="region" aria-label="이미지: 스크롤해서 전체 보기">
+      <img class="image-viewer-image" alt="">
+    </div>
+  </dialog>
 </body>
 </html>
