@@ -50,7 +50,7 @@ type Config struct {
 type libraryOpener interface {
 	Open(context.Context, string) (*os.File, library.Track, error)
 	Artwork(context.Context, string) (*os.File, string, error)
-	Info(context.Context, string) (library.TrackInfo, error)
+	OpenAudio(context.Context, string) (*os.File, library.TrackInfo, error)
 }
 
 type Service struct {
@@ -84,6 +84,10 @@ type binding struct {
 	browser           bool
 	artwork           *boundArtwork
 	fileInfo          os.FileInfo
+	source            library.Track
+	signalPath        output.SignalPath
+	delivered         bool
+	sourceInvalid     bool
 	ctx               context.Context
 	cancel            context.CancelFunc
 	active            map[uint64]io.Closer
@@ -174,15 +178,24 @@ func (service *Service) Prepare(ctx context.Context, device output.Device, track
 		return output.Resource{}, ErrTrackUnavailable
 	}
 	var audio library.AudioProperties
-	if device.Protocol == output.ProtocolCast {
-		details, infoErr := service.library.Info(ctx, openedTrack.ID)
+	if device.Protocol == output.ProtocolCast || device.Protocol == output.ProtocolUPnP {
+		inspected, details, infoErr := service.library.OpenAudio(ctx, openedTrack.ID)
+		sameSource := false
+		if infoErr == nil {
+			inspectedInfo, inspectStatErr := inspected.Stat()
+			inspectCloseErr := inspected.Close()
+			sameSource = inspectStatErr == nil && inspectCloseErr == nil && os.SameFile(info, inspectedInfo) &&
+				info.Size() == inspectedInfo.Size() && info.ModTime() == inspectedInfo.ModTime() &&
+				matchingTrackSnapshot(openedTrack, details.Track)
+		}
 		if err := context.Cause(ctx); err != nil {
 			return output.Resource{}, err
 		}
-		if infoErr != nil || !matchingTrackSnapshot(openedTrack, details.Track) {
+		if infoErr == nil && sameSource {
+			audio = details.Audio
+		} else if device.Protocol == output.ProtocolCast {
 			return output.Resource{}, fmt.Errorf("%w: inspect selected track", ErrTrackUnavailable)
 		}
-		audio = details.Audio
 	}
 	representation, err := selectRepresentation(openedTrack, audio, device.Protocol, device.ProtocolInfo, service.ffmpeg != nil)
 	if err != nil {
@@ -215,6 +228,8 @@ func (service *Service) Prepare(ctx context.Context, device output.Device, track
 		cast:           device.Protocol == output.ProtocolCast,
 		artwork:        artwork,
 		fileInfo:       info,
+		source:         openedTrack,
+		signalPath:     originalSignalPath(device, openedTrack, audio, representation),
 		ctx:            bindingContext,
 		cancel:         cancel,
 		active:         make(map[uint64]io.Closer),
@@ -269,6 +284,49 @@ func matchingTrackSnapshot(opened, inspected library.Track) bool {
 		inspected.Available == opened.Available && inspected.Size == opened.Size &&
 		inspected.ModifiedAt == opened.ModifiedAt && inspected.Format == opened.Format &&
 		inspected.Mime == opened.Mime
+}
+
+func originalSignalPath(device output.Device, track library.Track, audio library.AudioProperties, selected representation) output.SignalPath {
+	if (device.Protocol != output.ProtocolUPnP && device.Protocol != output.ProtocolCast) || selected.transformed ||
+		audio.SampleRate == nil || *audio.SampleRate <= 0 || audio.BitsPerSample == nil || *audio.BitsPerSample <= 0 ||
+		audio.Channels == nil || *audio.Channels <= 0 {
+		return output.SignalPath{}
+	}
+	switch audio.Codec {
+	case "FLAC", "ALAC", "PCM", "IEEE Float":
+		return output.SignalPath{
+			Scope: "server", Mode: "original", RendererID: device.ID, TrackID: track.ID,
+			SampleRate: *audio.SampleRate, ValidBits: *audio.BitsPerSample, Channels: *audio.Channels,
+		}
+	default:
+		return output.SignalPath{}
+	}
+}
+
+func (service *Service) SignalPath(rendererID, playID string) (output.SignalPath, bool) {
+	service.mu.Lock()
+	defer service.mu.Unlock()
+	value := service.byPlay[playID]
+	if value == nil || value.rendererID != rendererID || value.signalPath.Scope == "" ||
+		!value.delivered || value.sourceInvalid || value.ctx.Err() != nil {
+		return output.SignalPath{}, false
+	}
+	return value.signalPath, true
+}
+
+func (service *Service) markDelivered(value *binding) {
+	service.mu.Lock()
+	if service.byPlay[value.playID] == value && !value.sourceInvalid && value.ctx.Err() == nil {
+		value.delivered = true
+	}
+	service.mu.Unlock()
+}
+
+func (service *Service) clearDelivery(value *binding, invalidSource bool) {
+	service.mu.Lock()
+	value.delivered = false
+	value.sourceInvalid = value.sourceInvalid || invalidSource
+	service.mu.Unlock()
 }
 
 func (service *Service) Revoke(playID string) {

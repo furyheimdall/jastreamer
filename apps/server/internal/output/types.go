@@ -12,6 +12,7 @@ const (
 	ProtocolUPnP    = "upnp"
 	ProtocolAirPlay = "airplay"
 	ProtocolCast    = "cast"
+	ProtocolRAAT    = "raat"
 	ProtocolBrowser = "browser"
 )
 
@@ -28,6 +29,26 @@ type Resource struct {
 	Transformed *bool  `json:"transformed,omitempty"`
 	TrackID     string `json:"-"`
 	PlayID      string `json:"-"`
+}
+
+// SignalPath is positive evidence for the application's server delivery path.
+// It does not attest to receiver processing or the physical DAC. ContainerBits
+// is zero for original-file delivery, which has no negotiated PCM container.
+type SignalPath struct {
+	Scope         string `json:"scope"`
+	Mode          string `json:"mode"`
+	RendererID    string `json:"renderer_id"`
+	TrackID       string `json:"track_id"`
+	SampleRate    int64  `json:"sample_rate"`
+	ValidBits     int    `json:"valid_bits"`
+	ContainerBits int    `json:"container_bits"`
+	Channels      int    `json:"channels"`
+}
+
+// SignalPathProvider reads current, owned delivery evidence without I/O or
+// receiver polling. Absence means unknown, not evidence of altered audio.
+type SignalPathProvider interface {
+	SignalPath(rendererID, playID string) (SignalPath, bool)
 }
 
 type Capabilities struct {
@@ -142,6 +163,17 @@ type PairingStatus struct {
 
 type Pairer interface {
 	Pair(context.Context, string, PairingRequest) (PairingStatus, error)
+}
+
+// RemoteControl is a device-origin intent, never an independent playback state.
+// Current fences the live controller generation and ownership at acceptance.
+type RemoteControl struct {
+	DeviceID   string
+	PlayID     string
+	Action     string
+	PositionMS int64
+	Relative   bool
+	Current    func() bool
 }
 
 type Backend struct {

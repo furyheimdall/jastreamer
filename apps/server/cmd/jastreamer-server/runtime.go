@@ -38,6 +38,7 @@ import (
 	"github.com/jastreamer/jastreamer-server/internal/library"
 	"github.com/jastreamer/jastreamer-server/internal/output"
 	"github.com/jastreamer/jastreamer-server/internal/player"
+	"github.com/jastreamer/jastreamer-server/internal/raat"
 	"github.com/jastreamer/jastreamer-server/internal/stream"
 	"github.com/jastreamer/jastreamer-server/web/ui"
 )
@@ -214,6 +215,7 @@ func runRuntime(parent context.Context, value config.Config, configPath, restart
 		result.err = err
 		return result
 	}
+	var playback *player.Service
 	backends := []output.Backend{
 		{Protocol: output.ProtocolUPnP, Controller: upnp, Media: media},
 		{Protocol: output.ProtocolBrowser, Controller: browser, Media: browser},
@@ -241,8 +243,33 @@ func runRuntime(parent context.Context, value config.Config, configPath, restart
 		}
 		backends = append(backends, output.Backend{Protocol: output.ProtocolAirPlay, Controller: airplayManager, Media: airplayManager, Pairer: airplayManager})
 	}
+	if value.RAAT.Enabled {
+		raatManager, raatErr := raat.New(raat.Config{
+			Interfaces: value.Network.Interfaces, DiscoveryInterval: time.Duration(value.Network.DiscoveryIntervalSeconds) * time.Second,
+			FFmpegPath: value.Media.FFmpegPath, Notify: hub.Publish,
+			OnControl: func(ctx context.Context, intent output.RemoteControl) error {
+				return playback.RemoteCommand(ctx, intent)
+			},
+			State: func(ctx context.Context) (raat.TransportState, error) {
+				state, err := playback.Snapshot(ctx)
+				if err != nil {
+					return raat.TransportState{}, err
+				}
+				return raat.TransportState{
+					RendererID: state.RendererID, State: state.State, RepeatMode: state.RepeatMode,
+					PositionMS: state.PositionMS, DurationMS: state.DurationMS, Shuffle: state.Shuffle,
+					CanPlay: state.Capabilities.Play, CanPause: state.Capabilities.Pause, CanSeek: state.Capabilities.Seek,
+				}, nil
+			},
+		}, catalog)
+		if raatErr != nil {
+			result.err = raatErr
+			return result
+		}
+		backends = append(backends, output.Backend{Protocol: output.ProtocolRAAT, Controller: raatManager, Media: raatManager})
+	}
 	outputs := output.NewManager(backends...)
-	playback, err := player.New(ctx, db, catalog, outputs, time.Duration(value.Network.PollIntervalSeconds)*time.Second, hub.Publish, history)
+	playback, err = player.New(ctx, db, catalog, outputs, time.Duration(value.Network.PollIntervalSeconds)*time.Second, hub.Publish, history)
 	if err != nil {
 		result.err = err
 		return result
@@ -484,6 +511,14 @@ func preflightRestart(active, target config.Config, db *sql.DB, catalog *library
 			DataDir: filepath.Join(target.DataDir, "airplay"),
 		}); err != nil {
 			return fmt.Errorf("initialize AirPlay output: %w", err)
+		}
+	}
+	if target.RAAT.Enabled {
+		if _, err := raat.New(raat.Config{
+			Interfaces: target.Network.Interfaces, DiscoveryInterval: time.Duration(target.Network.DiscoveryIntervalSeconds) * time.Second,
+			FFmpegPath: target.Media.FFmpegPath,
+		}, catalog); err != nil {
+			return fmt.Errorf("initialize RAAT output: %w", err)
 		}
 	}
 	return preflightListeners(active, target)

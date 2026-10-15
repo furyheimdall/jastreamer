@@ -1,4 +1,4 @@
-.PHONY: verify web-verify go-verify build web-build server-build server-build-only browser-smoke browser-smoke-only desktop-verify desktop-native-windows desktop-native-macos desktop-package-macos desktop-native-dependencies desktop-native-decoder desktop-native-decoder-check desktop-package package package-verify windows-server-package clean
+.PHONY: verify web-verify go-verify raat-verify build web-build server-build server-build-only browser-smoke browser-smoke-only desktop-verify desktop-native-windows desktop-native-macos desktop-package-macos desktop-native-dependencies desktop-native-decoder desktop-native-decoder-check desktop-package package package-verify windows-server-package clean
 
 VERSION := $(shell cat apps/server/VERSION)
 SOURCE_REVISION ?= $(shell git rev-parse --verify HEAD)
@@ -8,6 +8,7 @@ NATIVE_AUDIO_DIR := apps/desktop/native/audio
 NATIVE_FFMPEG_PREFIX ?= $(NATIVE_AUDIO_DIR)/deps/install/ffmpeg
 NATIVE_AUDIO_BUILD_DIR ?= $(NATIVE_AUDIO_DIR)/build
 NATIVE_JOBS ?= 4
+LUA ?= lua5.3
 
 
 verify: web-build
@@ -15,9 +16,12 @@ verify: web-build
 
 web-verify: web-build
 
-go-verify:
+go-verify: raat-verify
 	cd apps/server && go test ./... -count=1
 	cd apps/server && go vet ./...
+
+raat-verify:
+	$(LUA) apps/server/internal/raat/receiver_test.lua apps/server/internal/raat/receiver.lua
 
 build: server-build
 

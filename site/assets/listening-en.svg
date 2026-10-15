@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 1400" width="720" height="1400" role="img" aria-labelledby="t d" lang="en">
   <title id="t">Concept illustration: how listening works with jastreamer</title>
-  <desc id="d">Three stacked scenes. 1 Control: a phone and a laptop browser send commands only (dashed line) to the home Server; audio is not relayed through the controlling screen. The Server keeps the library and queue and sends audio (solid line) to one selected output at a time. 2 Local listening: the desktop app on a computer plays to a USB DAC and headphones, or the Android app plays to a USB DAC dongle, with opt-in exclusive or USB-direct output. Or 3 Network listening: a living-room network receiver with speakers, acting as a UPnP/DLNA renderer or an AirPlay receiver; AirPlay sending needs the Linux container Server.</desc>
+  <desc id="d">Three stacked scenes. 1 Control: a phone and a laptop browser send commands only (dashed line) to the home Server; audio is not relayed through the controlling screen. The Server keeps the library and queue and sends audio (solid line) to one selected output at a time. 2 Local listening: the desktop app on a computer plays to a USB DAC and headphones, or the Android app plays to a USB DAC dongle, with opt-in exclusive or USB-direct output. Or 3 Network listening: a living-room receiver with speakers uses UPnP/DLNA, optional Cast, AirPlay or experimental, default-off RAAT. AirPlay sending needs the Linux container Server. RAAT needs a compatible receiver and configured FFmpeg; it is not Roon Ready certification.</desc>
   <style>
     svg {
       --page: #111315; --nas-top: #2d3438; --nas-bottom: #1f2427; --panel: #1b1f22; --panel-raised: #252b2f; --deep: #0c0e0f; --wood: #2c3236;
@@ -160,6 +160,6 @@
     <circle cx="641" cy="1194" r="9" class="scr"/><circle cx="641" cy="1246" r="22" class="scr"/><circle class="ac" cx="641" cy="1246" r="6"/>
     <path class="wave" d="M522 1222a28 28 0 0 1 0 36M540 1210a46 46 0 0 1 0 60M588 1222a28 28 0 0 0 0 36M570 1210a46 46 0 0 0 0 60"/>
   </g>
-  <text class="m" x="104" y="1338">UPnP/DLNA renderer or AirPlay receiver</text>
-  <text class="s" x="104" y="1372">AirPlay sending: Linux container Server only</text>
+  <text class="m" x="104" y="1338">UPnP/DLNA · Cast · AirPlay</text>
+  <text class="s" x="104" y="1372">RAAT: experimental · off by default</text>
 </svg>

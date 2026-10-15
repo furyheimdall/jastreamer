@@ -71,4 +71,5 @@ type State struct {
 	Error          string              `json:"error"`
 	StatusWarning  *StatusWarning      `json:"status_warning,omitempty"`
 	Capabilities   output.Capabilities `json:"capabilities"`
+	SignalPath     *output.SignalPath  `json:"signal_path,omitempty"`
 }

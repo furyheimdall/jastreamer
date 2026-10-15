@@ -394,7 +394,12 @@ func (s *Service) applyObservation(ctx context.Context, observation output.Obser
 	}
 
 	if (normalized == "stopped" || normalized == "unknown") && (!observation.HasURI || ownedURI || uriCleared) {
-		if st.controlAction != "" && (st.state == StateStopped || !ownedURI) {
+		// After Stop or natural completion has cleared the playback binding,
+		// another healthy idle report confirms that state; it is not an external
+		// interruption. Keep genuine renderer errors on the error path below.
+		settledStop := normalized == "stopped" && st.state == StateStopped && st.playID == "" && st.currentURI == "" &&
+			!strings.EqualFold(strings.TrimSpace(observation.TransportStatus), "ERROR_OCCURRED")
+		if (st.controlAction != "" && (st.state == StateStopped || !ownedURI)) || settledStop {
 			query := observationEvidenceAndControlSQL
 			if st.state == StateStopped {
 				query = observationStoppedControlSQL

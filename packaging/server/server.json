@@ -36,5 +36,8 @@
   },
   "cast": {
     "enabled": false
+  },
+  "raat": {
+    "enabled": false
   }
 }

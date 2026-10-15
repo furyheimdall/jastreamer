@@ -8,7 +8,7 @@
 
 <img src="assets/jastreamer.svg" width="80" height="80" alt="jastreamer 로고" />
 
-jastreamer 0.2.3은 신뢰하는 사설 LAN에서 쓰는 자체 호스팅 음악 서버입니다. Linux 또는 Windows Server가 사용자가 승인한 로컬 음악을 색인하고 Web 화면을 제공하며, 계정·좋아요·재생 횟수·플레이리스트와 공용 대기열 하나를 SQLite에 보관하고 선택한 출력 한 곳으로 오디오를 보냅니다. UPnP/DLNA는 기본 제공이고 Google Cast는 두 Server 플랫폼에서 선택적으로 켤 수 있으며, AirPlay 전송은 Linux 컨테이너에서만 사용할 수 있습니다. 기본 UI 언어는 영어이며 한국어도 지원합니다.
+jastreamer 0.2.4는 신뢰하는 사설 LAN에서 쓰는 자체 호스팅 음악 서버입니다. Linux 또는 Windows Server가 사용자가 승인한 로컬 음악을 색인하고 Web 화면을 제공하며, 계정·좋아요·재생 횟수·플레이리스트와 공용 대기열 하나를 SQLite에 보관하고 선택한 출력 한 곳으로 오디오를 보냅니다. UPnP/DLNA는 기본 제공이고 Google Cast는 두 Server 플랫폼에서 선택적으로 켤 수 있으며, 실험적 RAAT는 명시적으로 켜서 사용하고 AirPlay 전송은 Linux 컨테이너에서만 사용할 수 있습니다. 기본 UI 언어는 영어이며 한국어도 지원합니다.
 
 ## 문서
 
@@ -30,6 +30,8 @@ jastreamer 0.2.3은 신뢰하는 사설 LAN에서 쓰는 자체 호스팅 음악
 - Server 전체에서 공유하는 좋아요와 재생 횟수, **많이 재생한 곡** 목록, 한 번만 실행하는 **좋아요 섞어 담기**
 - 기기별 출력 이름과 **로컬 음량**을 갖춘 브라우저 오디오 **이 기기** 재생
 - UPnP/DLNA, 선택적 Google Cast, Linux AirPlay 출력 검색과 제어, 수신기가 요구하는 AirPlay PIN·암호 인증
+- 기본값 꺼짐인 [실험적 RAAT](INSTRUCTION.ko.md#raat)로 같은 대기열·메타데이터·앨범 아트·재생 제어 사용. 호환 수신기와 FFmpeg가 필요하며 Roon Ready 인증이 아님
+- UPnP·Cast·RAAT의 현재 무손실 전송 증거가 있을 때만 **비트 퍼펙트 · 서버 전송** 배지 표시. 수신기 내부 처리나 물리 DAC의 비트 투명성을 보장하지 않음([범위](INSTRUCTION.ko.md#signal-path))
 - 최초 계정 생성, 비밀번호 로그인·변경·복구, 로그인 상태 유지, 사설 LAN HTTP와 선택적 내장 HTTPS
 - iPhone·Android 휴대전화용 네 탭 화면과 접히는 재생 제어, 선택 사항인 설치형 Web 앱(PWA)
 
@@ -41,8 +43,8 @@ jastreamer 0.2.3은 신뢰하는 사설 LAN에서 쓰는 자체 호스팅 음악
 | Server | Windows x64 | 무설치 ZIP | Web 화면, UPnP/DLNA, 선택적 Cast. AirPlay와 FFmpeg은 없고 Windows 서비스도 아님 |
 | 데스크톱 앱 | Windows 10/11 x64 | 무설치 ZIP | 브라우저 오디오와 선택적 WASAPI 공유·독점 출력, Windows 미디어 제어([Windows 오디오](INSTRUCTION.ko.md#windows-audio)) |
 | 데스크톱 앱 | Linux `amd64` | DEB | 브라우저 오디오만 지원. Linux ARM64 데스크톱 패키지는 없음 |
-| 데스크톱 앱 | Apple Silicon macOS 13 이상 (`arm64`) | `jastreamer.app`이 포함된 공식 `jastreamer-desktop_0.2.3_macos-arm64-adhoc.dmg` | ad-hoc 서명·미공증. 브라우저 오디오와 선택적 CoreAudio 공유·독점 USB DAC 출력, macOS 지금 재생 중·시스템 미디어 제어. Intel·Rosetta·Universal 빌드 없음([macOS](INSTALL.ko.md#desktop-macos)) |
-| 모바일 앱 | Android 10 이상 | [GitHub Releases](https://github.com/furyheimdall/jastreamer/releases)에 첨부된 서명 APK `jastreamer-android_0.2.3_release.apk` | 시스템 미디어 제어가 있는 Media3 로컬 재생, 연결된 USB 오디오 클래스 DAC으로 직접 출력하는 선택적 USB 비트 퍼펙트, 오프라인 **저장된 음악**([Android 설치](INSTALL.ko.md#android)) |
+| 데스크톱 앱 | Apple Silicon macOS 13 이상 (`arm64`) | `jastreamer.app`이 포함된 공식 `jastreamer-desktop_0.2.4_macos-arm64-adhoc.dmg` | ad-hoc 서명·미공증. 브라우저 오디오와 선택적 CoreAudio 공유·독점 USB DAC 출력, macOS 지금 재생 중·시스템 미디어 제어. Intel·Rosetta·Universal 빌드 없음([macOS](INSTALL.ko.md#desktop-macos)) |
+| 모바일 앱 | Android 10 이상 | [GitHub Releases](https://github.com/furyheimdall/jastreamer/releases)에 첨부된 서명 APK `jastreamer-android_0.2.4_release.apk` | 시스템 미디어 제어가 있는 Media3 로컬 재생, 연결된 USB 오디오 클래스 DAC으로 직접 출력하는 선택적 USB 비트 퍼펙트, 오프라인 **저장된 음악**([Android 설치](INSTALL.ko.md#android)) |
 | 모바일 앱 | iOS/iPadOS 18.4 이상 | [iOS CI](https://github.com/furyheimdall/jastreamer/actions/workflows/ios.yml)와 소스만 제공 | 제어 전용 앱. 설치 가능한 패키지, TestFlight, App Store 배포 없음([iOS 개발 범위](INSTALL.ko.md#ios)) |
 | 브라우저·PWA | LAN의 최신 브라우저 | Server가 직접 제공 | iPhone·Android 휴대전화 브라우저는 휴대전화 화면 사용, PWA 설치에는 신뢰할 수 있는 HTTPS 필요([PWA](INSTALL.ko.md#pwa)) |
 
@@ -66,7 +68,9 @@ jastreamer 0.2.3은 신뢰하는 사설 LAN에서 쓰는 자체 호스팅 음악
 
 업데이트는 컨테이너 이미지 또는 패키지가 소유한 파일만 교체하며, 설정·데이터베이스·계정·세션·플레이리스트·대기열과 음악 경로는 그대로 유지되고 재생은 자동으로 이어지지 않습니다. 앱 안에서 새 버전을 확인하거나 자동으로 갱신하는 기능은 없으므로 대상 파일과 체크섬을 먼저 내려받아 검증하세요. 데스크톱·Android·iOS 클라이언트는 Server와 별도로 업데이트합니다.
 
-0.2.3은 네이티브 CoreAudio 재생에 macOS 지금 재생 중과 Server가 소유하는 시스템 미디어 제어를 추가합니다. 게시된 0.2.2 Mac 패키지에는 이 연동이 없습니다. 공통 `JastreamerDesktopAudio` 브리지는 0.2.2에서 도입되었으며 기존 0.2.2 Server와 그 Web 화면만으로 0.2.3 Mac Desktop을 사용할 수 있습니다. 0.2.1 Server에는 이 브리지가 없고 공식 Mac 산출물도 없었으므로 더 오래된 Desktop·Server 브리지 조합은 배포 승인을 받아 함께 업데이트하세요. Server 설정·데이터베이스 스키마는 바뀌지 않았습니다. 새 설치가 아니며 계정·데이터·클라이언트 프로필을 초기화할 필요가 없습니다.
+RAAT와 서버 전송 배지에는 **0.2.4 Server와 그 Server가 제공하는 Web 화면**이 필요합니다. 클라이언트만 업데이트해서는 추가되지 않습니다. 새 선택적 `raat` 설정 항목이 없으면 기본값은 꺼짐이며, 기존 설정·데이터를 템플릿으로 교체하지 마세요. 이 항목이 포함된 설정을 저장했다면 구형 Server로 롤백하기 전에 호환성을 검토해야 합니다([자세히](INSTALL.ko.md#upgrade)).
+
+공통 `JastreamerDesktopAudio` 브리지는 0.2.2, Mac 시스템 미디어 제어는 0.2.3에서 도입되었습니다(0.2.2 Mac 패키지에는 없음). 0.2.2 Server는 이 0.2.3 Mac 연동에 충분하지만 새 0.2.4 네트워크 기능에는 충분하지 않습니다. 0.2.1 Server에는 브리지가 없고 공식 Mac 산출물도 없었으므로 더 오래된 Desktop·Server 브리지 조합은 배포 승인을 받아 함께 업데이트하세요. 계정·데이터·클라이언트 프로필 초기화는 필요하지 않습니다.
 
 실제 절차와 업데이트 후 확인 사항은 [업데이트](INSTALL.ko.md#upgrade)와 [롤백](INSTALL.ko.md#rollback)에 있습니다.
 
@@ -103,7 +107,7 @@ jastreamer 0.2.3은 신뢰하는 사설 LAN에서 쓰는 자체 호스팅 음악
 APK를 설치하기 전에 서명자를 직접 확인하고 위 지문 및 같은 값이 적힌 릴리즈 노트와 비교하세요.
 
 ```
-apksigner verify --print-certs jastreamer-android_0.2.3_release.apk
+apksigner verify --print-certs jastreamer-android_0.2.4_release.apk
 ```
 
 이 지문은 저장소의 `packaging/android/release-certificate-sha256.txt`에 고정되어 있고, 릴리즈 워크플로는 다른 인증서로 서명된 APK를 게시하지 않습니다. 비교는 대소문자를 구분하지 않으며 `apksigner`는 구분 기호 없이 출력합니다. jastreamer는 Google Play로 배포하지 않습니다.

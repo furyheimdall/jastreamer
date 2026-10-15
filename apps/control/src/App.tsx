@@ -653,6 +653,7 @@ export default function App() {
 
       <PlayerBar
         revision={revisions.player + revisions.renderers}
+        serverConnected={online}
         phoneExpanded={phonePlayerExpanded}
         onPhoneExpandedChange={setPhonePlayerExpanded}
         onNotice={showNotice}

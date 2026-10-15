@@ -322,6 +322,7 @@ func (s *Service) Run(ctx context.Context) error {
 
 func (s *Service) Snapshot(ctx context.Context) (State, error) {
 	s.opMu.Lock()
+	defer s.opMu.Unlock()
 	st, err := s.loadState(ctx)
 	var warning *StatusWarning
 	failure := s.observationFailure
@@ -331,7 +332,6 @@ func (s *Service) Snapshot(ctx context.Context) (State, error) {
 		copy := failure.warning
 		warning = &copy
 	}
-	s.opMu.Unlock()
 	if err != nil {
 		return State{}, err
 	}
@@ -341,8 +341,10 @@ func (s *Service) Snapshot(ctx context.Context) (State, error) {
 		PositionMS: st.positionMS, DurationMS: st.durationMS, ObservedAt: st.observedAt,
 		Error: st.errorMessage, StatusWarning: warning,
 	}
+	online := false
 	if st.rendererID != "" {
 		if device, ok := s.devices.Device(st.rendererID); ok {
+			online = device.Online
 			result.Capabilities = device.Capabilities
 			result.Capabilities.Seek = result.Capabilities.Seek && st.currentSeekable
 		}
@@ -359,6 +361,18 @@ func (s *Service) Snapshot(ctx context.Context) (State, error) {
 	}
 	if err := s.db.QueryRowContext(ctx, `SELECT CASE action WHEN 'natural_next' THEN 'next' WHEN 'error_next' THEN 'next' ELSE action END FROM player_commands WHERE service_epoch=? AND status IN ('pending','running') ORDER BY created_at LIMIT 1`, s.epoch).Scan(&result.PendingCommand); err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return State{}, fmt.Errorf("player: load pending command: %w", err)
+	}
+	if online && (st.state == StatePlaying || st.state == StatePaused) && st.playID != "" && st.currentURI != "" &&
+		!st.resumeRequired && result.Error == "" && result.StatusWarning == nil && result.PendingCommand == "" &&
+		result.Track != nil && result.Track.Available {
+		if provider, ok := s.media.(output.SignalPathProvider); ok {
+			path, known := provider.SignalPath(st.rendererID, st.playID)
+			if known && path.Scope == "server" && path.RendererID == st.rendererID && path.TrackID == st.currentTrackID &&
+				path.SampleRate > 0 && path.ValidBits > 0 && path.Channels > 0 &&
+				(path.Mode == "original" || (path.Mode == "pcm" && path.ContainerBits >= path.ValidBits)) {
+				result.SignalPath = &path
+			}
+		}
 	}
 	return result, nil
 }

@@ -154,7 +154,7 @@ export interface Capabilities {
   seek: boolean;
 }
 
-export type OutputProtocol = "upnp" | "airplay" | "cast" | "browser";
+export type OutputProtocol = "upnp" | "airplay" | "cast" | "raat" | "browser";
 
 export interface Device {
   id: string;
@@ -186,6 +186,22 @@ export interface StatusWarning {
   message: string;
 }
 
+// Server-reported evidence that the server delivered the current track to the selected
+// network output unchanged. Its presence is positive, scoped evidence; absence means
+// unknown, never "not bit-perfect". Receiver processing and the DAC are outside its scope.
+export interface SignalPath {
+  scope: string;
+  // "original": the original file bytes; "pcm": PCM at the source rate and precision.
+  mode: string;
+  renderer_id: string;
+  track_id: string;
+  sample_rate: number;
+  valid_bits: number;
+  // PCM sample width on the wire; 0 in original mode, where it does not apply.
+  container_bits: number;
+  channels: number;
+}
+
 export interface PlayerState {
   revision: number;
   state: PlaybackState;
@@ -201,6 +217,7 @@ export interface PlayerState {
   error: string;
   status_warning?: StatusWarning;
   capabilities: Capabilities;
+  signal_path?: SignalPath | null;
 }
 
 export type QueueEntryStatus = "pending" | "playing" | "completed" | "error";
@@ -304,6 +321,9 @@ export interface ServerConfig {
     helper_path: string;
   };
   cast: {
+    enabled: boolean;
+  };
+  raat: {
     enabled: boolean;
   };
 }
