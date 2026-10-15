@@ -28,7 +28,7 @@ jastreamer는 Server 하나와 선택 사항인 클라이언트들로 이루어�
 | 구성 요소 | 요구 사항 | 패키지 |
 | --- | --- | --- |
 | Linux·Synology Server | Docker Engine과 Compose v2가 있는 Linux `amd64`·`arm64`, 또는 Container Manager가 있는 Synology DSM. `arm/v7`은 지원하지 않으며 DS918+는 `amd64` | `ghcr.io/furyheimdall/jastreamer-server` 이미지 |
-| Windows Server | Windows x64와 쓰기 가능한 로컬 폴더, 일반 사용자 계정으로 실행. Windows 서비스로 설치되지 않음 | `jastreamer-server_0.2.4_windows-x64.zip` |
+| Windows Server | Windows x64와 쓰기 가능한 로컬 폴더, 일반 사용자 계정으로 실행. Windows 서비스로 설치되지 않음 | `jastreamer-server_0.2.5_windows-x64.zip` |
 | Windows 데스크톱 앱 | Windows 10/11 x64. ARM64 패키지는 없음 | `jastreamer-desktop_0.2.4_windows-x64.zip` |
 | Linux 데스크톱 앱 | 그래픽 환경이 있는 Linux `amd64`. Ubuntu 24.04 amd64가 검증 대상이며 ARM64 패키지는 없음 | `jastreamer-desktop_0.2.4_linux-amd64.deb` |
 | macOS 데스크톱 앱 | Apple Silicon macOS 13 이상. Intel·Rosetta·Universal 빌드 없음 | `.app`이 포함된 공식 `jastreamer-desktop_0.2.4_macos-arm64-adhoc.dmg`, ad-hoc 서명·미공증 |
@@ -58,16 +58,6 @@ Server의 config, data, music은 서로 다른 폴더에 두고, 프로젝트나
 
 AirPlay는 Linux 이미지에 포함된 helper로만 제공됩니다. 위 포트를 인터넷으로 포워딩하지 마세요.
 
-<a id="raat-development"></a>
-### RAAT 준비 조건 — 0.2.4의 실험적 기능
-
-RAAT에는 0.2.4 Server와 그 Server가 제공하는 Web 화면, 호환 수신기가 필요합니다. 클라이언트만 업데이트해서는 충분하지 않습니다. Roon Ready 인증이 아닌 실험적 기능이며 `raat.enabled`가 `false`이거나 없으면 꺼진 상태입니다. 선택한 `network.interfaces`, SOOD UDP 9003, 수신기가 광고한 제어 TCP 포트와 같은 수신기에서 동적으로 할당한 별도 오디오 TCP 포트를 사용합니다. 수신기 측 화면·제어 소유권 버스는 `239.255.90.91:9004`를 사용합니다. 오디오 리스너는 스트림별 토큰으로 제어 세션에 연결되고 스트림 해제 시 닫힙니다. 두 채널은 암호화되지 않고 수신기 신원도 암호학적으로 인증되지 않습니다. 신뢰하는 사설 IPv4 LAN 안에서만 사용하며 인터넷 포워딩이나 자동 방화벽 변경을 하지 마세요.
-
-활성화하려면 `media.ffmpeg_path`에 실행 가능한 절대 경로를 지정해야 합니다. 해당 FFmpeg에는 `fd` 입력 프로토콜, 원본의 디코더와 대응하는 PCM 인코더(`pcm_s16le`, `pcm_s24le`, `pcm_s32le`, `pcm_f32le`, `pcm_f64le`)가 필요합니다. 0.2.4 Linux 컨테이너에는 호환 FFmpeg가 포함됩니다. 기존 경로가 호환 실행 파일을 가리키는지 확인하세요. 네이티브 Windows 패키지는 FFmpeg를 포함하지 않으므로 운영자 승인을 받아 호환 실행 파일을 별도로 준비하고 설정해야 합니다. Windows RAAT 재생은 검증하지 않았습니다. **Settings → 재생·출력**에서 실험적 RAAT 출력을 켜고 승인된 변경을 저장한 뒤 명시적으로 재시작하며 기존 음악·상태·권한을 유지합니다. 활성화·검색·출력 선택·재시작은 재생을 시작하지 않으므로 직접 재생을 선택하세요. 검색 성공만으로 호환성을 입증하지 못하며 프로토콜이 `3`이 아니거나 서명 키를 광고하는 수신기는 인증을 우회하지 않고 거부합니다. [K17과 R7로 광고된 장치의 증거·한계](INSTRUCTION.ko.md#raat)는 실제 청취나 일반적인 하드웨어 검증을 뜻하지 않습니다.
-
-`make raat-verify`는 Lua 5.3으로 수신기 규약 fixture를 실행합니다(`LUA`로 호환 인터프리터 선택 가능). 네이티브 API를 모의하므로 실제 수신기에 접속하지 않습니다. 제품 송신기는 Go이며 독립 작성한 Lua 어댑터를 내장합니다. Python 송신기나 복원한 업체 Lua 코드는 배포하지 않습니다. [동작·검증 범위](INSTRUCTION.ko.md#raat)를 참고하세요.
-
-
 ### 모든 플랫폼에 적용되는 안전 수칙
 
 - 요청한 음악 루트가 없을 때 임의로 만들거나, `chmod 777`을 쓰거나, 음악 보관함의 소유권·권한을 재귀적으로 바꾸지 마세요. 플랫폼이 허용하는 범위에서 음악은 읽기 전용으로 연결·설정합니다.
@@ -84,11 +74,11 @@ RAAT에는 0.2.4 Server와 그 Server가 제공하는 Web 화면, 호환 수신�
 
 가장 최근의 정식 릴리즈를 우선 사용하세요. [GitHub Releases 목록](https://github.com/furyheimdall/jastreamer/releases)에서 Preview 표시가 없는 `vX.Y.Z` 항목이며 `/releases/latest`도 이 릴리즈를 가리킵니다. `vX.Y.Z-preview.N` 프리릴리즈는 그 프리뷰를 일부러 시험할 때만 선택하고, 프리뷰는 결코 latest로 표시되지 않는다는 점을 기억하세요. 어느 쪽을 고르든 호스트 아키텍처와 필요한 패키지를 지원하는지 확인하고, 최신 항목이 호환되지 않으면 이유를 밝힌 뒤 가장 최근의 호환 항목을 사용합니다.
 
-릴리즈 provenance, source revision, 패키지·이미지 manifest, SHA-256, 아키텍처가 서로 맞는지 함께 검증하고, 이미지 참조와 Windows ZIP, 데스크톱 패키지, Android APK, 체크섬, manifest를 모두 같은 릴리즈에서 받으세요. `SHA256SUMS`는 모든 자산을 포함하고, `release-provenance.json`에는 릴리즈 태그·채널·소스 리비전·CI 실행과 Android 서명 인증서가 기록됩니다. 선택 사항인 샘플 설정은 선택한 릴리즈가 `samples/manifest.json`, MP3 세 개, seeding helper를 실제로 목록에 포함할 때만 적용됩니다. 게시되지 않은 저장소 파일을 이전 릴리즈의 기능이라고 설명해서는 안 됩니다.
+Linux 이미지와 내장 Web 화면을 포함한 Windows Server는 [Server 0.2.5](https://github.com/furyheimdall/jastreamer/releases/tag/v0.2.5)를 사용하세요. 데스크톱·Android 패키지는 [0.2.4 릴리즈](https://github.com/furyheimdall/jastreamer/releases/tag/v0.2.4)를 유지하며 iOS는 소스·CI 전용입니다. 패키지·이미지마다 해당 릴리즈의 체크섬과 증거를 사용해 provenance, source revision, manifest, SHA-256, 아키텍처가 서로 맞는지 함께 검증하세요. `SHA256SUMS`는 각 릴리즈의 자산을 포함하고, `release-provenance.json`에는 해당 릴리즈의 태그·채널·소스 리비전·CI 실행과 Android를 포함할 때의 서명 인증서가 기록됩니다. 선택 사항인 샘플 설정은 선택한 릴리즈가 `samples/manifest.json`, MP3 세 개, seeding helper를 실제로 목록에 포함할 때만 적용됩니다. 게시되지 않은 저장소 파일을 이전 릴리즈의 기능이라고 설명해서는 안 됩니다.
 
 ### 공개 레지스트리 이미지
 
-레지스트리는 `ghcr.io/furyheimdall/jastreamer-server`이며 공개 이미지는 GitHub 토큰 없이 받을 수 있습니다. 정식 릴리즈는 멀티 아키텍처 index를 `0.2.4` 태그로 게시하고 아키텍처별 다이제스트도 함께 제공하며, 가변 `latest` 이미지 태그는 만들지 않습니다. 태그 대신 릴리즈가 명시한 `linux/amd64` 또는 `linux/arm64` 이미지의 완전한 불변 다이제스트를 고정하세요.
+레지스트리는 `ghcr.io/furyheimdall/jastreamer-server`이며 공개 이미지는 GitHub 토큰 없이 받을 수 있습니다. 정식 릴리즈는 멀티 아키텍처 index를 `0.2.5` 태그로 게시하고 아키텍처별 다이제스트도 함께 제공하며, 가변 `latest` 이미지 태그는 만들지 않습니다. 태그 대신 릴리즈가 명시한 `linux/amd64` 또는 `linux/arm64` 이미지의 완전한 불변 다이제스트를 고정하세요.
 
 ```sh
 export JASTREAMER_SERVER_IMAGE='ghcr.io/furyheimdall/jastreamer-server@sha256:<digest-from-release>'
@@ -104,7 +94,7 @@ docker image inspect --format '{{.Os}}/{{.Architecture}} {{.Id}}' "$JASTREAMER_S
 ZIP에 Authenticode 서명이 없기 때문에 Windows는 인터넷에서 받은 파일로 표시하고, 압축을 푼 프로그램을 처음 실행할 때 SmartScreen 경고가 뜰 수 있습니다. 표시가 모든 파일로 복사되지 않도록 압축을 풀기 **전에** 차단을 해제하세요.
 
 - 탐색기에서: ZIP 파일 우클릭 → **속성** → **차단 해제** 체크 → **확인**
-- PowerShell에서: `Unblock-File -LiteralPath .\jastreamer-server_0.2.4_windows-x64.zip`
+- PowerShell에서: `Unblock-File -LiteralPath .\jastreamer-server_0.2.5_windows-x64.zip`
 
 차단 해제는 릴리즈의 SHA-256과 대조해 검증한 파일에만 적용하세요. SmartScreen·Defender·방화벽을 끄거나 패키지를 관리자 권한으로 실행하지 마세요.
 
@@ -124,11 +114,11 @@ sha256sum -c SHA256SUMS
 ```sh
 ARCH=amd64  # 또는 arm64
 skopeo copy --override-os linux --override-arch "$ARCH" \
-  oci-archive:jastreamer-server_0.2.4_linux_amd64-arm64.oci \
-  docker-archive:jastreamer-server_0.2.4_linux_${ARCH}.tar:jastreamer-server:0.2.4
-sha256sum jastreamer-server_0.2.4_linux_${ARCH}.tar
-docker load --input jastreamer-server_0.2.4_linux_${ARCH}.tar
-docker image inspect --format '{{.Id}}' jastreamer-server:0.2.4
+  oci-archive:jastreamer-server_0.2.5_linux_amd64-arm64.oci \
+  docker-archive:jastreamer-server_0.2.5_linux_${ARCH}.tar:jastreamer-server:0.2.5
+sha256sum jastreamer-server_0.2.5_linux_${ARCH}.tar
+docker load --input jastreamer-server_0.2.5_linux_${ARCH}.tar
+docker image inspect --format '{{.Id}}' jastreamer-server:0.2.5
 ```
 
 <a id="linux-server"></a>
@@ -204,7 +194,7 @@ Synology Container Manager에서는 같은 Compose 파일과 `.env` 값을 **프
 선택한 릴리즈에서 Windows Server ZIP과 `.sha256`, manifest, 검증 영수증을 내려받고 [ZIP 차단을 해제](#windows-unblock)한 뒤, 압축을 풀기 전에 바이트를 대조합니다.
 
 ```powershell
-$file = '.\jastreamer-server_0.2.4_windows-x64.zip'
+$file = '.\jastreamer-server_0.2.5_windows-x64.zip'
 $expected = (Get-Content "$file.sha256" -Raw).Split()[0].ToLowerInvariant()
 $actual = (Get-FileHash $file -Algorithm SHA256).Hash.ToLowerInvariant()
 if ($actual -ne $expected) { throw 'Windows Server ZIP checksum mismatch' }
@@ -251,7 +241,7 @@ Server 화면은 지금 검색된 Server와 최근 연결을 구분해 보여 �
 <a id="desktop-macos"></a>
 ## Apple Silicon macOS Controller
 
-기존 Server에 접속하는 클라이언트이며 Mac용 Server나 오프라인 플레이어가 아닙니다. 공식 릴리즈의 `jastreamer-desktop_0.2.4_macos-arm64-adhoc.dmg`와 같은 보호된 main 소스 리비전의 체크섬·manifest·verification·native-verification 증거를 사용하세요. 로컬·비공개·PR DMG로 대신하면 안 됩니다. `JastreamerDesktopAudio` 브리지는 0.2.2에서 도입되었으며 0.2.2 Server는 0.2.3에서 도입한 Mac 시스템 미디어 제어를 지원합니다. 다만 0.2.4 RAAT와 서버 전송 배지에는 0.2.4 Server와 그 Server가 제공하는 Web 화면이 필요합니다. 게시된 0.2.1 Server에는 브리지가 없고 공식 Mac 패키지도 없었습니다. 더 오래된 Desktop·Server 브리지 조합은 배포 승인을 받아 함께 업데이트하고 설정·데이터베이스·클라이언트 프로필을 보존하세요. [업데이트](#upgrade)의 선택적 RAAT 설정과 롤백 호환성을 검토하며 새 설치나 초기화는 필요하지 않습니다.
+기존 Server에 접속하는 클라이언트이며 Mac용 Server나 오프라인 플레이어가 아닙니다. 공식 릴리즈의 `jastreamer-desktop_0.2.4_macos-arm64-adhoc.dmg`와 같은 보호된 main 소스 리비전의 체크섬·manifest·verification·native-verification 증거를 사용하세요. 로컬·비공개·PR DMG로 대신하면 안 됩니다. `JastreamerDesktopAudio` 브리지는 0.2.2에서 도입되었으며 0.2.2 Server는 0.2.3에서 도입한 Mac 시스템 미디어 제어를 지원합니다. 다만 서버 전송 배지에는 0.2.4 Server와 그 Server가 제공하는 Web 화면이 필요합니다. 게시된 0.2.1 Server에는 브리지가 없고 공식 Mac 패키지도 없었습니다. 더 오래된 Desktop·Server 브리지 조합은 배포 승인을 받아 함께 업데이트하고 설정·데이터베이스·클라이언트 프로필을 보존하세요. [업데이트](#upgrade)의 설정·롤백 호환성을 검토하며 새 설치나 초기화는 필요하지 않습니다.
 
 같은 릴리즈에서 DMG와 증거·사이드카 파일 다섯 개를 함께 내려받으세요.
 
@@ -305,7 +295,7 @@ sudo apt install ./jastreamer-desktop_0.2.4_linux-amd64.deb
 
 Kotlin 앱은 `_jastreamer._tcp` Server를 검색하고 `/api/v1/discovery`로 확인한 뒤 선택한 Server의 Web 화면을 엽니다. 홈 화면의 **로컬 재생**은 앱이 소유한 파일을 위한 독립 **저장된 음악** 보관함을 열며, 자체 다운로드·재생목록·폴더·기기 대기열과 Media3 재생을 갖추고 Server 접속이나 로그인이 필요 없습니다. Server 모드에서는 같은 Media3 서비스가 **이 기기** 출력을 제공하되 대기열은 Server가 소유하고, Android 시스템 미디어 제어의 명령도 Server로 보고됩니다. PWA 설치, 광범위한 로컬 음악 권한, 위치 권한은 필요하지 않습니다.
 
-정식 릴리즈에는 Server와 같은 커밋에서 CI가 빌드한 서명된 APK가 첨부됩니다.
+현재 서명된 Android APK와 검증 파일은 [0.2.4 릴리즈](https://github.com/furyheimdall/jastreamer/releases/tag/v0.2.4)에 있습니다. Server 전용 릴리즈는 이 APK를 교체하지 않습니다.
 
 | 자산 | 내용 |
 | --- | --- |
@@ -426,9 +416,9 @@ Server 선택, 세션, 키보드 탐색, 수명주기 동작은 [iOS 화면](INS
 
 Linux Server 업데이트는 검증한 이미지로 컨테이너를 교체하는 작업이며 최초 계정 설정을 다시 하는 것이 아닙니다. 이미지에는 해당 아키텍처의 Web 화면, FFmpeg, AirPlay 실행 환경이 들어 있습니다. Server가 스스로 업데이트하도록 Docker 소켓을 연결하거나 호스트 관리 권한을 주지 마세요. 무설치 Windows Server는 아래 Compose 절차 대신 [무설치 Windows Server 업데이트](#windows-server-update)를 따릅니다.
 
-**0.2.4 RAAT와 서버 전송 배지:** Server를 업데이트하고 그 Server가 제공하는 Web 화면도 새로고침하세요. `server.json`, 데이터, 계정, 보관함 경로, 마운트와 클라이언트 프로필을 보존하며 최초 설정을 다시 하거나 설정을 템플릿으로 교체하거나 데이터베이스를 초기화하지 마세요. 설정의 `version`은 `1`이지만 선택적 `raat` 항목이 새로 추가되었습니다. 이 항목이 없는 기존 설정은 RAAT가 꺼진 상태로 읽습니다. 재생 기능을 켠 적이 없어도 설정을 저장하면 `"raat": {"enabled": false}`가 기록될 수 있습니다.
+**0.2.4 서버 전송 배지:** Server를 업데이트하고 그 Server가 제공하는 Web 화면도 새로고침하세요. `server.json`, 데이터, 계정, 보관함 경로, 마운트와 클라이언트 프로필을 보존하며 최초 설정을 다시 하거나 설정을 템플릿으로 교체하거나 데이터베이스를 초기화하지 마세요. 설정의 `version`은 `1`로 유지됩니다.
 
-**롤백 설정 호환성:** 0.2.3은 알 수 없는 필드를 거부하므로 저장된 `raat` 항목은 `enabled`가 `false`여도 호환되지 않습니다. 승인된 다운그레이드 전에 Server를 정지하고 설정·데이터베이스 호환성을 검토하세요. 대상 버전에 필요하다면 운영자 승인을 받아 지원하지 않는 `raat` 항목만 제거하고 대상 버전의 `--check-config`로 검증하세요. 나머지 설정과 모든 데이터를 보존합니다. 초기화 절차가 아니며 이미지만 교체해서 이전 데이터베이스 마이그레이션까지 되돌릴 수 있다는 보장도 아닙니다.
+**롤백 설정 호환성:** 0.2.3은 알 수 없는 필드를 거부합니다. 승인된 다운그레이드 전에 Server를 정지하고 설정·데이터베이스 호환성을 검토하세요. 대상 버전에 필요하다면 운영자 승인을 받아 지원하지 않는 설정만 제거하고 대상 버전의 `--check-config`로 검증하세요. 나머지 설정과 모든 데이터를 보존합니다. 초기화 절차가 아니며 이미지만 교체해서 이전 데이터베이스 마이그레이션까지 되돌릴 수 있다는 보장도 아닙니다.
 
 ### 시작할 때 적용되는 스키마 변경
 
@@ -462,7 +452,7 @@ Linux Server 업데이트는 검증한 이미지로 컨테이너를 교체하는
 
 ### 데스크톱과 클라이언트 업데이트
 
-일반적인 Server Web 화면 업데이트에는 데스크톱 패키지 교체가 필요하지 않습니다. 0.2.2는 네이티브 Desktop 브리지를 도입했으므로 더 오래된 Windows·Mac Desktop과 Server Web 브리지 조합은 함께 업데이트하고 어느 한쪽을 0.2.1과 섞지 마세요. 0.2.3은 0.2.2 Mac 패키지에 없는 Mac 시스템 미디어 제어를 추가했습니다. 기존 0.2.2 Server는 이 0.2.3 Mac 연동을 지원하지만 0.2.4 RAAT나 서버 전송 배지는 지원하지 않습니다. 위의 설정 호환성 안내를 따르고 기존 설치를 보존하며 계정 설정을 다시 하거나 데이터를 초기화하지 않습니다. [Windows](#desktop-windows), [Linux](#desktop-linux), [macOS](#desktop-macos) 절차를 따르고 Windows의 `user-data`, Linux 사용자 프로필, Mac의 `~/Library/Application Support/jastreamer-desktop`을 보존하세요. 같은 release 키로 서명한 새 Android APK는 기존 앱 위에 덮어쓰기 설치되어 데이터를 유지하며, iOS는 해당 절의 절차를 따릅니다.
+일반적인 Server Web 화면 업데이트에는 데스크톱 패키지 교체가 필요하지 않습니다. 0.2.2는 네이티브 Desktop 브리지를 도입했으므로 더 오래된 Windows·Mac Desktop과 Server Web 브리지 조합은 함께 업데이트하고 어느 한쪽을 0.2.1과 섞지 마세요. 0.2.3은 0.2.2 Mac 패키지에 없는 Mac 시스템 미디어 제어를 추가했습니다. 기존 0.2.2 Server는 이 0.2.3 Mac 연동을 지원하지만 0.2.4 서버 전송 배지는 지원하지 않습니다. 위의 설정 호환성 안내를 따르고 기존 설치를 보존하며 계정 설정을 다시 하거나 데이터를 초기화하지 않습니다. [Windows](#desktop-windows), [Linux](#desktop-linux), [macOS](#desktop-macos) 절차를 따르고 Windows의 `user-data`, Linux 사용자 프로필, Mac의 `~/Library/Application Support/jastreamer-desktop`을 보존하세요. 같은 release 키로 서명한 새 Android APK는 기존 앱 위에 덮어쓰기 설치되어 데이터를 유지하며, iOS는 해당 절의 절차를 따릅니다.
 
 <a id="rollback"></a>
 ## 롤백

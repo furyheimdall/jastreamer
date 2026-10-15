@@ -1,6 +1,6 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 1260" width="720" height="1260" role="img" aria-labelledby="t d" lang="en">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 1080" width="720" height="1080" role="img" aria-labelledby="t d" lang="en">
   <title id="t">Concept illustration: how listening works with jastreamer</title>
-  <desc id="d">Legend: a solid line is audio; a dashed line is control and track information. Controllers, such as a phone, tablet or browser, send commands only (play, queue, volume and output choice) to the jastreamer Server; audio for network receivers is not relayed through them. The Server keeps the library and one shared queue and sends audio to one selected output at a time. Either output on this device: a browser or app plays to speakers, headphones or a USB DAC, with optional exclusive or USB-direct output in the Windows, Mac and Android apps. Or a network output on the LAN: a UPnP/DLNA, Cast, AirPlay or RAAT receiver. With RAAT, the Server sends PCM at the original sample rate plus track info and artwork, and supported receiver controls return to the Server.</desc>
+  <desc id="d">Legend: a solid line is audio; a dashed line is control. Controllers, such as a phone, tablet or browser, send commands only (play, queue, volume and output choice) to the jastreamer Server; audio for network receivers is not relayed through them. The Server keeps the library and one shared queue and sends audio to one selected output at a time. Either output on this device: a browser or app plays to speakers, headphones or a USB DAC, with optional exclusive or USB-direct output in the Windows, Mac and Android apps. Or a network output on the LAN: a UPnP/DLNA, Cast or AirPlay receiver.</desc>
   <style>
     svg {
       --page: #111315; --nas-top: #2d3438; --nas-bottom: #1f2427; --panel: #1b1f22; --panel-raised: #252b2f; --deep: #0c0e0f; --wood: #2c3236;
@@ -20,7 +20,6 @@
     .s { font-size: 24px; fill: var(--muted); }
     .lg { font-size: 24px; font-weight: 700; fill: var(--soft); }
     .lbl { font: 700 24px var(--mono); fill: var(--text); }
-    .la { font-size: 24px; font-weight: 700; fill: var(--accent-strong); }
     .lc { font-size: 24px; font-weight: 700; fill: var(--text); }
     .or { font-size: 24px; font-weight: 700; fill: var(--accent); }
     .panel { fill: var(--panel); stroke: var(--border); stroke-width: 2; }
@@ -46,7 +45,7 @@
   <path class="audio" d="M6 66H52" marker-end="url(#ha)"/>
   <text class="lg" x="70" y="74">Audio</text>
   <path class="cmd" d="M220 66H270" marker-end="url(#hc)"/>
-  <text class="lg" x="288" y="74">Control &amp; track info</text>
+  <text class="lg" x="288" y="74">Control</text>
 
   <!-- Controllers -->
   <rect class="panel" x="1" y="108" width="718" height="232" rx="24"/>
@@ -115,30 +114,14 @@
   <rect class="orpill" x="361" y="822" width="68" height="40" rx="20"/>
   <text class="or" x="395" y="850" text-anchor="middle">or</text>
 
-  <!-- Output: network receivers, four equal protocol routes -->
-  <rect class="panel" x="72" y="882" width="647" height="362" rx="24"/>
+  <!-- Output: network receivers, three protocol routes -->
+  <rect class="panel" x="72" y="882" width="647" height="180" rx="24"/>
   <text class="k" x="104" y="922">OUTPUT · NETWORK</text>
   <text class="h" x="104" y="964">Receiver on your LAN</text>
-  <rect class="proto" x="104" y="988" width="156" height="44" rx="22"/>
-  <text class="lc" x="182" y="1018" text-anchor="middle">UPnP/DLNA</text>
-  <rect class="proto" x="276" y="988" width="96" height="44" rx="22"/>
-  <text class="lc" x="324" y="1018" text-anchor="middle">Cast</text>
-  <rect class="proto" x="388" y="988" width="120" height="44" rx="22"/>
-  <text class="lc" x="448" y="1018" text-anchor="middle">AirPlay</text>
-  <rect class="proto" x="524" y="988" width="100" height="44" rx="22"/>
-  <text class="lc" x="574" y="1018" text-anchor="middle">RAAT</text>
-
-  <!-- RAAT two-way flows: Server side (left bar) and RAAT receiver (right) -->
-  <g aria-hidden="true">
-    <rect x="102" y="1064" width="10" height="146" rx="5" style="fill: var(--soft)"/>
-    <rect class="dev" x="608" y="1064" width="84" height="146" rx="12"/>
-    <circle cx="650" cy="1170" r="16" style="fill: var(--deep); stroke: var(--soft); stroke-width: 3"/>
-  </g>
-  <text class="lbl" x="650" y="1104" text-anchor="middle">RAAT</text>
-  <text class="la" x="128" y="1094">PCM · original sample rate</text>
-  <path class="audio" d="M118 1106H598" marker-end="url(#ha)"/>
-  <text class="lc" x="128" y="1140">Track info · artwork</text>
-  <path class="cmd" d="M118 1152H596" marker-end="url(#hc)"/>
-  <text class="lc" x="140" y="1186">Supported receiver controls</text>
-  <path class="cmd" d="M600 1198H120" marker-end="url(#hc)"/>
+  <rect class="proto" x="104" y="988" width="180" height="44" rx="22"/>
+  <text class="lc" x="194" y="1018" text-anchor="middle">UPnP/DLNA</text>
+  <rect class="proto" x="308" y="988" width="180" height="44" rx="22"/>
+  <text class="lc" x="398" y="1018" text-anchor="middle">Cast</text>
+  <rect class="proto" x="512" y="988" width="180" height="44" rx="22"/>
+  <text class="lc" x="602" y="1018" text-anchor="middle">AirPlay</text>
 </svg>

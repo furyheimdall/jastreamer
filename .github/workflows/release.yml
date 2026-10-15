@@ -3,23 +3,31 @@ name: Public Release
 on:
   workflow_dispatch:
     inputs:
+      release_scope:
+        description: Release Server only or Server and all client artifacts
+        required: true
+        default: server
+        type: choice
+        options:
+          - server
+          - all
       ci_run_id:
         description: Successful Server, Web, and Desktop CI run ID from a protected-main push
         required: true
         type: string
       android_run_id:
-        description: Successful Android CI run ID from the same protected-main push
-        required: true
+        description: Successful Android CI run ID from the same protected-main push (required for all)
+        required: false
         type: string
       release_tag:
         description: Public GitHub release tag (vX.Y.Z for stable, vX.Y.Z-preview.N for a preview)
         required: true
-        default: v0.2.4
+        default: v0.2.5
         type: string
       image_tag:
         description: GHCR image tag without a leading v (X.Y.Z or X.Y.Z-preview.N)
         required: true
-        default: 0.2.4
+        default: 0.2.5
         type: string
 
 permissions:
@@ -33,6 +41,7 @@ concurrency:
 jobs:
   sign-android:
     name: Sign the verified Android release APK
+    if: ${{ inputs.release_scope == 'all' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     environment: android-release-signing
@@ -45,6 +54,7 @@ jobs:
       ANDROID_RUN_ID: ${{ inputs.android_run_id }}
       RELEASE_TAG: ${{ inputs.release_tag }}
       IMAGE_TAG: ${{ inputs.image_tag }}
+      RELEASE_SCOPE: ${{ inputs.release_scope }}
       ANDROID_ASSET: jastreamer-android_0.2.4_release.apk
     steps:
       - name: Restrict dispatch origin
@@ -96,6 +106,7 @@ jobs:
           gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${RUN_ID}/jobs?filter=latest&per_page=100" > "${METADATA_DIR}/jobs.json"
           gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${RUN_ID}/artifacts?per_page=100" > "${METADATA_DIR}/artifacts.json"
           python3 packaging/server/publish-release.py validate-run \
+            --scope "${RELEASE_SCOPE}" \
             --kind server \
             --run "${METADATA_DIR}/run.json" \
             --workflow "${METADATA_DIR}/workflow.json" \
@@ -119,6 +130,7 @@ jobs:
           gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${ANDROID_RUN_ID}/jobs?filter=latest&per_page=100" > "${METADATA_DIR}/android-jobs.json"
           gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${ANDROID_RUN_ID}/artifacts?per_page=100" > "${METADATA_DIR}/android-artifacts.json"
           python3 packaging/server/publish-release.py validate-run \
+            --scope "${RELEASE_SCOPE}" \
             --kind android \
             --run "${METADATA_DIR}/android-run.json" \
             --workflow "${METADATA_DIR}/android-workflow.json" \
@@ -150,6 +162,7 @@ jobs:
         run: |
           set -euo pipefail
           python3 packaging/server/publish-release.py download-artifacts \
+            --scope "${RELEASE_SCOPE}" \
             --run-provenance "${METADATA_DIR}/android-run-provenance.json" \
             --artifact-name android-ci \
             --output-dir "${ARTIFACT_DIR}"
@@ -289,6 +302,7 @@ jobs:
   publish:
     name: Publish exact protected-main CI artifacts
     needs: sign-android
+    if: ${{ !cancelled() && (inputs.release_scope == 'server' || (inputs.release_scope == 'all' && needs.sign-android.result == 'success')) }}
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     environment: public-release
@@ -302,6 +316,7 @@ jobs:
       ANDROID_RUN_ID: ${{ inputs.android_run_id }}
       RELEASE_TAG: ${{ inputs.release_tag }}
       IMAGE_TAG: ${{ inputs.image_tag }}
+      RELEASE_SCOPE: ${{ inputs.release_scope }}
       IMAGE_REPOSITORY: ghcr.io/furyheimdall/jastreamer-server
     steps:
       - name: Restrict dispatch origin
@@ -327,13 +342,21 @@ jobs:
         run: |
           set -euo pipefail
           test "${RUN_ID}" != "${GITHUB_RUN_ID}"
-          test "${ANDROID_RUN_ID}" != "${GITHUB_RUN_ID}"
-          test "${ANDROID_RUN_ID}" != "${RUN_ID}"
           python3 packaging/server/publish-release.py validate-identity \
             --source-revision "${GITHUB_SHA}" \
             --release-tag "${RELEASE_TAG}" \
             --image-tag "${IMAGE_TAG}"
-          for candidate in "${RUN_ID}" "${ANDROID_RUN_ID}"; do
+          run_ids=("${RUN_ID}")
+          case "${RELEASE_SCOPE}" in
+            server) ;;
+            all)
+              test "${ANDROID_RUN_ID}" != "${GITHUB_RUN_ID}"
+              test "${ANDROID_RUN_ID}" != "${RUN_ID}"
+              run_ids+=("${ANDROID_RUN_ID}")
+              ;;
+            *) echo "release scope must be server or all" >&2; exit 64 ;;
+          esac
+          for candidate in "${run_ids[@]}"; do
             case "${candidate}" in
               ''|*[!0-9]*) echo "run IDs must be positive decimal workflow run IDs" >&2; exit 64 ;;
             esac
@@ -354,6 +377,7 @@ jobs:
           gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${RUN_ID}/jobs?filter=latest&per_page=100" > "${METADATA_DIR}/jobs.json"
           gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${RUN_ID}/artifacts?per_page=100" > "${METADATA_DIR}/artifacts.json"
           python3 packaging/server/publish-release.py validate-run \
+            --scope "${RELEASE_SCOPE}" \
             --kind server \
             --run "${METADATA_DIR}/run.json" \
             --workflow "${METADATA_DIR}/workflow.json" \
@@ -378,6 +402,7 @@ jobs:
             --image-tag "${IMAGE_TAG}" \
             --github-output "${GITHUB_OUTPUT}"
       - name: Revalidate the Android CI run against the selected source
+        if: ${{ inputs.release_scope == 'all' }}
         shell: bash
         env:
           SOURCE_SHA: ${{ steps.provenance.outputs.source_sha }}
@@ -389,6 +414,7 @@ jobs:
           gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${ANDROID_RUN_ID}/jobs?filter=latest&per_page=100" > "${METADATA_DIR}/android-jobs.json"
           gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${ANDROID_RUN_ID}/artifacts?per_page=100" > "${METADATA_DIR}/android-artifacts.json"
           python3 packaging/server/publish-release.py validate-run \
+            --scope "${RELEASE_SCOPE}" \
             --kind android \
             --run "${METADATA_DIR}/android-run.json" \
             --workflow "${METADATA_DIR}/android-workflow.json" \
@@ -431,14 +457,16 @@ jobs:
         run: |
           set -euo pipefail
           python3 packaging/server/publish-release.py download-artifacts \
+            --scope "${RELEASE_SCOPE}" \
             --run-provenance "${METADATA_DIR}/run-provenance.json" \
             --output-dir "${ARTIFACT_DIR}"
       - name: Download the signed Android APK from the signing job
+        if: ${{ inputs.release_scope == 'all' }}
         uses: actions/download-artifact@v4
         with:
           name: jastreamer-android-release-signed-${{ github.run_id }}
           path: ${{ env.ANDROID_DIR }}
-      - name: Verify all downloaded CI artifact identities and bytes
+      - name: Verify downloaded Server artifact identities and bytes
         shell: bash
         env:
           SOURCE_SHA: ${{ steps.provenance.outputs.source_sha }}
@@ -447,6 +475,13 @@ jobs:
           python3 packaging/server/ci_artifact.py verify-server --artifact-dir "${ARTIFACT_DIR}/server-image-amd64" --architecture amd64 --source-revision "${SOURCE_SHA}"
           python3 packaging/server/ci_artifact.py verify-server --artifact-dir "${ARTIFACT_DIR}/server-image-arm64" --architecture arm64 --source-revision "${SOURCE_SHA}"
           python3 packaging/server/ci_artifact.py verify-windows-server --artifact-dir "${ARTIFACT_DIR}/jastreamer-server-windows-x64" --source-revision "${SOURCE_SHA}"
+      - name: Verify downloaded client artifact identities and bytes
+        if: ${{ inputs.release_scope == 'all' }}
+        shell: bash
+        env:
+          SOURCE_SHA: ${{ steps.provenance.outputs.source_sha }}
+        run: |
+          set -euo pipefail
           python3 packaging/server/ci_artifact.py verify-desktop --artifact-dir "${ARTIFACT_DIR}/jastreamer-desktop-windows-x64" --target windows-x64 --source-revision "${SOURCE_SHA}"
           python3 packaging/server/ci_artifact.py verify-desktop --artifact-dir "${ARTIFACT_DIR}/jastreamer-desktop-linux-amd64" --target linux-amd64 --source-revision "${SOURCE_SHA}"
           python3 packaging/server/ci_artifact.py verify-desktop --artifact-dir "${ARTIFACT_DIR}/jastreamer-desktop-macos-arm64" --target macos-arm64 --source-revision "${SOURCE_SHA}"
@@ -545,19 +580,26 @@ jobs:
             --release-tag "${RELEASE_TAG}" \
             --image-tag "${IMAGE_TAG}" \
             --output-dir "${REGISTRY_DIR}/anonymous"
-      - name: Stage exact Server, desktop, and signed Android assets with manifests and checksums
+      - name: Stage selected release assets with manifests and checksums
         shell: bash
         env:
           SOURCE_SHA: ${{ steps.provenance.outputs.source_sha }}
         run: |
           set -euo pipefail
+          android_arguments=()
+          if test "${RELEASE_SCOPE}" = all; then
+            android_arguments=(
+              --android-run-provenance "${METADATA_DIR}/android-run-provenance.json"
+              --android-run-id "${ANDROID_RUN_ID}"
+              --android-dir "${ANDROID_DIR}"
+            )
+          fi
           python3 packaging/server/publish-release.py stage-release \
+            --scope "${RELEASE_SCOPE}" \
             --artifact-root "${ARTIFACT_DIR}" \
             --run-provenance "${METADATA_DIR}/run-provenance.json" \
             --run-id "${RUN_ID}" \
-            --android-run-provenance "${METADATA_DIR}/android-run-provenance.json" \
-            --android-run-id "${ANDROID_RUN_ID}" \
-            --android-dir "${ANDROID_DIR}" \
+            "${android_arguments[@]}" \
             --source-revision "${SOURCE_SHA}" \
             --release-tag "${RELEASE_TAG}" \
             --image-tag "${IMAGE_TAG}" \
@@ -570,6 +612,7 @@ jobs:
         run: |
           set -euo pipefail
           python3 packaging/server/publish-release.py render-notes \
+            --scope "${RELEASE_SCOPE}" \
             --staged "${RELEASE_DIR}" \
             --output "${METADATA_DIR}/release-notes.md"
       - name: Publish the public GitHub release without changing asset bytes
@@ -616,6 +659,7 @@ jobs:
               return 1
             fi
             python3 packaging/server/publish-release.py verify-public-release \
+              --scope "${RELEASE_SCOPE}" \
               --release-json "${REGISTRY_DIR}/public-release.json" \
               --staged "${RELEASE_DIR}" \
               --source-revision "${SOURCE_SHA}" \

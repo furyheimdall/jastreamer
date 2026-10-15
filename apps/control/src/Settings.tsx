@@ -1610,18 +1610,56 @@ export default function Settings({ configRevision, libraryRevision, historyRevis
               <h2>{t("settings.raat.title")}</h2>
               <p className="muted">{t("settings.raat.description")}</p>
             </div>
-            <label className="switch-label">
-              <input
-                type="checkbox"
-                form={settingsConfigFormID}
-                checked={draft.raat.enabled}
-                onChange={(event) => updateDraft((config) => ({
-                  ...config,
-                  raat: { ...config.raat, enabled: event.target.checked },
-                }))}
-              />
-              {t("settings.protocol.enabled")}
-            </label>
+            <div className="protocol-enable-help">
+              <label className="switch-label">
+                <input
+                  type="checkbox"
+                  form={settingsConfigFormID}
+                  checked={draft.raat.enabled}
+                  onChange={(event) => updateDraft((config) => ({
+                    ...config,
+                    raat: { ...config.raat, enabled: event.target.checked },
+                  }))}
+                />
+                {t("settings.protocol.enabled")}
+              </label>
+              <button
+                className="button button-ghost protocol-help-trigger"
+                type="button"
+                popoverTarget="raat-option-notice"
+                aria-label={t("settings.raat.notice.open")}
+                aria-haspopup="dialog"
+              >
+                <span aria-hidden="true">(?)</span>
+              </button>
+            </div>
+          </div>
+          <div
+            className="protocol-notice-popover"
+            id="raat-option-notice"
+            popover="auto"
+            role="dialog"
+            aria-labelledby="raat-option-notice-title"
+            aria-describedby="raat-option-notice-independence raat-option-notice-trademarks"
+            onToggle={(event) => {
+              if (event.newState === "open") {
+                event.currentTarget.querySelector<HTMLButtonElement>("button")?.focus();
+              }
+            }}
+          >
+            <header className="protocol-notice-heading">
+              <h3 id="raat-option-notice-title">{t("settings.raat.notice.title")}</h3>
+              <button
+                className="button button-ghost"
+                type="button"
+                popoverTarget="raat-option-notice"
+                popoverTargetAction="hide"
+              >
+                {t("common.close")}
+              </button>
+            </header>
+            <p id="raat-option-notice-independence">{t("settings.raat.notice.independence")}</p>
+            <p id="raat-option-notice-trademarks">{t("settings.raat.notice.trademarks")}</p>
           </div>
           <p className="field-help">{t("settings.raat.help")}</p>
         </section>

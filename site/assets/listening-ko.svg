@@ -1,6 +1,6 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 1260" width="720" height="1260" role="img" aria-labelledby="t d" lang="ko">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 1080" width="720" height="1080" role="img" aria-labelledby="t d" lang="ko">
   <title id="t">개념도: jastreamer로 음악을 듣는 방법</title>
-  <desc id="d">범례: 실선은 오디오, 점선은 제어와 곡 정보입니다. 휴대전화·태블릿·브라우저 같은 컨트롤러는 jastreamer Server에 재생, 대기열, 볼륨, 출력 선택 명령만 보내며, 네트워크 수신기로 가는 오디오는 컨트롤러를 거치지 않습니다. Server는 보관함과 공용 대기열 하나를 관리하고 한 번에 선택한 출력 하나로 오디오를 보냅니다. 이 기기 출력: 브라우저나 앱이 스피커, 헤드폰 또는 USB DAC으로 재생하며, Windows·Mac·Android 앱에서는 독점·USB 다이렉트 출력을 선택해 쓸 수 있습니다. 또는 LAN의 네트워크 출력: UPnP/DLNA, Cast, AirPlay 또는 RAAT 수신기. RAAT에서는 Server가 원본 샘플 레이트의 PCM과 곡 정보·앨범 아트를 보내고, 수신기에서 지원되는 제어는 Server로 돌아옵니다.</desc>
+  <desc id="d">범례: 실선은 오디오, 점선은 제어입니다. 휴대전화·태블릿·브라우저 같은 컨트롤러는 jastreamer Server에 재생, 대기열, 볼륨, 출력 선택 명령만 보내며, 네트워크 수신기로 가는 오디오는 컨트롤러를 거치지 않습니다. Server는 보관함과 공용 대기열 하나를 관리하고 한 번에 선택한 출력 하나로 오디오를 보냅니다. 이 기기 출력: 브라우저나 앱이 스피커, 헤드폰 또는 USB DAC으로 재생하며, Windows·Mac·Android 앱에서는 독점·USB 다이렉트 출력을 선택해 쓸 수 있습니다. 또는 LAN의 네트워크 출력: UPnP/DLNA, Cast 또는 AirPlay 수신기.</desc>
   <style>
     svg {
       --page: #111315; --nas-top: #2d3438; --nas-bottom: #1f2427; --panel: #1b1f22; --panel-raised: #252b2f; --deep: #0c0e0f; --wood: #2c3236;
@@ -20,7 +20,6 @@
     .s { font-size: 24px; fill: var(--muted); }
     .lg { font-size: 24px; font-weight: 700; fill: var(--soft); }
     .lbl { font: 700 24px var(--sans); fill: var(--text); }
-    .la { font-size: 24px; font-weight: 700; fill: var(--accent-strong); }
     .lc { font-size: 24px; font-weight: 700; fill: var(--text); }
     .or { font-size: 24px; font-weight: 700; fill: var(--accent); }
     .panel { fill: var(--panel); stroke: var(--border); stroke-width: 2; }
@@ -46,7 +45,7 @@
   <path class="audio" d="M6 66H52" marker-end="url(#ha)"/>
   <text class="lg" x="70" y="74">오디오</text>
   <path class="cmd" d="M220 66H270" marker-end="url(#hc)"/>
-  <text class="lg" x="288" y="74">제어·곡 정보</text>
+  <text class="lg" x="288" y="74">제어</text>
 
   <!-- Controllers -->
   <rect class="panel" x="1" y="108" width="718" height="232" rx="24"/>
@@ -115,30 +114,14 @@
   <rect class="orpill" x="355" y="822" width="80" height="40" rx="20"/>
   <text class="or" x="395" y="850" text-anchor="middle">또는</text>
 
-  <!-- Output: network receivers, four equal protocol routes -->
-  <rect class="panel" x="72" y="882" width="647" height="362" rx="24"/>
+  <!-- Output: network receivers, three protocol routes -->
+  <rect class="panel" x="72" y="882" width="647" height="180" rx="24"/>
   <text class="k" x="104" y="922">출력 · 네트워크</text>
   <text class="h" x="104" y="964">LAN의 수신기</text>
-  <rect class="proto" x="104" y="988" width="156" height="44" rx="22"/>
-  <text class="lc" x="182" y="1018" text-anchor="middle">UPnP/DLNA</text>
-  <rect class="proto" x="276" y="988" width="96" height="44" rx="22"/>
-  <text class="lc" x="324" y="1018" text-anchor="middle">Cast</text>
-  <rect class="proto" x="388" y="988" width="120" height="44" rx="22"/>
-  <text class="lc" x="448" y="1018" text-anchor="middle">AirPlay</text>
-  <rect class="proto" x="524" y="988" width="100" height="44" rx="22"/>
-  <text class="lc" x="574" y="1018" text-anchor="middle">RAAT</text>
-
-  <!-- RAAT two-way flows: Server side (left bar) and RAAT receiver (right) -->
-  <g aria-hidden="true">
-    <rect x="102" y="1064" width="10" height="146" rx="5" style="fill: var(--soft)"/>
-    <rect class="dev" x="608" y="1064" width="84" height="146" rx="12"/>
-    <circle cx="650" cy="1170" r="16" style="fill: var(--deep); stroke: var(--soft); stroke-width: 3"/>
-  </g>
-  <text class="lbl" x="650" y="1104" text-anchor="middle">RAAT</text>
-  <text class="la" x="128" y="1094">PCM · 원본 샘플 레이트</text>
-  <path class="audio" d="M118 1106H598" marker-end="url(#ha)"/>
-  <text class="lc" x="128" y="1140">곡 정보·앨범 아트</text>
-  <path class="cmd" d="M118 1152H596" marker-end="url(#hc)"/>
-  <text class="lc" x="140" y="1186">지원되는 수신기 제어</text>
-  <path class="cmd" d="M600 1198H120" marker-end="url(#hc)"/>
+  <rect class="proto" x="104" y="988" width="180" height="44" rx="22"/>
+  <text class="lc" x="194" y="1018" text-anchor="middle">UPnP/DLNA</text>
+  <rect class="proto" x="308" y="988" width="180" height="44" rx="22"/>
+  <text class="lc" x="398" y="1018" text-anchor="middle">Cast</text>
+  <rect class="proto" x="512" y="988" width="180" height="44" rx="22"/>
+  <text class="lc" x="602" y="1018" text-anchor="middle">AirPlay</text>
 </svg>

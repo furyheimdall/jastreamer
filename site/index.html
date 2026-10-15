@@ -3,8 +3,8 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>jastreamer — self-hosted music player and controller for your private LAN</title>
-  <meta name="description" content="jastreamer 0.2.4 is a self-hosted music player for a trusted private LAN. Control one shared queue from any computer or phone; your Linux or Windows Server plays to this device, UPnP/DLNA, optional Google Cast, Linux-container AirPlay, or experimental RAAT.">
+  <title>jastreamer Server 0.2.5 · Desktop and Android 0.2.4 — private-LAN music</title>
+  <meta name="description" content="jastreamer Server 0.2.5 with Desktop and Android 0.2.4 is a self-hosted music player for a trusted private LAN. Control one shared queue from any computer or phone; your Linux or Windows Server plays to this device, UPnP/DLNA, optional Google Cast, or Linux-container AirPlay.">
   <meta name="color-scheme" content="dark">
   <meta name="theme-color" content="#111315">
   <meta name="referrer" content="strict-origin-when-cross-origin">
@@ -51,14 +51,14 @@
       <div class="container">
         <p class="eyebrow">
           <span>Self-hosted music player</span>
-          <span class="version-tag">v0.2.4</span>
+          <span class="version-tag">Server 0.2.5 · Desktop / Android 0.2.4</span>
         </p>
         <h1 id="hero-title">Play from any screen.<br><em>Hear it where you choose.</em></h1>
         <p class="hero-lead">
-          Control the music on your Linux or Windows Server from any computer or phone on your private LAN. Listen on that device, through a USB DAC, or on a UPnP/DLNA, Cast, AirPlay or <a href="#raat">RAAT</a> receiver. RAAT sending is an opt-in experimental feature.
+          Control the music on your Linux or Windows Server from any computer or phone on your private LAN. Listen on that device, through a USB DAC, or on a UPnP/DLNA, Cast or AirPlay receiver.
         </p>
         <div class="actions">
-          <a class="button button-primary" href="#download">Download 0.2.4</a>
+          <a class="button button-primary" href="#download">Download Server and clients</a>
           <a class="button button-secondary" href="#player">Tour the Player</a>
         </div>
         <ul class="hero-facts" aria-label="At a glance">
@@ -120,7 +120,7 @@
           </li>
           <li>
             <h3>Know what you are hearing</h3>
-            <p><strong>Track information</strong> shows codec, sample rate, bit depth, channels and play count. Native exclusive or direct-USB output can show <strong>Bit-perfect</strong> or <strong>Not bit-perfect</strong>; qualifying UPnP, Cast and RAAT streams can show <strong>Bit-perfect · Server delivery</strong>. The scopes differ — <a href="#bit-perfect">see what each badge covers</a>.</p>
+            <p><strong>Track information</strong> shows codec, sample rate, bit depth, channels and play count. Native exclusive or direct-USB output can show <strong>Bit-perfect</strong> or <strong>Not bit-perfect</strong>; qualifying UPnP and Cast streams can show <strong>Bit-perfect · Server delivery</strong>. The scopes differ — <a href="#bit-perfect">see what each badge covers</a>.</p>
           </li>
           <li id="phone">
             <h3>On your phone</h3>
@@ -163,15 +163,15 @@
               </div>
               <div>
                 <h3>Around the house: network receivers</h3>
-                <p>Select a UPnP/DLNA renderer, a Google Cast device, an AirPlay receiver or, after opting in, a compatible RAAT receiver. The Server streams to it directly, so your phone can lock or close the page and the music keeps playing — pick it up again from any controller.</p>
+                <p>Select a UPnP/DLNA renderer, a Google Cast device or an AirPlay receiver. The Server streams to it directly, so your phone can lock or close the page and the music keeps playing — pick it up again from any controller.</p>
               </div>
             </div>
           </div>
 
           <figure class="concept-shot">
             <a href="assets/listening-en.svg" aria-label="Enlarge the listening concept diagram" data-image-viewer target="_blank" rel="noopener">
-              <img src="assets/listening-en.svg" width="720" height="1260" loading="lazy" decoding="async"
-                alt="Controllers send commands to the Server, which keeps one library and queue and streams to one selected output: a browser or app on this device, or a UPnP/DLNA, Cast, AirPlay or RAAT receiver. Network audio does not pass through the controller. RAAT carries PCM, track info and artwork to the receiver; supported receiver controls return to the Server.">
+              <img src="assets/listening-en.svg" width="720" height="1080" loading="lazy" decoding="async"
+                alt="Controllers send commands to the Server, which keeps one library and queue and streams to one selected output: a browser or app on this device, or a UPnP/DLNA, Cast or AirPlay receiver. Network audio does not pass through the controller.">
             </a>
             <figcaption>
               <span class="concept-badge">Concept illustration</span>
@@ -186,7 +186,6 @@
           <li><strong>UPnP/DLNA</strong><span>Built in: discovers and controls renderers on your LAN.</span></li>
           <li><strong>Google Cast</strong><span>Optional on Linux and Windows Servers; off by default.</span></li>
           <li><strong>AirPlay</strong><span>Sending from the Linux container only, including PIN/password pairing.</span></li>
-          <li id="raat"><strong>RAAT</strong><span>Streams music and album art to compatible RAAT receivers, with controls tied to the Server queue. An opt-in experimental sender. <a href="https://github.com/furyheimdall/jastreamer/blob/main/INSTRUCTION.md#raat">RAAT guide</a></span></li>
         </ul>
         <p class="fine-print">
           Receivers need a reachable private-LAN connection and multicast discovery. See the <a href="https://github.com/furyheimdall/jastreamer/blob/main/INSTALL.md#requirements">network requirements</a>; supported formats and controls vary by receiver.
@@ -235,7 +234,7 @@
               <p>While that native path is active, an altered signal is reported as <strong>Not bit-perfect</strong> with the reason. Merely selecting the mode does not earn a badge.</p>
             </div>
             <div class="scope-notes">
-              <p><strong>Server delivery.</strong> A known lossless source and current delivery evidence are required. UPnP and Cast must deliver the inspected original file unchanged. RAAT must accept PCM at the original rate, channels and precision, at unity gain without DSP; underruns or overruns remove qualification.</p>
+              <p><strong>Server delivery.</strong> A known lossless source and current delivery evidence are required. UPnP and Cast must deliver the inspected original file unchanged.</p>
               <p><strong>Badge scope.</strong> The native badge covers jastreamer’s application path; Server delivery covers its outgoing stream. Neither verifies receiver processing, drivers or the physical DAC output. Browser audio, shared or system output, and AirPlay do not qualify. <a href="https://github.com/furyheimdall/jastreamer/blob/main/INSTRUCTION.md#signal-path">Signal-path guide</a></p>
             </div>
           </div>
@@ -295,9 +294,9 @@
     <section class="section" id="download" aria-labelledby="download-title">
       <div class="container">
         <div class="section-head">
-          <p class="section-kicker">Download · version 0.2.4</p>
+          <p class="section-kicker">Download · Server 0.2.5 · Desktop / Android 0.2.4</p>
           <h2 id="download-title">Start with a Server, then add the clients you want.</h2>
-          <p>Packages and verification files are available from the <a href="https://github.com/furyheimdall/jastreamer/releases/tag/v0.2.4">v0.2.4 release on GitHub</a>.</p>
+          <p>Choose <a href="https://github.com/furyheimdall/jastreamer/releases/tag/v0.2.5">Server 0.2.5 with its embedded Web UI</a> or the unchanged <a href="https://github.com/furyheimdall/jastreamer/releases/tag/v0.2.4">Desktop and Android 0.2.4 packages</a>. Use verification files from each package's own release.</p>
         </div>
 
         <div class="notice" role="note" aria-labelledby="server-note-title">
@@ -319,17 +318,17 @@
               </div>
               <div class="dl-actions">
                 <a class="button button-primary" href="https://github.com/furyheimdall/jastreamer/blob/main/INSTALL.md#linux-server">Linux install guide</a>
-                <a class="text-link" href="https://github.com/furyheimdall/jastreamer/releases/tag/v0.2.4">Image digests</a>
+                <a class="text-link" href="https://github.com/furyheimdall/jastreamer/releases/tag/v0.2.5">Image digests</a>
               </div>
             </li>
             <li class="dl-row">
               <div>
                 <h4>Windows x64 <span class="tag">Not Authenticode-signed</span></h4>
-                <p class="dl-meta">Portable ZIP · <code>jastreamer-server_0.2.4_windows-x64.zip</code></p>
-                <p class="limits">Web interface, UPnP/DLNA, optional Cast and experimental RAAT. No AirPlay, no bundled FFmpeg, and not a Windows service. RAAT needs separately configured compatible FFmpeg and is not Windows-playback qualified. SmartScreen may warn: verify the SHA-256 and unblock the ZIP before extracting.</p>
+                <p class="dl-meta">Portable ZIP · <code>jastreamer-server_0.2.5_windows-x64.zip</code></p>
+                <p class="limits">Web interface, UPnP/DLNA and optional Cast. No AirPlay, no bundled FFmpeg, and not a Windows service. SmartScreen may warn: verify the SHA-256 and unblock the ZIP before extracting.</p>
               </div>
               <div class="dl-actions">
-                <a class="button button-primary" href="https://github.com/furyheimdall/jastreamer/releases/download/v0.2.4/jastreamer-server_0.2.4_windows-x64.zip">Download ZIP</a>
+                <a class="button button-primary" href="https://github.com/furyheimdall/jastreamer/releases/download/v0.2.5/jastreamer-server_0.2.5_windows-x64.zip">Download ZIP</a>
                 <a class="text-link" href="https://github.com/furyheimdall/jastreamer/blob/main/INSTALL.md#windows-server">Windows Server guide</a>
               </div>
             </li>
@@ -415,7 +414,7 @@
         <div class="verify">
           <h3>Verify before you install</h3>
           <div>
-            <p>Every asset is listed in <a href="https://github.com/furyheimdall/jastreamer/releases/download/v0.2.4/SHA256SUMS"><code>SHA256SUMS</code></a>, each package ships a <code>.sha256</code> sidecar and manifest on the release page, and <a href="https://github.com/furyheimdall/jastreamer/releases/download/v0.2.4/release-provenance.json"><code>release-provenance.json</code></a> records the source revision and CI runs.</p>
+            <p>Verify Server 0.2.5 with its <a href="https://github.com/furyheimdall/jastreamer/releases/download/v0.2.5/SHA256SUMS"><code>SHA256SUMS</code></a> and <a href="https://github.com/furyheimdall/jastreamer/releases/download/v0.2.5/release-provenance.json"><code>release-provenance.json</code></a>. For Desktop and Android 0.2.4, use the <a href="https://github.com/furyheimdall/jastreamer/releases/download/v0.2.4/SHA256SUMS">0.2.4 checksums</a> and <a href="https://github.com/furyheimdall/jastreamer/releases/download/v0.2.4/release-provenance.json">0.2.4 provenance</a>. Each package's <code>.sha256</code> sidecar and manifest belong to that same release.</p>
             <p>The Android signer certificate SHA-256 is <code>53285C2C239AFF2927EBE6F5C6AEBB82FDBB50956ED84B1E9F0222B2D925943E</code>. Read the <a href="https://github.com/furyheimdall/jastreamer/blob/main/README.md#code-signing-policy">code signing policy</a> for the status of every artifact.</p>
           </div>
         </div>

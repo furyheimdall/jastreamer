@@ -36,8 +36,8 @@ def write_signed_android(directory: pathlib.Path, **overrides):
     manifest = {
         "schema": 1,
         "product": "jastreamer-android",
-        "version": ci_artifact.VERSION,
-        "versionName": ci_artifact.VERSION,
+        "version": ci_artifact.ANDROID_VERSION,
+        "versionName": ci_artifact.ANDROID_VERSION,
         "versionCode": ci_artifact.ANDROID_VERSION_CODE,
         "applicationId": ci_artifact.ANDROID_APPLICATION_ID,
         "minSdk": ci_artifact.ANDROID_MIN_SDK,
@@ -71,7 +71,7 @@ def write_android_ci_artifact(directory: pathlib.Path, **overrides):
     ci_artifact.write_sums(directory, [debug_name, release_name])
     provenance = {
         "sourceRevision": REVISION,
-        "version": ci_artifact.VERSION,
+        "version": ci_artifact.ANDROID_VERSION,
         "productionQualified": False,
         "artifacts": [
             {
@@ -96,14 +96,14 @@ def write_android_ci_artifact(directory: pathlib.Path, **overrides):
 
 class ReleaseChannelGrammarTests(unittest.TestCase):
     def test_plain_version_tag_selects_the_stable_channel(self):
-        identity = publish.validate_identity(REVISION, "v0.2.4", "0.2.4")
+        identity = publish.validate_identity(REVISION, "v0.2.5", "0.2.5")
         self.assertEqual(identity["channel"], "stable")
         self.assertFalse(identity["prerelease"])
         self.assertTrue(identity["latest"])
         self.assertIsNone(identity["previewNumber"])
 
     def test_preview_tag_selects_the_preview_channel(self):
-        identity = publish.validate_identity(REVISION, "v0.2.4-preview.14", "0.2.4-preview.14")
+        identity = publish.validate_identity(REVISION, "v0.2.5-preview.14", "0.2.5-preview.14")
         self.assertEqual(identity["channel"], "preview")
         self.assertTrue(identity["prerelease"])
         self.assertFalse(identity["latest"])
@@ -111,9 +111,9 @@ class ReleaseChannelGrammarTests(unittest.TestCase):
 
     def test_release_and_image_tags_must_share_one_channel(self):
         for release_tag, image_tag in (
-            ("v0.2.4", "0.2.4-preview.1"),
-            ("v0.2.4-preview.1", "0.2.4"),
-            ("v0.2.4-preview.2", "0.2.4-preview.3"),
+            ("v0.2.5", "0.2.5-preview.1"),
+            ("v0.2.5-preview.1", "0.2.5"),
+            ("v0.2.5-preview.2", "0.2.5-preview.3"),
         ):
             with self.subTest(release_tag=release_tag, image_tag=image_tag):
                 with self.assertRaises(SystemExit) as raised:
@@ -122,21 +122,21 @@ class ReleaseChannelGrammarTests(unittest.TestCase):
 
     def test_tags_outside_the_grammar_are_rejected(self):
         for release_tag, image_tag in (
-            ("0.2.4", "0.2.4"),
-            ("v0.2.4", "v0.2.4"),
+            ("0.2.5", "0.2.5"),
+            ("v0.2.5", "v0.2.5"),
             ("latest", "latest"),
-            ("v0.2.4", "latest"),
-            ("v0.2.4-preview.0", "0.2.4-preview.0"),
-            ("v0.2.4-rc.1", "0.2.4-rc.1"),
-            ("v0.2.4-preview.1-preview.2", "0.2.4-preview.1-preview.2"),
-            ("v0.2.4 ", "0.2.4"),
+            ("v0.2.5", "latest"),
+            ("v0.2.5-preview.0", "0.2.5-preview.0"),
+            ("v0.2.5-rc.1", "0.2.5-rc.1"),
+            ("v0.2.5-preview.1-preview.2", "0.2.5-preview.1-preview.2"),
+            ("v0.2.5 ", "0.2.5"),
         ):
             with self.subTest(release_tag=release_tag, image_tag=image_tag):
                 with self.assertRaises(SystemExit):
                     publish.validate_identity(REVISION, release_tag, image_tag)
 
     def test_tag_version_must_equal_the_product_version(self):
-        for version in ("0.2.3", "0.3.0"):
+        for version in ("0.2.3", "0.2.4", "0.3.0"):
             with self.subTest(version=version):
                 with self.assertRaises(SystemExit) as raised:
                     publish.validate_identity(REVISION, f"v{version}", version)
@@ -146,7 +146,7 @@ class ReleaseChannelGrammarTests(unittest.TestCase):
         for revision in ("A" * 40, "a" * 39, "", "abc"):
             with self.subTest(revision=revision):
                 with self.assertRaises(SystemExit):
-                    publish.validate_identity(revision, "v0.2.4", "0.2.4")
+                    publish.validate_identity(revision, "v0.2.5", "0.2.5")
 
 
 class SignedAndroidManifestTests(unittest.TestCase):
@@ -291,17 +291,28 @@ class PublicReleaseChannelTests(unittest.TestCase):
         self.addCleanup(self.temporary.cleanup)
         self.staged = self.root / "staged"
         self.staged.mkdir()
-        self.names = [ci_artifact.ANDROID_RELEASE_APK, ci_artifact.DESKTOP_TARGETS["macos-arm64"]["archive"]]
+        self.names = sorted(publish.release_assets("all", "0.2.5"))
         for name in self.names:
             (self.staged / name).write_bytes(name.encode())
 
-    def release_json(self, tag="v0.2.4", **overrides):
+    def release_json(self, tag="v0.2.5", **overrides):
+        image_tag = tag.removeprefix("v")
+        publication = f"jastreamer-server_{image_tag}.manifest.json"
+        stable_publication = "jastreamer-server_0.2.5.manifest.json"
+        if publication != stable_publication and stable_publication in self.names:
+            self.names.remove(stable_publication)
+            (self.staged / stable_publication).unlink()
+            self.names.append(publication)
+            (self.staged / publication).write_bytes(publication.encode())
+        (self.staged / "release-provenance.json").write_text(json.dumps({
+            "scope": "all", "sourceRevision": REVISION, "releaseTag": tag, "imageTag": image_tag,
+        }), encoding="utf-8")
         release = {
             "tag_name": tag, "target_commitish": REVISION, "draft": False,
             "prerelease": False, "id": 77,
             "url": f"https://api.github.com/repos/{publish.REPOSITORY}/releases/77",
             "assets": [
-                {"name": name, "state": "uploaded", "size": len(name),
+                {"name": name, "state": "uploaded", "size": (self.staged / name).stat().st_size,
                  "browser_download_url": f"https://github.com/{publish.REPOSITORY}/releases/download/{tag}/{name}"}
                 for name in self.names
             ],
@@ -312,21 +323,21 @@ class PublicReleaseChannelTests(unittest.TestCase):
         return path
 
     def latest_json(self, **overrides):
-        latest = {"id": 77, "tag_name": "v0.2.4"}
+        latest = {"id": 77, "tag_name": "v0.2.5"}
         latest.update(overrides)
         path = self.root / "latest.json"
         path.write_text(json.dumps(latest), encoding="utf-8")
         return path
 
-    def arguments(self, release_json, latest_json, release_tag="v0.2.4", image_tag="0.2.4"):
+    def arguments(self, release_json, latest_json, release_tag="v0.2.5", image_tag="0.2.5"):
         return publish.argparse.Namespace(
             release_json=str(release_json), staged=str(self.staged), source_revision=REVISION,
-            release_tag=release_tag, image_tag=image_tag,
+            release_tag=release_tag, image_tag=image_tag, scope="all",
             latest_json=str(latest_json) if latest_json else None,
         )
 
     def downloaded(self, url):
-        payload = url.rsplit("/", 1)[1].encode()
+        payload = (self.staged / url.rsplit("/", 1)[1]).read_bytes()
         return len(payload), hashlib.sha256(payload).hexdigest()
 
     def test_stable_release_requires_the_anonymous_latest_tag(self):
@@ -346,8 +357,8 @@ class PublicReleaseChannelTests(unittest.TestCase):
             publish.verify_public_release(self.arguments(self.release_json(), None))
 
     def test_preview_release_must_be_a_prerelease_that_is_not_latest(self):
-        tag = "v0.2.4-preview.3"
-        arguments = self.arguments(self.release_json(tag=tag, prerelease=True), self.latest_json(id=12, tag_name="v0.1.9"), tag, "0.2.4-preview.3")
+        tag = "v0.2.5-preview.3"
+        arguments = self.arguments(self.release_json(tag=tag, prerelease=True), self.latest_json(id=12, tag_name="v0.1.9"), tag, "0.2.5-preview.3")
         with patch.object(publish, "hash_public_url", side_effect=self.downloaded):
             publish.verify_public_release(arguments)
         arguments.latest_json = str(self.latest_json(id=77, tag_name=tag))
@@ -355,7 +366,7 @@ class PublicReleaseChannelTests(unittest.TestCase):
             publish.verify_public_release(arguments)
 
     def test_required_mobile_and_mac_downloads_cannot_be_omitted_even_from_staging(self):
-        for missing in list(self.names):
+        for missing in (ci_artifact.ANDROID_RELEASE_APK, ci_artifact.DESKTOP_TARGETS["macos-arm64"]["archive"]):
             with self.subTest(missing=missing):
                 self.names.remove(missing)
                 (self.staged / missing).unlink()
@@ -397,6 +408,7 @@ class ReleaseNotesTests(unittest.TestCase):
         publication_name = f"jastreamer-server_{image_tag}.manifest.json"
         (self.staged / publication_name).write_text(json.dumps(publication), encoding="utf-8")
         provenance = {
+            "scope": "all",
             "channel": "preview" if "preview" in release_tag else "stable",
             "releaseTag": release_tag,
             "imageTag": image_tag,
@@ -413,23 +425,23 @@ class ReleaseNotesTests(unittest.TestCase):
         (self.staged / ci_artifact.ANDROID_RELEASE_APK).write_bytes(APK_BYTES)
         (self.staged / "SHA256SUMS").write_text("", encoding="ascii")
         notes = self.root / "notes.md"
-        publish.render_notes(publish.argparse.Namespace(staged=str(self.staged), output=str(notes)))
+        publish.render_notes(publish.argparse.Namespace(staged=str(self.staged), output=str(notes), scope="all"))
         return notes.read_text(encoding="utf-8")
 
     def test_notes_reject_a_staged_channel_that_contradicts_the_tag(self):
-        self.stage("v0.2.4", "0.2.4")
+        self.stage("v0.2.5", "0.2.5")
         provenance = json.loads((self.staged / "release-provenance.json").read_text(encoding="utf-8"))
         provenance["channel"] = "preview"
         (self.staged / "release-provenance.json").write_text(json.dumps(provenance), encoding="utf-8")
         with self.assertRaises(SystemExit) as raised:
-            publish.render_notes(publish.argparse.Namespace(staged=str(self.staged), output=str(self.root / "notes.md")))
+            publish.render_notes(publish.argparse.Namespace(staged=str(self.staged), output=str(self.root / "notes.md"), scope="all"))
         self.assertIn("channel mismatch", str(raised.exception))
 
 
 
 
 class ServerRunContractTest(unittest.TestCase):
-    def run_validation(self, artifact_names, mac_job=None):
+    def run_validation(self, artifact_names, mac_job=None, scope="all", job_names=None, run_overrides=None):
         with tempfile.TemporaryDirectory() as temp:
             root = pathlib.Path(temp)
             run_id = 42
@@ -443,9 +455,9 @@ class ServerRunContractTest(unittest.TestCase):
                 "workflow": {"id": 7, "path": publish.CI_WORKFLOW, "name": publish.CI_NAME, "state": "active"},
                 "branch": {"name": "main", "protected": True},
                 "comparison": {"status": "identical", "base_commit": {"sha": REVISION}},
-                "jobs": {"total_count": len(publish.EXPECTED_JOBS), "jobs": [
+                "jobs": {"total_count": len(job_names if job_names is not None else publish.EXPECTED_JOBS), "jobs": [
                     {"name": name, "status": "completed", "conclusion": "success", "head_sha": REVISION}
-                    for name in sorted(publish.EXPECTED_JOBS)
+                    for name in sorted(job_names if job_names is not None else publish.EXPECTED_JOBS)
                 ]},
                 "artifacts": {"total_count": len(artifact_names), "artifacts": [
                     {"name": name, "expired": False, "id": index + 1, "size_in_bytes": 10,
@@ -453,6 +465,7 @@ class ServerRunContractTest(unittest.TestCase):
                     for index, name in enumerate(sorted(artifact_names))
                 ]},
             }
+            payloads["run"].update(run_overrides or {})
             if mac_job is not None:
                 job = next(job for job in payloads["jobs"]["jobs"] if job["name"] == "macOS arm64 ad-hoc desktop")
                 job.update(mac_job)
@@ -460,7 +473,7 @@ class ServerRunContractTest(unittest.TestCase):
                 (root / f"{name}.json").write_text(json.dumps(value), encoding="utf-8")
             output = root / "provenance.json"
             args = type("Args", (), {
-                "repository": publish.REPOSITORY, "run_id": str(run_id), "kind": "server", "expect_source_revision": "",
+                "repository": publish.REPOSITORY, "run_id": str(run_id), "kind": "server", "expect_source_revision": "", "scope": scope,
                 "run": root / "run.json", "workflow": root / "workflow.json", "branch": root / "branch.json",
                 "comparison": root / "comparison.json", "jobs": root / "jobs.json", "artifacts": root / "artifacts.json",
                 "output": output, "github_output": "",
@@ -479,13 +492,171 @@ class ServerRunContractTest(unittest.TestCase):
 
     def test_missing_mac_artifact_is_rejected(self):
         with self.assertRaises(SystemExit):
-            self.run_validation((publish.EXPECTED_ARTIFACTS | publish.SERVER_EVIDENCE_ARTIFACTS) - {"jastreamer-desktop-macos-arm64"})
+            self.run_validation((publish.EXPECTED_ARTIFACTS | publish.DESKTOP_EVIDENCE_ARTIFACTS) - {"jastreamer-desktop-macos-arm64"})
 
     def test_skipped_failed_or_wrong_revision_mac_job_blocks_publication(self):
         for overrides in ({"conclusion": "skipped"}, {"conclusion": "failure"}, {"head_sha": "b" * 40}):
             with self.subTest(overrides=overrides):
                 with self.assertRaises(SystemExit):
-                    self.run_validation(publish.EXPECTED_ARTIFACTS | publish.SERVER_EVIDENCE_ARTIFACTS, overrides)
+                    self.run_validation(publish.EXPECTED_ARTIFACTS | publish.DESKTOP_EVIDENCE_ARTIFACTS, overrides)
+
+    def test_server_scope_selects_only_server_artifacts_from_integrated_ci(self):
+        provenance = self.run_validation(publish.EXPECTED_ARTIFACTS | publish.DESKTOP_EVIDENCE_ARTIFACTS, scope="server")
+        self.assertEqual(provenance["scope"], "server")
+        self.assertEqual({record["name"] for record in provenance["artifacts"]}, publish.SERVER_ARTIFACTS)
+
+    def test_server_scope_does_not_require_desktop_evidence_or_jobs(self):
+        provenance = self.run_validation(publish.SERVER_ARTIFACTS, scope="server", job_names=publish.SERVER_JOBS)
+        self.assertEqual({record["name"] for record in provenance["artifacts"]}, publish.SERVER_ARTIFACTS)
+
+    def test_server_scope_rejects_each_missing_required_job_or_artifact(self):
+        for name in publish.SERVER_JOBS:
+            with self.subTest(job=name), self.assertRaises(SystemExit):
+                self.run_validation(publish.SERVER_ARTIFACTS, scope="server", job_names=publish.SERVER_JOBS - {name})
+        for name in publish.SERVER_ARTIFACTS:
+            with self.subTest(artifact=name), self.assertRaises(SystemExit):
+                self.run_validation(publish.SERVER_ARTIFACTS - {name}, scope="server")
+
+    def test_server_scope_still_requires_successful_main_push_run(self):
+        for overrides in ({"conclusion": "failure"}, {"event": "pull_request"}, {"head_branch": "feature"}):
+            with self.subTest(overrides=overrides), self.assertRaises(SystemExit):
+                self.run_validation(publish.SERVER_ARTIFACTS, scope="server", run_overrides=overrides)
+
+    def test_android_run_cannot_be_selected_for_server_scope(self):
+        with self.assertRaises(SystemExit):
+            publish.expected_jobs("android", "server")
+
+
+class ServerOnlyStagingTests(unittest.TestCase):
+    """Exercise publication selection with synthetic, already-verified CI receipts."""
+
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.root = pathlib.Path(temporary.name)
+        self.artifacts = self.root / "artifacts"
+        self.artifacts.mkdir()
+        self.staged = self.root / "staged"
+        for name in publish.EXPECTED_ARTIFACTS:
+            directory = self.artifacts / name
+            directory.mkdir()
+            (directory / "manifest.json").write_text("{}", encoding="utf-8")
+            (directory / "verification.json").write_text("{}", encoding="utf-8")
+        windows = self.artifacts / "jastreamer-server-windows-x64"
+        (windows / ci_artifact.WINDOWS_SERVER_ARCHIVE).write_bytes(b"verified Windows Server package")
+        (windows / f"{ci_artifact.WINDOWS_SERVER_ARCHIVE}.sha256").write_text("fixture sidecar", encoding="ascii")
+        for target, metadata in ci_artifact.DESKTOP_TARGETS.items():
+            directory = self.artifacts / f"jastreamer-desktop-{target}"
+            (directory / metadata["archive"]).write_bytes(b"unrelated client package")
+            (directory / f"{metadata['archive']}.sha256").write_text("client sidecar", encoding="ascii")
+            for evidence in ("native-verification", "launch-verification"):
+                (directory / f"{evidence}.json").write_text("{}", encoding="utf-8")
+        self.provenance_path = self.root / "run-provenance.json"
+        self.provenance = {
+            "kind": "server", "scope": "server", "repository": publish.REPOSITORY,
+            "workflow": publish.CI_WORKFLOW, "runId": 42, "sourceRevision": REVISION,
+            "artifacts": [{"name": name} for name in sorted(publish.SERVER_ARTIFACTS)],
+        }
+        self.save_provenance()
+        self.args = publish.argparse.Namespace(
+            scope="server", artifact_root=str(self.artifacts), run_provenance=str(self.provenance_path),
+            run_id="42", source_revision=REVISION, release_tag="v0.2.5", image_tag="0.2.5",
+            amd64_raw=str(self.root / "amd64.json"), arm64_raw=str(self.root / "arm64.json"),
+            index_raw=str(self.root / "index.json"), output_dir=str(self.staged),
+            android_run_provenance=None, android_run_id=None, android_dir=None,
+        )
+        self.android_directory = self.root / "android"
+        self.android_directory.mkdir()
+        write_signed_android(self.android_directory)
+        self.android_provenance_path = self.root / "android-run-provenance.json"
+        self.android_provenance_path.write_text(json.dumps({
+            "kind": "android", "scope": "all", "repository": publish.REPOSITORY,
+            "workflow": publish.ANDROID_WORKFLOW, "runId": 4242, "sourceRevision": REVISION,
+            "artifacts": [{"name": name} for name in publish.downloaded_artifacts("android", REVISION, "all")],
+        }), encoding="utf-8")
+        server_manifest = {"archive": {}, "image": {"layers": []}}
+        image_receipt = {"manifestDigest": "sha256:" + "1" * 64}
+        for name, result in (("verify_server_artifact", server_manifest), ("verify_windows_server_artifact", {})):
+            patcher = patch.object(ci_artifact, name, return_value=result)
+            patcher.start()
+            self.addCleanup(patcher.stop)
+        for name, result in (("validate_registry_image", image_receipt), ("validate_index", {"digest": "sha256:" + "2" * 64})):
+            patcher = patch.object(publish, name, return_value=result)
+            patcher.start()
+            self.addCleanup(patcher.stop)
+
+    def save_provenance(self):
+        self.provenance_path.write_text(json.dumps(self.provenance), encoding="utf-8")
+
+    def test_server_scope_stages_no_clients_and_can_render_and_verify_publication(self):
+        with patch.object(ci_artifact, "verify_desktop_artifact") as desktop, patch.object(ci_artifact, "verify_android_release_artifact") as android:
+            publish.stage_release(self.args)
+        desktop.assert_not_called()
+        android.assert_not_called()
+        names = {entry.name for entry in self.staged.iterdir()}
+        self.assertEqual(names, publish.release_assets("server", "0.2.5"))
+        provenance = json.loads((self.staged / "release-provenance.json").read_text(encoding="utf-8"))
+        self.assertEqual(provenance["scope"], "server")
+        self.assertEqual(provenance["componentVersions"], {"server": "0.2.5", "web": "0.2.5"})
+        self.assertNotIn("android", provenance)
+        self.assertNotIn("desktop", provenance)
+        notes = self.root / "notes.md"
+        publish.render_notes(publish.argparse.Namespace(scope="server", staged=str(self.staged), output=str(notes)))
+        self.assertTrue(notes.is_file())
+        release_path = self.root / "public.json"
+        release_path.write_text(json.dumps({
+            "id": 77, "tag_name": "v0.2.5", "target_commitish": REVISION, "draft": False, "prerelease": False,
+            "url": f"https://api.github.com/repos/{publish.REPOSITORY}/releases/77",
+            "assets": [{
+                "name": name, "state": "uploaded", "size": (self.staged / name).stat().st_size,
+                "browser_download_url": f"https://github.com/{publish.REPOSITORY}/releases/download/v0.2.5/{name}",
+            } for name in sorted(names)],
+        }), encoding="utf-8")
+        latest_path = self.root / "latest.json"
+        latest_path.write_text(json.dumps({"id": 77, "tag_name": "v0.2.5"}), encoding="utf-8")
+        def downloaded(url):
+            path = self.staged / url.rsplit("/", 1)[1]
+            return path.stat().st_size, publish.sha256_file(path)
+        with patch.object(publish, "hash_public_url", side_effect=downloaded):
+            publish.verify_public_release(publish.argparse.Namespace(
+                scope="server", release_json=str(release_path), latest_json=str(latest_path),
+                staged=str(self.staged), source_revision=REVISION, release_tag="v0.2.5", image_tag="0.2.5",
+            ))
+
+    def test_run_provenance_scope_mismatch_blocks_staging_and_download(self):
+        self.provenance["scope"] = "all"
+        self.save_provenance()
+        with self.assertRaisesRegex(SystemExit, "scope mismatch"):
+            publish.stage_release(self.args)
+        with self.assertRaisesRegex(SystemExit, "scope mismatch"):
+            publish.download_artifacts(publish.argparse.Namespace(scope="server", run_provenance=str(self.provenance_path)))
+
+    def test_staged_scope_mismatch_blocks_notes(self):
+        publish.stage_release(self.args)
+        with self.assertRaisesRegex(SystemExit, "scope mismatch"):
+            publish.render_notes(publish.argparse.Namespace(scope="all", staged=str(self.staged), output=str(self.root / "notes.md")))
+
+    def test_all_scope_requires_android_inputs(self):
+        self.args.scope = "all"
+        self.provenance.update(scope="all", artifacts=[{"name": name} for name in publish.EXPECTED_ARTIFACTS])
+        self.save_provenance()
+        with self.assertRaisesRegex(SystemExit, "requires Android"):
+            publish.stage_release(self.args)
+
+    def test_all_scope_preserves_actual_client_versions_and_assets(self):
+        self.args.scope = "all"
+        self.args.android_run_provenance = str(self.android_provenance_path)
+        self.args.android_run_id = "4242"
+        self.args.android_dir = str(self.android_directory)
+        self.provenance.update(scope="all", artifacts=[{"name": name} for name in publish.EXPECTED_ARTIFACTS])
+        self.save_provenance()
+        with patch.object(ci_artifact, "verify_desktop_artifact", return_value={}):
+            publish.stage_release(self.args)
+        self.assertEqual({entry.name for entry in self.staged.iterdir()}, publish.release_assets("all", "0.2.5"))
+        provenance = json.loads((self.staged / "release-provenance.json").read_text(encoding="utf-8"))
+        self.assertEqual(provenance["componentVersions"], {
+            "server": "0.2.5", "web": "0.2.5", "desktop": "0.2.4", "android": "0.2.4",
+        })
 
 
 class MacArtifactEvidenceTests(unittest.TestCase):
@@ -501,7 +672,7 @@ class MacArtifactEvidenceTests(unittest.TestCase):
         names = ["Contents/MacOS/jastreamer-desktop", *(f"Contents/Resources/native-audio/{name}" for name in runtime)]
         names.extend(f"Contents/Frameworks/fixture-{index}" for index in range(12))
         self.manifest = {
-            "product": "jastreamer-desktop", "version": ci_artifact.VERSION,
+            "product": "jastreamer-desktop", "version": ci_artifact.DESKTOP_VERSION,
             "platform": "darwin", "arch": "arm64", "electron": "44.3.0",
             "sourceRevision": REVISION, "distribution": "public-adhoc",
             "developmentBuild": False, "signed": False, "signing": "ad-hoc",

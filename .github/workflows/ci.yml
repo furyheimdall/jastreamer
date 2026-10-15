@@ -40,6 +40,8 @@ jobs:
           sudo apt-get install --yes lua5.3
       - name: Validate Server and build Web
         run: make verify
+      - name: Verify release publication contracts
+        run: python3 -m unittest discover -s packaging/server -p 'test_*.py'
       - name: Install Chromium for browser smoke
         working-directory: apps/control
         run: npx playwright install --with-deps chromium
