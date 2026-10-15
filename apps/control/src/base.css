@@ -651,6 +651,32 @@ html[data-client] .app-shell .mobile-header {
   outline-offset: 2px;
 }
 
+/* Server-delivery badge: only the claim may shorten, so the scope qualifier stays visible. */
+.signal-path-badge-server .signal-path-badge-claim {
+  min-width: 0;
+}
+
+.signal-path-badge-server .signal-path-badge-scope {
+  flex: 0 0 auto;
+  overflow: visible;
+}
+
+.track-info-dialog.signal-path-dialog {
+  width: min(40rem, 100%);
+}
+
+.signal-path-dialog .track-info-content p {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.6;
+}
+
+.signal-path-unverified {
+  padding: 0.85rem;
+  border: 1px solid var(--border);
+  border-radius: 0.65rem;
+}
+
 .transport {
   display: grid;
   min-width: 0;

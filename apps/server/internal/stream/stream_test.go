@@ -106,16 +106,17 @@ func (fixture *fixtureLibrary) Artwork(ctx context.Context, id string) (*os.File
 	return file, mime, err
 }
 
-func (fixture *fixtureLibrary) Info(ctx context.Context, id string) (library.TrackInfo, error) {
+func (fixture *fixtureLibrary) OpenAudio(ctx context.Context, id string) (*os.File, library.TrackInfo, error) {
 	if err := context.Cause(ctx); err != nil {
-		return library.TrackInfo{}, err
+		return nil, library.TrackInfo{}, err
 	}
 	fixture.mu.Lock()
 	defer fixture.mu.Unlock()
 	if id != fixture.track.ID {
-		return library.TrackInfo{}, os.ErrNotExist
+		return nil, library.TrackInfo{}, os.ErrNotExist
 	}
-	return library.TrackInfo{Track: fixture.track, Audio: fixture.audio}, nil
+	file, err := os.Open(fixture.path)
+	return file, library.TrackInfo{Track: fixture.track, Audio: fixture.audio}, err
 }
 
 func pointer[T any](value T) *T {

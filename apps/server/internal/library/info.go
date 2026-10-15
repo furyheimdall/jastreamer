@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/binary"
+	"math"
 	"os"
 	"strconv"
 	"strings"
@@ -95,17 +96,28 @@ func int64Pointer(value int64) *int64 {
 // Info opens the catalogued file through the same descriptor-safe path as playback
 // and inspects it only for this request. No inspection result is persisted.
 func (service *Service) Info(ctx context.Context, id string) (TrackInfo, error) {
-	file, track, err := service.Open(ctx, id)
+	file, info, err := service.OpenAudio(ctx, id)
 	if err != nil {
 		return TrackInfo{}, err
 	}
 	defer file.Close()
+	return info, nil
+}
 
+// OpenAudio inspects the same descriptor that the caller will decode, avoiding
+// a pathname replacement between format selection and playback. The caller
+// owns the descriptor and must not read or seek it concurrently with decoding.
+func (service *Service) OpenAudio(ctx context.Context, id string) (*os.File, TrackInfo, error) {
+	file, track, err := service.Open(ctx, id)
+	if err != nil {
+		return nil, TrackInfo{}, err
+	}
 	audio, tags := inspectTrackFile(file, track.Format, track.Size)
 	if err := ctx.Err(); err != nil {
-		return TrackInfo{}, err
+		file.Close()
+		return nil, TrackInfo{}, err
 	}
-	return TrackInfo{Track: track, Audio: audio, Tags: tags}, nil
+	return file, TrackInfo{Track: track, Audio: audio, Tags: tags}, nil
 }
 
 func inspectTrackFile(file *os.File, format string, size int64) (AudioProperties, map[string][]string) {
@@ -856,11 +868,68 @@ func readMP4SampleDescription(file *os.File, start, limit int64, budget *mp4Info
 		}
 		codec, lossless := mp4AudioCodec(entry.kind)
 		if codec != "" && entry.size-entry.header >= 28 {
-			base := make([]byte, 28)
-			if _, err := file.ReadAt(base, entry.offset+entry.header); err == nil {
+			var base [64]byte
+			if _, err := file.ReadAt(base[:28], entry.offset+entry.header); err == nil {
+				version := binary.BigEndian.Uint16(base[8:10])
+				fixedLength := int64(28)
+				switch version {
+				case 1:
+					fixedLength = 44
+				case 2:
+					fixedLength = 64
+				}
+				// LPCM is only self-describing in the version-2 extension.
+				// Keep older or incomplete entries unverified rather than
+				// treating an unknown sample representation as integer PCM.
+				if entry.kind == "lpcm" {
+					*audio = AudioProperties{Codec: "LPCM (unverified)"}
+					if version != 2 {
+						return
+					}
+				}
+				if entry.size-entry.header < fixedLength {
+					return
+				}
 				channels := int(binary.BigEndian.Uint16(base[16:18]))
 				bits := int(binary.BigEndian.Uint16(base[18:20]))
 				rate := int64(binary.BigEndian.Uint32(base[24:28]) >> 16)
+				if version == 2 {
+					if _, err := file.ReadAt(base[28:], entry.offset+entry.header+28); err != nil {
+						return
+					}
+					sampleRate := math.Float64frombits(binary.BigEndian.Uint64(base[32:40]))
+					if math.IsNaN(sampleRate) || math.IsInf(sampleRate, 0) ||
+						sampleRate <= 0 || sampleRate > math.MaxInt32 || math.Trunc(sampleRate) != sampleRate {
+						return
+					}
+					rate = int64(sampleRate)
+					channels = int(binary.BigEndian.Uint32(base[40:44]))
+					bits = int(binary.BigEndian.Uint32(base[48:52]))
+					if entry.kind == "lpcm" {
+						if channels == 0 || bits == 0 {
+							return
+						}
+						codec = "PCM"
+						if binary.BigEndian.Uint32(base[52:56])&1 != 0 {
+							if bits != 32 && bits != 64 {
+								return
+							}
+							codec = "IEEE Float"
+						}
+					}
+				}
+				// Legacy PCM entries can carry a placeholder sample size;
+				// fixed-width fourccs define their actual precision.
+				switch entry.kind {
+				case "in24":
+					bits = 24
+				case "in32":
+					bits = 32
+				case "fl32":
+					bits = 32
+				case "fl64":
+					bits = 64
+				}
 				audio.Codec = codec
 				audio.Channels = intPointer(channels)
 				audio.SampleRate = int64Pointer(rate)
@@ -871,14 +940,6 @@ func readMP4SampleDescription(file *os.File, start, limit int64, budget *mp4Info
 				}
 				if lossless {
 					audio.BitsPerSample = intPointer(bits)
-				}
-				version := binary.BigEndian.Uint16(base[8:10])
-				fixedLength := int64(28)
-				switch version {
-				case 1:
-					fixedLength = 44
-				case 2:
-					fixedLength = 64
 				}
 				readMP4AudioChildren(file, entry, fixedLength, audio)
 			}
@@ -902,7 +963,11 @@ func mp4AudioCodec(kind string) (string, bool) {
 		return "AC-3", false
 	case "ec-3":
 		return "E-AC-3", false
-	case "lpcm", "sowt", "twos", "in24", "in32", "fl32", "fl64":
+	case "fl32", "fl64":
+		return "IEEE Float", true
+	case "lpcm":
+		return "LPCM (unverified)", true
+	case "sowt", "twos", "in24", "in32":
 		return "PCM", true
 	default:
 		return "", false

@@ -237,6 +237,22 @@ func (manager *Manager) Revoke(playID string) {
 	}
 }
 
+func (manager *Manager) SignalPath(rendererID, playID string) (SignalPath, bool) {
+	backend, device, err := manager.backendForID(rendererID)
+	if err != nil || !device.Online || playID == "" {
+		return SignalPath{}, false
+	}
+	provider, ok := backend.Media.(SignalPathProvider)
+	if !ok {
+		return SignalPath{}, false
+	}
+	path, ok := provider.SignalPath(rendererID, playID)
+	if !ok || path.RendererID != rendererID {
+		return SignalPath{}, false
+	}
+	return path, true
+}
+
 func (manager *Manager) Pair(ctx context.Context, id string, request PairingRequest) (PairingStatus, error) {
 	backend, _, err := manager.backendForID(id)
 	if err != nil {
@@ -274,7 +290,7 @@ func (manager *Manager) backendForID(id string) (Backend, Device, error) {
 }
 
 func validBackend(backend Backend) bool {
-	return backend.Controller != nil && (backend.Protocol == ProtocolUPnP || backend.Protocol == ProtocolAirPlay || backend.Protocol == ProtocolCast || backend.Protocol == ProtocolBrowser)
+	return backend.Controller != nil && (backend.Protocol == ProtocolUPnP || backend.Protocol == ProtocolAirPlay || backend.Protocol == ProtocolCast || backend.Protocol == ProtocolRAAT || backend.Protocol == ProtocolBrowser)
 }
 
 func (manager *Manager) valid() bool {

@@ -63,6 +63,10 @@ type Cast struct {
 	Enabled bool `json:"enabled"`
 }
 
+type RAAT struct {
+	Enabled bool `json:"enabled"`
+}
+
 type Config struct {
 	Version      int     `json:"version"`
 	DataDir      string  `json:"data_dir"`
@@ -74,6 +78,7 @@ type Config struct {
 	Media        Media   `json:"media"`
 	AirPlay      AirPlay `json:"airplay"`
 	Cast         Cast    `json:"cast"`
+	RAAT         RAAT    `json:"raat"`
 }
 
 func Default() Config {
@@ -92,6 +97,7 @@ func Default() Config {
 		Media:   Media{},
 		AirPlay: AirPlay{},
 		Cast:    Cast{},
+		RAAT:    RAAT{},
 	}
 }
 
@@ -219,6 +225,9 @@ func Validate(value Config) error {
 		return err
 	}
 	if err := validateAirPlay(value.AirPlay, value.Media); err != nil {
+		return err
+	}
+	if err := validateRAAT(value.RAAT, value.Media); err != nil {
 		return err
 	}
 	return nil
@@ -360,9 +369,19 @@ func validateAirPlay(value AirPlay, media Media) error {
 	return nil
 }
 
+func validateRAAT(value RAAT, media Media) error {
+	if !value.Enabled {
+		return nil
+	}
+	if media.FFmpegPath == "" {
+		return invalid("media.ffmpeg_path", "is required when RAAT is enabled")
+	}
+	return validateExecutable("media.ffmpeg_path", media.FFmpegPath)
+}
+
 func validateExecutable(field, path string) error {
 	info, err := os.Stat(path)
-	if err != nil || !info.Mode().IsRegular() || info.Mode().Perm()&0o111 == 0 {
+	if err != nil || !info.Mode().IsRegular() || (runtime.GOOS != "windows" && info.Mode().Perm()&0o111 == 0) {
 		return invalid(field, "must identify an executable regular file")
 	}
 	return nil

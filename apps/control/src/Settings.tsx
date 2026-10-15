@@ -1607,6 +1607,28 @@ export default function Settings({ configRevision, libraryRevision, historyRevis
         <section className="settings-card protocol-settings">
           <div className="settings-card-heading">
             <div>
+              <h2>{t("settings.raat.title")}</h2>
+              <p className="muted">{t("settings.raat.description")}</p>
+            </div>
+            <label className="switch-label">
+              <input
+                type="checkbox"
+                form={settingsConfigFormID}
+                checked={draft.raat.enabled}
+                onChange={(event) => updateDraft((config) => ({
+                  ...config,
+                  raat: { ...config.raat, enabled: event.target.checked },
+                }))}
+              />
+              {t("settings.protocol.enabled")}
+            </label>
+          </div>
+          <p className="field-help">{t("settings.raat.help")}</p>
+        </section>
+
+        <section className="settings-card protocol-settings">
+          <div className="settings-card-heading">
+            <div>
               <h2>{t("settings.airplay.title")}</h2>
               <p className="muted">{t("settings.airplay.description")}</p>
             </div>

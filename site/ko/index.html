@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>jastreamer — 사설 LAN용 자체 호스팅 음악 플레이어·컨트롤러</title>
-  <meta name="description" content="jastreamer 0.2.3은 신뢰하는 사설 LAN에서 쓰는 자체 호스팅 음악 플레이어입니다. 어느 컴퓨터나 휴대전화에서든 공용 대기열 하나를 제어하면 Linux 또는 Windows Server가 이 기기의 USB DAC·UPnP/DLNA·선택적 Google Cast·Linux 컨테이너의 AirPlay 중 고른 출력으로 재생합니다.">
+  <meta name="description" content="jastreamer 0.2.4는 신뢰하는 사설 LAN용 자체 호스팅 음악 플레이어입니다. 어느 화면에서든 공용 대기열 하나를 제어하면 Linux·Windows Server가 이 기기, UPnP/DLNA, 선택적 Google Cast, Linux 컨테이너의 AirPlay 또는 기본값이 꺼짐인 실험적 RAAT로 재생합니다.">
   <meta name="color-scheme" content="dark">
   <meta name="theme-color" content="#111315">
   <meta name="referrer" content="strict-origin-when-cross-origin">
@@ -50,14 +50,14 @@
       <div class="container">
         <p class="eyebrow">
           <span>자체 호스팅 음악 플레이어</span>
-          <span class="version-tag">v0.2.3</span>
+          <span class="version-tag">v0.2.4</span>
         </p>
         <h1 id="hero-title">어느 화면에서든 재생하고,<br><em>원하는 곳에서 듣습니다.</em></h1>
         <p class="hero-lead">
-          jastreamer는 내 Linux·Windows Server에 있는 음악을 위해 세심하게 설계한 플레이어입니다. 사설 LAN 안의 컴퓨터나 휴대전화 어디서든 대기열을 담고 제어하면, Server가 고른 출력으로 재생합니다. 이 기기에 연결한 USB DAC일 수도, 방 건너편의 UPnP/DLNA·Google Cast·AirPlay 수신기일 수도 있습니다.
+          jastreamer는 내 Linux·Windows Server에 있는 음악을 위해 세심하게 설계한 플레이어입니다. 사설 LAN 안의 컴퓨터나 휴대전화 어디서든 대기열을 담고 제어하면, Server가 고른 출력으로 재생합니다. 이 기기에 연결한 USB DAC, 방 건너편의 UPnP/DLNA·Google Cast·AirPlay 수신기, 또는 기본값이 꺼짐인 실험적 <a href="#raat">RAAT</a>를 선택할 수 있습니다.
         </p>
         <div class="actions">
-          <a class="button button-primary" href="#download">0.2.3 내려받기</a>
+          <a class="button button-primary" href="#download">0.2.4 내려받기</a>
           <a class="button button-secondary" href="#player">플레이어 둘러보기</a>
         </div>
         <ul class="hero-facts" aria-label="한눈에 보기">
@@ -74,7 +74,7 @@
           </div>
           <figcaption class="shot-caption">
             <span class="sample-badge">샘플 보관함</span>
-            <span>실제 jastreamer 플레이어를 합성 샘플 곡과 직접 만든 추상 앨범 아트로 캡처했습니다. 누군가의 개인 음악이 아닙니다.</span>
+            <span>실제 jastreamer 플레이어를 합성 샘플 곡과 직접 만든 추상 앨범 아트로 캡처했습니다. 누군가의 개인 음악이 아닙니다. 이전 버전의 화면이므로 새 RAAT 출력과 서버 전송 배지는 보이지 않습니다.</span>
           </figcaption>
         </figure>
       </div>
@@ -109,7 +109,7 @@
               </li>
               <li>
                 <h3>지금 듣는 소리를 정확히</h3>
-                <p><strong>곡 정보</strong>에서 코덱, 샘플 레이트, 비트 깊이, 채널, 재생 횟수를 확인할 수 있습니다. 네이티브 독점 모드나 USB 다이렉트 경로에서는 곡 정보 옆 배지가 <strong>비트 퍼펙트</strong> 또는 이유와 함께 <strong>비트 퍼펙트 아님</strong>을 표시합니다. <a href="#bit-perfect">배지가 뜻하는 범위 보기</a></p>
+                <p><strong>곡 정보</strong>에서 코덱, 샘플 레이트, 비트 깊이, 채널, 재생 횟수를 확인할 수 있습니다. 네이티브 독점·USB 다이렉트 출력에는 <strong>비트 퍼펙트</strong> 또는 <strong>비트 퍼펙트 아님</strong>이, 조건을 충족한 UPnP·Cast·RAAT 스트림에는 <strong>비트 퍼펙트 · 서버 전송</strong>이 표시될 수 있습니다. <a href="#bit-perfect">각 배지가 뜻하는 범위 보기</a></p>
               </li>
             </ul>
 
@@ -178,14 +178,14 @@
               </div>
               <div>
                 <h3>집 안 어디서나: 네트워크 수신기</h3>
-                <p>UPnP/DLNA 재생 기기, Google Cast 기기, AirPlay 수신기를 고르세요. Server가 수신기로 직접 스트리밍하므로 휴대전화를 잠그거나 페이지를 닫아도 음악은 계속되고, 어느 컨트롤러에서든 다시 이어서 제어할 수 있습니다.</p>
+                <p>UPnP/DLNA 재생 기기, Google Cast 기기, AirPlay 수신기 또는 기능을 켠 뒤 호환되는 RAAT 수신기를 고르세요. Server가 수신기로 직접 스트리밍하므로 휴대전화를 잠그거나 페이지를 닫아도 음악은 계속되고, 어느 컨트롤러에서든 다시 이어서 제어할 수 있습니다.</p>
               </div>
             </div>
           </div>
 
           <figure class="concept-shot">
             <img src="../assets/listening-ko.svg" width="720" height="1400" loading="lazy" decoding="async"
-              alt="세 부분으로 된 개념도. 제어: 휴대전화와 노트북 브라우저는 jastreamer Server에 명령만 보내고, Server는 보관함·대기열·선택한 출력 하나를 가집니다. 로컬 청취: Server의 오디오가 USB DAC과 헤드폰을 연결한 Windows·macOS Desktop 앱, 또는 USB DAC 동글을 연결한 Android 앱으로 가며 선택 사용하는 독점·USB 다이렉트 출력을 씁니다. 또는 네트워크 청취: Server가 스피커에 연결된 UPnP/DLNA 재생 기기나 AirPlay 수신기로 직접 스트리밍합니다. AirPlay 전송에는 Linux 컨테이너 Server가 필요합니다.">
+              alt="세 부분으로 된 개념도. 제어: 휴대전화와 노트북 브라우저는 jastreamer Server에 명령만 보내고, Server는 보관함·대기열·선택한 출력 하나를 가집니다. 로컬 청취: Server 오디오가 USB DAC을 연결한 Desktop·Android 앱으로 가며 선택적 독점·USB 다이렉트 출력을 씁니다. 또는 네트워크 청취: UPnP/DLNA, 선택적 Cast, AirPlay, 기본값이 꺼짐인 실험적 RAAT로 수신기에 스트리밍합니다. AirPlay에는 Linux 컨테이너 Server가, RAAT에는 호환 수신기와 설정된 FFmpeg이 필요합니다.">
             <figcaption>
               <span class="concept-badge">개념도</span>
               역할과 오디오 경로를 단순화한 그림입니다. 화면 캡처나 특정 제품이 아닙니다.
@@ -199,25 +199,48 @@
           <li><strong>UPnP/DLNA</strong><span>기본 제공. LAN의 재생 기기를 찾아 제어합니다.</span></li>
           <li><strong>Google Cast</strong><span>두 Server 플랫폼에서 선택 사항이며 기본값은 꺼짐입니다.</span></li>
           <li><strong>AirPlay</strong><span>Linux 컨테이너에서만 전송하며 PIN·암호 인증을 지원합니다.</span></li>
+          <li><strong>RAAT · 실험 기능</strong><span>두 Server 플랫폼 모두 기본값은 꺼짐입니다. 호환 수신기와 설정된 FFmpeg이 필요합니다. <a href="#raat">필수 조건과 한계</a>를 확인하세요. Roon Ready 인증이 아닙니다.</span></li>
         </ul>
         <p class="fine-print">
           자동 검색에는 멀티캐스트와 Server·컨트롤러·출력 사이의 사설 LAN 경로가 필요합니다(UPnP는 SSDP UDP 1900, Cast와 AirPlay는 mDNS UDP 5353). 수신기마다 일시 정지나 탐색을 지원하지 않거나 특정 형식을 거부하거나 인증을 요구할 수 있으므로, 실제 장비에서 재생과 소리를 직접 확인하세요.
         </p>
 
-        <div class="bit-perfect" id="bit-perfect">
+        <div class="bit-perfect" id="raat">
           <div class="bit-perfect-head">
-            <h3>비트 퍼펙트, 조건까지 분명하게</h3>
-            <p>네이티브 독점 경로에서 jastreamer는 무손실 파일의 샘플을 시스템 믹서·리샘플링·음량 조정 없이 DAC 쪽으로 넘길 수 있습니다. 스위치를 켰다고 가정하지 않고, 실제로 그렇게 동작할 때만 플레이어가 알려 줍니다.</p>
+            <h3>같은 플레이어와 대기열로 쓰는 RAAT</h3>
+            <p>독자적으로 구현한 실험적 출력이며 기본값은 꺼짐입니다. Roon Ready 인증이 아닙니다. 재생 주체는 여전히 Server, 각 화면은 컨트롤러이며 수신기에 별도 대기열을 만들지 않습니다.</p>
           </div>
           <div class="bit-perfect-grid">
             <div>
-              <h4>사용할 수 있는 곳</h4>
+              <h4>화면 표시, 제어와 전달</h4>
+              <ul class="check-list">
+                <li>지원되는 수신기 플러그인에 곡 메타데이터, JPEG 앨범 아트 썸네일과 재생 상태를 전달합니다. 재생/일시 정지·정지·이전·다음·탐색은 같은 Server 대기열을 사용하며 기기에서 발생한 제어 이벤트도 그 대기열로 돌아옵니다.</li>
+                <li>PCM의 원래 샘플 레이트·채널·정밀도를 유지하며 이득 1로 전달합니다. 리샘플링·정규화·DSP는 하지 않습니다. 정수 컨테이너 확장은 0 채움만 허용하며, 지원하지 않는 형식은 몰래 변환하지 않고 실패합니다.</li>
+                <li>연속 오디오 연결이 크기가 제한된 수신기 버퍼를 채우며, 사전 버퍼링과 기기 시계에 맞춰 재생합니다. Server의 전송 완료만으로 다음 곡을 시작하지 않고 오디오 소비를 기다립니다. 갭리스나 동기화된 멀티룸 재생을 보장하지 않습니다.</li>
+              </ul>
+            </div>
+            <div class="scope-notes">
+              <p><strong>켜기 전에.</strong> 신뢰하는 사설 IPv4 LAN과 어댑터를 받아들이는 프로토콜 3 호환 수신기가 필요합니다. 서명 키를 광고하는 수신기는 우회하지 않고 거부합니다. 검색된다고 호환성이 입증되지는 않습니다. RAAT 제어·오디오 채널은 암호화되지 않습니다.</p>
+              <p><strong>FFmpeg 필수.</strong> Linux 컨테이너에는 포함되어 있습니다. Windows Server는 호환 FFmpeg을 별도로 설치하고 실행 파일의 절대 경로를 설정해야 하며, 필요한 입력 프로토콜·디코더·PCM 인코더가 있어야 합니다. Settings → 재생·출력에서 RAAT를 켜고 저장한 뒤 재시작하세요. 먼저 <a href="https://github.com/furyheimdall/jastreamer/blob/main/INSTALL.ko.md#raat-development">RAAT 필수 조건</a>을 읽으세요.</p>
+              <p><strong>검증 범위는 제한적입니다.</strong> FiiO K17의 전체 곡·재생 제어 확인과 FiiO R7으로 광고하는 수신기의 다음 곡·정지 확인은 실제 소리·물리 버튼·DAC 검증이 아닙니다. 일반적인 하드웨어 호환성을 입증하지도 않습니다. <a href="https://github.com/furyheimdall/jastreamer/blob/main/INSTRUCTION.ko.md#raat">RAAT 안내와 검증 한계</a>를 확인하세요.</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="bit-perfect" id="bit-perfect">
+          <div class="bit-perfect-head">
+            <h3>신호 경로 배지, 한계까지 분명하게</h3>
+            <p>네이티브 출력 배지와 <strong>서버 전송</strong> 배지는 서로 다른 경로 구간을 설명합니다. 어느 쪽도 물리적 DAC의 소리를 인증하지 않습니다. 배지를 선택하면 재생을 바꾸지 않고 근거와 검증 범위를 확인할 수 있습니다.</p>
+          </div>
+          <div class="bit-perfect-grid">
+            <div>
+              <h4>네이티브 출력: 사용할 수 있는 곳</h4>
               <ul class="check-list">
                 <li><strong>Windows 10/11 앱</strong> — Windows 네이티브 백엔드에서 <strong>독점 모드</strong> 켬(WASAPI 독점). 실제 경로는 내 Windows 오디오 장비에서 확인하세요. <a href="https://github.com/furyheimdall/jastreamer/blob/main/INSTRUCTION.ko.md#windows-audio">Windows 오디오 안내</a></li>
                 <li><strong>Apple Silicon Mac 앱</strong> — CoreAudio 백엔드에서 <strong>독점 모드</strong>를 켜고 USB DAC으로 출력. 하드웨어 검증은 아직 DAC 한 대(macOS 26.6.2의 FIIO M33R2R)뿐입니다. <a href="https://github.com/furyheimdall/jastreamer/blob/main/INSTRUCTION.ko.md#macos-audio">macOS 오디오 안내</a></li>
                 <li><strong>Android 앱</strong> — 휴대전화의 Server 재생을 USB 오디오 클래스 DAC으로 보내는 <strong>USB 비트 퍼펙트(USB 다이렉트)</strong>. <strong>저장된 음악</strong>은 계속 표준 Android 출력을 사용합니다. Settings → 일반 → 실험 기능을 켜야 나타나는 실험 기능입니다. <a href="https://github.com/furyheimdall/jastreamer/blob/main/INSTRUCTION.ko.md#android-controls">Android 안내</a></li>
               </ul>
-              <h4>배지가 비트 퍼펙트로 표시되는 조건</h4>
+              <h4>네이티브 배지가 비트 퍼펙트로 표시되는 조건</h4>
               <ul class="check-list">
                 <li>무손실 원본이며 Server가 미변환으로 보고함</li>
                 <li>샘플 레이트·채널·정밀도가 그대로임(더 넓은 컨테이너에 0을 채워 담아도 원본 비트는 유지됨)</li>
@@ -227,8 +250,10 @@
               <p>해당 네이티브 경로가 동작 중이지만 신호가 바뀌었다면 <strong>비트 퍼펙트 아님</strong>과 그 이유를 표시합니다. 모드를 선택하기만 한 상태에 배지를 붙이지 않습니다.</p>
             </div>
             <div class="scope-notes">
-              <p><strong>배지가 뜻하는 범위.</strong> 배지는 jastreamer 애플리케이션 경로만 설명합니다. 드라이버, DAC 내부 DSP, 물리적 출력까지 검증하지 않으며 결과는 기기마다 다르므로, 내 장비에서 실제 협상된 경로를 확인하세요.</p>
-              <p><strong>배지가 나타나지 않는 곳.</strong> 브라우저 오디오(PWA와 Linux Desktop 포함), 공유·시스템 출력, UPnP/DLNA, Google Cast, AirPlay. 네트워크 전송과 수신기 처리 과정에는 변환·리샘플링이 개입할 수 있으므로 jastreamer는 이 경로들을 비트 퍼펙트라고 보장하지 않습니다.</p>
+              <p><strong>네이티브 출력 범위.</strong> 배지는 jastreamer 애플리케이션 경로만 설명합니다. 드라이버, DAC 내부 DSP, 물리적 출력까지 검증하지 않으므로 내 장비에서 실제 협상된 경로를 확인하세요.</p>
+              <p><strong>비트 퍼펙트 · 서버 전송.</strong> 알려진 무손실 원본과 현재 곡·출력에 연결된 근거가 필요합니다. UPnP·Cast는 검사한 원본 파일 바이트를 Server가 변환 없이 전달하기 시작해야 합니다. RAAT는 소유권이 있는 활성 스트림이 원래 레이트·채널·정밀도를 유지한 PCM을 이득 1, DSP 없이 받아들여야 합니다. 언더런·오버런 근거가 있으면 RAAT는 자격을 잃습니다.</p>
+              <p><strong>전달과 DAC 비트 투명성은 다릅니다.</strong> 수신기 음량·DSP·믹싱·리샘플링·변환은 검증되지 않습니다. 원본 파일 전달이 수신기와 협상된 PCM 형식을 입증하지도 않습니다. 배지는 물리적 비트 투명성이나 인증을 주장하지 않습니다.</p>
+              <p><strong>조건을 충족하는 배지가 없는 곳.</strong> 브라우저 오디오(PWA와 Linux Desktop 포함), 공유·시스템 출력, AirPlay에는 이 배지를 붙이지 않습니다. 출력을 선택하거나 리샘플링을 피하는 것만으로는 부족합니다. <a href="https://github.com/furyheimdall/jastreamer/blob/main/INSTRUCTION.ko.md#signal-path">신호 경로 안내</a></p>
             </div>
           </div>
         </div>
@@ -287,9 +312,9 @@
     <section class="section" id="download" aria-labelledby="download-title">
       <div class="container">
         <div class="section-head">
-          <p class="section-kicker">내려받기 · 버전 0.2.3</p>
+          <p class="section-kicker">내려받기 · 버전 0.2.4</p>
           <h2 id="download-title">먼저 Server를 설치하고, 필요한 앱을 더하세요.</h2>
-          <p>모든 패키지는 <a href="https://github.com/furyheimdall/jastreamer/releases/tag/v0.2.3">GitHub의 v0.2.3 릴리즈</a>에서 제공합니다. 설치 전에 각 파일을 검증하세요. 정확한 절차는 <a href="https://github.com/furyheimdall/jastreamer/blob/main/INSTALL.ko.md">설치 안내</a>에 있습니다.</p>
+          <p>모든 패키지는 <a href="https://github.com/furyheimdall/jastreamer/releases/tag/v0.2.4">GitHub의 v0.2.4 릴리즈</a>에서 제공합니다. 설치 전에 각 파일을 검증하세요. 정확한 절차는 <a href="https://github.com/furyheimdall/jastreamer/blob/main/INSTALL.ko.md">설치 안내</a>에 있습니다.</p>
         </div>
 
         <div class="notice" role="note" aria-labelledby="server-note-title">
@@ -311,17 +336,17 @@
               </div>
               <div class="dl-actions">
                 <a class="button button-primary" href="https://github.com/furyheimdall/jastreamer/blob/main/INSTALL.ko.md#linux-server">Linux 설치 안내</a>
-                <a class="text-link" href="https://github.com/furyheimdall/jastreamer/releases/tag/v0.2.3">이미지 다이제스트</a>
+                <a class="text-link" href="https://github.com/furyheimdall/jastreamer/releases/tag/v0.2.4">이미지 다이제스트</a>
               </div>
             </li>
             <li class="dl-row">
               <div>
                 <h4>Windows x64 <span class="tag">Authenticode 서명 없음</span></h4>
-                <p class="dl-meta">무설치 ZIP · <code>jastreamer-server_0.2.3_windows-x64.zip</code></p>
-                <p class="limits">Web 화면, UPnP/DLNA, 선택적 Cast. AirPlay와 FFmpeg은 없고 Windows 서비스도 아닙니다. SmartScreen 경고가 뜰 수 있으니 SHA-256을 검증하고 압축을 풀기 전에 ZIP 차단을 해제하세요.</p>
+                <p class="dl-meta">무설치 ZIP · <code>jastreamer-server_0.2.4_windows-x64.zip</code></p>
+                <p class="limits">Web 화면, UPnP/DLNA, 선택적 Cast와 실험적 RAAT. AirPlay와 FFmpeg은 포함하지 않으며 Windows 서비스도 아닙니다. RAAT에는 별도로 설정한 호환 FFmpeg이 필요하고 Windows 재생은 검증되지 않았습니다. SmartScreen 경고가 뜰 수 있으니 SHA-256을 검증하고 압축을 풀기 전에 ZIP 차단을 해제하세요.</p>
               </div>
               <div class="dl-actions">
-                <a class="button button-primary" href="https://github.com/furyheimdall/jastreamer/releases/download/v0.2.3/jastreamer-server_0.2.3_windows-x64.zip">ZIP 내려받기</a>
+                <a class="button button-primary" href="https://github.com/furyheimdall/jastreamer/releases/download/v0.2.4/jastreamer-server_0.2.4_windows-x64.zip">ZIP 내려받기</a>
                 <a class="text-link" href="https://github.com/furyheimdall/jastreamer/blob/main/INSTALL.ko.md#windows-server">Windows Server 안내</a>
               </div>
             </li>
@@ -334,33 +359,33 @@
             <li class="dl-row">
               <div>
                 <h4>Windows 10/11 x64 <span class="tag">Authenticode 서명 없음</span></h4>
-                <p class="dl-meta">무설치 ZIP · <code>jastreamer-desktop_0.2.3_windows-x64.zip</code></p>
+                <p class="dl-meta">무설치 ZIP · <code>jastreamer-desktop_0.2.4_windows-x64.zip</code></p>
                 <p class="limits">선택적 WASAPI 공유·독점 출력과 Windows 미디어 제어를 더합니다. ARM64 패키지는 없습니다. SHA-256을 검증하고 압축을 풀기 전에 ZIP 차단을 해제하세요.</p>
               </div>
               <div class="dl-actions">
-                <a class="button button-primary" href="https://github.com/furyheimdall/jastreamer/releases/download/v0.2.3/jastreamer-desktop_0.2.3_windows-x64.zip">ZIP 내려받기</a>
+                <a class="button button-primary" href="https://github.com/furyheimdall/jastreamer/releases/download/v0.2.4/jastreamer-desktop_0.2.4_windows-x64.zip">ZIP 내려받기</a>
                 <a class="text-link" href="https://github.com/furyheimdall/jastreamer/blob/main/INSTALL.ko.md#desktop-windows">Windows 데스크톱 안내</a>
               </div>
             </li>
             <li class="dl-row">
               <div>
                 <h4>Apple Silicon macOS 13 이상 <span class="tag">ad-hoc 서명 · 미공증</span></h4>
-                <p class="dl-meta">디스크 이미지 · <code>jastreamer-desktop_0.2.3_macos-arm64-adhoc.dmg</code></p>
+                <p class="dl-meta">디스크 이미지 · <code>jastreamer-desktop_0.2.4_macos-arm64-adhoc.dmg</code></p>
                 <p class="limits">USB DAC으로 보내는 선택적 CoreAudio 공유·독점 출력, macOS 지금 재생 중과 시스템 미디어 제어를 더합니다. 이 공식 패키지는 Apple Developer ID 서명과 공증이 없어 Gatekeeper가 실행을 막을 수 있습니다. macOS 보안을 우회하지 마세요. Intel·Rosetta·Universal 빌드는 없습니다.</p>
               </div>
               <div class="dl-actions">
-                <a class="button button-primary" href="https://github.com/furyheimdall/jastreamer/releases/download/v0.2.3/jastreamer-desktop_0.2.3_macos-arm64-adhoc.dmg">DMG 내려받기</a>
+                <a class="button button-primary" href="https://github.com/furyheimdall/jastreamer/releases/download/v0.2.4/jastreamer-desktop_0.2.4_macos-arm64-adhoc.dmg">DMG 내려받기</a>
                 <a class="text-link" href="https://github.com/furyheimdall/jastreamer/blob/main/INSTALL.ko.md#desktop-macos">macOS 안내</a>
               </div>
             </li>
             <li class="dl-row">
               <div>
                 <h4>Linux amd64</h4>
-                <p class="dl-meta">Debian 패키지 · <code>jastreamer-desktop_0.2.3_linux-amd64.deb</code></p>
+                <p class="dl-meta">Debian 패키지 · <code>jastreamer-desktop_0.2.4_linux-amd64.deb</code></p>
                 <p class="limits">브라우저 오디오만 지원합니다. 검증 대상은 Ubuntu 24.04 amd64이며 ARM64 패키지는 없습니다. 의존성이 해결되도록 APT로 설치하세요.</p>
               </div>
               <div class="dl-actions">
-                <a class="button button-primary" href="https://github.com/furyheimdall/jastreamer/releases/download/v0.2.3/jastreamer-desktop_0.2.3_linux-amd64.deb">DEB 내려받기</a>
+                <a class="button button-primary" href="https://github.com/furyheimdall/jastreamer/releases/download/v0.2.4/jastreamer-desktop_0.2.4_linux-amd64.deb">DEB 내려받기</a>
                 <a class="text-link" href="https://github.com/furyheimdall/jastreamer/blob/main/INSTALL.ko.md#desktop-linux">Linux 데스크톱 안내</a>
               </div>
             </li>
@@ -373,11 +398,11 @@
             <li class="dl-row">
               <div>
                 <h4>Android 10 이상 <span class="tag tag-ok">서명된 release APK</span></h4>
-                <p class="dl-meta">APK · <code>jastreamer-android_0.2.3_release.apk</code></p>
+                <p class="dl-meta">APK · <code>jastreamer-android_0.2.4_release.apk</code></p>
                 <p class="limits">jastreamer release 키로 서명했으며, 설치 전에 서명 인증서를 확인하세요. Google Play로 배포하지 않으므로 Play 프로텍트가 출처를 경고할 수 있습니다. <strong>저장된 음악</strong>은 Server와 별개로 동작합니다.</p>
               </div>
               <div class="dl-actions">
-                <a class="button button-primary" href="https://github.com/furyheimdall/jastreamer/releases/download/v0.2.3/jastreamer-android_0.2.3_release.apk">APK 내려받기</a>
+                <a class="button button-primary" href="https://github.com/furyheimdall/jastreamer/releases/download/v0.2.4/jastreamer-android_0.2.4_release.apk">APK 내려받기</a>
                 <a class="text-link" href="https://github.com/furyheimdall/jastreamer/blob/main/INSTALL.ko.md#android">Android 안내</a>
               </div>
             </li>
@@ -407,7 +432,7 @@
         <div class="verify">
           <h3>설치 전에 검증하세요</h3>
           <div>
-            <p>모든 자산은 <a href="https://github.com/furyheimdall/jastreamer/releases/download/v0.2.3/SHA256SUMS"><code>SHA256SUMS</code></a>에 나열되고, 각 패키지는 릴리즈 페이지에 <code>.sha256</code> 파일과 manifest를 함께 제공하며, <a href="https://github.com/furyheimdall/jastreamer/releases/download/v0.2.3/release-provenance.json"><code>release-provenance.json</code></a>에 소스 리비전과 CI 실행이 기록됩니다.</p>
+            <p>모든 자산은 <a href="https://github.com/furyheimdall/jastreamer/releases/download/v0.2.4/SHA256SUMS"><code>SHA256SUMS</code></a>에 나열되고, 각 패키지는 릴리즈 페이지에 <code>.sha256</code> 파일과 manifest를 함께 제공하며, <a href="https://github.com/furyheimdall/jastreamer/releases/download/v0.2.4/release-provenance.json"><code>release-provenance.json</code></a>에 소스 리비전과 CI 실행이 기록됩니다.</p>
             <p>Android 서명 인증서 SHA-256은 <code>53285C2C239AFF2927EBE6F5C6AEBB82FDBB50956ED84B1E9F0222B2D925943E</code>입니다. 산출물별 서명 상태는 <a href="https://github.com/furyheimdall/jastreamer/blob/main/README.ko.md#code-signing-policy">코드 서명 정책</a>을 확인하세요.</p>
           </div>
         </div>

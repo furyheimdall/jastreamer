@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 1400" width="720" height="1400" role="img" aria-labelledby="t d" lang="ko">
   <title id="t">개념도: jastreamer로 음악을 듣는 방법</title>
-  <desc id="d">세 장면을 세로로 보여 줍니다. 1 제어: 휴대전화와 노트북 브라우저는 점선으로 표시한 명령만 집의 Server에 보냅니다. 오디오는 제어하는 화면을 거치지 않습니다. Server는 보관함과 대기열을 관리하고 실선으로 표시한 오디오를 한 번에 선택한 출력 하나로 보냅니다. 2 로컬 재생: 컴퓨터의 데스크톱 앱이 USB DAC와 헤드폰으로 재생하거나, Android 앱이 USB DAC 동글로 재생합니다. 필요하면 Exclusive 또는 USB 직접 출력을 켤 수 있습니다. 또는 3 네트워크 재생: 거실의 네트워크 수신기와 스피커가 UPnP/DLNA 렌더러나 AirPlay 수신기로 재생합니다. AirPlay 송신은 Linux 컨테이너 Server에서만 됩니다.</desc>
+  <desc id="d">세 장면을 세로로 보여 줍니다. 1 제어: 휴대전화와 노트북 브라우저는 점선으로 표시한 명령만 집의 Server에 보냅니다. 오디오는 제어하는 화면을 거치지 않습니다. Server는 보관함과 대기열을 관리하고 실선으로 표시한 오디오를 한 번에 선택한 출력 하나로 보냅니다. 2 로컬 재생: 컴퓨터의 데스크톱 앱이 USB DAC와 헤드폰으로 재생하거나, Android 앱이 USB DAC 동글로 재생합니다. 필요하면 독점 또는 USB 직접 출력을 켤 수 있습니다. 또는 3 네트워크 재생: 거실의 수신기와 스피커가 UPnP/DLNA, 선택적 Cast, AirPlay 또는 기본값이 꺼짐인 실험적 RAAT로 재생합니다. AirPlay 송신은 Linux 컨테이너 Server에서만 됩니다. RAAT에는 호환 수신기와 설정된 FFmpeg이 필요하며 Roon Ready 인증이 아닙니다.</desc>
   <style>
     svg {
       --page: #111315; --nas-top: #2d3438; --nas-bottom: #1f2427; --panel: #1b1f22; --panel-raised: #252b2f; --deep: #0c0e0f; --wood: #2c3236;
@@ -160,6 +160,6 @@
     <circle cx="641" cy="1194" r="9" class="scr"/><circle cx="641" cy="1246" r="22" class="scr"/><circle class="ac" cx="641" cy="1246" r="6"/>
     <path class="wave" d="M522 1222a28 28 0 0 1 0 36M540 1210a46 46 0 0 1 0 60M588 1222a28 28 0 0 0 0 36M570 1210a46 46 0 0 0 0 60"/>
   </g>
-  <text class="m" x="104" y="1338">UPnP/DLNA 렌더러 또는 AirPlay 수신기</text>
-  <text class="s" x="104" y="1372">AirPlay 송신은 Linux 컨테이너 Server 전용</text>
+  <text class="m" x="104" y="1338">UPnP/DLNA · Cast · AirPlay</text>
+  <text class="s" x="104" y="1372">RAAT: 실험 기능 · 기본값 꺼짐</text>
 </svg>

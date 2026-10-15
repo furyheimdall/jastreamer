@@ -112,6 +112,7 @@ func (service *Service) serveHTTP(writer http.ResponseWriter, request *http.Requ
 	}
 	file, track, err := service.openBound(ctx, value)
 	if err != nil {
+		service.clearDelivery(value, true)
 		status := streamErrorStatus(err)
 		service.logBindingRejection(value, request.Method, status, streamErrorCategory(err), startedAt)
 		writeStreamError(writer, status, streamErrorCode(err))
@@ -132,7 +133,14 @@ func (service *Service) serveHTTP(writer http.ResponseWriter, request *http.Requ
 	if value.representation.transformed {
 		result = service.serveTransformed(writer, request, ctx, file, value.representation)
 	} else {
-		result = service.serveOriginal(writer, request, ctx, file, track.Size, value.representation.mime)
+		var onDelivery func()
+		if value.signalPath.Scope != "" {
+			onDelivery = func() { service.markDelivered(value) }
+		}
+		result = service.serveOriginal(writer, request, ctx, file, track.Size, value.representation.mime, onDelivery)
+	}
+	if result.err != nil {
+		service.clearDelivery(value, false)
 	}
 	service.finishMediaRequest(value, request, kind, started, sampled, suppressed, result)
 }
@@ -384,7 +392,7 @@ func (service *Service) serveArtwork(writer http.ResponseWriter, request *http.R
 	}
 	defer service.release(value, activeID, file)
 	writer.Header().Set("Cache-Control", "private, no-store")
-	return service.serveOriginal(writer, request, ctx, file, size, mime)
+	return service.serveOriginal(writer, request, ctx, file, size, mime, nil)
 }
 
 func (service *Service) openBoundArtwork(ctx context.Context, value *binding) (*os.File, string, int64, error) {
@@ -422,7 +430,7 @@ func (service *Service) openBound(ctx context.Context, value *binding) (*os.File
 		_ = file.Close()
 		return nil, library.Track{}, ErrTrackUnavailable
 	}
-	if track.ID != value.trackID || !track.Available || track.Size != info.Size() {
+	if !matchingTrackSnapshot(value.source, track) || !track.Available || track.Size != info.Size() {
 		_ = file.Close()
 		return nil, library.Track{}, ErrTrackUnavailable
 	}
@@ -433,7 +441,7 @@ func (service *Service) openBound(ctx context.Context, value *binding) (*os.File
 	return file, track, nil
 }
 
-func (service *Service) serveOriginal(writer http.ResponseWriter, request *http.Request, ctx context.Context, file *os.File, size int64, mime string) mediaHTTPResult {
+func (service *Service) serveOriginal(writer http.ResponseWriter, request *http.Request, ctx context.Context, file *os.File, size int64, mime string, onDelivery func()) mediaHTTPResult {
 	writer.Header().Set("Content-Type", mime)
 	writer.Header().Set("Accept-Ranges", "bytes")
 	selected := byteRange{start: 0, length: size}
@@ -462,7 +470,7 @@ func (service *Service) serveOriginal(writer http.ResponseWriter, request *http.
 	if request.Method == http.MethodHead || selected.length == 0 {
 		return mediaHTTPResult{status: status, rangeStatus: rangeStatus, errorCategory: "none"}
 	}
-	written, err := copyFileRange(ctx, writer, file, selected.length)
+	written, err := copyFileRange(ctx, writer, file, selected.length, onDelivery)
 	return mediaHTTPResult{status: status, bytes: written, rangeStatus: rangeStatus, errorCategory: copyErrorCategory(err), err: err}
 }
 
@@ -530,7 +538,7 @@ func parseRange(value string, size int64) (byteRange, error) {
 	return byteRange{start: start, length: end - start + 1}, nil
 }
 
-func copyFileRange(ctx context.Context, destination io.Writer, source io.Reader, remaining int64) (int64, error) {
+func copyFileRange(ctx context.Context, destination io.Writer, source io.Reader, remaining int64, onDelivery func()) (int64, error) {
 	var buffer [64 * 1024]byte
 	var total int64
 	for remaining > 0 {
@@ -551,6 +559,10 @@ func copyFileRange(ctx context.Context, destination io.Writer, source io.Reader,
 			}
 			if written != count {
 				return total, io.ErrShortWrite
+			}
+			if onDelivery != nil {
+				onDelivery()
+				onDelivery = nil
 			}
 		}
 		if readErr != nil {

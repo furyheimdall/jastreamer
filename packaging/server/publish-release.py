@@ -28,7 +28,7 @@ CI_WORKFLOW = ".github/workflows/ci.yml"
 CI_NAME = "Server, Web, and Desktop CI"
 ANDROID_WORKFLOW = ".github/workflows/android.yml"
 ANDROID_NAME = "Android CI"
-VERSION = "0.2.3"
+VERSION = "0.2.4"
 SHA = re.compile(r"[0-9a-f]{40}")
 RELEASE_TAG = re.compile(r"v(?P<version>[0-9]+\.[0-9]+\.[0-9]+)(?:-preview\.(?P<preview>[1-9][0-9]*))?")
 IMAGE_TAG = re.compile(r"(?P<version>[0-9]+\.[0-9]+\.[0-9]+)(?:-preview\.(?P<preview>[1-9][0-9]*))?")
@@ -506,18 +506,36 @@ def render_notes(args: argparse.Namespace) -> None:
     lines += [
         f"Every asset was published from the protected-main CI run {provenance['ciRunId']} and the Android CI run {provenance['androidRunId']}, both built from commit `{provenance['sourceRevision']}`.",
         "",
-        "## What's new in 0.2.3",
+        "## What's new in 0.2.4",
         "",
-        "The native CoreAudio backend now publishes title, artist, album, available artwork and timeline to macOS Now Playing.",
-        "System Play/Pause, Stop, Previous, Next and supported seeking are forwarded to the authenticated Server, which remains the queue and playback owner; they never directly control the audio engine or another network output.",
-        "Pause retains the session. Stop, completion, terminal connection loss and Quit withdraw it; a same-Server WebView reload preserves valid native ownership. Browser audio does not opt in.",
+        "### Experimental RAAT output",
         "",
-        "## Compatibility and updates",
+        "An independently implemented RAAT output joins the Server-owned player and its one shared queue. It is experimental, disabled by default, and is not Roon Ready certification.",
+        "RAAT carries track metadata and JPEG artwork, supports Play/Pause, Stop, Previous, Next and Seek, and routes receiver-origin remote commands back through the Server rather than creating a second queue.",
+        "The sender preserves the original sample rate, channel count and precision with unity gain and no resampling or DSP. Integer containers may widen by zero-padding; unsupported formats fail instead of silently converting to a different output format.",
+        f"Enable it deliberately in Settings → Playback & outputs, configure the Server's absolute FFmpeg path, save and restart. The Linux container bundles FFmpeg; Windows requires a separately configured compatible FFmpeg. Use only a trusted private LAN: [prerequisites]({DOCUMENTATION}/{tag}/INSTALL.md#raat-development).",
         "",
-        "The published 0.2.2 Mac package lacks this system media integration; update the Mac desktop to 0.2.3 to use it.",
-        "The shared JastreamerDesktopAudio bridge was introduced in 0.2.2. An existing 0.2.2 Server and its hosted Web UI are sufficient for the 0.2.3 Mac desktop; this feature does not require a Server upgrade.",
-        "The 0.2.1 Server lacks that bridge and that release had no official Mac package. Upgrade older Desktop/Server bridge pairs together only with deployment approval.",
-        "No Server configuration or database schema migration is introduced. Preserve accounts, data and client profiles; no new-install reset is needed.",
+        "### Scoped Server-delivery badge",
+        "",
+        "The new **Bit-perfect · Server delivery** badge requires a known lossless source and evidence for the current track and output, not merely the absence of resampling.",
+        "UPnP/Cast qualify when delivery of the inspected original file bytes has started. RAAT qualifies when the active owned stream accepts precision-preserving PCM at the original rate and channel count; underrun or overrun evidence removes qualification.",
+        "Legacy QuickTime in24/in32 PCM precision is taken from the codec identifier rather than its 16-bit placeholder field, preventing precision loss. RAAT delivery-state changes now invalidate the Web player's evidence through its player event topic.",
+        "This badge describes Server delivery only. It does not prove physical DAC bit transparency, audible output or downstream receiver processing.",
+        "",
+        "### RAAT next-track shutdown fix and evidence limits",
+        "",
+        "Stream shutdown no longer calls the receiver's native send_message path during teardown. This addresses the next-track disconnection and receiver-app exit observed before the change.",
+        "Development checks covered K17 full-track/transport behavior. A second receiver advertised FiiO R7, firmware 1.0.4 and RAAT 1.1.38 (reported by the user as R9); after the fix it completed five Next transitions and Stop, and its control port remained available.",
+        "These observations are not general hardware qualification: physical buttons and audible/DAC output were not verified, and no native receiver crash stack was available. Restart or connection loss does not automatically resume playback.",
+        "",
+        "## Compatibility and safe updates",
+        "",
+        "Upgrade the Server and its served Web UI to 0.2.4 for RAAT and the Server-delivery badge; older packages do not gain these features from a desktop-only update. Existing native desktop audio and system media controls remain available.",
+        "RAAT remains off when raat.enabled is absent or false. No new-install reset is needed: preserve the existing configuration, database, accounts, libraries, likes, play counts, playlists, queue and client profiles.",
+        "Stop playback and the Server only for an authorized deployment; preserve music mounts, permissions and writable configuration/data paths. Verify release checksums and provenance, pin Linux images by immutable digest, and replace only package-owned Windows files while retaining existing state.",
+        "The configuration version remains 1 and the database schema is unchanged, but older 0.2.3 Servers reject a saved raat configuration field. Retain the previous package/image and verify compatibility with the current database and configuration before rollback. An approved downgrade may remove only the unsupported raat section; disabling RAAT alone does not remove it. Do not reset data or accounts.",
+        "Do not uninstall Android or clear client storage when updating; preserve accounts, profiles and Saved music.",
+        f"Publication itself does not deploy to a NAS or authorize playback. Follow the [upgrade]({DOCUMENTATION}/{tag}/INSTALL.md#upgrade) and [rollback]({DOCUMENTATION}/{tag}/INSTALL.md#rollback) procedures for a separately authorized deployment.",
         "",
         "## Linux Server images",
         "",

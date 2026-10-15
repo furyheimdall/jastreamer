@@ -13,7 +13,8 @@ import {
   type NativeDesktopConfiguration,
   type NativeDesktopState,
 } from "./NativeDesktopOutput";
-import { androidSignalPath, desktopSignalPath, type SignalPathBadge } from "./signalPath";
+import { androidSignalPath, desktopSignalPath, localSignalPath, serverSignalPath, type SignalPathBadge } from "./signalPath";
+import SignalPathDialog from "./SignalPathDialog";
 import {
   reportAndroidUsbDirect,
   setExperimentalDisableGuard,
@@ -25,6 +26,8 @@ import type { Device, PairingRequest, PairingStatus, PlayerState, RepeatMode, St
 
 interface PlayerBarProps {
   revision: number;
+  // The App's live-update connection; while it is down the last player state may be stale.
+  serverConnected: boolean;
   phoneExpanded: boolean;
   onPhoneExpandedChange: (expanded: boolean) => void;
   onNotice: (message: string, error?: boolean) => void;
@@ -103,6 +106,8 @@ function protocolLabel(protocol: string, t: (key: MessageKey) => string): string
       return t("player.protocol.airplay");
     case "cast":
       return t("player.protocol.cast");
+    case "raat":
+      return t("player.protocol.raat");
     case "browser":
       return t("player.protocol.browser");
     default:
@@ -136,9 +141,14 @@ function PlayerIcon({ name }: { name: "play" | "pause" | "stop" | "next" | "prev
   return <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">{paths[name]}</svg>;
 }
 
-export default function PlayerBar({ revision, phoneExpanded, onPhoneExpandedChange: setPhoneExpanded, onNotice, onStatusWarning, onQueueChange, onShowQueue }: PlayerBarProps) {
+export default function PlayerBar({ revision, serverConnected, phoneExpanded, onPhoneExpandedChange: setPhoneExpanded, onNotice, onStatusWarning, onQueueChange, onShowQueue }: PlayerBarProps) {
   const { locale, t } = useI18n();
   const [player, setPlayer] = useState<PlayerState | null>(null);
+  // Signal path proof requires a player state fetched since the live connection was last
+  // (re)established; a retained state from before a disconnect may describe old playback.
+  const [playerFresh, setPlayerFresh] = useState(false);
+  const connectionEpoch = useRef(0);
+  const [signalPathDialogOpen, setSignalPathDialogOpen] = useState(false);
   const [devices, setDevices] = useState<Device[]>([]);
   const [localBrowserDevice, setLocalBrowserDevice] = useState<Device | null>(null);
   const [pendingLocalReconnect, setPendingLocalReconnect] = useState(false);
@@ -343,6 +353,7 @@ export default function PlayerBar({ revision, phoneExpanded, onPhoneExpandedChan
   }, []);
 
   const load = useCallback(async () => {
+    const epoch = connectionEpoch.current;
     const [playerResult, rendererResult] = await Promise.allSettled([
       api<PlayerState>("/player"),
       api<{ items: Device[] }>("/renderers"),
@@ -364,6 +375,11 @@ export default function PlayerBar({ revision, phoneExpanded, onPhoneExpandedChan
       const message = errorMessage(rendererResult.reason, t("common.requestFailed"));
       if (!messages.includes(message)) messages.push(message);
     }
+    setPlayerFresh(
+      epoch === connectionEpoch.current
+      && playerResult.status === "fulfilled"
+      && rendererResult.status === "fulfilled",
+    );
     applyError(
       messages.join("\n\n"),
       playerResult.status === "fulfilled" ? playerResult.value.revision : -1,
@@ -375,6 +391,12 @@ export default function PlayerBar({ revision, phoneExpanded, onPhoneExpandedChan
   useEffect(() => {
     void load();
   }, [load, revision]);
+
+  useEffect(() => {
+    if (serverConnected) return;
+    connectionEpoch.current += 1;
+    setPlayerFresh(false);
+  }, [serverConnected]);
 
   useEffect(() => () => onStatusWarning(null), [onStatusWarning]);
 
@@ -825,11 +847,31 @@ export default function PlayerBar({ revision, phoneExpanded, onPhoneExpandedChan
   ));
   const androidUsbDevice = androidAudioState?.devices[0];
   const androidActual = androidAudioState?.actual ?? null;
+  // Any of these means the last reported path may not describe current playback: the live
+  // connection dropped, the last refresh failed, an error is shown, or the output is changing.
+  const playbackUnsettled = !serverConnected || !playerFresh || Boolean(error) || busy === "output";
   // One badge rule set: the Desktop exclusive path and the Android direct USB path both
   // reduce to "is the active path bypassing the platform mixer, and did it stay transparent".
-  const signalPath: SignalPathBadge = usesNativeAndroid
-    ? (experimentalEnabled ? androidSignalPath(androidAudioState) : null)
-    : desktopSignalPath(desktopAudioState?.audio);
+  // It only labels this device's own output, never a selected network output.
+  const signalPath: SignalPathBadge = localSignalPath(
+    usesNativeAndroid
+      ? (experimentalEnabled ? androidSignalPath(androidAudioState) : null)
+      : desktopSignalPath(desktopAudioState?.audio),
+    player,
+    localBrowserDevice?.id,
+    playbackUnsettled || localOutputRecovery.recovering
+      || (!usesNativeAndroid && Boolean(desktopAudioState?.error || desktopAudioStatusError)),
+  );
+  // Network outputs can only show the server's own delivery evidence, scoped as such.
+  const serverPath = serverSignalPath(player, selectedDevice, playbackUnsettled);
+  const serverPathKey = serverPath && player?.track
+    ? `${player.renderer_id}\n${player.track.id}\n${serverPath.mode}\n${serverPath.sampleRate}\n${serverPath.validBits}\n${serverPath.containerBits}\n${serverPath.channels}`
+    : "";
+  // The details describe one exact delivery; a new track, output, or format (or lost proof)
+  // closes them rather than silently swapping the evidence underneath the reader.
+  useEffect(() => {
+    setSignalPathDialogOpen(false);
+  }, [serverPathKey]);
   const signalPathReason = signalPath?.tone === "muted"
     ? usesNativeAndroid
       ? t(ANDROID_TRANSPARENCY_REASON_MESSAGE[signalPath.reasonKey ?? ""] ?? "player.android.reason.unknown")
@@ -850,6 +892,31 @@ export default function PlayerBar({ revision, phoneExpanded, onPhoneExpandedChan
   }
 
   function signalPathBadgeButton() {
+    if (serverPath) {
+      const label = t("player.signalPath.server.label");
+      const detail = t("player.signalPath.server.detail", {
+        rate: serverPath.sampleRate.toLocaleString(locale),
+        valid: serverPath.validBits,
+        channels: t(serverPath.channels === 1 ? "info.channelCountOne" : "info.channelCount", { count: serverPath.channels.toLocaleString(locale) }),
+        device: selectedDevice ? deviceLabel(selectedDevice, t, localBrowserDevice?.id) : t("player.signalPath.unknownDevice"),
+      });
+      // The scope stays unshrinkable so a narrow player can only shorten the claim, never
+      // drop the qualifier and leave an unscoped "Bit-perfect".
+      return (
+        <button
+          className="signal-path-badge signal-path-badge-qualified signal-path-badge-server"
+          type="button"
+          aria-label={t("player.signalPath.server.ariaLabel", { label, detail })}
+          aria-haspopup="dialog"
+          title={isPhone ? undefined : label}
+          onClick={() => setSignalPathDialogOpen(true)}
+        >
+          <PlayerIcon name="signalPath" />
+          <span className="signal-path-badge-claim">{t("player.signalPath.qualified")}</span>
+          <span className="signal-path-badge-scope">{t("player.signalPath.server.scope")}</span>
+        </button>
+      );
+    }
     if (!signalPath) return null;
     const label = t(signalPath.tone === "qualified" ? "player.signalPath.qualified" : "player.signalPath.notQualified");
     const detail = t("player.signalPath.detail", {
@@ -871,6 +938,15 @@ export default function PlayerBar({ revision, phoneExpanded, onPhoneExpandedChan
       </button>
     );
   }
+
+  const signalPathDialog = signalPathDialogOpen && serverPath ? (
+    <SignalPathDialog
+      path={serverPath}
+      format={player?.track?.format ?? ""}
+      device={selectedDevice ? deviceLabel(selectedDevice, t, localBrowserDevice?.id) : t("player.signalPath.unknownDevice")}
+      onClose={() => setSignalPathDialogOpen(false)}
+    />
+  ) : null;
 
   function shuffleButton(labeled = false, compactChooser = false) {
     return (
@@ -1513,6 +1589,7 @@ export default function PlayerBar({ revision, phoneExpanded, onPhoneExpandedChan
         }}
       >
         {localOutputAdapter}
+        {signalPathDialog}
         {phoneExpanded && (
           <section
             className="phone-player-expanded"
@@ -1730,6 +1807,7 @@ export default function PlayerBar({ revision, phoneExpanded, onPhoneExpandedChan
   return (
     <footer className="player-bar" aria-label={t("player.nowPlaying")}>
       {localOutputAdapter}
+      {signalPathDialog}
       <div className="now-playing">
         <button
           className="player-artwork"

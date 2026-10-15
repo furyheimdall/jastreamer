@@ -8,5 +8,6 @@
   "network": { "interfaces": [], "discovery_interval_seconds": 30, "poll_interval_seconds": 1, "allowed_cidrs": [] },
   "media": { "base_url": "", "ffmpeg_path": "", "transcode": false },
   "airplay": { "enabled": false, "helper_path": "" },
-  "cast": { "enabled": false }
+  "cast": { "enabled": false },
+  "raat": { "enabled": false }
 }

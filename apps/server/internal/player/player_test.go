@@ -2438,6 +2438,35 @@ func TestConfirmedStopSurvivesOutputLossWithoutAnotherObservation(t *testing.T) 
 	}
 }
 
+func TestConfirmedStopSurvivesRepeatedIdleObservations(t *testing.T) {
+	service, _, _ := newPlayerTestService(t)
+	ctx := t.Context()
+	started := startPlayCountTrack(t, service, "a")
+	if _, err := service.Command(ctx, Command{Action: "stop"}); err != nil {
+		t.Fatal(err)
+	}
+	runAcceptedCommand(t, service)
+	for range 3 {
+		service.applyObservation(ctx, output.Observation{State: "STOPPED", TransportStatus: "OK", ObservedAt: time.Now().UTC()})
+		state := service.mustState(t)
+		if state.State != StateStopped || state.Error != "" || state.CurrentEntryID != started.currentEntryID || state.PositionMS != 0 {
+			t.Fatalf("confirmed Stop became an external interruption: %+v", state)
+		}
+	}
+	if err := service.StopForRestart(ctx); err != nil {
+		t.Fatalf("confirmed Stop prevented shutdown: %v", err)
+	}
+	queue, err := service.Queue(ctx)
+	if err != nil || len(queue.Entries) != 1 || queue.Entries[0].Status != EntryPending {
+		t.Fatalf("idle observations changed queue: %+v, %v", queue, err)
+	}
+	service.applyObservation(ctx, output.Observation{State: "STOPPED", TransportStatus: "ERROR_OCCURRED", ObservedAt: time.Now().UTC()})
+	state := service.mustState(t)
+	if state.State != StateError || state.Error == "" {
+		t.Fatalf("a new renderer fault was hidden by confirmed Stop: %+v", state)
+	}
+}
+
 func TestNonBrowserRendererFailurePersistsSafeHistory(t *testing.T) {
 	service, db, devices := newPlayerTestService(t)
 	history, err := errorhistory.New(t.Context(), db, nil)
