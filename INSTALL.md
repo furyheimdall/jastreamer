@@ -28,7 +28,7 @@ For agent-assisted installation or updates, start at [AGENTS.md](AGENTS.md); its
 | Component | Requirements | Package |
 | --- | --- | --- |
 | Linux or Synology Server | Linux `amd64`/`arm64` with Docker Engine and Compose v2, or Synology DSM with Container Manager. `arm/v7` is unsupported; DS918+ is `amd64` | `ghcr.io/furyheimdall/jastreamer-server` image |
-| Windows Server | Windows x64 and a writable local folder, run by an ordinary account. Not installed as a Windows service | `jastreamer-server_0.2.4_windows-x64.zip` |
+| Windows Server | Windows x64 and a writable local folder, run by an ordinary account. Not installed as a Windows service | `jastreamer-server_0.2.5_windows-x64.zip` |
 | Windows desktop | Windows 10/11 x64; no ARM64 package | `jastreamer-desktop_0.2.4_windows-x64.zip` |
 | Linux desktop | Graphical Linux `amd64`; Ubuntu 24.04 amd64 is the qualification target; no ARM64 package | `jastreamer-desktop_0.2.4_linux-amd64.deb` |
 | macOS desktop | Apple Silicon macOS 13+; no Intel/Rosetta or Universal build | Official `jastreamer-desktop_0.2.4_macos-arm64-adhoc.dmg` containing `.app`; ad-hoc signed, not notarized |
@@ -58,16 +58,6 @@ Keep Server config, data, and music in separate directories, and never place the
 
 AirPlay is available only in the Linux image, through its packaged helper. Do not forward any of these ports from the Internet.
 
-<a id="raat-development"></a>
-### RAAT prerequisites (experimental in 0.2.4)
-
-RAAT requires the 0.2.4 Server and its hosted Web UI plus a compatible receiver; upgrading a client alone is insufficient. It remains experimental, not Roon Ready certification, and stays disabled when `raat.enabled` is false or absent. It uses the selected `network.interfaces`, SOOD UDP 9003, each receiver's advertised control TCP port and a separate dynamically allocated audio TCP port on that same receiver; its receiver-side display/control ownership bus uses `239.255.90.91:9004`. The audio listener is bound to its control session by a per-stream token and closes on stream teardown. Neither channel is encrypted and receiver identity is not cryptographically authenticated. Keep all of this on a trusted private IPv4 LAN, without Internet forwarding or automatic firewall changes.
-
-Enabling it requires an absolute executable `media.ffmpeg_path` with the `fd` input protocol, the source's decoder and the corresponding PCM encoder (`pcm_s16le`, `pcm_s24le`, `pcm_s32le`, `pcm_f32le` or `pcm_f64le`). The 0.2.4 Linux container bundles compatible FFmpeg; preserve an existing path only if it points to a compatible executable. Native Windows packages bundle no FFmpeg: separately provide and configure a compatible executable with operator approval. Windows RAAT playback has not been qualified. In **Settings → Playback & outputs**, enable **RAAT output (experimental)**, save approved changes and restart explicitly while keeping existing music, state and permissions. Enabling, discovery, output selection and restart do not start playback; choose Play explicitly. Discovery alone does not establish receiver compatibility: protocol versions other than `3` and signing-key receivers are rejected without an authentication bypass. See the [K17 and advertised-R7 evidence and limits](INSTRUCTION.md#raat); it is not audible-output or general hardware qualification.
-
-`make raat-verify` runs the receiver contract fixture using Lua 5.3 (`LUA` may select another compatible interpreter); it uses simulated native APIs, never a receiver. The Server's production sender is Go and embeds the independently authored Lua adapter; no Python sender or recovered vendor Lua is shipped. See [behavior and verification boundaries](INSTRUCTION.md#raat).
-
-
 ### Safety rules that apply everywhere
 
 - Never create a missing music root as a fallback, use `chmod 777`, or recursively change ownership or permissions on a music library. Mount or configure music read-only where the platform allows it.
@@ -84,11 +74,11 @@ Enabling it requires an absolute executable `media.ffmpeg_path` with the `fd` in
 
 Prefer the newest stable release: on the [GitHub Releases listing](https://github.com/furyheimdall/jastreamer/releases) it is the `vX.Y.Z` entry without a Preview label, and `/releases/latest` resolves to it. Choose a `vX.Y.Z-preview.N` prerelease only when you are deliberately testing that preview, and remember that previews are never marked latest. Whichever you pick, confirm the entry supports your host architecture and the package you need; if the newest one is incompatible, say why and use the newest compatible entry.
 
-Verify the release provenance, source revision, package or image manifest, SHA-256 values, and architecture together, and download the Server image reference, Windows ZIPs, desktop packages, the Android APK, checksums, and manifests from that one release. `SHA256SUMS` covers every asset, and `release-provenance.json` records the release tag, channel, source revision, CI runs, and the Android signer certificate. Optional sample setup applies only when the selected release actually inventories `samples/manifest.json`, the three MP3 assets, and the seeding helper; repository files that were never published are not features of an older release.
+Use [Server 0.2.5](https://github.com/furyheimdall/jastreamer/releases/tag/v0.2.5) for the Linux images and Windows Server, including the embedded Web UI. Desktop and Android packages remain in [release 0.2.4](https://github.com/furyheimdall/jastreamer/releases/tag/v0.2.4); iOS remains source and CI only. For each package or image, verify the provenance, source revision, manifest, SHA-256 values and architecture together, using checksums and evidence from that package's own release. `SHA256SUMS` covers each release's assets, and `release-provenance.json` records its release tag, channel, source revision, CI runs and, when Android is included, signer certificate. Optional sample setup applies only when the selected release actually inventories `samples/manifest.json`, the three MP3 assets, and the seeding helper; repository files that were never published are not features of an older release.
 
 ### Public registry image
 
-The registry is `ghcr.io/furyheimdall/jastreamer-server` and public images pull without a GitHub token. A stable release publishes the multi-architecture index as tag `0.2.4` together with per-architecture digests, and no mutable `latest` image tag exists. Pin the complete immutable digest the release lists for the `linux/amd64` or `linux/arm64` image rather than any tag:
+The registry is `ghcr.io/furyheimdall/jastreamer-server` and public images pull without a GitHub token. A stable release publishes the multi-architecture index as tag `0.2.5` together with per-architecture digests, and no mutable `latest` image tag exists. Pin the complete immutable digest the release lists for the `linux/amd64` or `linux/arm64` image rather than any tag:
 
 ```sh
 export JASTREAMER_SERVER_IMAGE='ghcr.io/furyheimdall/jastreamer-server@sha256:<digest-from-release>'
@@ -104,7 +94,7 @@ Save the verified digest in the deployment's persistent environment file, not on
 Because the ZIPs are not Authenticode-signed, Windows marks them as downloaded from the Internet and SmartScreen may warn the first time you run the extracted program. Unblock the archive **before** extracting, so the mark is not copied onto every extracted file:
 
 - In Explorer: right-click the ZIP → **Properties** → check **Unblock** → **OK**.
-- Or in PowerShell: `Unblock-File -LiteralPath .\jastreamer-server_0.2.4_windows-x64.zip`
+- Or in PowerShell: `Unblock-File -LiteralPath .\jastreamer-server_0.2.5_windows-x64.zip`
 
 Only unblock a file whose SHA-256 you verified against the release. Do not disable SmartScreen, Defender, or the firewall, and do not run the packages as Administrator.
 
@@ -124,11 +114,11 @@ A supplied multi-platform `.oci` cannot be passed to `docker load` directly. Whe
 ```sh
 ARCH=amd64  # or arm64
 skopeo copy --override-os linux --override-arch "$ARCH" \
-  oci-archive:jastreamer-server_0.2.4_linux_amd64-arm64.oci \
-  docker-archive:jastreamer-server_0.2.4_linux_${ARCH}.tar:jastreamer-server:0.2.4
-sha256sum jastreamer-server_0.2.4_linux_${ARCH}.tar
-docker load --input jastreamer-server_0.2.4_linux_${ARCH}.tar
-docker image inspect --format '{{.Id}}' jastreamer-server:0.2.4
+  oci-archive:jastreamer-server_0.2.5_linux_amd64-arm64.oci \
+  docker-archive:jastreamer-server_0.2.5_linux_${ARCH}.tar:jastreamer-server:0.2.5
+sha256sum jastreamer-server_0.2.5_linux_${ARCH}.tar
+docker load --input jastreamer-server_0.2.5_linux_${ARCH}.tar
+docker image inspect --format '{{.Id}}' jastreamer-server:0.2.5
 ```
 
 <a id="linux-server"></a>
@@ -204,7 +194,7 @@ An empty music folder has nothing to play: put music in the approved root, then 
 Download the Windows Server ZIP, its `.sha256`, the manifest, and the verification receipt from the selected release, then [unblock the ZIP](#windows-unblock) and compare its bytes before extracting:
 
 ```powershell
-$file = '.\jastreamer-server_0.2.4_windows-x64.zip'
+$file = '.\jastreamer-server_0.2.5_windows-x64.zip'
 $expected = (Get-Content "$file.sha256" -Raw).Split()[0].ToLowerInvariant()
 $actual = (Get-FileHash $file -Algorithm SHA256).Hash.ToLowerInvariant()
 if ($actual -ne $expected) { throw 'Windows Server ZIP checksum mismatch' }
@@ -251,7 +241,7 @@ To upgrade, verify and extract the new ZIP to a separate temporary folder, quit 
 <a id="desktop-macos"></a>
 ## Apple Silicon macOS Controller
 
-This is a client of an existing Server, not a Mac Server or an offline player. Install `jastreamer-desktop_0.2.4_macos-arm64-adhoc.dmg` from the official release, with its published checksum, manifest, verification and native-verification evidence from the same protected-main source revision. Do not substitute a local, private or pull-request DMG. The `JastreamerDesktopAudio` bridge was introduced in 0.2.2; a 0.2.2 Server supports the Mac system media controls introduced in 0.2.3, but 0.2.4 RAAT and the Server-delivery badge require the 0.2.4 Server and its hosted Web UI. The published 0.2.1 Server lacks that bridge and 0.2.1 had no official Mac package. Upgrade older Desktop/Server bridge pairs together with deployment approval, preserving configuration, database and client profiles. Review the optional RAAT configuration and rollback compatibility in [Upgrade](#upgrade); no new-install reset is needed.
+This is a client of an existing Server, not a Mac Server or an offline player. Install `jastreamer-desktop_0.2.4_macos-arm64-adhoc.dmg` from the official release, with its published checksum, manifest, verification and native-verification evidence from the same protected-main source revision. Do not substitute a local, private or pull-request DMG. The `JastreamerDesktopAudio` bridge was introduced in 0.2.2; a 0.2.2 Server supports the Mac system media controls introduced in 0.2.3, but the Server-delivery badge requires the 0.2.4 Server and its hosted Web UI. The published 0.2.1 Server lacks that bridge and 0.2.1 had no official Mac package. Upgrade older Desktop/Server bridge pairs together with deployment approval, preserving configuration, database and client profiles. Review configuration and rollback compatibility in [Upgrade](#upgrade); no new-install reset is needed.
 
 Download the DMG and all five evidence/sidecar files from the same release:
 
@@ -305,7 +295,7 @@ Recent Servers, language, cookies, and sessions live in `$XDG_CONFIG_HOME/jastre
 
 The Kotlin app discovers `_jastreamer._tcp` Servers, checks `/api/v1/discovery`, and opens the selected Server's Web UI. Its **Local playback** entry opens an independent **Saved music** library with its own downloads, playlists, folders, device queue, and Media3 playback of app-owned files, which needs neither Server access nor sign-in. In Server mode the same Media3 service provides **This device** output while the Server owns the queue, and the Android system media controls report their commands back to it. No PWA installation, broad local-music permission, or location permission is required.
 
-The stable release attaches a signed APK built by CI from the same commit as the Server:
+[Release 0.2.4](https://github.com/furyheimdall/jastreamer/releases/tag/v0.2.4) contains the current signed Android APK and its verification files. Server-only releases do not replace it:
 
 | Asset | What it is |
 | --- | --- |
@@ -426,9 +416,9 @@ Client-side state: the Windows desktop keeps recent Servers, language, sessions,
 
 Updating the Linux Server means replacing the container with a verified image, not running first-account setup again. The image carries the Web interface, FFmpeg, and the AirPlay runtime for its architecture. Never mount the Docker socket into the Server or grant it host-management privileges so it can update itself. For the portable Windows Server, follow [Update a portable Windows Server](#windows-server-update) instead of the Compose steps here.
 
-**0.2.4 RAAT and Server-delivery badge:** update the Server and refresh its hosted Web UI together. Preserve `server.json`, data, accounts, library roots, mounts and client profiles; do not rerun setup, replace config with a template, or reset the database. Configuration `version` remains `1`, but the optional `raat` section is new: an existing config without it loads with RAAT disabled. Saving settings can persist `"raat": {"enabled": false}` even when you never enable playback.
+**0.2.4 Server-delivery badge:** update the Server and refresh its hosted Web UI together. Preserve `server.json`, data, accounts, library roots, mounts and client profiles; do not rerun setup, replace config with a template, or reset the database. Configuration `version` remains `1`.
 
-**Rollback configuration compatibility:** 0.2.3 rejects unknown fields, so a saved `raat` section is incompatible even when `enabled` is false. Before an approved downgrade, stop the Server, review config and database compatibility, and remove only the unsupported `raat` section with operator approval if the target requires it; validate with the target's `--check-config`. Preserve every other setting and all data. This is not a reset or a guarantee that older database migrations can be reversed by changing the image.
+**Rollback configuration compatibility:** 0.2.3 rejects unknown fields. Before an approved downgrade, stop the Server, review config and database compatibility, and remove only unsupported settings with operator approval if the target requires it; validate with the target's `--check-config`. Preserve every other setting and all data. This is not a reset or a guarantee that older database migrations can be reversed by changing the image.
 
 ### Schema changes applied at startup
 
@@ -462,7 +452,7 @@ An upgrade preserves the current music, config, and data and adds no samples. On
 
 ### Desktop and client updates
 
-Ordinary Server-hosted Web updates need no desktop package replacement. Version 0.2.2 introduced the native desktop bridge: upgrade older Windows/Mac Desktop and Server Web bridge pairs together rather than mixing either side with 0.2.1. Version 0.2.3 added Mac system media controls, absent from the 0.2.2 Mac package; an existing 0.2.2 Server supports that 0.2.3 Mac integration, but not 0.2.4 RAAT or the Server-delivery badge. Follow the configuration compatibility guidance above, preserve the existing installation and do not rerun account setup or reset data. Follow the [Windows](#desktop-windows), [Linux](#desktop-linux) or [macOS](#desktop-macos) package procedure, preserving Windows `user-data`, the Linux per-user profile or `~/Library/Application Support/jastreamer-desktop` on Mac. A newer Android APK signed with the same release key installs over the existing app and keeps its data; iOS updates follow its own section.
+Ordinary Server-hosted Web updates need no desktop package replacement. Version 0.2.2 introduced the native desktop bridge: upgrade older Windows/Mac Desktop and Server Web bridge pairs together rather than mixing either side with 0.2.1. Version 0.2.3 added Mac system media controls, absent from the 0.2.2 Mac package; an existing 0.2.2 Server supports that 0.2.3 Mac integration, but not the 0.2.4 Server-delivery badge. Follow the configuration compatibility guidance above, preserve the existing installation and do not rerun account setup or reset data. Follow the [Windows](#desktop-windows), [Linux](#desktop-linux) or [macOS](#desktop-macos) package procedure, preserving Windows `user-data`, the Linux per-user profile or `~/Library/Application Support/jastreamer-desktop` on Mac. A newer Android APK signed with the same release key installs over the existing app and keeps its data; iOS updates follow its own section.
 
 <a id="rollback"></a>
 ## Rollback

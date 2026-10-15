@@ -1574,6 +1574,57 @@ html[data-client] .app-shell .mobile-header {
   overflow-wrap: anywhere;
 }
 
+.protocol-enable-help {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.protocol-help-trigger {
+  min-width: 2.75rem;
+  min-height: 2.75rem;
+  padding: 0.5rem;
+}
+
+.protocol-notice-popover {
+  position: fixed;
+  inset: 0;
+  width: min(36rem, calc(100vw - 2rem));
+  max-height: calc(100dvh - 2rem);
+  margin: auto;
+  padding: clamp(1rem, 3vw, 1.5rem);
+  overflow: auto;
+  overflow-wrap: anywhere;
+  border: 1px solid var(--border);
+  border-radius: 0.9rem;
+  background: var(--panel);
+  color: var(--text);
+  box-shadow: 0 1rem 3rem #0008;
+}
+
+.protocol-notice-heading {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.protocol-notice-heading h3 {
+  min-width: 0;
+  margin: 0;
+  font-size: 1.1rem;
+}
+
+.protocol-notice-heading .button {
+  flex: 0 0 auto;
+}
+
+.protocol-notice-popover p {
+  margin: 1rem 0 0;
+  line-height: 1.6;
+}
+
 .airplay-help-row {
   display: flex;
   align-items: start;

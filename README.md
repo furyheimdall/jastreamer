@@ -8,7 +8,7 @@
 
 <img src="assets/jastreamer.svg" width="80" height="80" alt="jastreamer logo" />
 
-jastreamer 0.2.4 is a self-hosted music server for a trusted private LAN. A Server on Linux or Windows indexes the local music you approve, hosts the Web interface, keeps accounts, likes, play counts, playlists and one shared queue in SQLite, and sends audio to a single selected output. UPnP/DLNA is built in, Google Cast is optional on both Server platforms, experimental RAAT is opt-in, and AirPlay sending is available only in the Linux container. English is the default interface language; Korean is also supported.
+jastreamer Server 0.2.5 is a self-hosted music server for a trusted private LAN. A Server on Linux or Windows indexes the local music you approve, hosts the Web interface, keeps accounts, likes, play counts, playlists and one shared queue in SQLite, and sends audio to a single selected output. UPnP/DLNA is built in, Google Cast is optional on both Server platforms, and AirPlay sending is available only in the Linux container. English is the default interface language; Korean is also supported.
 
 ## Documentation
 
@@ -30,8 +30,7 @@ jastreamer 0.2.4 is a self-hosted music server for a trusted private LAN. A Serv
 - Saves Server-wide likes and play counts, with a **Most Played** view and a one-time **Shuffle liked into queue** action
 - Plays through **This device** using browser audio, with a per-device output name and local volume
 - Discovers and controls UPnP/DLNA, optional Google Cast, and Linux AirPlay outputs, including AirPlay PIN/password authentication
-- Offers [experimental RAAT](INSTRUCTION.md#raat), off by default, with the same queue, metadata/artwork and transport controls; requires compatible receiver/FFmpeg and is not Roon Ready certification
-- Shows **Bit-perfect · Server delivery** only with current lossless-delivery evidence for UPnP, Cast or RAAT — not proof of receiver processing or physical DAC bit transparency ([scope](INSTRUCTION.md#signal-path))
+- Shows **Bit-perfect · Server delivery** only with current lossless-delivery evidence for UPnP or Cast — not proof of receiver processing or physical DAC bit transparency ([scope](INSTRUCTION.md#signal-path))
 - Provides first-account setup, password login/change/recovery, durable sessions, private-LAN HTTP, and optional built-in HTTPS
 - Adapts to a four-tab iPhone/Android phone layout with collapsible controls and an optional installable PWA
 
@@ -44,7 +43,7 @@ jastreamer 0.2.4 is a self-hosted music server for a trusted private LAN. A Serv
 | Desktop client | Windows 10/11 x64 | Portable ZIP | Browser audio plus opt-in WASAPI Shared/Exclusive output and Windows media controls ([Windows audio](INSTRUCTION.md#windows-audio)) |
 | Desktop client | Linux `amd64` | DEB | Browser audio only; no Linux ARM64 desktop package |
 | Desktop client | Apple Silicon macOS 13+ (`arm64`) | Official `jastreamer-desktop_0.2.4_macos-arm64-adhoc.dmg` containing `jastreamer.app` | Ad-hoc signed, not notarized; browser audio plus opt-in CoreAudio Shared/Exclusive USB DAC output and macOS Now Playing/system media controls. No Intel, Rosetta or Universal build ([macOS](INSTALL.md#desktop-macos)) |
-| Mobile client | Android 10+ | Signed `jastreamer-android_0.2.4_release.apk` from [GitHub Releases](https://github.com/furyheimdall/jastreamer/releases) | Media3 local playback with system media controls, opt-in bit-perfect direct USB output to a connected USB Audio Class DAC, and an offline **Saved music** library ([Android](INSTALL.md#android)) |
+| Mobile client | Android 10+ | Signed `jastreamer-android_0.2.4_release.apk` from [release 0.2.4](https://github.com/furyheimdall/jastreamer/releases/tag/v0.2.4) | Media3 local playback with system media controls, opt-in bit-perfect direct USB output to a connected USB Audio Class DAC, and an offline **Saved music** library ([Android](INSTALL.md#android)) |
 | Mobile client | iOS/iPadOS 18.4+ | [iOS CI](https://github.com/furyheimdall/jastreamer/actions/workflows/ios.yml) and source only | Controller-only client; no installable package, TestFlight or App Store release ([iOS](INSTALL.md#ios)) |
 | Browser or PWA | Any current LAN browser | Served by the Server | Phone layout for iPhone and Android phone browsers; PWA installation needs trusted HTTPS ([PWA](INSTALL.md#pwa)) |
 
@@ -68,9 +67,9 @@ Send the following request to your AI agent. Review the proposed paths and servi
 
 An update replaces only the container image or the package-owned files: configuration, database, accounts, sessions, playlists, queue and music paths are preserved, and playback does not resume automatically. There is no in-app version check or automatic updater, so download and verify the exact artifacts first. Desktop, Android and iOS clients are updated separately from the Server.
 
-RAAT and the Server-delivery badge require the **0.2.4 Server and its hosted Web UI**; updating a client alone does not add them. The new optional `raat` configuration section defaults to disabled when absent; keep existing config/data rather than replacing them with templates. Saved configuration containing this section needs a compatibility review before rollback to an older Server ([details](INSTALL.md#upgrade)).
+The Server-delivery badge requires the **0.2.4 Server and its hosted Web UI**; updating a client alone does not add it. Keep existing config/data rather than replacing them with templates, and review configuration compatibility before rollback to an older Server ([details](INSTALL.md#upgrade)).
 
-The shared `JastreamerDesktopAudio` bridge arrived in 0.2.2, and Mac system media controls arrived in 0.2.3 (absent from the 0.2.2 Mac package). A 0.2.2 Server is sufficient for that 0.2.3 Mac integration, not for the new 0.2.4 network features. The 0.2.1 Server lacks the bridge and had no official Mac artifact; upgrade older Desktop/Server bridge pairs together with deployment approval. No account, data or client-profile reset is needed.
+The shared `JastreamerDesktopAudio` bridge arrived in 0.2.2, and Mac system media controls arrived in 0.2.3 (absent from the 0.2.2 Mac package). A 0.2.2 Server is sufficient for that 0.2.3 Mac integration, not for the 0.2.4 Server-delivery badge. The 0.2.1 Server lacks the bridge and had no official Mac artifact; upgrade older Desktop/Server bridge pairs together with deployment approval. No account, data or client-profile reset is needed.
 
 Procedures and post-update checks are in [upgrade](INSTALL.md#upgrade) and [rollback](INSTALL.md#rollback).
 
@@ -91,7 +90,9 @@ Private-LAN HTTP encrypts neither credentials nor audio; use the built-in HTTPS 
 <a id="code-signing-policy"></a>
 ## Code signing policy
 
-**How artifacts are built.** Public artifacts are produced only by GitHub Actions from the protected `main` branch. The release workflow republishes the exact bytes of a successful protected-`main` CI run, verifies every artifact against that run first, and refuses to overwrite an existing tag or registry reference. The one exception is the Android APK: the workflow takes the unsigned APK from the matching Android CI run and signs it with the release key, then verifies the resulting signature. Each release records its source revision and ships machine-readable evidence: `SHA256SUMS` over all assets, `release-provenance.json` (repository, release tag, channel, source revision, CI runs, artifact records and the Android signer certificate), per-package `*.manifest.json` and `*.verification.json` receipts, and a Server publication manifest listing each image's platform, immutable digest and digest reference. Verify these before installing.
+**How artifacts are built.** Public artifacts are produced only by GitHub Actions from the protected `main` branch. The release workflow republishes the exact bytes of a successful protected-`main` CI run, verifies every artifact against that run first, and refuses to overwrite an existing tag or registry reference. When a release includes Android, the workflow takes the unsigned APK from the matching Android CI run and signs it with the release key, then verifies the resulting signature. Each release records its source revision and ships machine-readable evidence: `SHA256SUMS` over all assets, `release-provenance.json` (repository, release tag, channel, source revision, CI runs, artifact records and, when Android is included, the Android signer certificate), per-package `*.manifest.json` and `*.verification.json` receipts, and a Server publication manifest listing each image's platform, immutable digest and digest reference. Verify these before installing.
+
+**Server-only releases.** [Server 0.2.5](https://github.com/furyheimdall/jastreamer/releases/tag/v0.2.5) covers the Linux `amd64`/`arm64` images, Windows Server and embedded Web UI only. Desktop and Android downloads remain at [0.2.4](https://github.com/furyheimdall/jastreamer/releases/tag/v0.2.4); iOS remains at 0.2.4 with source and CI only. Verify each package against the checksums and provenance of its own release. Protected-main CI, immutable publication evidence and deployment approval requirements are unchanged.
 
 **Current signing status.**
 

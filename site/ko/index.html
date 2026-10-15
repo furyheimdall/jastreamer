@@ -3,8 +3,8 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>jastreamer — 사설 LAN용 자체 호스팅 음악 플레이어·컨트롤러</title>
-  <meta name="description" content="jastreamer 0.2.4는 신뢰하는 사설 LAN용 자체 호스팅 음악 플레이어입니다. 어느 화면에서든 공용 대기열 하나를 제어하면 Linux·Windows Server가 이 기기, UPnP/DLNA, 선택적 Google Cast, Linux 컨테이너의 AirPlay 또는 실험 기능인 RAAT로 재생합니다.">
+  <title>jastreamer Server 0.2.5 · 데스크톱·Android 0.2.4 — 사설 LAN 음악</title>
+  <meta name="description" content="jastreamer Server 0.2.5와 데스크톱·Android 0.2.4는 신뢰하는 사설 LAN용 자체 호스팅 음악 플레이어입니다. 어느 화면에서든 공용 대기열 하나를 제어하면 Linux·Windows Server가 이 기기, UPnP/DLNA, 선택적 Google Cast 또는 Linux 컨테이너의 AirPlay로 재생합니다.">
   <meta name="color-scheme" content="dark">
   <meta name="theme-color" content="#111315">
   <meta name="referrer" content="strict-origin-when-cross-origin">
@@ -51,14 +51,14 @@
       <div class="container">
         <p class="eyebrow">
           <span>자체 호스팅 음악 플레이어</span>
-          <span class="version-tag">v0.2.4</span>
+          <span class="version-tag">Server 0.2.5 · 데스크톱·Android 0.2.4</span>
         </p>
         <h1 id="hero-title">어느 화면에서든 재생하고,<br><em>원하는 곳에서 듣습니다.</em></h1>
         <p class="hero-lead">
-          내 Linux·Windows Server에 둔 음악을 사설 LAN의 PC나 휴대전화에서 제어하세요. 그 기기·USB DAC 또는 UPnP/DLNA·Cast·AirPlay·<a href="#raat">RAAT</a> 수신기로 재생할 수 있습니다. RAAT 전송은 설정에서 켜서 쓰는 실험 기능입니다.
+          내 Linux·Windows Server에 둔 음악을 사설 LAN의 PC나 휴대전화에서 제어하세요. 그 기기·USB DAC 또는 UPnP/DLNA·Cast·AirPlay 수신기로 재생할 수 있습니다.
         </p>
         <div class="actions">
-          <a class="button button-primary" href="#download">0.2.4 내려받기</a>
+          <a class="button button-primary" href="#download">Server·클라이언트 내려받기</a>
           <a class="button button-secondary" href="#player">플레이어 둘러보기</a>
         </div>
         <ul class="hero-facts" aria-label="한눈에 보기">
@@ -120,7 +120,7 @@
           </li>
           <li>
             <h3>지금 듣는 소리를 정확히</h3>
-            <p><strong>곡 정보</strong>에서 코덱, 샘플 레이트, 비트 깊이, 채널, 재생 횟수를 확인할 수 있습니다. 네이티브 독점·USB 다이렉트 출력에는 <strong>비트 퍼펙트</strong> 또는 <strong>비트 퍼펙트 아님</strong>이, 조건을 충족한 UPnP·Cast·RAAT 스트림에는 <strong>비트 퍼펙트 · 서버 전송</strong>이 표시될 수 있습니다. <a href="#bit-perfect">각 배지가 뜻하는 범위 보기</a></p>
+            <p><strong>곡 정보</strong>에서 코덱, 샘플 레이트, 비트 깊이, 채널, 재생 횟수를 확인할 수 있습니다. 네이티브 독점·USB 다이렉트 출력에는 <strong>비트 퍼펙트</strong> 또는 <strong>비트 퍼펙트 아님</strong>이, 조건을 충족한 UPnP·Cast 스트림에는 <strong>비트 퍼펙트 · 서버 전송</strong>이 표시될 수 있습니다. <a href="#bit-perfect">각 배지가 뜻하는 범위 보기</a></p>
           </li>
           <li id="phone">
             <h3>휴대전화에서</h3>
@@ -163,15 +163,15 @@
               </div>
               <div>
                 <h3>집 안 어디서나: 네트워크 수신기</h3>
-                <p>UPnP/DLNA 재생 기기, Google Cast 기기, AirPlay 수신기 또는 기능을 켠 뒤 호환되는 RAAT 수신기를 고르세요. Server가 수신기로 직접 스트리밍하므로 휴대전화를 잠그거나 페이지를 닫아도 음악은 계속되고, 어느 컨트롤러에서든 다시 이어서 제어할 수 있습니다.</p>
+                <p>UPnP/DLNA 재생 기기, Google Cast 기기 또는 AirPlay 수신기를 고르세요. Server가 수신기로 직접 스트리밍하므로 휴대전화를 잠그거나 페이지를 닫아도 음악은 계속되고, 어느 컨트롤러에서든 다시 이어서 제어할 수 있습니다.</p>
               </div>
             </div>
           </div>
 
           <figure class="concept-shot">
             <a href="../assets/listening-ko.svg" aria-label="듣는 방식 개념도 확대해서 보기" data-image-viewer target="_blank" rel="noopener">
-              <img src="../assets/listening-ko.svg" width="720" height="1260" loading="lazy" decoding="async"
-                alt="컨트롤러는 Server에 명령을 보냅니다. Server는 하나의 보관함과 대기열을 관리하며 이 기기의 브라우저·앱 또는 UPnP/DLNA·Cast·AirPlay·RAAT 수신기 중 선택한 한 곳으로 재생합니다. 네트워크 오디오는 컨트롤러를 거치지 않습니다. RAAT는 PCM·곡 정보·앨범 아트를 수신기로 보내고, 지원되는 수신기 제어는 Server로 돌아옵니다.">
+              <img src="../assets/listening-ko.svg" width="720" height="1080" loading="lazy" decoding="async"
+                alt="컨트롤러는 Server에 명령을 보냅니다. Server는 하나의 보관함과 대기열을 관리하며 이 기기의 브라우저·앱 또는 UPnP/DLNA·Cast·AirPlay 수신기 중 선택한 한 곳으로 재생합니다. 네트워크 오디오는 컨트롤러를 거치지 않습니다.">
             </a>
             <figcaption>
               <span class="concept-badge">개념도</span>
@@ -186,7 +186,6 @@
           <li><strong>UPnP/DLNA</strong><span>기본 제공. LAN의 재생 기기를 찾아 제어합니다.</span></li>
           <li><strong>Google Cast</strong><span>Linux·Windows Server에서 선택해 쓰며 기본값은 꺼짐입니다.</span></li>
           <li><strong>AirPlay</strong><span>Linux 컨테이너에서만 전송하며 PIN·암호 인증을 지원합니다.</span></li>
-          <li id="raat"><strong>RAAT</strong><span>호환 RAAT 수신기로 음악과 앨범 아트를 보내고 공용 대기열로 제어합니다. 설정에서 켜서 쓰는 실험적 전송 기능입니다. <a href="https://github.com/furyheimdall/jastreamer/blob/main/INSTRUCTION.ko.md#raat">RAAT 사용 안내</a></span></li>
         </ul>
         <p class="fine-print">
           수신기는 사설 LAN에서 Server와 통신하고 멀티캐스트로 검색될 수 있어야 합니다. <a href="https://github.com/furyheimdall/jastreamer/blob/main/INSTALL.ko.md#requirements">네트워크 요구 사항</a>을 확인하세요. 지원 형식과 제어 기능은 수신기마다 다릅니다.
@@ -235,7 +234,7 @@
               <p>해당 네이티브 경로가 동작 중이지만 신호가 바뀌었다면 <strong>비트 퍼펙트 아님</strong>과 그 이유를 표시합니다. 모드를 선택하기만 한 상태에 배지를 붙이지 않습니다.</p>
             </div>
             <div class="scope-notes">
-              <p><strong>서버 전송.</strong> 알려진 무손실 원본과 현재 전송 근거가 필요합니다. UPnP·Cast는 검사한 원본 파일을 변환 없이 전달해야 합니다. RAAT는 원래 레이트·채널·정밀도의 PCM을 이득 1, DSP 없이 받아들여야 하며, 언더런·오버런이 있으면 자격을 잃습니다.</p>
+              <p><strong>서버 전송.</strong> 알려진 무손실 원본과 현재 전송 근거가 필요합니다. UPnP·Cast는 검사한 원본 파일을 변환 없이 전달해야 합니다.</p>
               <p><strong>배지의 범위.</strong> 네이티브 배지는 jastreamer 애플리케이션 경로를, 서버 전송 배지는 Server가 내보내는 스트림을 설명합니다. 수신기 내부 처리·드라이버·물리적 DAC 출력까지 검증하지는 않습니다. 브라우저 오디오, 공유·시스템 출력, AirPlay에는 적용되지 않습니다. <a href="https://github.com/furyheimdall/jastreamer/blob/main/INSTRUCTION.ko.md#signal-path">신호 경로 안내</a></p>
             </div>
           </div>
@@ -295,9 +294,9 @@
     <section class="section" id="download" aria-labelledby="download-title">
       <div class="container">
         <div class="section-head">
-          <p class="section-kicker">내려받기 · 버전 0.2.4</p>
+          <p class="section-kicker">내려받기 · Server 0.2.5 · 데스크톱·Android 0.2.4</p>
           <h2 id="download-title">먼저 Server를 설치하고, 필요한 앱을 더하세요.</h2>
-          <p>패키지와 검증 파일은 <a href="https://github.com/furyheimdall/jastreamer/releases/tag/v0.2.4">GitHub의 v0.2.4 릴리즈</a>에서 제공합니다.</p>
+          <p><a href="https://github.com/furyheimdall/jastreamer/releases/tag/v0.2.5">내장 Web 화면을 포함한 Server 0.2.5</a> 또는 기존 <a href="https://github.com/furyheimdall/jastreamer/releases/tag/v0.2.4">데스크톱·Android 0.2.4 패키지</a>를 선택하세요. 검증 파일은 각 패키지의 해당 릴리즈에서 받으세요.</p>
         </div>
 
         <div class="notice" role="note" aria-labelledby="server-note-title">
@@ -319,17 +318,17 @@
               </div>
               <div class="dl-actions">
                 <a class="button button-primary" href="https://github.com/furyheimdall/jastreamer/blob/main/INSTALL.ko.md#linux-server">Linux 설치 안내</a>
-                <a class="text-link" href="https://github.com/furyheimdall/jastreamer/releases/tag/v0.2.4">이미지 다이제스트</a>
+                <a class="text-link" href="https://github.com/furyheimdall/jastreamer/releases/tag/v0.2.5">이미지 다이제스트</a>
               </div>
             </li>
             <li class="dl-row">
               <div>
                 <h4>Windows x64 <span class="tag">Authenticode 서명 없음</span></h4>
-                <p class="dl-meta">무설치 ZIP · <code>jastreamer-server_0.2.4_windows-x64.zip</code></p>
-                <p class="limits">Web 화면, UPnP/DLNA, 선택적 Cast와 실험적 RAAT. AirPlay와 FFmpeg은 포함하지 않으며 Windows 서비스도 아닙니다. RAAT에는 별도로 설정한 호환 FFmpeg이 필요하며, RAAT의 Windows 재생은 검증되지 않았습니다. SmartScreen 경고가 뜰 수 있으니 SHA-256을 검증하고 압축을 풀기 전에 ZIP 차단을 해제하세요.</p>
+                <p class="dl-meta">무설치 ZIP · <code>jastreamer-server_0.2.5_windows-x64.zip</code></p>
+                <p class="limits">Web 화면, UPnP/DLNA와 선택적 Cast. AirPlay와 FFmpeg은 포함하지 않으며 Windows 서비스도 아닙니다. SmartScreen 경고가 뜰 수 있으니 SHA-256을 검증하고 압축을 풀기 전에 ZIP 차단을 해제하세요.</p>
               </div>
               <div class="dl-actions">
-                <a class="button button-primary" href="https://github.com/furyheimdall/jastreamer/releases/download/v0.2.4/jastreamer-server_0.2.4_windows-x64.zip">ZIP 내려받기</a>
+                <a class="button button-primary" href="https://github.com/furyheimdall/jastreamer/releases/download/v0.2.5/jastreamer-server_0.2.5_windows-x64.zip">ZIP 내려받기</a>
                 <a class="text-link" href="https://github.com/furyheimdall/jastreamer/blob/main/INSTALL.ko.md#windows-server">Windows Server 안내</a>
               </div>
             </li>
@@ -415,7 +414,7 @@
         <div class="verify">
           <h3>설치 전에 검증하세요</h3>
           <div>
-            <p>모든 자산은 <a href="https://github.com/furyheimdall/jastreamer/releases/download/v0.2.4/SHA256SUMS"><code>SHA256SUMS</code></a>에 나열되고, 각 패키지는 릴리즈 페이지에 <code>.sha256</code> 파일과 manifest를 함께 제공하며, <a href="https://github.com/furyheimdall/jastreamer/releases/download/v0.2.4/release-provenance.json"><code>release-provenance.json</code></a>에 소스 리비전과 CI 실행이 기록됩니다.</p>
+            <p>Server 0.2.5는 해당 <a href="https://github.com/furyheimdall/jastreamer/releases/download/v0.2.5/SHA256SUMS"><code>SHA256SUMS</code></a>와 <a href="https://github.com/furyheimdall/jastreamer/releases/download/v0.2.5/release-provenance.json"><code>release-provenance.json</code></a>으로 검증하세요. 데스크톱·Android 0.2.4에는 <a href="https://github.com/furyheimdall/jastreamer/releases/download/v0.2.4/SHA256SUMS">0.2.4 체크섬</a>과 <a href="https://github.com/furyheimdall/jastreamer/releases/download/v0.2.4/release-provenance.json">0.2.4 provenance</a>를 사용하세요. 각 패키지의 <code>.sha256</code> 파일과 manifest도 같은 릴리즈에서 받으세요.</p>
             <p>Android 서명 인증서 SHA-256은 <code>53285C2C239AFF2927EBE6F5C6AEBB82FDBB50956ED84B1E9F0222B2D925943E</code>입니다. 산출물별 서명 상태는 <a href="https://github.com/furyheimdall/jastreamer/blob/main/README.ko.md#code-signing-policy">코드 서명 정책</a>을 확인하세요.</p>
           </div>
         </div>

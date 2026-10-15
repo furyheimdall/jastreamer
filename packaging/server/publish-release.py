@@ -28,7 +28,7 @@ CI_WORKFLOW = ".github/workflows/ci.yml"
 CI_NAME = "Server, Web, and Desktop CI"
 ANDROID_WORKFLOW = ".github/workflows/android.yml"
 ANDROID_NAME = "Android CI"
-VERSION = "0.2.4"
+VERSION = ci_artifact.VERSION
 SHA = re.compile(r"[0-9a-f]{40}")
 RELEASE_TAG = re.compile(r"v(?P<version>[0-9]+\.[0-9]+\.[0-9]+)(?:-preview\.(?P<preview>[1-9][0-9]*))?")
 IMAGE_TAG = re.compile(r"(?P<version>[0-9]+\.[0-9]+\.[0-9]+)(?:-preview\.(?P<preview>[1-9][0-9]*))?")
@@ -42,6 +42,12 @@ EXPECTED_JOBS = {
     "Linux amd64 DEB desktop",
     "macOS arm64 ad-hoc desktop",
 }
+SERVER_JOBS = {
+    "Validate Server and Web",
+    "Native Server container (linux/amd64)",
+    "Native Server container (linux/arm64)",
+    "Windows x64 portable Server",
+}
 EXPECTED_ARTIFACTS = {
     "server-image-amd64",
     "server-image-arm64",
@@ -50,12 +56,17 @@ EXPECTED_ARTIFACTS = {
     "jastreamer-desktop-linux-amd64",
     "jastreamer-desktop-macos-arm64",
 }
-# Verification evidence uploaded by the Server CI run; required to exist, never published.
-SERVER_EVIDENCE_ARTIFACTS = {"windows-audio-settings"}
+SERVER_ARTIFACTS = {
+    "server-image-amd64",
+    "server-image-arm64",
+    "jastreamer-server-windows-x64",
+}
+# Desktop audio settings evidence belongs only to the integrated release.
+DESKTOP_EVIDENCE_ARTIFACTS = {"windows-audio-settings"}
 ANDROID_JOBS = {"Android build and real-Web-UI verification"}
 ANDROID_APK_ARTIFACT = "jastreamer-android-debug-test-signed-and-release-unsigned-{revision}"
 ANDROID_EVIDENCE_ARTIFACT = "jastreamer-android-api36-instrumentation-{revision}"
-ANDROID_ASSET_PREFIX = f"jastreamer-android_{VERSION}_release"
+ANDROID_ASSET_PREFIX = f"jastreamer-android_{ci_artifact.ANDROID_VERSION}_release"
 DOCUMENTATION = f"https://github.com/{REPOSITORY}/blob"
 MANIFEST_ACCEPT = ", ".join((
     "application/vnd.oci.image.index.v1+json",
@@ -96,22 +107,32 @@ def sha256_file(path: pathlib.Path) -> str:
     return digest.hexdigest()
 
 
-def expected_jobs(kind: str) -> set[str]:
-    return EXPECTED_JOBS if kind == "server" else ANDROID_JOBS
+def validate_scope(scope: str, kind: str = "server") -> None:
+    require(scope in ("server", "all"), "release scope must be server or all")
+    require(kind != "android" or scope == "all", "Android CI is only part of an all-components release")
 
 
-def expected_artifacts(kind: str, source_revision: str) -> set[str]:
+def expected_jobs(kind: str, scope: str) -> set[str]:
+    validate_scope(scope, kind)
     if kind == "server":
-        return EXPECTED_ARTIFACTS | SERVER_EVIDENCE_ARTIFACTS
+        return SERVER_JOBS if scope == "server" else EXPECTED_JOBS
+    return ANDROID_JOBS
+
+
+def expected_artifacts(kind: str, source_revision: str, scope: str) -> set[str]:
+    validate_scope(scope, kind)
+    if kind == "server":
+        return SERVER_ARTIFACTS if scope == "server" else EXPECTED_ARTIFACTS | DESKTOP_EVIDENCE_ARTIFACTS
     return {
         ANDROID_APK_ARTIFACT.format(revision=source_revision),
         ANDROID_EVIDENCE_ARTIFACT.format(revision=source_revision),
     }
 
 
-def downloaded_artifacts(kind: str, source_revision: str) -> set[str]:
+def downloaded_artifacts(kind: str, source_revision: str, scope: str) -> set[str]:
+    validate_scope(scope, kind)
     if kind == "server":
-        return set(EXPECTED_ARTIFACTS)
+        return set(SERVER_ARTIFACTS if scope == "server" else EXPECTED_ARTIFACTS)
     return {ANDROID_APK_ARTIFACT.format(revision=source_revision)}
 
 
@@ -152,6 +173,7 @@ def validate_run(args: argparse.Namespace) -> None:
     require(args.repository == REPOSITORY, f"release workflow is restricted to {REPOSITORY}")
     require(re.fullmatch(r"[1-9][0-9]*", args.run_id) is not None, "CI run ID must be a positive decimal integer")
     kind = args.kind
+    validate_scope(args.scope, kind)
     workflow_path, workflow_name = workflow_identity(kind)
     run_id = int(args.run_id)
     run = load_json(pathlib.Path(args.run))
@@ -178,25 +200,25 @@ def validate_run(args: argparse.Namespace) -> None:
     if args.expect_source_revision:
         require(source_revision == args.expect_source_revision, f"{kind} CI run was built from a different source revision than the Server CI run")
 
-    required_jobs = expected_jobs(kind)
-    require(jobs_response.get("total_count") == len(required_jobs), "CI job count differs from the protected release contract")
+    required_jobs = expected_jobs(kind, args.scope)
     jobs = jobs_response.get("jobs")
-    require(isinstance(jobs, list) and len(jobs) == len(required_jobs), "CI jobs response is incomplete")
+    require(isinstance(jobs, list) and jobs_response.get("total_count") == len(jobs), "CI jobs response is incomplete")
     names: set[str] = set()
     for job in jobs:
         require(isinstance(job, dict), "invalid CI job record")
         name = job.get("name")
         require(isinstance(name, str) and name not in names, "duplicate or invalid CI job name")
         names.add(name)
+        if args.scope == "server" and name not in required_jobs:
+            continue
         require(job.get("status") == "completed" and job.get("conclusion") == "success", f"CI job was not successful: {name}")
         require(job.get("head_sha") == source_revision, f"CI job source mismatch: {name}")
-    require(names == required_jobs, "required CI jobs are missing or renamed")
+    require(required_jobs <= names if args.scope == "server" else names == required_jobs, "required CI jobs are missing or renamed")
 
-    required_artifacts = expected_artifacts(kind, source_revision)
-    downloads = downloaded_artifacts(kind, source_revision)
-    require(artifacts_response.get("total_count") == len(required_artifacts), "CI artifact count differs from the release contract")
+    required_artifacts = expected_artifacts(kind, source_revision, args.scope)
+    downloads = downloaded_artifacts(kind, source_revision, args.scope)
     artifacts = artifacts_response.get("artifacts")
-    require(isinstance(artifacts, list) and len(artifacts) == len(required_artifacts), "CI artifacts response is incomplete")
+    require(isinstance(artifacts, list) and artifacts_response.get("total_count") == len(artifacts), "CI artifacts response is incomplete")
     artifact_names: set[str] = set()
     artifact_records = []
     for artifact in artifacts:
@@ -204,6 +226,8 @@ def validate_run(args: argparse.Namespace) -> None:
         name = artifact.get("name")
         require(isinstance(name, str) and name not in artifact_names, "duplicate or invalid CI artifact name")
         artifact_names.add(name)
+        if args.scope == "server" and name not in required_artifacts:
+            continue
         require(artifact.get("expired") is False, f"CI artifact has expired: {name}")
         require(isinstance(artifact.get("id"), int) and artifact["id"] > 0, f"invalid CI artifact ID: {name}")
         require(isinstance(artifact.get("size_in_bytes"), int) and artifact["size_in_bytes"] > 0, f"empty CI artifact: {name}")
@@ -213,11 +237,12 @@ def validate_run(args: argparse.Namespace) -> None:
         require(workflow_run.get("id") == run_id and workflow_run.get("head_sha") == source_revision, f"CI artifact provenance mismatch: {name}")
         if name in downloads:
             artifact_records.append({"name": name, "id": artifact["id"], "sizeInBytes": artifact["size_in_bytes"], "digest": artifact_digest})
-    require(artifact_names == required_artifacts, "required CI artifacts are missing or renamed")
+    require(required_artifacts <= artifact_names if args.scope == "server" else artifact_names == required_artifacts, "required CI artifacts are missing or renamed")
 
     provenance = {
         "schema": 1,
         "kind": kind,
+        "scope": args.scope,
         "repository": REPOSITORY,
         "workflow": workflow_path,
         "workflowId": workflow["id"],
@@ -238,10 +263,12 @@ def download_artifacts(args: argparse.Namespace) -> None:
     require(provenance.get("repository") == REPOSITORY, "artifact repository mismatch")
     kind = provenance.get("kind")
     require(kind in ("server", "android"), "run provenance does not identify a known CI workflow")
+    validate_scope(args.scope, kind)
+    require(provenance.get("scope") == args.scope, "run provenance scope mismatch")
     source_revision = provenance.get("sourceRevision")
     require(isinstance(source_revision, str) and SHA.fullmatch(source_revision) is not None, "run provenance source revision is invalid")
     records = provenance.get("artifacts", [])
-    downloads = downloaded_artifacts(kind, source_revision)
+    downloads = downloaded_artifacts(kind, source_revision, args.scope)
     require(len(records) == len(downloads) and {item["name"] for item in records} == downloads, "artifact download inventory mismatch")
     root = pathlib.Path(args.output_dir)
     root.mkdir(parents=True)
@@ -355,35 +382,41 @@ def copy_regular(source: pathlib.Path, destination: pathlib.Path) -> None:
 
 def stage_release(args: argparse.Namespace) -> None:
     identity = validate_identity(args.source_revision, args.release_tag, args.image_tag)
+    validate_scope(args.scope)
     root = pathlib.Path(args.artifact_root)
     provenance = load_json(pathlib.Path(args.run_provenance))
     require(provenance.get("kind") == "server", "run provenance is not a Server CI run")
     require(provenance.get("repository") == REPOSITORY and provenance.get("workflow") == CI_WORKFLOW, "run provenance identity mismatch")
     require(provenance.get("runId") == int(args.run_id) and provenance.get("sourceRevision") == args.source_revision, "run provenance source mismatch")
-    require({record.get("name") for record in provenance.get("artifacts", [])} == EXPECTED_ARTIFACTS, "run provenance artifact set mismatch")
+    require(provenance.get("scope") == args.scope, "run provenance scope mismatch")
+    require({record.get("name") for record in provenance.get("artifacts", [])} == downloaded_artifacts("server", args.source_revision, args.scope), "run provenance artifact set mismatch")
 
-    android_provenance = load_json(pathlib.Path(args.android_run_provenance))
-    require(android_provenance.get("kind") == "android", "Android run provenance is not an Android CI run")
-    require(android_provenance.get("repository") == REPOSITORY and android_provenance.get("workflow") == ANDROID_WORKFLOW, "Android run provenance identity mismatch")
-    require(android_provenance.get("runId") == int(args.android_run_id), "Android run provenance run mismatch")
-    require(android_provenance.get("sourceRevision") == args.source_revision, "Android CI run source revision differs from the Server CI run")
+    if args.scope == "all":
+        require(bool(args.android_run_provenance and args.android_run_id and args.android_dir), "all scope requires Android provenance, run ID and signed artifact directory")
+        android_provenance = load_json(pathlib.Path(args.android_run_provenance))
+        require(android_provenance.get("scope") == args.scope, "Android run provenance scope mismatch")
+        require(android_provenance.get("kind") == "android", "Android run provenance is not an Android CI run")
+        require(android_provenance.get("repository") == REPOSITORY and android_provenance.get("workflow") == ANDROID_WORKFLOW, "Android run provenance identity mismatch")
+        require(android_provenance.get("runId") == int(args.android_run_id), "Android run provenance run mismatch")
+        require(android_provenance.get("sourceRevision") == args.source_revision, "Android CI run source revision differs from the Server CI run")
+        require({record.get("name") for record in android_provenance.get("artifacts", [])} == downloaded_artifacts("android", args.source_revision, args.scope), "Android run provenance artifact set mismatch")
 
     server_manifests = {
         architecture: ci_artifact.verify_server_artifact(root / f"server-image-{architecture}", architecture, args.source_revision)
         for architecture in ("amd64", "arm64")
     }
     desktop_receipts = {
-        "windows-x64": ci_artifact.verify_desktop_artifact(root / "jastreamer-desktop-windows-x64", "windows-x64", args.source_revision),
-        "linux-amd64": ci_artifact.verify_desktop_artifact(root / "jastreamer-desktop-linux-amd64", "linux-amd64", args.source_revision),
-        "macos-arm64": ci_artifact.verify_desktop_artifact(root / "jastreamer-desktop-macos-arm64", "macos-arm64", args.source_revision),
-    }
+        target: ci_artifact.verify_desktop_artifact(root / f"jastreamer-desktop-{target}", target, args.source_revision)
+        for target in ci_artifact.DESKTOP_TARGETS
+    } if args.scope == "all" else {}
     windows_server_receipt = ci_artifact.verify_windows_server_artifact(
         root / "jastreamer-server-windows-x64",
         args.source_revision,
     )
-    android_directory = pathlib.Path(args.android_dir)
-    android_manifest = ci_artifact.verify_android_release_artifact(android_directory, args.source_revision)
-    require(android_manifest["ci"]["runId"] == int(args.android_run_id), "signed Android APK was produced from a different Android CI run")
+    if args.scope == "all":
+        android_directory = pathlib.Path(args.android_dir)
+        android_manifest = ci_artifact.verify_android_release_artifact(android_directory, args.source_revision)
+        require(android_manifest["ci"]["runId"] == int(args.android_run_id), "signed Android APK was produced from a different Android CI run")
     image_paths = {"amd64": pathlib.Path(args.amd64_raw), "arm64": pathlib.Path(args.arm64_raw)}
     published_images = {
         architecture: validate_registry_image(image_paths[architecture], server_manifests[architecture], architecture)
@@ -401,12 +434,12 @@ def stage_release(args: argparse.Namespace) -> None:
     windows_server_prefix = f"jastreamer-server_{VERSION}_windows-x64"
     copy_regular(windows_server_source / "manifest.json", output / f"{windows_server_prefix}.manifest.json")
     copy_regular(windows_server_source / "verification.json", output / f"{windows_server_prefix}.verification.json")
-    for target in ci_artifact.DESKTOP_TARGETS:
+    for target in desktop_receipts:
         source = root / f"jastreamer-desktop-{target}"
         archive_name = ci_artifact.DESKTOP_TARGETS[target]["archive"]
         copy_regular(source / archive_name, output / archive_name)
         copy_regular(source / f"{archive_name}.sha256", output / f"{archive_name}.sha256")
-        prefix = f"jastreamer-desktop_{VERSION}_{target}"
+        prefix = f"jastreamer-desktop_{ci_artifact.DESKTOP_VERSION}_{target}"
         copy_regular(source / "manifest.json", output / f"{prefix}.manifest.json")
         copy_regular(source / "verification.json", output / f"{prefix}.verification.json")
         if target == "macos-arm64":
@@ -414,10 +447,11 @@ def stage_release(args: argparse.Namespace) -> None:
                 copy_regular(source / f"{evidence}.json", output / f"{prefix}.{evidence}.json")
     for architecture in ("amd64", "arm64"):
         copy_regular(root / f"server-image-{architecture}" / "manifest.json", output / f"jastreamer-server_{VERSION}_linux-{architecture}.manifest.json")
-    android_apk = ci_artifact.ANDROID_RELEASE_APK
-    copy_regular(android_directory / android_apk, output / android_apk)
-    copy_regular(android_directory / f"{android_apk}.sha256", output / f"{android_apk}.sha256")
-    copy_regular(android_directory / "manifest.json", output / f"{ANDROID_ASSET_PREFIX}.manifest.json")
+    if args.scope == "all":
+        android_apk = ci_artifact.ANDROID_RELEASE_APK
+        copy_regular(android_directory / android_apk, output / android_apk)
+        copy_regular(android_directory / f"{android_apk}.sha256", output / f"{android_apk}.sha256")
+        copy_regular(android_directory / "manifest.json", output / f"{ANDROID_ASSET_PREFIX}.manifest.json")
 
     server_publication = {
         "schema": 1,
@@ -449,6 +483,8 @@ def stage_release(args: argparse.Namespace) -> None:
     release_provenance = {
         "schema": 1,
         "repository": REPOSITORY,
+        "scope": args.scope,
+        "componentVersions": {"server": VERSION, "web": VERSION},
         "channel": identity["channel"],
         "releaseTag": args.release_tag,
         "imageTag": args.image_tag,
@@ -457,23 +493,32 @@ def stage_release(args: argparse.Namespace) -> None:
         "ciRunId": int(args.run_id),
         "ciWorkflow": CI_WORKFLOW,
         "ciArtifacts": provenance["artifacts"],
-        "androidRunId": int(args.android_run_id),
-        "androidWorkflow": ANDROID_WORKFLOW,
-        "androidArtifacts": android_provenance["artifacts"],
         "serverPublicationManifest": {"path": publication_name, "sha256": sha256_file(output / publication_name)},
-        "desktop": desktop_receipts,
         "windowsServer": windows_server_receipt,
-        "android": android_manifest,
         "codeSigning": {
             "windowsAuthenticode": False,
             "linuxServerImages": False,
-            "macos": {"signing": "ad-hoc", "developerIDSigned": False, "notarized": False},
-            "androidApk": android_manifest["signerCertificateSha256"],
         },
         "prerelease": identity["prerelease"],
         "latest": identity["latest"],
         "productionQualified": False,
     }
+    if args.scope == "all":
+        release_provenance.update({
+            "androidRunId": int(args.android_run_id),
+            "androidWorkflow": ANDROID_WORKFLOW,
+            "androidArtifacts": android_provenance["artifacts"],
+            "desktop": desktop_receipts,
+            "android": android_manifest,
+        })
+        release_provenance["componentVersions"].update({
+            "desktop": ci_artifact.DESKTOP_VERSION,
+            "android": ci_artifact.ANDROID_VERSION,
+        })
+        release_provenance["codeSigning"].update({
+            "macos": {"signing": "ad-hoc", "developerIDSigned": False, "notarized": False},
+            "androidApk": android_manifest["signerCertificateSha256"],
+        })
     canonical_json(output / "release-provenance.json", release_provenance)
     asset_names = sorted(entry.name for entry in output.iterdir())
     require("SHA256SUMS" not in asset_names, "unexpected checksum file before staging")
@@ -484,12 +529,13 @@ def stage_release(args: argparse.Namespace) -> None:
 def render_notes(args: argparse.Namespace) -> None:
     staged = pathlib.Path(args.staged)
     provenance = load_json(staged / "release-provenance.json")
+    validate_scope(args.scope)
+    require(provenance.get("scope") == args.scope, "staged release scope mismatch")
     identity = validate_identity(provenance["sourceRevision"], provenance["releaseTag"], provenance["imageTag"])
     require(provenance.get("channel") == identity["channel"], "staged release channel mismatch")
     publication = load_json(staged / provenance["serverPublicationManifest"]["path"])
     tag = provenance["releaseTag"]
     registry = publication["registry"]
-    android = provenance["android"]
     assets = sorted(entry.name for entry in staged.iterdir() if entry.is_file())
 
     lines: list[str] = []
@@ -504,36 +550,19 @@ def render_notes(args: argparse.Namespace) -> None:
             "",
         ]
     lines += [
-        f"Every asset was published from the protected-main CI run {provenance['ciRunId']} and the Android CI run {provenance['androidRunId']}, both built from commit `{provenance['sourceRevision']}`.",
+        f"Server and Web assets were published from protected-main CI run {provenance['ciRunId']}, built from commit `{provenance['sourceRevision']}`.",
         "",
-        "## What's new in 0.2.4",
+        "## What's new in 0.2.5",
         "",
-        "### Experimental RAAT output",
-        "",
-        "An independently implemented RAAT output joins the Server-owned player and its one shared queue. It is experimental, disabled by default, and is not Roon Ready certification.",
-        "RAAT carries track metadata and JPEG artwork, supports Play/Pause, Stop, Previous, Next and Seek, and routes receiver-origin remote commands back through the Server rather than creating a second queue.",
-        "The sender preserves the original sample rate, channel count and precision with unity gain and no resampling or DSP. Integer containers may widen by zero-padding; unsupported formats fail instead of silently converting to a different output format.",
-        f"Enable it deliberately in Settings → Playback & outputs, configure the Server's absolute FFmpeg path, save and restart. The Linux container bundles FFmpeg; Windows requires a separately configured compatible FFmpeg. Use only a trusted private LAN: [prerequisites]({DOCUMENTATION}/{tag}/INSTALL.md#raat-development).",
-        "",
-        "### Scoped Server-delivery badge",
-        "",
-        "The new **Bit-perfect · Server delivery** badge requires a known lossless source and evidence for the current track and output, not merely the absence of resampling.",
-        "UPnP/Cast qualify when delivery of the inspected original file bytes has started. RAAT qualifies when the active owned stream accepts precision-preserving PCM at the original rate and channel count; underrun or overrun evidence removes qualification.",
-        "Legacy QuickTime in24/in32 PCM precision is taken from the codec identifier rather than its 16-bit placeholder field, preventing precision loss. RAAT delivery-state changes now invalidate the Web player's evidence through its player event topic.",
-        "This badge describes Server delivery only. It does not prove physical DAC bit transparency, audible output or downstream receiver processing.",
-        "",
-        "### RAAT next-track shutdown fix and evidence limits",
-        "",
-        "Stream shutdown no longer calls the receiver's native send_message path during teardown. This addresses the next-track disconnection and receiver-app exit observed before the change.",
-        "Development checks covered K17 full-track/transport behavior. A second receiver advertised FiiO R7, firmware 1.0.4 and RAAT 1.1.38 (reported by the user as R9); after the fix it completed five Next transitions and Stop, and its control port remained available.",
-        "These observations are not general hardware qualification: physical buttons and audible/DAC output were not verified, and no native receiver crash stack was available. Restart or connection loss does not automatically resume playback.",
+        "- Localized settings help and clearer public documentation and site content.",
+        "- An explicit Server-only publication path, without republishing Desktop or Android packages.",
         "",
         "## Compatibility and safe updates",
         "",
-        "Upgrade the Server and its served Web UI to 0.2.4 for RAAT and the Server-delivery badge; older packages do not gain these features from a desktop-only update. Existing native desktop audio and system media controls remain available.",
-        "RAAT remains off when raat.enabled is absent or false. No new-install reset is needed: preserve the existing configuration, database, accounts, libraries, likes, play counts, playlists, queue and client profiles.",
+        "Server and its embedded Web UI are version 0.2.5. Desktop, Android and iOS versions remain 0.2.4.",
+        "Upgrading Server 0.2.4 to 0.2.5 preserves configuration version 1 and the existing database schema. No new-install reset is needed: preserve configuration, database, accounts, libraries, likes, play counts, playlists, queue and client profiles.",
         "Stop playback and the Server only for an authorized deployment; preserve music mounts, permissions and writable configuration/data paths. Verify release checksums and provenance, pin Linux images by immutable digest, and replace only package-owned Windows files while retaining existing state.",
-        "The configuration version remains 1 and the database schema is unchanged, but older 0.2.3 Servers reject a saved raat configuration field. Retain the previous package/image and verify compatibility with the current database and configuration before rollback. An approved downgrade may remove only the unsupported raat section; disabling RAAT alone does not remove it. Do not reset data or accounts.",
+        "Retain the previous package/image and verify compatibility with the current database and configuration before rollback. Do not reset data or accounts.",
         "Do not uninstall Android or clear client storage when updating; preserve accounts, profiles and Saved music.",
         f"Publication itself does not deploy to a NAS or authorize playback. Follow the [upgrade]({DOCUMENTATION}/{tag}/INSTALL.md#upgrade) and [rollback]({DOCUMENTATION}/{tag}/INSTALL.md#rollback) procedures for a separately authorized deployment.",
         "",
@@ -552,30 +581,38 @@ def render_notes(args: argparse.Namespace) -> None:
         "",
         "## Windows packages are not Authenticode-signed",
         "",
-        "The Windows Server ZIP and the Windows desktop ZIP carry no Authenticode signature, so Windows marks the downloads as coming from the internet.",
+        "Windows Server ZIPs carry no Authenticode signature, so Windows marks the downloads as coming from the internet.",
         f"Verify the published SHA-256 sums and unblock the archive before extracting: [code signing policy]({DOCUMENTATION}/{tag}/README.md#code-signing-policy), [Windows unblock steps]({DOCUMENTATION}/{tag}/INSTALL.md#windows-unblock).",
         "",
-        "## Apple Silicon macOS ad-hoc package",
-        "",
-        "The macOS arm64 DMG contains the exact app built and verified on a native Apple Silicon CI runner.",
-        "It is ad-hoc signed only: not Developer ID signed, not notarized, and not production qualified.",
-        "The receipt covers native tests, package integrity and isolated loopback app lifecycle checks; it does not qualify a physical DAC or audible playback.",
-        "macOS may block this download. Do not disable Gatekeeper or other system security. Use a local source build if your macOS policy does not permit it.",
-        "",
-        "## Android APK",
-        "",
-        f"`{android['apk']['path']}` is signed with the jastreamer Android release key (v2 and v3 signature schemes).",
-        f"Signer certificate SHA-256: `{android['signerCertificateSha256']}`",
-        "",
-        "Confirm the signer before installing:",
-        "",
-        "```",
-        f"apksigner verify --print-certs {android['apk']['path']}",
-        "```",
-        "",
-        "## Assets",
-        "",
     ]
+    if args.scope == "server":
+        lines += ["This Server-only release contains no Desktop or Android packages.", ""]
+    else:
+        android = provenance["android"]
+        lines += [
+            f"Desktop {ci_artifact.DESKTOP_VERSION} and Android {ci_artifact.ANDROID_VERSION} are included at their unchanged component versions. Android CI run {provenance['androidRunId']} verified the same source commit.",
+            "The Windows desktop ZIP is also not Authenticode-signed.",
+            "",
+            "## Apple Silicon macOS ad-hoc package",
+            "",
+            "The macOS arm64 DMG contains the exact app built and verified on a native Apple Silicon CI runner.",
+            "It is ad-hoc signed only: not Developer ID signed, not notarized, and not production qualified.",
+            "The receipt covers native tests, package integrity and isolated loopback app lifecycle checks; it does not qualify a physical DAC or audible playback.",
+            "macOS may block this download. Do not disable Gatekeeper or other system security. Use a local source build if your macOS policy does not permit it.",
+            "",
+            "## Android APK",
+            "",
+            f"`{android['apk']['path']}` is signed with the jastreamer Android release key (v2 and v3 signature schemes).",
+            f"Signer certificate SHA-256: `{android['signerCertificateSha256']}`",
+            "",
+            "Confirm the signer before installing:",
+            "",
+            "```",
+            f"apksigner verify --print-certs {android['apk']['path']}",
+            "```",
+            "",
+        ]
+    lines += ["## Assets", ""]
     lines += [f"- `{name}`" for name in assets]
     lines += [
         "",
@@ -696,6 +733,34 @@ def verify_anonymous(args: argparse.Namespace) -> None:
     print(json.dumps({"anonymous": True, "index": result, "platforms": ["linux/amd64", "linux/arm64"]}, sort_keys=True))
 
 
+def release_assets(scope: str, image_tag: str) -> set[str]:
+    validate_scope(scope)
+    windows_prefix = f"jastreamer-server_{VERSION}_windows-x64"
+    assets = {
+        ci_artifact.WINDOWS_SERVER_ARCHIVE,
+        f"{ci_artifact.WINDOWS_SERVER_ARCHIVE}.sha256",
+        f"{windows_prefix}.manifest.json",
+        f"{windows_prefix}.verification.json",
+        f"jastreamer-server_{VERSION}_linux-amd64.manifest.json",
+        f"jastreamer-server_{VERSION}_linux-arm64.manifest.json",
+        f"jastreamer-server_{image_tag}.manifest.json",
+        "release-provenance.json",
+        "SHA256SUMS",
+    }
+    if scope == "all":
+        assets.update({
+            ci_artifact.ANDROID_RELEASE_APK,
+            f"{ci_artifact.ANDROID_RELEASE_APK}.sha256",
+            f"{ANDROID_ASSET_PREFIX}.manifest.json",
+        })
+        for target, metadata in ci_artifact.DESKTOP_TARGETS.items():
+            prefix = f"jastreamer-desktop_{ci_artifact.DESKTOP_VERSION}_{target}"
+            assets.update({metadata["archive"], f"{metadata['archive']}.sha256", f"{prefix}.manifest.json", f"{prefix}.verification.json"})
+            if target == "macos-arm64":
+                assets.update({f"{prefix}.native-verification.json", f"{prefix}.launch-verification.json"})
+    return assets
+
+
 def verify_public_release(args: argparse.Namespace) -> None:
     identity = validate_identity(args.source_revision, args.release_tag, args.image_tag)
     release = load_json(pathlib.Path(args.release_json))
@@ -712,7 +777,12 @@ def verify_public_release(args: argparse.Namespace) -> None:
         latest = load_json(pathlib.Path(args.latest_json))
         require(latest.get("id") != release.get("id") and latest.get("tag_name") != args.release_tag, "preview release was incorrectly marked latest")
     staged = pathlib.Path(args.staged)
+    validate_scope(args.scope)
+    provenance = load_json(staged / "release-provenance.json")
+    require(provenance.get("scope") == args.scope, "staged release scope mismatch")
+    require(provenance.get("sourceRevision") == args.source_revision and provenance.get("releaseTag") == args.release_tag and provenance.get("imageTag") == args.image_tag, "staged release identity mismatch")
     expected = {entry.name: entry for entry in staged.iterdir() if entry.is_file()}
+    require(set(expected) == release_assets(args.scope, args.image_tag), "staged release asset inventory differs from the selected scope")
     assets = release.get("assets")
     require(isinstance(assets, list) and len(assets) == len(expected), "public GitHub release asset count mismatch")
     seen: set[str] = set()
@@ -730,8 +800,6 @@ def verify_public_release(args: argparse.Namespace) -> None:
         require(downloaded_size == expected[name].stat().st_size, f"public release asset download size differs from CI-verified bytes: {name}")
         require(downloaded_digest == sha256_file(expected[name]), f"public release asset bytes differ from CI-verified bytes: {name}")
     require(seen == set(expected), "public GitHub release assets are incomplete")
-    require(ci_artifact.ANDROID_RELEASE_APK in seen, "public GitHub release is missing the signed Android APK")
-    require(ci_artifact.DESKTOP_TARGETS["macos-arm64"]["archive"] in seen, "public GitHub release is missing the ad-hoc Mac DMG")
     print(json.dumps({"channel": identity["channel"], "prerelease": identity["prerelease"], "latest": identity["latest"], "assets": sorted(seen)}, sort_keys=True))
 
 
@@ -794,9 +862,6 @@ def main() -> None:
         "artifact-root",
         "run-provenance",
         "run-id",
-        "android-run-provenance",
-        "android-run-id",
-        "android-dir",
         "source-revision",
         "release-tag",
         "image-tag",
@@ -806,6 +871,8 @@ def main() -> None:
         "output-dir",
     ):
         stage_parser.add_argument(f"--{option}", required=True)
+    for option in ("android-run-provenance", "android-run-id", "android-dir"):
+        stage_parser.add_argument(f"--{option}")
     stage_parser.set_defaults(function=stage_release)
 
     notes_parser = subparsers.add_parser("render-notes")
@@ -823,6 +890,8 @@ def main() -> None:
         public_parser.add_argument(f"--{option}", required=True)
     public_parser.add_argument("--latest-json")
     public_parser.set_defaults(function=verify_public_release)
+    for scoped_parser in (run_parser, download_parser, stage_parser, notes_parser, public_parser):
+        scoped_parser.add_argument("--scope", choices=("server", "all"), required=True)
 
     args = parser.parse_args()
     args.function(args)

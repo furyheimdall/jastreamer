@@ -639,7 +639,7 @@ html.image-viewer-open {
 
 .outputs {
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   margin: clamp(40px, 6vw, 64px) 0 0;
   padding: 0;
   list-style: none;
@@ -680,11 +680,6 @@ html.image-viewer-open {
 
   .outputs > li:nth-child(n + 3) {
     border-top: 1px solid var(--border);
-  }
-
-  /* Five outputs in two columns: the last one closes the strip at full width. */
-  .outputs > li:last-child:nth-child(odd) {
-    grid-column: 1 / -1;
   }
 }
 

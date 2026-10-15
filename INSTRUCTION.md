@@ -14,7 +14,7 @@ This guide covers everyday use and troubleshooting. Installation, upgrades, and 
 - [3. Queue, likes, and playback order](#queue)
   - [Likes and one-time shuffled queues](#likes) · [Playback order and repeat](#playback-modes) · [Play counts and Most Played](#most-played)
 - [4. Outputs](#outputs)
-  - [This device: local audio](#browser-output) · [Windows native audio](#windows-audio) · [Phone controls](#phone-controls) · [Desktop app](#desktop) · [Native Android](#android-controls) · [Native iOS](#ios-controls) · [Google Cast](#cast) · [Experimental RAAT](#raat)
+  - [This device: local audio](#browser-output) · [Windows native audio](#windows-audio) · [Phone controls](#phone-controls) · [Desktop app](#desktop) · [Native Android](#android-controls) · [Native iOS](#ios-controls) · [Google Cast](#cast)
 - [5. Settings reference](#settings)
 - [6. Diagnostics and logs](#diagnostics)
 - [7. Troubleshooting](#troubleshooting)
@@ -138,7 +138,6 @@ Select an output under **Output device** while playback is stopped. Use **Find o
 | UPnP/DLNA | Linux and native Windows Server | Discovered automatically over SSDP (UDP 1900). |
 | Google Cast | Linux and native Windows Server | Off by default; enable it in Settings and restart. Needs mDNS (UDP 5353) on the selected adapters. See [Google Cast](#cast). |
 | AirPlay | Linux container Server only | Needs the packaged sender and FFmpeg; pair while stopped. Native Windows Server cannot enable AirPlay. |
-| RAAT (experimental, 0.2.4) | Linux or Windows Server with compatible configured FFmpeg | Off by default; Windows playback is unqualified. K17 transport/control checks are not audible-output qualification. See [RAAT](#raat). |
 | **This device** `[Local audio]` | Browsers, PWA, desktop app, native Android | An output of the Server queue on the machine you are using. See [This device](#browser-output). |
 
 Capabilities vary by receiver: confirm audible playback and the controls you need on your own equipment.
@@ -149,7 +148,6 @@ Capabilities vary by receiver: confirm audible playback and the controls you nee
 Version 0.2.4 adds **Bit-perfect · Server delivery** for verified network delivery and requires the 0.2.4 Server and its hosted Web UI, not just an updated client. No resampling alone is insufficient. The badge requires a known lossless source and evidence tied to the current track and output:
 
 - **UPnP / Cast:** the Server has started delivering the inspected original file bytes, without decoding, transcoding, gain changes or DSP.
-- **RAAT:** the active, owned stream has accepted PCM at the original sample rate and channel count with source precision preserved, without gain changes or DSP. Integer containers may widen by zero-padding. Underrun or overrun evidence removes qualification.
 
 Selecting the badge shows the source format, delivery method and verification boundary without sending a playback command. **Server delivery is not a claim about receiver processing or physical DAC output:** receiver volume, DSP, mixing, resampling and conversion remain unverified. Original-file delivery does not imply a negotiated receiver PCM container.
 
@@ -345,22 +343,6 @@ Missing or mismatched metadata and sources outside those limits are never assume
 
 Cast control keeps a persistent TLS connection and owns the application and media session it launches. Queue advance requires an explicit `FINISHED` status for that owned media: EOF, an empty status, `BUFFERING`, or `ERROR` is never treated as completion. Pause, seek, and accepted media still depend on the receiver.
 
-<a id="raat"></a>
-### Experimental RAAT output (0.2.4)
-
-Version 0.2.4 includes an independently implemented RAAT path, not a Roon Ready certification. It is off by default and requires the 0.2.4 Server and its hosted Web UI; 0.2.3 packages do not include it. In **Settings → Playback & outputs**, enable **RAAT output (experimental)** only when you intend to use it, configure the Server's absolute FFmpeg path, save, and restart explicitly. Linux containers bundle compatible FFmpeg; Windows needs a separately configured compatible executable and its RAAT playback remains unqualified. See [RAAT prerequisites](INSTALL.md#raat-development).
-
-- **One player:** RAAT uses the same Server queue, artwork and Play/Pause, Stop, Previous, Next and Seek controls. Native receiver button/seek events become Server commands; the receiver does not get a second queue. Enabling, discovery, output selection, restart or connection loss never starts or resumes playback automatically; select Play explicitly.
-- **Precision:** the sender preserves the inspected sample rate and channel count, uses unity gain without normalization or DSP, and selects only an advertised format that preserves integer precision or the exact 32/64-bit floating representation. Integer widening preserves values by zero-padding low bits. Unknown precision, unsupported formats, DSD and unavailable matching output formats fail rather than silently resampling, downmixing or converting float to integer. Lossy decoding is not source-bit-perfect playback. This does not establish bit transparency at the receiver's DAC.
-- **Buffering:** PCM uses a separate continuous TCP connection, not a control request and acknowledgement for every chunk. The receiver stops and resumes socket reads against its bounded native ring, preventing unread samples from being overwritten. Startup waits for prefill and schedules against the device clock. Delayed batches of control notifications apply bounded backpressure instead of disconnecting playback. Completion requires source EOF, consumed samples and the device clock/output delay; sender EOF alone never advances the queue. An underrun before source completion is a failure, not a successful end. This is not multiroom synchronization, gapless playback or a WAN/jitter qualification.
-- **Receiver display and controls:** supported native plugins receive track metadata, JPEG artwork and current Server state. Another controller taking display/button ownership relinquishes those controls without intentionally stopping the audio stream. Publication echoes and stale stream events are fenced. A receiver's actual plugin capabilities still determine its screen and physical-button behavior; arbitrary asynchronous plugin echoes remain unverified.
-- **Compatibility and security:** discovery reads SOOD advertisements and `get_info`; selecting Play additionally loads jastreamer's original Lua adapter into the receiver session and requests the output. Protocol versions other than `3` and receivers advertising signing keys are rejected; no signing or authentication bypass is attempted. Discovery is not proof that a receiver accepts the adapter. A per-stream token binds the separate audio socket to the control session, but neither channel is encrypted and the receiver's identity is not cryptographically authenticated. Use only a trusted private IPv4 LAN.
-
-Evidence is deliberately separated: static REA analysis established framing, native stream counters, unity-gain handling and transport-plugin contracts; isolated fixtures exercise the authored implementation. An authorized FiiO K17 trial (firmware `265`, protocol `3`, RAAT `1.1.47`) accepted the adapter and consumed an entire 285.632-second, 48 kHz, 24-bit stereo FLAC copied from a NAS into an isolated test library. Checks covered Previous/Next, Pause, paused and playing Seek, Resume, native end-of-track detection, Stop and subsequent idle observations. The production decoder's complete PCM output matched the FLAC STREAMINFO MD5. Instrumented playback showed no pre-EOF source drops or ring overruns; native zero-fill after EOF is counted separately. A confirmed Stop remains confirmed across healthy idle reports, while new renderer faults remain errors. This does **not** verify audible output, physical buttons, screen/artwork appearance, extended reliability or DAC-side bit transparency. Device playback or settings changes still require separate authorization.
-
-An additional FiiO receiver advertising model `R7`, version `1.0.4` and RAAT `1.1.38` (called R9 by the user; the advertised identity is recorded here) disconnected on the first Next transition, with the user observing its app exit. Removing native `send_message` replies during session shutdown allowed five consecutive Next transitions and Stop in an isolated Server-player trial using two read-only NAS tracks; the receiver's control port remained available afterward. Shutdown now abandons pending replies instead of sending through the closed transport. The 151 Lua fixture checks and RAAT/player race tests also passed in that investigation. This trial did not exercise physical buttons or verify audible output; the receiver's native crash stack remains unavailable. These observations do not qualify other models or firmware.
-
-
 <a id="settings"></a>
 ## 5. Settings reference
 
@@ -369,7 +351,7 @@ An additional FiiO receiver advertising model `R7`, version `1.0.4` and RAAT `1.
 | **General** | Language, experimental features, Server name, data directory, and account password |
 | **Network** | HTTP/HTTPS listeners, access rules, network adapters, discovery/polling intervals, and the Server audio URL |
 | **Library** | Music folders, scanning, and background audio verification |
-| **Playback & outputs** | Google Cast, experimental RAAT, AirPlay and its setup help, FFmpeg, and audio conversion |
+| **Playback & outputs** | Google Cast, AirPlay and its setup help, FFmpeg, and audio conversion |
 | **Diagnostics** | Playback/file-check history and CSV report downloads |
 
 Switching tabs keeps unsaved edits and saves nothing; it never restarts, scans, or controls playback. **Save settings** and **Discard changes** apply to all Server-setting tabs together, while language and account actions are separate. An invalid field in a hidden tab is revealed and focused before saving. Restart and configuration-conflict notices stay visible across tabs. On narrow screens scroll the tab strip horizontally.

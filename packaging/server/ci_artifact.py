@@ -14,7 +14,9 @@ from typing import Any
 
 import windows_package
 
-VERSION = "0.2.4"
+VERSION = "0.2.5"
+DESKTOP_VERSION = "0.2.4"
+ANDROID_VERSION = "0.2.4"
 SHA256 = re.compile(r"[0-9a-f]{64}")
 CERTIFICATE_SHA256 = re.compile(r"[0-9A-F]{64}")
 REVISION = re.compile(r"[0-9a-f]{40}")
@@ -26,7 +28,7 @@ DESKTOP_TARGETS = {
     "windows-x64": {
         "platform": "win32",
         "arch": "x64",
-        "archive": f"jastreamer-desktop_{VERSION}_windows-x64.zip",
+        "archive": f"jastreamer-desktop_{DESKTOP_VERSION}_windows-x64.zip",
         "checks": [
             "exact-package-inventory",
             "windows-package-execution",
@@ -37,7 +39,7 @@ DESKTOP_TARGETS = {
     "linux-amd64": {
         "platform": "linux",
         "arch": "amd64",
-        "archive": f"jastreamer-desktop_{VERSION}_linux-amd64.deb",
+        "archive": f"jastreamer-desktop_{DESKTOP_VERSION}_linux-amd64.deb",
         "checks": [
             "exact-package-inventory",
             "native-deb-installation",
@@ -49,7 +51,7 @@ DESKTOP_TARGETS = {
     "macos-arm64": {
         "platform": "darwin",
         "arch": "arm64",
-        "archive": f"jastreamer-desktop_{VERSION}_macos-arm64-adhoc.dmg",
+        "archive": f"jastreamer-desktop_{DESKTOP_VERSION}_macos-arm64-adhoc.dmg",
         "checks": [
             "exact-package-inventory",
             "readonly-dmg-mount",
@@ -74,7 +76,7 @@ ANDROID_APPLICATION_ID = "io.jastreamer.android"
 ANDROID_VERSION_CODE = 20400
 ANDROID_MIN_SDK = 29
 ANDROID_TARGET_SDK = 36
-ANDROID_RELEASE_APK = f"jastreamer-android_{VERSION}_release.apk"
+ANDROID_RELEASE_APK = f"jastreamer-android_{ANDROID_VERSION}_release.apk"
 ANDROID_CERTIFICATE_PIN = pathlib.Path(__file__).resolve().parent.parent / "android" / "release-certificate-sha256.txt"
 
 
@@ -267,7 +269,7 @@ def verify_server_artifact(directory: pathlib.Path, architecture: str, source_re
 def validate_desktop_manifest(value: Any, directory: pathlib.Path, target: str, source_revision: str) -> dict[str, Any]:
     expected = DESKTOP_TARGETS[target]
     require(isinstance(value, dict), "desktop manifest must be an object")
-    require(value.get("product") == "jastreamer-desktop" and value.get("version") == VERSION, "unexpected desktop artifact identity")
+    require(value.get("product") == "jastreamer-desktop" and value.get("version") == DESKTOP_VERSION, "unexpected desktop artifact identity")
     require(value.get("platform") == expected["platform"] and value.get("arch") == expected["arch"], "desktop platform mismatch")
     require(value.get("sourceRevision") == source_revision, "desktop source revision mismatch")
     require(value.get("electron") == "44.3.0", "unexpected Electron version")
@@ -380,7 +382,7 @@ def create_desktop(args: argparse.Namespace) -> None:
     receipt = {
         "schema": 1,
         "product": "jastreamer-desktop",
-        "version": VERSION,
+        "version": DESKTOP_VERSION,
         "target": args.target,
         "platform": manifest["platform"],
         "arch": manifest["arch"],
@@ -413,7 +415,7 @@ def verify_desktop_artifact(directory: pathlib.Path, target: str, source_revisio
     manifest = validate_desktop_manifest(read_json(manifest_path), directory, target, source_revision)
     receipt = read_json(directory / "verification.json")
     require(isinstance(receipt, dict) and receipt.get("schema") == 1, "unsupported desktop verification receipt")
-    require(receipt.get("product") == "jastreamer-desktop" and receipt.get("version") == VERSION, "unexpected desktop verification identity")
+    require(receipt.get("product") == "jastreamer-desktop" and receipt.get("version") == DESKTOP_VERSION, "unexpected desktop verification identity")
     require(receipt.get("target") == target and receipt.get("platform") == expected["platform"] and receipt.get("arch") == expected["arch"], "desktop verification target mismatch")
     require(receipt.get("sourceRevision") == source_revision, "desktop verification source revision mismatch")
     require(receipt.get("archive") == manifest["archive"], "desktop receipt archive mismatch")
@@ -449,8 +451,8 @@ def release_certificate_sha256() -> str:
 
 def android_ci_apk_names(source_revision: str) -> tuple[str, str]:
     return (
-        f"jastreamer-android_{VERSION}_{source_revision}_debug-test-signed.apk",
-        f"jastreamer-android_{VERSION}_{source_revision}_release-unsigned.apk",
+        f"jastreamer-android_{ANDROID_VERSION}_{source_revision}_debug-test-signed.apk",
+        f"jastreamer-android_{ANDROID_VERSION}_{source_revision}_release-unsigned.apk",
     )
 
 
@@ -464,7 +466,7 @@ def verify_android_ci_artifact(directory: pathlib.Path, source_revision: str) ->
     provenance = read_json(directory / "provenance.json")
     require(isinstance(provenance, dict), "Android CI provenance must be an object")
     require(provenance.get("sourceRevision") == source_revision, "Android CI provenance source revision mismatch")
-    require(provenance.get("version") == VERSION, "Android CI provenance version mismatch")
+    require(provenance.get("version") == ANDROID_VERSION, "Android CI provenance version mismatch")
     require(provenance.get("productionQualified") is False, "Android CI provenance must not claim production qualification")
     records = provenance.get("artifacts")
     require(isinstance(records, list) and len(records) == 2, "Android CI provenance must describe both APKs")
@@ -488,8 +490,8 @@ def verify_android_ci_artifact(directory: pathlib.Path, source_revision: str) ->
 def validate_android_manifest(value: Any, directory: pathlib.Path, source_revision: str) -> dict[str, Any]:
     require(isinstance(value, dict), "Android release manifest must be an object")
     require(value.get("schema") == 1, "unsupported Android release manifest schema")
-    require(value.get("product") == "jastreamer-android" and value.get("version") == VERSION, "unexpected Android release identity")
-    require(value.get("versionName") == VERSION, "Android versionName differs from the product version")
+    require(value.get("product") == "jastreamer-android" and value.get("version") == ANDROID_VERSION, "unexpected Android release identity")
+    require(value.get("versionName") == ANDROID_VERSION, "Android versionName differs from the Android version")
     require(value.get("versionCode") == ANDROID_VERSION_CODE, "unexpected Android versionCode")
     require(value.get("applicationId") == ANDROID_APPLICATION_ID, "unexpected Android applicationId")
     require(value.get("minSdk") == ANDROID_MIN_SDK and value.get("targetSdk") == ANDROID_TARGET_SDK, "unexpected Android SDK range")
