@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>jastreamer — self-hosted music player and controller for your private LAN</title>
-  <meta name="description" content="jastreamer 0.2.4 is a self-hosted music player for a trusted private LAN. Control one shared queue from any computer or phone; your Linux or Windows Server plays to this device, UPnP/DLNA, optional Google Cast, Linux-container AirPlay, or experimental, default-off RAAT.">
+  <meta name="description" content="jastreamer 0.2.4 is a self-hosted music player for a trusted private LAN. Control one shared queue from any computer or phone; your Linux or Windows Server plays to this device, UPnP/DLNA, optional Google Cast, Linux-container AirPlay, or experimental RAAT.">
   <meta name="color-scheme" content="dark">
   <meta name="theme-color" content="#111315">
   <meta name="referrer" content="strict-origin-when-cross-origin">
@@ -12,6 +12,7 @@
   <link rel="alternate" hreflang="ko" href="ko/index.html">
   <link rel="icon" href="assets/jastreamer.svg" type="image/svg+xml">
   <link rel="stylesheet" href="assets/styles.css">
+  <script src="assets/image-viewer.js" defer></script>
   <meta property="og:type" content="website">
   <meta property="og:title" content="jastreamer — self-hosted music player and controller for your private LAN">
   <meta property="og:description" content="Control one shared queue from any computer or phone, and let your own Server play it to a USB DAC or a network receiver you choose.">
@@ -54,7 +55,7 @@
         </p>
         <h1 id="hero-title">Play from any screen.<br><em>Hear it where you choose.</em></h1>
         <p class="hero-lead">
-          jastreamer is a carefully designed player for the music on your own Linux or Windows Server. Queue and control it from any computer or phone on your private LAN, and the Server plays to the output you pick — a USB DAC on this device, a UPnP/DLNA, Google Cast or AirPlay receiver across the room, or experimental, default-off <a href="#raat">RAAT</a>.
+          Control the music on your Linux or Windows Server from any computer or phone on your private LAN. Listen on that device, through a USB DAC, or on a UPnP/DLNA, Cast, AirPlay or <a href="#raat">RAAT</a> receiver. RAAT sending is an opt-in experimental feature.
         </p>
         <div class="actions">
           <a class="button button-primary" href="#download">Download 0.2.4</a>
@@ -66,17 +67,6 @@
           <li>No telemetry or analytics</li>
           <li>English and Korean interface</li>
         </ul>
-
-        <figure class="hero-shot">
-          <div class="screen-frame">
-            <img src="assets/player-en.webp" width="1440" height="900" fetchpriority="high" decoding="async"
-              alt="The jastreamer Web interface in a desktop browser: the Queue view with four sample tracks and their reorder, like, remove and save actions, and the Player bar below with Open Windows loaded and stopped at 0:00 of 3:00, transport, shuffle and repeat, output selector and local volume.">
-          </div>
-          <figcaption class="shot-caption">
-            <span class="sample-badge">Sample library</span>
-            <span>The real jastreamer Player, captured with synthetic sample tracks and original abstract artwork — not anyone’s personal music. These earlier screenshots do not show the new RAAT output or Server delivery badge.</span>
-          </figcaption>
-        </figure>
       </div>
     </section>
 
@@ -84,65 +74,60 @@
       <div class="container">
         <div class="section-head">
           <p class="section-kicker">The Player</p>
-          <h2 id="player-title">Every control you reach for, right where you expect it.</h2>
-          <p>The player stays with you in every view and shows what is playing and where. Every computer and phone drives the same Server queue, so moving from the desk to the couch never means rebuilding what you were listening to.</p>
+          <h2 id="player-title">Same song, same queue — at your desk or on the sofa.</h2>
+          <p>Your computer and your phone are two remotes for one Server-owned player. Both drive the same queue and the same selected output, so moving from the desk to the couch never means rebuilding what you were listening to.</p>
         </div>
 
-        <div class="player-grid">
-          <div>
-            <ul class="control-list">
-              <li>
-                <h3>Transport that follows the output</h3>
-                <p>Play/Pause, Stop, Previous, Next and a seek bar. Commands go to the Server, which drives the selected output; seeking is offered where that output supports it.</p>
-              </li>
-              <li>
-                <h3>Shuffle and repeat, shared</h3>
-                <p><strong>Sequential / Shuffle</strong> and <strong>Repeat off / all / one</strong> apply to the shared queue on every device. Shuffle plays a random order without scrambling the list you see, and <strong>Play next</strong> stays next.</p>
-              </li>
-              <li>
-                <h3>A queue you can edit mid-song</h3>
-                <p><strong>Play next</strong>, <strong>Add to queue end</strong>, or remove any entry — even the one playing — without interrupting the music. Order and duplicates are kept, and the queue survives Server restarts without playing by itself.</p>
-              </li>
-              <li>
-                <h3>Outputs inside the player</h3>
-                <p>Choose the <strong>Output device</strong> while stopped, use <strong>Find output devices again</strong> after switching a receiver on, pair AirPlay with its PIN, and set <strong>Local volume</strong> for this device without touching system volume.</p>
-              </li>
-              <li>
-                <h3>Know what you are hearing</h3>
-                <p><strong>Track information</strong> shows codec, sample rate, bit depth, channels and play count. Native exclusive or direct-USB output can show <strong>Bit-perfect</strong> or <strong>Not bit-perfect</strong>; qualifying UPnP, Cast and RAAT streams can show <strong>Bit-perfect · Server delivery</strong>. The scopes differ — <a href="#bit-perfect">see what each badge covers</a>.</p>
-              </li>
-            </ul>
-
-            <div class="phone-note" id="phone">
-              <h3>On your phone</h3>
-              <p>iPhone and Android phone browsers switch to a four-tab layout automatically. The compact player keeps Play/Pause, Stop and <strong>Playback modes</strong> under your thumb; expand it for seek, Previous/Next, shuffle, repeat and output selection. Controls are at least 44×44 pixels, and changing tabs collapses the player without stopping the music.</p>
-              <p>The Android app adds system media controls, direct USB output to a DAC for Server playback, and an offline <strong>Saved music</strong> library. The native iOS client is controller-only and available as source and CI builds only.</p>
-            </div>
+        <figure class="device-showcase">
+          <div class="device-stage">
+            <a class="device device-desktop" href="assets/player-en.webp" data-image-viewer target="_blank" rel="noopener">
+              <span class="device-label">At the desk <span>Browser · Windows / Mac apps</span></span>
+              <span class="device-screen">
+                <img src="assets/player-en.webp" width="1440" height="900" loading="lazy" decoding="async"
+                  alt="The jastreamer Web interface in a desktop browser: the Queue view with four sample tracks and their reorder, like, remove and save actions, and the Player bar below with Open Windows loaded and stopped at 0:00 of 3:00, transport, shuffle and repeat, the output selector set to Desk browser, and local volume.">
+              </span>
+            </a>
+            <a class="device device-phone" href="assets/player-phone-en.webp?v=queue" data-image-viewer target="_blank" rel="noopener">
+              <span class="device-label">On the sofa <span>Browser · mobile apps</span></span>
+              <span class="device-screen">
+                <img src="assets/player-phone-en.webp?v=queue" width="780" height="1688" loading="lazy" decoding="async"
+                  alt="The phone Web interface showing the same Queue as the desktop: Open Windows, After the Rain, Soft Landing and Homeward by Mira Field, with the collapsed mini player for Open Windows and the four-tab navigation.">
+              </span>
+            </a>
           </div>
+          <figcaption>
+            <span class="sample-badge">Sample library</span>
+            <span>Actual Web UI rendered with sample music data; the desktop capture is from an earlier version. Select a screen to enlarge it; select outside the image or Close to return.</span>
+          </figcaption>
+        </figure>
 
-          <figure class="phone-pair">
-            <div class="phone-pair-shots">
-              <div class="phone-pair-item">
-                <div class="phone-frame">
-                  <img src="assets/mobile-en.webp" width="780" height="1688" loading="lazy" decoding="async"
-                    alt="Phone browser layout while browsing: the sample album After the Rain with its track list, the compact player and the four-tab bar.">
-                </div>
-                <p class="phone-label">Compact player</p>
-              </div>
-              <div class="phone-pair-item">
-                <div class="phone-frame">
-                  <img src="assets/player-phone-en.webp" width="780" height="1688" loading="lazy" decoding="async"
-                    alt="Phone-sized browser with Playback controls expanded: the sample track Open Windows stopped at 0:00, the seek bar, Previous and Next, Sequential and Repeat off, the output selector set to Desk browser [Local audio], and Play and Stop.">
-                </div>
-                <p class="phone-label">Expanded player</p>
-              </div>
-            </div>
-            <figcaption>
-              <span class="sample-badge">Sample library</span>
-              Phone browser layout of the Server-hosted Web interface, captured with synthetic sample tracks — not the native Android app.
-            </figcaption>
-          </figure>
-        </div>
+        <ul class="control-list">
+          <li>
+            <h3>Transport that follows the output</h3>
+            <p>Play/Pause, Stop, Previous, Next and a seek bar. Commands go to the Server, which drives the selected output; seeking is offered where that output supports it.</p>
+          </li>
+          <li>
+            <h3>Shuffle and repeat, shared</h3>
+            <p><strong>Sequential / Shuffle</strong> and <strong>Repeat off / all / one</strong> apply to the shared queue on every device. Shuffle plays a random order without scrambling the list you see, and <strong>Play next</strong> stays next.</p>
+          </li>
+          <li>
+            <h3>A queue you can edit mid-song</h3>
+            <p><strong>Play next</strong>, <strong>Add to queue end</strong>, or remove any entry — even the one playing — without interrupting the music. Order and duplicates are kept, and the queue survives Server restarts without playing by itself.</p>
+          </li>
+          <li>
+            <h3>Outputs inside the player</h3>
+            <p>Choose the <strong>Output device</strong> while stopped, use <strong>Find output devices again</strong> after switching a receiver on, pair AirPlay with its PIN or password, and set <strong>Local volume</strong> for this device without touching system volume.</p>
+          </li>
+          <li>
+            <h3>Know what you are hearing</h3>
+            <p><strong>Track information</strong> shows codec, sample rate, bit depth, channels and play count. Native exclusive or direct-USB output can show <strong>Bit-perfect</strong> or <strong>Not bit-perfect</strong>; qualifying UPnP, Cast and RAAT streams can show <strong>Bit-perfect · Server delivery</strong>. The scopes differ — <a href="#bit-perfect">see what each badge covers</a>.</p>
+          </li>
+          <li id="phone">
+            <h3>On your phone</h3>
+            <p>iPhone and Android phone browsers use a four-tab layout. The compact player keeps Play/Pause, Stop and <strong>Playback modes</strong> within reach; expand it for seek, Previous/Next and output selection. Changing tabs collapses the player without stopping the music.</p>
+            <p>The Android app adds system media controls, opt-in experimental direct USB output for Server playback, and an offline <strong>Saved music</strong> library. The native iOS client is controller-only and available as source and CI builds only.</p>
+          </li>
+        </ul>
       </div>
     </section>
 
@@ -184,11 +169,13 @@
           </div>
 
           <figure class="concept-shot">
-            <img src="assets/listening-en.svg" width="720" height="1400" loading="lazy" decoding="async"
-              alt="Concept illustration in three parts. Control: a phone and a laptop browser send commands only to the jastreamer Server, which holds the library, the queue and one selected output. Local listening: Server audio goes to a desktop or Android app with a USB DAC, using opt-in exclusive or USB-direct output. Or network listening: the Server streams to a receiver using UPnP/DLNA, optional Cast, AirPlay or experimental, default-off RAAT. AirPlay sending needs the Linux container Server; RAAT needs a compatible receiver and configured FFmpeg.">
+            <a href="assets/listening-en.svg" aria-label="Enlarge the listening concept diagram" data-image-viewer target="_blank" rel="noopener">
+              <img src="assets/listening-en.svg" width="720" height="1260" loading="lazy" decoding="async"
+                alt="Controllers send commands to the Server, which keeps one library and queue and streams to one selected output: a browser or app on this device, or a UPnP/DLNA, Cast, AirPlay or RAAT receiver. Network audio does not pass through the controller. RAAT carries PCM, track info and artwork to the receiver; supported receiver controls return to the Server.">
+            </a>
             <figcaption>
               <span class="concept-badge">Concept illustration</span>
-              A simplified diagram of roles and audio paths — not a screenshot or a specific product.
+              One Server, one selected output. Select the diagram to enlarge it; select outside the image or Close to return.
             </figcaption>
           </figure>
         </div>
@@ -197,46 +184,44 @@
         <ul class="outputs">
           <li><strong>This device</strong><span>The computer or phone you are using. The Windows, Mac and Android apps add opt-in exclusive or direct-USB output to a DAC.</span></li>
           <li><strong>UPnP/DLNA</strong><span>Built in: discovers and controls renderers on your LAN.</span></li>
-          <li><strong>Google Cast</strong><span>Optional on both Server platforms; off by default.</span></li>
+          <li><strong>Google Cast</strong><span>Optional on Linux and Windows Servers; off by default.</span></li>
           <li><strong>AirPlay</strong><span>Sending from the Linux container only, including PIN/password pairing.</span></li>
-          <li><strong>RAAT · experimental</strong><span>Off by default on both Server platforms. Needs a compatible receiver and configured FFmpeg. <a href="#raat">Prerequisites and limits</a>; not Roon Ready certification.</span></li>
+          <li id="raat"><strong>RAAT</strong><span>Streams music and album art to compatible RAAT receivers, with controls tied to the Server queue. An opt-in experimental sender. <a href="https://github.com/furyheimdall/jastreamer/blob/main/INSTRUCTION.md#raat">RAAT guide</a></span></li>
         </ul>
         <p class="fine-print">
-          Discovery needs multicast and private-LAN routes between Server, controller and output (SSDP UDP 1900 for UPnP, mDNS UDP 5353 for Cast and AirPlay). Receivers differ — some lack pause or seeking, reject formats or require authentication — so confirm playback and sound on your own equipment.
+          Receivers need a reachable private-LAN connection and multicast discovery. See the <a href="https://github.com/furyheimdall/jastreamer/blob/main/INSTALL.md#requirements">network requirements</a>; supported formats and controls vary by receiver.
         </p>
-
-        <div class="bit-perfect" id="raat">
-          <div class="bit-perfect-head">
-            <h3>RAAT, with the same player and queue</h3>
-            <p>An independently implemented, experimental output — off by default, not Roon Ready certification. The Server remains the player; your screens remain controllers, and the receiver never gets a second queue.</p>
-          </div>
-          <div class="bit-perfect-grid">
-            <div>
-              <h4>Display, control and delivery</h4>
-              <ul class="check-list">
-                <li>Supported receiver plugins receive track metadata, a JPEG artwork thumbnail and playback state. Play/Pause, Stop, Previous, Next and Seek use the same Server queue; device-origin control events return to that queue too.</li>
-                <li>PCM retains the original sample rate, channels and precision at unity gain, without resampling, normalization or DSP. Integer widening may add zero-padding; unsupported formats fail instead of silently converting.</li>
-                <li>A continuous audio connection feeds a bounded receiver buffer, with prefill and device-clock scheduling. The queue waits for consumed audio, not just the Server finishing its send. This is not a promise of gapless or synchronized multiroom playback.</li>
-              </ul>
-            </div>
-            <div class="scope-notes">
-              <p><strong>Before enabling.</strong> Use a trusted private IPv4 LAN and a compatible protocol-3 receiver that accepts the adapter; signing-key receivers are rejected, not bypassed. Discovery alone does not prove compatibility. RAAT control and audio are not encrypted.</p>
-              <p><strong>FFmpeg is required.</strong> The Linux container bundles it. Windows Server needs a separately installed compatible FFmpeg, configured with its absolute executable path and the required input protocol, decoder and PCM encoders. In Settings → Playback &amp; outputs, enable RAAT, save and restart. Read the <a href="https://github.com/furyheimdall/jastreamer/blob/main/INSTALL.md#raat-development">RAAT prerequisites</a> first.</p>
-              <p><strong>Qualification is limited.</strong> FiiO K17 full-track and transport checks, and Next/Stop checks on a receiver advertising FiiO R7, are not audible-output, physical-button or DAC verification. They do not establish general hardware compatibility. See the <a href="https://github.com/furyheimdall/jastreamer/blob/main/INSTRUCTION.md#raat">RAAT guide and evidence limits</a>.</p>
-            </div>
-          </div>
-        </div>
 
         <div class="bit-perfect" id="bit-perfect">
           <div class="bit-perfect-head">
-            <h3>Signal-path badges, with their limits spelled out</h3>
-            <p>A native output badge and a <strong>Server delivery</strong> badge describe different parts of the path. Neither certifies the sound at a physical DAC. Selecting a badge shows its evidence and boundary without changing playback.</p>
+            <h3>See what your audio path preserves</h3>
+            <p>The native output badge and <strong>Server delivery</strong> badge cover different parts of the path. Select a badge to see the evidence for the current track and output.</p>
+          </div>
+          <div class="bit-perfect-examples" aria-labelledby="bit-perfect-examples-title">
+            <div>
+              <h4 id="bit-perfect-examples-title">Badge display examples</h4>
+              <p>Real player UI rendered with example state, not hardware verification. Select an image to enlarge.</p>
+            </div>
+            <figure class="bit-perfect-example">
+              <figcaption>Native output · Bit-perfect</figcaption>
+              <a href="assets/bit-perfect-native-en.webp?v=desktop" aria-label="Enlarge the native Bit-perfect badge example" data-image-viewer target="_blank" rel="noopener">
+                <img src="assets/bit-perfect-native-en.webp?v=desktop" width="814" height="210" loading="lazy" decoding="async"
+                  alt="Desktop player track-information area showing the native Bit-perfect badge, rendered with example state.">
+              </a>
+            </figure>
+            <figure class="bit-perfect-example">
+              <figcaption>Server delivery · Bit-perfect</figcaption>
+              <a href="assets/bit-perfect-server-en.webp?v=desktop" aria-label="Enlarge the Server delivery Bit-perfect badge example" data-image-viewer target="_blank" rel="noopener">
+                <img src="assets/bit-perfect-server-en.webp?v=desktop" width="814" height="210" loading="lazy" decoding="async"
+                  alt="Desktop player track-information area showing the Bit-perfect Server delivery badge, rendered with example state.">
+              </a>
+            </figure>
           </div>
           <div class="bit-perfect-grid">
             <div>
               <h4>Native output: where it is available</h4>
               <ul class="check-list">
-                <li><strong>Windows 10/11 app</strong> — Windows native backend with <strong>Exclusive</strong> on (WASAPI Exclusive); confirm the actual path on your own Windows audio hardware. <a href="https://github.com/furyheimdall/jastreamer/blob/main/INSTRUCTION.md#windows-audio">Windows audio guide</a></li>
+                <li><strong>Windows 10/11 app</strong> — WASAPI with <strong>Exclusive</strong> on. Real Windows audio hardware remains unverified. <a href="https://github.com/furyheimdall/jastreamer/blob/main/INSTRUCTION.md#windows-audio">Windows audio guide</a></li>
                 <li><strong>Apple Silicon Mac app</strong> — CoreAudio backend with <strong>Exclusive</strong> on, to a USB DAC; hardware-tested so far with one DAC (FIIO M33R2R on macOS 26.6.2). <a href="https://github.com/furyheimdall/jastreamer/blob/main/INSTRUCTION.md#macos-audio">macOS audio guide</a></li>
                 <li><strong>Android app</strong> — <strong>USB bit-perfect (direct USB)</strong> to a USB Audio Class DAC for Server playback on the phone; <strong>Saved music</strong> keeps the standard Android output. An experimental option shown after turning on Settings → General → Experimental features. <a href="https://github.com/furyheimdall/jastreamer/blob/main/INSTRUCTION.md#android-controls">Android guide</a></li>
               </ul>
@@ -250,10 +235,8 @@
               <p>While that native path is active, an altered signal is reported as <strong>Not bit-perfect</strong> with the reason. Merely selecting the mode does not earn a badge.</p>
             </div>
             <div class="scope-notes">
-              <p><strong>Native output scope.</strong> The badge describes jastreamer’s application path only. It does not verify the driver, DSP inside the DAC, or physical output — check the negotiated path on your own hardware.</p>
-              <p><strong>Bit-perfect · Server delivery.</strong> Requires a known lossless source and evidence for the current track and output. For UPnP and Cast, the Server must have started delivering the inspected original file bytes without transformation. For RAAT, the active, owned stream must have accepted PCM at the original rate and channels with precision preserved, unity gain and no DSP. Underrun or overrun evidence removes RAAT qualification.</p>
-              <p><strong>Delivery is not DAC transparency.</strong> Receiver volume, DSP, mixing, resampling and conversion remain unverified. Original-file delivery does not prove a negotiated receiver PCM format; the badge is not a physical bit-transparency or certification claim.</p>
-              <p><strong>No qualifying badge.</strong> Browser audio (including the PWA and Linux desktop), shared or system output, and AirPlay do not receive these badges. Merely selecting an output or avoiding resampling is not enough. <a href="https://github.com/furyheimdall/jastreamer/blob/main/INSTRUCTION.md#signal-path">Signal-path guide</a></p>
+              <p><strong>Server delivery.</strong> A known lossless source and current delivery evidence are required. UPnP and Cast must deliver the inspected original file unchanged. RAAT must accept PCM at the original rate, channels and precision, at unity gain without DSP; underruns or overruns remove qualification.</p>
+              <p><strong>Badge scope.</strong> The native badge covers jastreamer’s application path; Server delivery covers its outgoing stream. Neither verifies receiver processing, drivers or the physical DAC output. Browser audio, shared or system output, and AirPlay do not qualify. <a href="https://github.com/furyheimdall/jastreamer/blob/main/INSTRUCTION.md#signal-path">Signal-path guide</a></p>
             </div>
           </div>
         </div>
@@ -314,7 +297,7 @@
         <div class="section-head">
           <p class="section-kicker">Download · version 0.2.4</p>
           <h2 id="download-title">Start with a Server, then add the clients you want.</h2>
-          <p>All packages come from the <a href="https://github.com/furyheimdall/jastreamer/releases/tag/v0.2.4">v0.2.4 release on GitHub</a>. Verify each download before installing — the <a href="https://github.com/furyheimdall/jastreamer/blob/main/INSTALL.md">install guide</a> has the exact steps.</p>
+          <p>Packages and verification files are available from the <a href="https://github.com/furyheimdall/jastreamer/releases/tag/v0.2.4">v0.2.4 release on GitHub</a>.</p>
         </div>
 
         <div class="notice" role="note" aria-labelledby="server-note-title">
@@ -480,7 +463,6 @@
         <div class="section-head">
           <p class="section-kicker">Know the limits</p>
           <h2 id="boundaries-title">What jastreamer is not.</h2>
-          <p>Clear boundaries keep your music, your network and your expectations safe.</p>
         </div>
         <ul class="not-grid">
           <li>
@@ -496,16 +478,12 @@
             <p>It discovers and controls UPnP/DLNA renderers and serves media to them; it is not a DLNA library for third-party players.</p>
           </li>
           <li>
-            <h3>Not an offline browser player</h3>
-            <p>The PWA has no library cache. Offline listening exists only in the Android app’s <strong>Saved music</strong>.</p>
-          </li>
-          <li>
             <h3>Not self-updating or app-store software</h3>
             <p>There is no in-app updater, Windows service or app-store listing. Download and verify each update yourself; Server updates keep your data.</p>
           </li>
           <li>
-            <h3>Not a multiroom or phone-relay system</h3>
-            <p>The Server plays to one selected output at a time; there is no synchronized multiroom playback. For network outputs the phone only sends commands — audio goes from the Server to the receiver.</p>
+            <h3>Not a multiroom system</h3>
+            <p>The Server plays to one selected output at a time; there is no synchronized multiroom playback.</p>
           </li>
         </ul>
       </div>
@@ -520,7 +498,7 @@
             <img src="assets/jastreamer.svg" width="32" height="32" alt="">
             <span>jastreamer</span>
           </a>
-          <p>Self-hosted music server for a trusted private LAN. Maintained by <a href="https://github.com/furyheimdall">@furyheimdall</a>.</p>
+          <p>Self-hosted music player for a trusted private LAN. Maintained by <a href="https://github.com/furyheimdall">@furyheimdall</a>.</p>
         </div>
         <nav aria-labelledby="footer-docs">
           <h2 id="footer-docs">Documentation</h2>
@@ -554,5 +532,16 @@
       </div>
     </div>
   </footer>
+
+  <dialog class="image-viewer" id="image-viewer" aria-labelledby="image-viewer-title">
+    <h2 class="visually-hidden" id="image-viewer-title">Enlarged image</h2>
+    <div class="image-viewer-toolbar">
+      <p>Select outside the image or press Escape to return.</p>
+      <button class="button button-primary image-viewer-close" type="button" autofocus>Close</button>
+    </div>
+    <div class="image-viewer-stage" tabindex="0" role="region" aria-label="Image; scroll to see more">
+      <img class="image-viewer-image" alt="">
+    </div>
+  </dialog>
 </body>
 </html>
