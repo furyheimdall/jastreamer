@@ -17,28 +17,12 @@ function target(request) {
 
 function forward(request, response) {
   if (response.destroyed) return;
-  const started = performance.now();
-  const trace = (event) => console.log(JSON.stringify({
-    at: new Date().toISOString(),
-    path: new URL(request.url, "http://127.0.0.1").pathname,
-    event,
-    elapsed_ms: Math.round(performance.now() - started),
-  }));
-  trace("received");
   const upstream = http.request(target(request), (result) => {
-    trace(`upstream-response-${result.statusCode}`);
     response.writeHead(result.statusCode, result.headers);
     result.on("error", () => response.destroy());
     result.pipe(response);
   });
-  upstream.on("finish", () => trace("upstream-request-sent"));
-  upstream.on("socket", (socket) => {
-    trace(`upstream-socket-${socket.connecting ? "connecting" : "connected"}`);
-    socket.once("connect", () => trace("upstream-connected"));
-  });
-  response.on("finish", () => trace("response-finished"));
   upstream.on("error", () => {
-    trace("upstream-error");
     if (!response.headersSent) response.writeHead(502);
     response.end();
   });
