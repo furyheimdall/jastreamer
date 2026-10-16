@@ -10,6 +10,11 @@
 
 **어느 화면에서든 재생하고, 원하는 곳에서 듣습니다.** jastreamer는 홈 네트워크용 자체 호스팅 음악 서버입니다. 컴퓨터나 휴대전화에서 조작하는 공용 대기열 하나를 브라우저, UPnP/DLNA, Google Cast, AirPlay 또는 USB DAC으로 재생합니다.
 
+<p>
+  <img src="site/assets/player-en.webp" width="720" alt="데스크톱 jastreamer 플레이어. Mira Field의 Open Windows가 정지되어 있고 출력은 Desk browser이며 로컬 음량이 보입니다." />
+  <img src="site/assets/mobile-en.webp" width="220" alt="같은 곡의 휴대전화 jastreamer 플레이어. 출력은 Phone browser이고 보관함, 검색, 대기열, 설정 탭이 있습니다." />
+</p>
+
 ## 문서
 
 | 주제 | 한국어 | English |

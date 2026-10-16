@@ -10,6 +10,11 @@
 
 **Play from any screen. Hear it where you choose.** jastreamer is a self-hosted music server for your home network: one shared queue you control from any computer or phone, playing to your browser, UPnP/DLNA, Google Cast, AirPlay, or a USB DAC.
 
+<p>
+  <img src="site/assets/player-en.webp" width="720" alt="Desktop jastreamer player stopped on Open Windows by Mira Field, with the output set to Desk browser and local volume." />
+  <img src="site/assets/mobile-en.webp" width="220" alt="Phone jastreamer player for the same track, output set to Phone browser, with Library, Search, Queue and Settings tabs." />
+</p>
+
 ## Documentation
 
 | Topic | English | 한국어 |
