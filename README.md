@@ -12,7 +12,7 @@
 
 <p>
   <img src="site/assets/player-en.webp" width="720" alt="Desktop jastreamer player stopped on Open Windows by Mira Field, with the output set to Desk browser and local volume." />
-  <img src="site/assets/mobile-en.webp" width="220" alt="Phone jastreamer player for the same track, output set to Phone browser, with Library, Search, Queue and Settings tabs." />
+  <img src="site/assets/mobile-en.webp" width="220" alt="Phone jastreamer library showing After the Rain by Mira Field and its track list, with an idle mini player and Library, Search, Queue and Settings tabs below." />
 </p>
 
 ## Documentation
