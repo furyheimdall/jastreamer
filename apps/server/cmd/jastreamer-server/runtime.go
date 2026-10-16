@@ -48,44 +48,6 @@ const (
 	runtimeWorkersTimeout  = 30 * time.Second
 )
 
-// errRAATPlaybackNotReady is returned when a RAAT receiver callback runs
-// before runRuntime stores the player service.
-var errRAATPlaybackNotReady = errors.New("raat: playback service is not ready")
-
-// raatPlaybackBinding is preventive defensive code. OnControl and State are
-// registered in raat.New before player.New stores the service, because the
-// player is built from the output manager that includes RAAT. On the current
-// startup path those callbacks cannot run in that window: raat.New only
-// stores them, and session workers start from Play after playback.Run.
-// Load still rejects a nil service so a future early call returns an error.
-type raatPlaybackBinding struct {
-	service atomic.Pointer[player.Service]
-}
-
-func (binding *raatPlaybackBinding) onControl(ctx context.Context, intent output.RemoteControl) error {
-	service := binding.service.Load()
-	if service == nil {
-		return errRAATPlaybackNotReady
-	}
-	return service.RemoteCommand(ctx, intent)
-}
-
-func (binding *raatPlaybackBinding) transportState(ctx context.Context) (raat.TransportState, error) {
-	service := binding.service.Load()
-	if service == nil {
-		return raat.TransportState{}, errRAATPlaybackNotReady
-	}
-	state, err := service.Snapshot(ctx)
-	if err != nil {
-		return raat.TransportState{}, err
-	}
-	return raat.TransportState{
-		RendererID: state.RendererID, State: state.State, RepeatMode: state.RepeatMode,
-		PositionMS: state.PositionMS, DurationMS: state.DurationMS, Shuffle: state.Shuffle,
-		CanPlay: state.Capabilities.Play, CanPause: state.Capabilities.Pause, CanSeek: state.Capabilities.Seek,
-	}, nil
-}
-
 type runtimeResult struct {
 	restart *httpapi.RestartRequest
 	started bool
@@ -254,7 +216,6 @@ func runRuntime(parent context.Context, value config.Config, configPath, restart
 		return result
 	}
 	var playback *player.Service
-	playbackBinding := &raatPlaybackBinding{}
 	backends := []output.Backend{
 		{Protocol: output.ProtocolUPnP, Controller: upnp, Media: media},
 		{Protocol: output.ProtocolBrowser, Controller: browser, Media: browser},
@@ -286,7 +247,20 @@ func runRuntime(parent context.Context, value config.Config, configPath, restart
 		raatManager, raatErr := raat.New(raat.Config{
 			Interfaces: value.Network.Interfaces, DiscoveryInterval: time.Duration(value.Network.DiscoveryIntervalSeconds) * time.Second,
 			FFmpegPath: value.Media.FFmpegPath, Notify: hub.Publish,
-			OnControl: playbackBinding.onControl, State: playbackBinding.transportState,
+			OnControl: func(ctx context.Context, intent output.RemoteControl) error {
+				return playback.RemoteCommand(ctx, intent)
+			},
+			State: func(ctx context.Context) (raat.TransportState, error) {
+				state, err := playback.Snapshot(ctx)
+				if err != nil {
+					return raat.TransportState{}, err
+				}
+				return raat.TransportState{
+					RendererID: state.RendererID, State: state.State, RepeatMode: state.RepeatMode,
+					PositionMS: state.PositionMS, DurationMS: state.DurationMS, Shuffle: state.Shuffle,
+					CanPlay: state.Capabilities.Play, CanPause: state.Capabilities.Pause, CanSeek: state.Capabilities.Seek,
+				}, nil
+			},
 		}, catalog)
 		if raatErr != nil {
 			result.err = raatErr
@@ -300,7 +274,6 @@ func runRuntime(parent context.Context, value config.Config, configPath, restart
 		result.err = err
 		return result
 	}
-	playbackBinding.service.Store(playback)
 	if err = catalog.StartVerification(library.VerificationOptions{
 		FFmpegPath: value.Media.FFmpegPath,
 		History:    history,
