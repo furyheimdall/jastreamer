@@ -28,7 +28,7 @@ For agent-assisted installation or updates, start at [AGENTS.md](AGENTS.md); its
 | Component | Requirements | Package |
 | --- | --- | --- |
 | Linux or Synology Server | Linux `amd64`/`arm64` with Docker Engine and Compose v2, or Synology DSM with Container Manager. `arm/v7` is unsupported; DS918+ is `amd64` | `ghcr.io/furyheimdall/jastreamer-server` image |
-| Windows Server | Windows x64 and a writable local folder, run by an ordinary account. Not installed as a Windows service | `jastreamer-server_0.2.5_windows-x64.zip` |
+| Windows Server | Windows x64 and a writable local folder, run by an ordinary account. Not installed as a Windows service | `jastreamer-server_0.2.6_windows-x64.zip` |
 | Windows desktop | Windows 10/11 x64; no ARM64 package | `jastreamer-desktop_0.2.4_windows-x64.zip` |
 | Linux desktop | Graphical Linux `amd64`; Ubuntu 24.04 amd64 is the qualification target; no ARM64 package | `jastreamer-desktop_0.2.4_linux-amd64.deb` |
 | macOS desktop | Apple Silicon macOS 13+; no Intel/Rosetta or Universal build | Official `jastreamer-desktop_0.2.4_macos-arm64-adhoc.dmg` containing `.app`; ad-hoc signed, not notarized |
@@ -74,11 +74,11 @@ AirPlay is available only in the Linux image, through its packaged helper. Do no
 
 Prefer the newest stable release: on the [GitHub Releases listing](https://github.com/furyheimdall/jastreamer/releases) it is the `vX.Y.Z` entry without a Preview label, and `/releases/latest` resolves to it. Choose a `vX.Y.Z-preview.N` prerelease only when you are deliberately testing that preview, and remember that previews are never marked latest. Whichever you pick, confirm the entry supports your host architecture and the package you need; if the newest one is incompatible, say why and use the newest compatible entry.
 
-Use [Server 0.2.5](https://github.com/furyheimdall/jastreamer/releases/tag/v0.2.5) for the Linux images and Windows Server, including the embedded Web UI. Desktop and Android packages remain in [release 0.2.4](https://github.com/furyheimdall/jastreamer/releases/tag/v0.2.4); iOS remains source and CI only. For each package or image, verify the provenance, source revision, manifest, SHA-256 values and architecture together, using checksums and evidence from that package's own release. `SHA256SUMS` covers each release's assets, and `release-provenance.json` records its release tag, channel, source revision, CI runs and, when Android is included, signer certificate. Optional sample setup applies only when the selected release actually inventories `samples/manifest.json`, the three MP3 assets, and the seeding helper; repository files that were never published are not features of an older release.
+Use [Server 0.2.6](https://github.com/furyheimdall/jastreamer/releases/tag/v0.2.6) for the Linux images and Windows Server, including the embedded Web UI. Desktop and Android packages remain in [release 0.2.4](https://github.com/furyheimdall/jastreamer/releases/tag/v0.2.4); iOS remains source and CI only. For each package or image, verify the provenance, source revision, manifest, SHA-256 values and architecture together, using checksums and evidence from that package's own release. `SHA256SUMS` covers each release's assets, and `release-provenance.json` records its release tag, channel, source revision, CI runs and, when Android is included, signer certificate. Optional sample setup applies only when the selected release actually inventories `samples/manifest.json`, the three MP3 assets, and the seeding helper; repository files that were never published are not features of an older release.
 
 ### Public registry image
 
-The registry is `ghcr.io/furyheimdall/jastreamer-server` and public images pull without a GitHub token. A stable release publishes the multi-architecture index as tag `0.2.5` together with per-architecture digests, and no mutable `latest` image tag exists. Pin the complete immutable digest the release lists for the `linux/amd64` or `linux/arm64` image rather than any tag:
+The registry is `ghcr.io/furyheimdall/jastreamer-server` and public images pull without a GitHub token. A stable release publishes the multi-architecture index as tag `0.2.6` together with per-architecture digests, and no mutable `latest` image tag exists. Pin the complete immutable digest the release lists for the `linux/amd64` or `linux/arm64` image rather than any tag:
 
 ```sh
 export JASTREAMER_SERVER_IMAGE='ghcr.io/furyheimdall/jastreamer-server@sha256:<digest-from-release>'
@@ -94,7 +94,7 @@ Save the verified digest in the deployment's persistent environment file, not on
 Because the ZIPs are not Authenticode-signed, Windows marks them as downloaded from the Internet and SmartScreen may warn the first time you run the extracted program. Unblock the archive **before** extracting, so the mark is not copied onto every extracted file:
 
 - In Explorer: right-click the ZIP → **Properties** → check **Unblock** → **OK**.
-- Or in PowerShell: `Unblock-File -LiteralPath .\jastreamer-server_0.2.5_windows-x64.zip`
+- Or in PowerShell: `Unblock-File -LiteralPath .\jastreamer-server_0.2.6_windows-x64.zip`
 
 Only unblock a file whose SHA-256 you verified against the release. Do not disable SmartScreen, Defender, or the firewall, and do not run the packages as Administrator.
 
@@ -114,11 +114,11 @@ A supplied multi-platform `.oci` cannot be passed to `docker load` directly. Whe
 ```sh
 ARCH=amd64  # or arm64
 skopeo copy --override-os linux --override-arch "$ARCH" \
-  oci-archive:jastreamer-server_0.2.5_linux_amd64-arm64.oci \
-  docker-archive:jastreamer-server_0.2.5_linux_${ARCH}.tar:jastreamer-server:0.2.5
-sha256sum jastreamer-server_0.2.5_linux_${ARCH}.tar
-docker load --input jastreamer-server_0.2.5_linux_${ARCH}.tar
-docker image inspect --format '{{.Id}}' jastreamer-server:0.2.5
+  oci-archive:jastreamer-server_0.2.6_linux_amd64-arm64.oci \
+  docker-archive:jastreamer-server_0.2.6_linux_${ARCH}.tar:jastreamer-server:0.2.6
+sha256sum jastreamer-server_0.2.6_linux_${ARCH}.tar
+docker load --input jastreamer-server_0.2.6_linux_${ARCH}.tar
+docker image inspect --format '{{.Id}}' jastreamer-server:0.2.6
 ```
 
 <a id="linux-server"></a>
@@ -194,7 +194,7 @@ An empty music folder has nothing to play: put music in the approved root, then 
 Download the Windows Server ZIP, its `.sha256`, the manifest, and the verification receipt from the selected release, then [unblock the ZIP](#windows-unblock) and compare its bytes before extracting:
 
 ```powershell
-$file = '.\jastreamer-server_0.2.5_windows-x64.zip'
+$file = '.\jastreamer-server_0.2.6_windows-x64.zip'
 $expected = (Get-Content "$file.sha256" -Raw).Split()[0].ToLowerInvariant()
 $actual = (Get-FileHash $file -Algorithm SHA256).Hash.ToLowerInvariant()
 if ($actual -ne $expected) { throw 'Windows Server ZIP checksum mismatch' }
