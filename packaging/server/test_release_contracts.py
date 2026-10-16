@@ -96,14 +96,14 @@ def write_android_ci_artifact(directory: pathlib.Path, **overrides):
 
 class ReleaseChannelGrammarTests(unittest.TestCase):
     def test_plain_version_tag_selects_the_stable_channel(self):
-        identity = publish.validate_identity(REVISION, "v0.2.5", "0.2.5")
+        identity = publish.validate_identity(REVISION, "v0.2.6", "0.2.6")
         self.assertEqual(identity["channel"], "stable")
         self.assertFalse(identity["prerelease"])
         self.assertTrue(identity["latest"])
         self.assertIsNone(identity["previewNumber"])
 
     def test_preview_tag_selects_the_preview_channel(self):
-        identity = publish.validate_identity(REVISION, "v0.2.5-preview.14", "0.2.5-preview.14")
+        identity = publish.validate_identity(REVISION, "v0.2.6-preview.14", "0.2.6-preview.14")
         self.assertEqual(identity["channel"], "preview")
         self.assertTrue(identity["prerelease"])
         self.assertFalse(identity["latest"])
@@ -111,9 +111,9 @@ class ReleaseChannelGrammarTests(unittest.TestCase):
 
     def test_release_and_image_tags_must_share_one_channel(self):
         for release_tag, image_tag in (
-            ("v0.2.5", "0.2.5-preview.1"),
-            ("v0.2.5-preview.1", "0.2.5"),
-            ("v0.2.5-preview.2", "0.2.5-preview.3"),
+            ("v0.2.6", "0.2.6-preview.1"),
+            ("v0.2.6-preview.1", "0.2.6"),
+            ("v0.2.6-preview.2", "0.2.6-preview.3"),
         ):
             with self.subTest(release_tag=release_tag, image_tag=image_tag):
                 with self.assertRaises(SystemExit) as raised:
@@ -122,21 +122,21 @@ class ReleaseChannelGrammarTests(unittest.TestCase):
 
     def test_tags_outside_the_grammar_are_rejected(self):
         for release_tag, image_tag in (
-            ("0.2.5", "0.2.5"),
-            ("v0.2.5", "v0.2.5"),
+            ("0.2.6", "0.2.6"),
+            ("v0.2.6", "v0.2.6"),
             ("latest", "latest"),
-            ("v0.2.5", "latest"),
-            ("v0.2.5-preview.0", "0.2.5-preview.0"),
-            ("v0.2.5-rc.1", "0.2.5-rc.1"),
-            ("v0.2.5-preview.1-preview.2", "0.2.5-preview.1-preview.2"),
-            ("v0.2.5 ", "0.2.5"),
+            ("v0.2.6", "latest"),
+            ("v0.2.6-preview.0", "0.2.6-preview.0"),
+            ("v0.2.6-rc.1", "0.2.6-rc.1"),
+            ("v0.2.6-preview.1-preview.2", "0.2.6-preview.1-preview.2"),
+            ("v0.2.6 ", "0.2.6"),
         ):
             with self.subTest(release_tag=release_tag, image_tag=image_tag):
                 with self.assertRaises(SystemExit):
                     publish.validate_identity(REVISION, release_tag, image_tag)
 
     def test_tag_version_must_equal_the_product_version(self):
-        for version in ("0.2.3", "0.2.4", "0.3.0"):
+        for version in ("0.2.3", "0.2.4", "0.2.5", "0.3.0"):
             with self.subTest(version=version):
                 with self.assertRaises(SystemExit) as raised:
                     publish.validate_identity(REVISION, f"v{version}", version)
@@ -146,7 +146,7 @@ class ReleaseChannelGrammarTests(unittest.TestCase):
         for revision in ("A" * 40, "a" * 39, "", "abc"):
             with self.subTest(revision=revision):
                 with self.assertRaises(SystemExit):
-                    publish.validate_identity(revision, "v0.2.5", "0.2.5")
+                    publish.validate_identity(revision, "v0.2.6", "0.2.6")
 
 
 class SignedAndroidManifestTests(unittest.TestCase):
@@ -291,14 +291,14 @@ class PublicReleaseChannelTests(unittest.TestCase):
         self.addCleanup(self.temporary.cleanup)
         self.staged = self.root / "staged"
         self.staged.mkdir()
-        self.names = sorted(publish.release_assets("all", "0.2.5"))
+        self.names = sorted(publish.release_assets("all", "0.2.6"))
         for name in self.names:
             (self.staged / name).write_bytes(name.encode())
 
-    def release_json(self, tag="v0.2.5", **overrides):
+    def release_json(self, tag="v0.2.6", **overrides):
         image_tag = tag.removeprefix("v")
         publication = f"jastreamer-server_{image_tag}.manifest.json"
-        stable_publication = "jastreamer-server_0.2.5.manifest.json"
+        stable_publication = "jastreamer-server_0.2.6.manifest.json"
         if publication != stable_publication and stable_publication in self.names:
             self.names.remove(stable_publication)
             (self.staged / stable_publication).unlink()
@@ -323,13 +323,13 @@ class PublicReleaseChannelTests(unittest.TestCase):
         return path
 
     def latest_json(self, **overrides):
-        latest = {"id": 77, "tag_name": "v0.2.5"}
+        latest = {"id": 77, "tag_name": "v0.2.6"}
         latest.update(overrides)
         path = self.root / "latest.json"
         path.write_text(json.dumps(latest), encoding="utf-8")
         return path
 
-    def arguments(self, release_json, latest_json, release_tag="v0.2.5", image_tag="0.2.5"):
+    def arguments(self, release_json, latest_json, release_tag="v0.2.6", image_tag="0.2.6"):
         return publish.argparse.Namespace(
             release_json=str(release_json), staged=str(self.staged), source_revision=REVISION,
             release_tag=release_tag, image_tag=image_tag, scope="all",
@@ -357,8 +357,8 @@ class PublicReleaseChannelTests(unittest.TestCase):
             publish.verify_public_release(self.arguments(self.release_json(), None))
 
     def test_preview_release_must_be_a_prerelease_that_is_not_latest(self):
-        tag = "v0.2.5-preview.3"
-        arguments = self.arguments(self.release_json(tag=tag, prerelease=True), self.latest_json(id=12, tag_name="v0.1.9"), tag, "0.2.5-preview.3")
+        tag = "v0.2.6-preview.3"
+        arguments = self.arguments(self.release_json(tag=tag, prerelease=True), self.latest_json(id=12, tag_name="v0.1.9"), tag, "0.2.6-preview.3")
         with patch.object(publish, "hash_public_url", side_effect=self.downloaded):
             publish.verify_public_release(arguments)
         arguments.latest_json = str(self.latest_json(id=77, tag_name=tag))
@@ -429,7 +429,7 @@ class ReleaseNotesTests(unittest.TestCase):
         return notes.read_text(encoding="utf-8")
 
     def test_notes_reject_a_staged_channel_that_contradicts_the_tag(self):
-        self.stage("v0.2.5", "0.2.5")
+        self.stage("v0.2.6", "0.2.6")
         provenance = json.loads((self.staged / "release-provenance.json").read_text(encoding="utf-8"))
         provenance["channel"] = "preview"
         (self.staged / "release-provenance.json").write_text(json.dumps(provenance), encoding="utf-8")
@@ -560,7 +560,7 @@ class ServerOnlyStagingTests(unittest.TestCase):
         self.save_provenance()
         self.args = publish.argparse.Namespace(
             scope="server", artifact_root=str(self.artifacts), run_provenance=str(self.provenance_path),
-            run_id="42", source_revision=REVISION, release_tag="v0.2.5", image_tag="0.2.5",
+            run_id="42", source_revision=REVISION, release_tag="v0.2.6", image_tag="0.2.6",
             amd64_raw=str(self.root / "amd64.json"), arm64_raw=str(self.root / "arm64.json"),
             index_raw=str(self.root / "index.json"), output_dir=str(self.staged),
             android_run_provenance=None, android_run_id=None, android_dir=None,
@@ -594,10 +594,10 @@ class ServerOnlyStagingTests(unittest.TestCase):
         desktop.assert_not_called()
         android.assert_not_called()
         names = {entry.name for entry in self.staged.iterdir()}
-        self.assertEqual(names, publish.release_assets("server", "0.2.5"))
+        self.assertEqual(names, publish.release_assets("server", "0.2.6"))
         provenance = json.loads((self.staged / "release-provenance.json").read_text(encoding="utf-8"))
         self.assertEqual(provenance["scope"], "server")
-        self.assertEqual(provenance["componentVersions"], {"server": "0.2.5", "web": "0.2.5"})
+        self.assertEqual(provenance["componentVersions"], {"server": "0.2.6", "web": "0.2.6"})
         self.assertNotIn("android", provenance)
         self.assertNotIn("desktop", provenance)
         notes = self.root / "notes.md"
@@ -605,22 +605,22 @@ class ServerOnlyStagingTests(unittest.TestCase):
         self.assertTrue(notes.is_file())
         release_path = self.root / "public.json"
         release_path.write_text(json.dumps({
-            "id": 77, "tag_name": "v0.2.5", "target_commitish": REVISION, "draft": False, "prerelease": False,
+            "id": 77, "tag_name": "v0.2.6", "target_commitish": REVISION, "draft": False, "prerelease": False,
             "url": f"https://api.github.com/repos/{publish.REPOSITORY}/releases/77",
             "assets": [{
                 "name": name, "state": "uploaded", "size": (self.staged / name).stat().st_size,
-                "browser_download_url": f"https://github.com/{publish.REPOSITORY}/releases/download/v0.2.5/{name}",
+                "browser_download_url": f"https://github.com/{publish.REPOSITORY}/releases/download/v0.2.6/{name}",
             } for name in sorted(names)],
         }), encoding="utf-8")
         latest_path = self.root / "latest.json"
-        latest_path.write_text(json.dumps({"id": 77, "tag_name": "v0.2.5"}), encoding="utf-8")
+        latest_path.write_text(json.dumps({"id": 77, "tag_name": "v0.2.6"}), encoding="utf-8")
         def downloaded(url):
             path = self.staged / url.rsplit("/", 1)[1]
             return path.stat().st_size, publish.sha256_file(path)
         with patch.object(publish, "hash_public_url", side_effect=downloaded):
             publish.verify_public_release(publish.argparse.Namespace(
                 scope="server", release_json=str(release_path), latest_json=str(latest_path),
-                staged=str(self.staged), source_revision=REVISION, release_tag="v0.2.5", image_tag="0.2.5",
+                staged=str(self.staged), source_revision=REVISION, release_tag="v0.2.6", image_tag="0.2.6",
             ))
 
     def test_run_provenance_scope_mismatch_blocks_staging_and_download(self):
@@ -652,10 +652,10 @@ class ServerOnlyStagingTests(unittest.TestCase):
         self.save_provenance()
         with patch.object(ci_artifact, "verify_desktop_artifact", return_value={}):
             publish.stage_release(self.args)
-        self.assertEqual({entry.name for entry in self.staged.iterdir()}, publish.release_assets("all", "0.2.5"))
+        self.assertEqual({entry.name for entry in self.staged.iterdir()}, publish.release_assets("all", "0.2.6"))
         provenance = json.loads((self.staged / "release-provenance.json").read_text(encoding="utf-8"))
         self.assertEqual(provenance["componentVersions"], {
-            "server": "0.2.5", "web": "0.2.5", "desktop": "0.2.4", "android": "0.2.4",
+            "server": "0.2.6", "web": "0.2.6", "desktop": "0.2.4", "android": "0.2.4",
         })
 
 

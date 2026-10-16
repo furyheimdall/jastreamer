@@ -552,15 +552,15 @@ def render_notes(args: argparse.Namespace) -> None:
     lines += [
         f"Server and Web assets were published from protected-main CI run {provenance['ciRunId']}, built from commit `{provenance['sourceRevision']}`.",
         "",
-        "## What's new in 0.2.5",
+        f"## What's new in {VERSION}",
         "",
-        "- Localized settings help and clearer public documentation and site content.",
-        "- An explicit Server-only publication path, without republishing Desktop or Android packages.",
+        "- Clarified a settings notice in the embedded Web UI.",
+        "- CI and build fixes supporting release verification and packaging.",
         "",
         "## Compatibility and safe updates",
         "",
-        "Server and its embedded Web UI are version 0.2.5. Desktop, Android and iOS versions remain 0.2.4.",
-        "Upgrading Server 0.2.4 to 0.2.5 preserves configuration version 1 and the existing database schema. No new-install reset is needed: preserve configuration, database, accounts, libraries, likes, play counts, playlists, queue and client profiles.",
+        f"Server and its embedded Web UI are version {VERSION}. Desktop, Android and iOS versions remain 0.2.4.",
+        f"Upgrading Server 0.2.5 to {VERSION} preserves configuration version 1 and the existing database schema. No new-install reset is needed: preserve configuration, database, accounts, libraries, likes, play counts, playlists, queue and client profiles.",
         "Stop playback and the Server only for an authorized deployment; preserve music mounts, permissions and writable configuration/data paths. Verify release checksums and provenance, pin Linux images by immutable digest, and replace only package-owned Windows files while retaining existing state.",
         "Retain the previous package/image and verify compatibility with the current database and configuration before rollback. Do not reset data or accounts.",
         "Do not uninstall Android or clear client storage when updating; preserve accounts, profiles and Saved music.",
@@ -586,7 +586,7 @@ def render_notes(args: argparse.Namespace) -> None:
         "",
     ]
     if args.scope == "server":
-        lines += ["This Server-only release contains no Desktop or Android packages.", ""]
+        lines += ["This Server-only release contains the Linux images, Windows Server package and embedded Web UI; no Desktop, Android or iOS packages are republished.", ""]
     else:
         android = provenance["android"]
         lines += [

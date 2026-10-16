@@ -16,7 +16,7 @@ import tempfile
 import zipfile
 from typing import Any
 
-VERSION = "0.2.5"
+VERSION = "0.2.6"
 PRODUCT = "jastreamer-server"
 PLATFORM = "win32"
 ARCH = "x64"

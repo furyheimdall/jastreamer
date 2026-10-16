@@ -3,7 +3,7 @@ package main
 import "runtime/debug"
 
 var (
-	productVersion = "0.2.5"
+	productVersion = "0.2.6"
 	sourceRevision = ""
 )
 

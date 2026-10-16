@@ -41,7 +41,7 @@
 
 ## Supported platforms
 
-The current Server release is 0.2.5. A Server on Linux or Windows indexes the local music you approve, hosts the Web interface, keeps accounts, likes, play counts, playlists and one shared queue in SQLite, and sends audio to a single selected output. UPnP/DLNA is built in, Google Cast is optional on both Server platforms, and AirPlay sending is available only in the Linux container. English is the default interface language; Korean is also supported.
+The current Server release is 0.2.6. A Server on Linux or Windows indexes the local music you approve, hosts the Web interface, keeps accounts, likes, play counts, playlists and one shared queue in SQLite, and sends audio to a single selected output. UPnP/DLNA is built in, Google Cast is optional on both Server platforms, and AirPlay sending is available only in the Linux container. English is the default interface language; Korean is also supported.
 
 | Role | Target | Package | Notes |
 | --- | --- | --- | --- |
@@ -99,7 +99,7 @@ Private-LAN HTTP encrypts neither credentials nor audio; use the built-in HTTPS 
 
 **How artifacts are built.** Public artifacts are produced only by GitHub Actions from the protected `main` branch. The release workflow republishes the exact bytes of a successful protected-`main` CI run, verifies every artifact against that run first, and refuses to overwrite an existing tag or registry reference. When a release includes Android, the workflow takes the unsigned APK from the matching Android CI run and signs it with the release key, then verifies the resulting signature. Each release records its source revision and ships machine-readable evidence: `SHA256SUMS` over all assets, `release-provenance.json` (repository, release tag, channel, source revision, CI runs, artifact records and, when Android is included, the Android signer certificate), per-package `*.manifest.json` and `*.verification.json` receipts, and a Server publication manifest listing each image's platform, immutable digest and digest reference. Verify these before installing.
 
-**Server-only releases.** [Server 0.2.5](https://github.com/furyheimdall/jastreamer/releases/tag/v0.2.5) covers the Linux `amd64`/`arm64` images, Windows Server and embedded Web UI only. Desktop and Android downloads remain at [0.2.4](https://github.com/furyheimdall/jastreamer/releases/tag/v0.2.4); iOS remains at 0.2.4 with source and CI only. Verify each package against the checksums and provenance of its own release. Protected-main CI, immutable publication evidence and deployment approval requirements are unchanged.
+**Server-only releases.** [Server 0.2.6](https://github.com/furyheimdall/jastreamer/releases/tag/v0.2.6) covers the Linux `amd64`/`arm64` images, Windows Server and embedded Web UI only. Desktop and Android downloads remain at [0.2.4](https://github.com/furyheimdall/jastreamer/releases/tag/v0.2.4); iOS remains at 0.2.4 with source and CI only. Verify each package against the checksums and provenance of its own release. Protected-main CI, immutable publication evidence and deployment approval requirements are unchanged.
 
 **Current signing status.**
 
