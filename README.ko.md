@@ -8,7 +8,12 @@
 
 <img src="assets/jastreamer.svg" width="80" height="80" alt="jastreamer 로고" />
 
-jastreamer Server 0.2.5는 신뢰하는 사설 LAN에서 쓰는 자체 호스팅 음악 서버입니다. Linux 또는 Windows Server가 사용자가 승인한 로컬 음악을 색인하고 Web 화면을 제공하며, 계정·좋아요·재생 횟수·플레이리스트와 공용 대기열 하나를 SQLite에 보관하고 선택한 출력 한 곳으로 오디오를 보냅니다. UPnP/DLNA는 기본 제공이고 Google Cast는 두 Server 플랫폼에서 선택적으로 켤 수 있으며, AirPlay 전송은 Linux 컨테이너에서만 사용할 수 있습니다. 기본 UI 언어는 영어이며 한국어도 지원합니다.
+**어느 화면에서든 재생하고, 원하는 곳에서 듣습니다.** jastreamer는 홈 네트워크용 자체 호스팅 음악 서버입니다. 컴퓨터나 휴대전화에서 조작하는 공용 대기열 하나를 브라우저, UPnP/DLNA, Google Cast, AirPlay 또는 USB DAC으로 재생합니다.
+
+<p>
+  <img src="site/assets/player-ko.webp" width="720" alt="데스크톱 jastreamer 대기열과 재생바. Mira Field의 Open Windows가 정지되어 있고 재생 기기 선택과 로컬 음량 조절이 보입니다." />
+  <img src="site/assets/mobile-ko.webp" width="220" alt="휴대전화 jastreamer 보관함에서 Mira Field의 After the Rain 앨범과 곡 목록을 보여 줍니다. 하단에는 정지 상태의 미니 플레이어와 보관함, 검색, 대기열, 설정 탭이 있습니다." />
+</p>
 
 ## 문서
 
@@ -35,6 +40,8 @@ jastreamer Server 0.2.5는 신뢰하는 사설 LAN에서 쓰는 자체 호스팅
 - iPhone·Android 휴대전화용 네 탭 화면과 접히는 재생 제어, 선택 사항인 설치형 Web 앱(PWA)
 
 ## 지원 플랫폼
+
+현재 Server 릴리즈는 0.2.5입니다. Linux 또는 Windows Server가 사용자가 승인한 로컬 음악을 색인하고 Web 화면을 제공하며, 계정·좋아요·재생 횟수·플레이리스트와 공용 대기열 하나를 SQLite에 보관하고 선택한 출력 한 곳으로 오디오를 보냅니다. UPnP/DLNA는 기본 제공이고 Google Cast는 두 Server 플랫폼에서 선택적으로 켤 수 있으며, AirPlay 전송은 Linux 컨테이너에서만 사용할 수 있습니다. 기본 UI 언어는 영어이며 한국어도 지원합니다.
 
 | 역할 | 대상 | 패키지 | 설명 |
 | --- | --- | --- | --- |

@@ -48,13 +48,14 @@ jobs:
           packages: "platform-tools platforms;android-36 build-tools;35.0.0 ndk;27.0.12077973 cmake;3.22.1"
       - name: Run the host tests for the USB descriptor and packet-sizing logic
         run: bash tooling/qa/usb-direct-native-tests.sh
-      - name: Run Android unit tests and lint; build debug and unsigned release APKs
+      - name: Run Android unit tests and lint; build app and instrumentation APKs before booting the emulator
         working-directory: apps/android
         run: >-
           ./gradlew --no-daemon --stacktrace
           :app:testDebugUnitTest
           :app:lint
           :app:assembleDebug
+          :app:assembleDebugAndroidTest
           :app:assembleRelease
       - name: Verify signing boundaries and record APK provenance
         shell: bash
@@ -138,6 +139,9 @@ jobs:
           target: google_apis
           arch: x86_64
           profile: pixel_6
+          # API 36 System UI cold startup saturated the default two guest CPUs.
+          # Build instrumentation above, then use the hosted runner's four cores.
+          cores: 4
           disable-animations: true
           enable-hw-keyboard: true
           script: bash tooling/qa/android-instrumentation-smoke.sh
