@@ -164,7 +164,7 @@ final class JastreamerUITests: XCTestCase {
         app.buttons["reload-web"].tap()
         let reloaded = XCTWaiter.wait(for: [XCTNSPredicateExpectation(
             predicate: NSPredicate { _, _ in
-                !app.progressIndicators.firstMatch.exists && web.buttons["보관함"].isHittable
+                !app.activityIndicators.firstMatch.exists && web.buttons["보관함"].isHittable
             },
             object: nil
         )], timeout: 15)
@@ -305,13 +305,17 @@ final class JastreamerUITests: XCTestCase {
         replaceText(in: address, with: origin)
         app.buttons["connect-server"].tap()
         allowLocalNetworkAccessIfRequested()
-        // Each caller waits for its actual setup, library, or boundary content next.
-        // Do not scan for arbitrary Web text here: native chrome and WebKit have
-        // separate accessibility snapshots during a profile switch.
-        XCTAssertTrue(
-            app.descendants(matching: .any)["web-control"].waitForExistence(timeout: 25),
-            "The verified Server must open its Web control: \(origin)"
-        )
+        // A mounted WebView can still be configuring its profile or loading.
+        // Wait on native loading state; callers then verify their actual Web content.
+        let loaded = XCTWaiter.wait(for: [XCTNSPredicateExpectation(
+            predicate: NSPredicate { _, _ in
+                app.descendants(matching: .any)["web-control"].exists
+                    && !app.activityIndicators.firstMatch.exists
+                    && !app.buttons["retry-web"].exists
+            },
+            object: nil
+        )], timeout: 25)
+        XCTAssertEqual(loaded, .completed, "The verified Server must finish loading its Web control: \(origin)")
         XCTAssertTrue(app.buttons["switch-server"].exists)
     }
 
