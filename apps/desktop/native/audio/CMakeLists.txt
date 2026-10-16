@@ -183,22 +183,29 @@ if(APPLE)
   endforeach()
 endif()
 if(WIN32)
-function(stage_ffmpeg_runtime target)
+function(stage_ffmpeg_runtime target directory)
   foreach(component IN ITEMS avformat avcodec avutil swresample)
     add_custom_command(TARGET ${target} POST_BUILD
       COMMAND "${CMAKE_COMMAND}" -E copy_if_different
         "$<TARGET_FILE:FFmpeg::${component}>"
-        "$<TARGET_FILE_DIR:${target}>"
+        "${directory}"
       VERBATIM)
   endforeach()
 endfunction()
+# Test executables share a configuration directory: only one target may write
+# its DLLs. The helper has a separate dist directory and keeps its own staging.
+add_custom_target(jastreamer-test-runtime
+  COMMAND "${CMAKE_COMMAND}" -E make_directory
+    "$<TARGET_FILE_DIR:jastreamer-decoder-smoke>"
+  VERBATIM)
+stage_ffmpeg_runtime(jastreamer-test-runtime "$<TARGET_FILE_DIR:jastreamer-decoder-smoke>")
+stage_ffmpeg_runtime(jastreamer-audio "$<TARGET_FILE_DIR:jastreamer-audio>")
 foreach(target IN ITEMS
-    jastreamer-audio
     jastreamer-decoder-smoke
     jastreamer-decoder-behavior
     jastreamer-packing-test
     jastreamer-protocol-smoke)
-  stage_ffmpeg_runtime(${target})
+  add_dependencies(${target} jastreamer-test-runtime)
 endforeach()
 endif()
 if(BUILD_TESTING)

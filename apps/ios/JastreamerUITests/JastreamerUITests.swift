@@ -81,6 +81,13 @@ final class JastreamerUITests: XCTestCase {
         XCTAssertLessThanOrEqual(webUsername.frame.maxY, min(web.frame.maxY, inputAccessory.frame.minY), "The focused Web field must remain above the keyboard and its accessory")
         attachScreenshot(name: "actual-web-account-keyboard")
         webUsername.typeText(username)
+        // XCTest's native idle signal does not mean WebKit has committed keyboard input.
+        // Establish the draft before testing whether a rotation preserves it.
+        let usernameEntered = XCTWaiter.wait(for: [XCTNSPredicateExpectation(
+            predicate: NSPredicate { _, _ in webUsername.value as? String == self.username },
+            object: nil
+        )], timeout: 10)
+        XCTAssertEqual(usernameEntered, .completed, "The Web username must receive all typed characters before rotation")
         XCUIDevice.shared.orientation = .landscapeLeft
         let landscapeVisibility = XCTWaiter.wait(for: [XCTNSPredicateExpectation(
             predicate: NSPredicate { _, _ in
@@ -298,17 +305,14 @@ final class JastreamerUITests: XCTestCase {
         replaceText(in: address, with: origin)
         app.buttons["connect-server"].tap()
         allowLocalNetworkAccessIfRequested()
-        // Native chrome can appear before WebKit starts loading; require rendered document content.
-        let connected = XCTWaiter.wait(for: [XCTNSPredicateExpectation(
-            predicate: NSPredicate { _, _ in
-                app.buttons["switch-server"].exists &&
-                    app.descendants(matching: .any)["web-control"].exists &&
-                    !app.progressIndicators.firstMatch.exists &&
-                    app.webViews.firstMatch.staticTexts.firstMatch.exists
-            },
-            object: nil
-        )], timeout: 25)
-        XCTAssertEqual(connected, .completed, "Failed to finish loading \(origin)")
+        // Each caller waits for its actual setup, library, or boundary content next.
+        // Do not scan for arbitrary Web text here: native chrome and WebKit have
+        // separate accessibility snapshots during a profile switch.
+        XCTAssertTrue(
+            app.descendants(matching: .any)["web-control"].waitForExistence(timeout: 25),
+            "The verified Server must open its Web control: \(origin)"
+        )
+        XCTAssertTrue(app.buttons["switch-server"].exists)
     }
 
     private func replaceText(in field: XCUIElement, with value: String) {
