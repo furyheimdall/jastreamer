@@ -8,7 +8,7 @@
 
 <img src="assets/jastreamer.svg" width="80" height="80" alt="jastreamer logo" />
 
-jastreamer Server 0.2.5 is a self-hosted music server for a trusted private LAN. A Server on Linux or Windows indexes the local music you approve, hosts the Web interface, keeps accounts, likes, play counts, playlists and one shared queue in SQLite, and sends audio to a single selected output. UPnP/DLNA is built in, Google Cast is optional on both Server platforms, and AirPlay sending is available only in the Linux container. English is the default interface language; Korean is also supported.
+**Play from any screen. Hear it where you choose.** jastreamer is a self-hosted music server for your home network: one shared queue you control from any computer or phone, playing to your browser, UPnP/DLNA, Google Cast, AirPlay, or a USB DAC.
 
 ## Documentation
 
@@ -35,6 +35,8 @@ jastreamer Server 0.2.5 is a self-hosted music server for a trusted private LAN.
 - Adapts to a four-tab iPhone/Android phone layout with collapsible controls and an optional installable PWA
 
 ## Supported platforms
+
+The current Server release is 0.2.5. A Server on Linux or Windows indexes the local music you approve, hosts the Web interface, keeps accounts, likes, play counts, playlists and one shared queue in SQLite, and sends audio to a single selected output. UPnP/DLNA is built in, Google Cast is optional on both Server platforms, and AirPlay sending is available only in the Linux container. English is the default interface language; Korean is also supported.
 
 | Role | Target | Package | Notes |
 | --- | --- | --- | --- |
