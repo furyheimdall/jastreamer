@@ -22,12 +22,12 @@ on:
       release_tag:
         description: Public GitHub release tag (vX.Y.Z for stable, vX.Y.Z-preview.N for a preview)
         required: true
-        default: v0.2.6
+        default: v0.2.7
         type: string
       image_tag:
         description: GHCR image tag without a leading v (X.Y.Z or X.Y.Z-preview.N)
         required: true
-        default: 0.2.6
+        default: 0.2.7
         type: string
 
 permissions:

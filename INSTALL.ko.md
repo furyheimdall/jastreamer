@@ -28,7 +28,7 @@ jastreamer는 Server 하나와 선택 사항인 클라이언트들로 이루어�
 | 구성 요소 | 요구 사항 | 패키지 |
 | --- | --- | --- |
 | Linux·Synology Server | Docker Engine과 Compose v2가 있는 Linux `amd64`·`arm64`, 또는 Container Manager가 있는 Synology DSM. `arm/v7`은 지원하지 않으며 DS918+는 `amd64` | `ghcr.io/furyheimdall/jastreamer-server` 이미지 |
-| Windows Server | Windows x64와 쓰기 가능한 로컬 폴더, 일반 사용자 계정으로 실행. Windows 서비스로 설치되지 않음 | `jastreamer-server_0.2.6_windows-x64.zip` |
+| Windows Server | Windows x64와 쓰기 가능한 로컬 폴더, 일반 사용자 계정으로 실행. Windows 서비스로 설치되지 않음 | `jastreamer-server_0.2.7_windows-x64.zip` |
 | Windows 데스크톱 앱 | Windows 10/11 x64. ARM64 패키지는 없음 | `jastreamer-desktop_0.2.4_windows-x64.zip` |
 | Linux 데스크톱 앱 | 그래픽 환경이 있는 Linux `amd64`. Ubuntu 24.04 amd64가 검증 대상이며 ARM64 패키지는 없음 | `jastreamer-desktop_0.2.4_linux-amd64.deb` |
 | macOS 데스크톱 앱 | Apple Silicon macOS 13 이상. Intel·Rosetta·Universal 빌드 없음 | `.app`이 포함된 공식 `jastreamer-desktop_0.2.4_macos-arm64-adhoc.dmg`, ad-hoc 서명·미공증 |
@@ -74,11 +74,11 @@ AirPlay는 Linux 이미지에 포함된 helper로만 제공됩니다. 위 포트
 
 가장 최근의 정식 릴리즈를 우선 사용하세요. [GitHub Releases 목록](https://github.com/furyheimdall/jastreamer/releases)에서 Preview 표시가 없는 `vX.Y.Z` 항목이며 `/releases/latest`도 이 릴리즈를 가리킵니다. `vX.Y.Z-preview.N` 프리릴리즈는 그 프리뷰를 일부러 시험할 때만 선택하고, 프리뷰는 결코 latest로 표시되지 않는다는 점을 기억하세요. 어느 쪽을 고르든 호스트 아키텍처와 필요한 패키지를 지원하는지 확인하고, 최신 항목이 호환되지 않으면 이유를 밝힌 뒤 가장 최근의 호환 항목을 사용합니다.
 
-Linux 이미지와 내장 Web 화면을 포함한 Windows Server는 [Server 0.2.6](https://github.com/furyheimdall/jastreamer/releases/tag/v0.2.6)를 사용하세요. 데스크톱·Android 패키지는 [0.2.4 릴리즈](https://github.com/furyheimdall/jastreamer/releases/tag/v0.2.4)를 유지하며 iOS는 소스·CI 전용입니다. 패키지·이미지마다 해당 릴리즈의 체크섬과 증거를 사용해 provenance, source revision, manifest, SHA-256, 아키텍처가 서로 맞는지 함께 검증하세요. `SHA256SUMS`는 각 릴리즈의 자산을 포함하고, `release-provenance.json`에는 해당 릴리즈의 태그·채널·소스 리비전·CI 실행과 Android를 포함할 때의 서명 인증서가 기록됩니다. 선택 사항인 샘플 설정은 선택한 릴리즈가 `samples/manifest.json`, MP3 세 개, seeding helper를 실제로 목록에 포함할 때만 적용됩니다. 게시되지 않은 저장소 파일을 이전 릴리즈의 기능이라고 설명해서는 안 됩니다.
+Linux 이미지와 내장 Web 화면을 포함한 Windows Server는 [Server 0.2.7](https://github.com/furyheimdall/jastreamer/releases/tag/v0.2.7)를 사용하세요. 데스크톱·Android 패키지는 [0.2.4 릴리즈](https://github.com/furyheimdall/jastreamer/releases/tag/v0.2.4)를 유지하며 iOS는 소스·CI 전용입니다. 패키지·이미지마다 해당 릴리즈의 체크섬과 증거를 사용해 provenance, source revision, manifest, SHA-256, 아키텍처가 서로 맞는지 함께 검증하세요. `SHA256SUMS`는 각 릴리즈의 자산을 포함하고, `release-provenance.json`에는 해당 릴리즈의 태그·채널·소스 리비전·CI 실행과 Android를 포함할 때의 서명 인증서가 기록됩니다. 선택 사항인 샘플 설정은 선택한 릴리즈가 `samples/manifest.json`, MP3 세 개, seeding helper를 실제로 목록에 포함할 때만 적용됩니다. 게시되지 않은 저장소 파일을 이전 릴리즈의 기능이라고 설명해서는 안 됩니다.
 
 ### 공개 레지스트리 이미지
 
-레지스트리는 `ghcr.io/furyheimdall/jastreamer-server`이며 공개 이미지는 GitHub 토큰 없이 받을 수 있습니다. 정식 릴리즈는 멀티 아키텍처 index를 `0.2.6` 태그로 게시하고 아키텍처별 다이제스트도 함께 제공하며, 가변 `latest` 이미지 태그는 만들지 않습니다. 태그 대신 릴리즈가 명시한 `linux/amd64` 또는 `linux/arm64` 이미지의 완전한 불변 다이제스트를 고정하세요.
+레지스트리는 `ghcr.io/furyheimdall/jastreamer-server`이며 공개 이미지는 GitHub 토큰 없이 받을 수 있습니다. 정식 릴리즈는 멀티 아키텍처 index를 `0.2.7` 태그로 게시하고 아키텍처별 다이제스트도 함께 제공하며, 가변 `latest` 이미지 태그는 만들지 않습니다. 태그 대신 릴리즈가 명시한 `linux/amd64` 또는 `linux/arm64` 이미지의 완전한 불변 다이제스트를 고정하세요.
 
 ```sh
 export JASTREAMER_SERVER_IMAGE='ghcr.io/furyheimdall/jastreamer-server@sha256:<digest-from-release>'
@@ -94,7 +94,7 @@ docker image inspect --format '{{.Os}}/{{.Architecture}} {{.Id}}' "$JASTREAMER_S
 ZIP에 Authenticode 서명이 없기 때문에 Windows는 인터넷에서 받은 파일로 표시하고, 압축을 푼 프로그램을 처음 실행할 때 SmartScreen 경고가 뜰 수 있습니다. 표시가 모든 파일로 복사되지 않도록 압축을 풀기 **전에** 차단을 해제하세요.
 
 - 탐색기에서: ZIP 파일 우클릭 → **속성** → **차단 해제** 체크 → **확인**
-- PowerShell에서: `Unblock-File -LiteralPath .\jastreamer-server_0.2.6_windows-x64.zip`
+- PowerShell에서: `Unblock-File -LiteralPath .\jastreamer-server_0.2.7_windows-x64.zip`
 
 차단 해제는 릴리즈의 SHA-256과 대조해 검증한 파일에만 적용하세요. SmartScreen·Defender·방화벽을 끄거나 패키지를 관리자 권한으로 실행하지 마세요.
 
@@ -114,11 +114,11 @@ sha256sum -c SHA256SUMS
 ```sh
 ARCH=amd64  # 또는 arm64
 skopeo copy --override-os linux --override-arch "$ARCH" \
-  oci-archive:jastreamer-server_0.2.6_linux_amd64-arm64.oci \
-  docker-archive:jastreamer-server_0.2.6_linux_${ARCH}.tar:jastreamer-server:0.2.6
-sha256sum jastreamer-server_0.2.6_linux_${ARCH}.tar
-docker load --input jastreamer-server_0.2.6_linux_${ARCH}.tar
-docker image inspect --format '{{.Id}}' jastreamer-server:0.2.6
+  oci-archive:jastreamer-server_0.2.7_linux_amd64-arm64.oci \
+  docker-archive:jastreamer-server_0.2.7_linux_${ARCH}.tar:jastreamer-server:0.2.7
+sha256sum jastreamer-server_0.2.7_linux_${ARCH}.tar
+docker load --input jastreamer-server_0.2.7_linux_${ARCH}.tar
+docker image inspect --format '{{.Id}}' jastreamer-server:0.2.7
 ```
 
 <a id="linux-server"></a>
@@ -194,7 +194,7 @@ Synology Container Manager에서는 같은 Compose 파일과 `.env` 값을 **프
 선택한 릴리즈에서 Windows Server ZIP과 `.sha256`, manifest, 검증 영수증을 내려받고 [ZIP 차단을 해제](#windows-unblock)한 뒤, 압축을 풀기 전에 바이트를 대조합니다.
 
 ```powershell
-$file = '.\jastreamer-server_0.2.6_windows-x64.zip'
+$file = '.\jastreamer-server_0.2.7_windows-x64.zip'
 $expected = (Get-Content "$file.sha256" -Raw).Split()[0].ToLowerInvariant()
 $actual = (Get-FileHash $file -Algorithm SHA256).Hash.ToLowerInvariant()
 if ($actual -ne $expected) { throw 'Windows Server ZIP checksum mismatch' }

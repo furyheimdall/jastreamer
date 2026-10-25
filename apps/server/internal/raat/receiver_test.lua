@@ -201,6 +201,23 @@ native.stream.stats.samples_out=8;native.stream.stats.samples_dropped=4;native.s
 native.now=native.start+native.delay+83334
 code,data=rpc(11);check(code==0 and snap(data)[1]==4,'only post-EOF zero-fill may complete')
 close()
+reset();rpc(10);native.delay=322000000;setup(16,8,8)
+audio_pcm(0,4,string.rep('\0',16));native.audio:deliver('\7');check(rpc(4)==0,'delayed output starts')
+-- A native reader fills the output pipeline ahead of the presentation clock.
+local skipped=math.max(0,(native.now+native.delay-native.start)*48000//1000000000)
+native.stream.stats.samples_out=4;native.stream.stats.samples_dropped=math.min(4,skipped)
+native.stream.stats.fill_samples=0;native.now=native.start+native.delay+83334
+code,data=rpc(11)
+check(code==0 and snap(data)[1]==4,'output latency must not skip initial source frames and fail at EOF')
+close()
+reset();rpc(10);native.now=math.maxinteger-300000000;native.delay=322000000;setup(16,8,8)
+audio_pcm(0,4,string.rep('\0',16));native.audio:deliver('\7')
+check(rpc(4)==1 and native.start==nil,'unrepresentable delayed start must not reach native output')
+close()
+reset();rpc(10);setup(16,8,8);audio_pcm(0,4,string.rep('\0',16));native.audio:deliver('\7');rpc(4)
+native.stream.stats.samples_out=8;native.stream.stats.samples_dropped=5;native.stream.stats.fill_samples=0
+code=rpc(11);check(code==1,'source loss beyond EOF zero-fill remains terminal')
+close()
 reset();rpc(10);native.defer_setup=true;setup(16,8,4);local stale=native.pending_setup
 native.defer_setup=false;setup(24,8,4);local live=native.tokens[#native.tokens]
 stale.callbacks.on_setup(true,stale)
