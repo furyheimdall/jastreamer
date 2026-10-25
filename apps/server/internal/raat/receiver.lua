@@ -288,8 +288,9 @@ local function try_start(s)
     if not cx then return end
     refresh(s)
     if s.fill < s.ready and not (s.eof and s.fill > 0) then return end
-    if s.time > math.maxinteger - 250000000 then error("device clock overflow", 0) end
-    s.start = s.time + 250000000
+    -- Native readers fill the output pipeline before the presentation deadline.
+    if s.time > math.maxinteger - s.delay - 250000000 then error("device clock overflow", 0) end
+    s.start = s.time + s.delay + 250000000
     s.started = true
     call(output.start, s.token, s.start, 0, s.stream)
     if current ~= s or s.state == 6 then error("output lost while starting", 0) end

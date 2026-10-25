@@ -41,7 +41,7 @@
 
 ## 지원 플랫폼
 
-현재 Server 릴리즈는 0.2.6입니다. Linux 또는 Windows Server가 사용자가 승인한 로컬 음악을 색인하고 Web 화면을 제공하며, 계정·좋아요·재생 횟수·플레이리스트와 공용 대기열 하나를 SQLite에 보관하고 선택한 출력 한 곳으로 오디오를 보냅니다. UPnP/DLNA는 기본 제공이고 Google Cast는 두 Server 플랫폼에서 선택적으로 켤 수 있으며, AirPlay 전송은 Linux 컨테이너에서만 사용할 수 있습니다. 기본 UI 언어는 영어이며 한국어도 지원합니다.
+현재 Server 릴리즈는 0.2.7입니다. Linux 또는 Windows Server가 사용자가 승인한 로컬 음악을 색인하고 Web 화면을 제공하며, 계정·좋아요·재생 횟수·플레이리스트와 공용 대기열 하나를 SQLite에 보관하고 선택한 출력 한 곳으로 오디오를 보냅니다. UPnP/DLNA는 기본 제공이고 Google Cast는 두 Server 플랫폼에서 선택적으로 켤 수 있으며, AirPlay 전송은 Linux 컨테이너에서만 사용할 수 있습니다. 기본 UI 언어는 영어이며 한국어도 지원합니다.
 
 | 역할 | 대상 | 패키지 | 설명 |
 | --- | --- | --- | --- |
@@ -99,7 +99,7 @@
 
 **빌드 방식.** 공개 산출물은 보호된 `main` 브랜치에서 GitHub Actions만 만듭니다. 릴리즈 워크플로는 성공한 보호된 `main` CI 실행의 바이트를 그대로 게시하되 사전에 모든 산출물을 그 실행과 대조해 검증하며, 이미 존재하는 태그나 레지스트리 참조는 덮어쓰지 않습니다. Android를 포함하는 릴리즈에서는 같은 리비전의 Android CI가 만든 미서명 APK를 워크플로가 release 키로 서명한 뒤 그 서명을 다시 검증합니다. 각 릴리즈는 사용한 소스 리비전을 기록하고 기계가 읽을 수 있는 증거를 함께 제공합니다. 모든 자산의 `SHA256SUMS`, 저장소·릴리즈 태그·채널·소스 리비전·CI 실행·산출물 기록과 Android를 포함할 때의 서명 인증서가 담긴 `release-provenance.json`, 패키지별 `*.manifest.json`·`*.verification.json` 확인서, 그리고 이미지별 플랫폼·불변 다이제스트·다이제스트 참조를 담은 Server 배포 manifest입니다. 설치 전에 이 값들을 검증하세요.
 
-**Server 전용 릴리즈.** [Server 0.2.6](https://github.com/furyheimdall/jastreamer/releases/tag/v0.2.6)는 Linux `amd64`·`arm64` 이미지, Windows Server와 내장 Web 화면만 대상으로 합니다. 데스크톱·Android 다운로드는 [0.2.4](https://github.com/furyheimdall/jastreamer/releases/tag/v0.2.4)를 유지하며, iOS도 소스·CI 전용인 0.2.4를 유지합니다. 각 패키지는 해당 릴리즈의 체크섬과 provenance로 검증하세요. 보호된 main CI, 불변 배포 증거와 배포 승인 요건은 바뀌지 않습니다.
+**Server 전용 릴리즈.** [Server 0.2.7](https://github.com/furyheimdall/jastreamer/releases/tag/v0.2.7)는 Linux `amd64`·`arm64` 이미지, Windows Server와 내장 Web 화면만 대상으로 합니다. 데스크톱·Android 다운로드는 [0.2.4](https://github.com/furyheimdall/jastreamer/releases/tag/v0.2.4)를 유지하며, iOS도 소스·CI 전용인 0.2.4를 유지합니다. 각 패키지는 해당 릴리즈의 체크섬과 provenance로 검증하세요. 보호된 main CI, 불변 배포 증거와 배포 승인 요건은 바뀌지 않습니다.
 
 **현재 서명 상태.**
 

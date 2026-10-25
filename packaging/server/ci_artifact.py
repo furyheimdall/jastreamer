@@ -14,7 +14,7 @@ from typing import Any
 
 import windows_package
 
-VERSION = "0.2.6"
+VERSION = "0.2.7"
 DESKTOP_VERSION = "0.2.4"
 ANDROID_VERSION = "0.2.4"
 SHA256 = re.compile(r"[0-9a-f]{64}")
