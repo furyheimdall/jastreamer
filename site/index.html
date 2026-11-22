@@ -34,6 +34,7 @@
           <li><a href="#listening">Listening</a></li>
           <li><a href="#features">Library</a></li>
           <li><a href="#download">Download</a></li>
+          <li><a href="#jasp">Raspberry Pi</a></li>
           <li><a href="#setup">Setup</a></li>
           <li><a href="https://github.com/furyheimdall/jastreamer/blob/main/INSTALL.md">Docs</a></li>
           <li><a href="https://github.com/furyheimdall/jastreamer">Source</a></li>
@@ -376,13 +377,15 @@
         </div>
 
         <div class="dl-group" id="jasp">
-          <h3 id="dl-jasp">Raspberry Pi <small>Separate native touchscreen frontend.</small></h3>
+          <h3 id="dl-jasp">Raspberry Pi <small>Native touchscreen player for a dedicated listening setup.</small></h3>
           <ul class="dl-rows" aria-labelledby="dl-jasp">
             <li class="dl-row">
               <div>
                 <h4>Jasp <span class="tag tag-ok">ARM64</span></h4>
-                <p class="dl-meta">Debian package · 64-bit Raspberry Pi OS (Trixie)</p>
-                <p class="limits">Browse the Server library, manage its queue, and play original FLAC through a USB DAC attached to the Pi. Run Jasp as a desktop app or a fullscreen kiosk. Jasp also offers an optional native frontend for the local moOde UI.</p>
+                <p class="dl-meta">Debian package · 64-bit Raspberry Pi OS (Trixie) · Desktop or Lite kiosk</p>
+                <p class="limits"><strong>jastreamer mode:</strong> Connects to an existing jastreamer Server to browse its library and manage its queue. The Pi is the player, not the Server.</p>
+                <p class="limits"><strong>Audio output:</strong> Jasp plays original mono or stereo FLAC directly to a USB DAC attached to the Pi. Use the jastreamer web interface to set up network outputs.</p>
+                <p class="limits"><strong>Optional moOde UI frontend:</strong> Replaces only the local web player on a Pi already running moOde. The moOde backend, MPD, and library stay in place.</p>
               </div>
               <div class="dl-actions">
                 <a class="button button-primary" href="https://github.com/furyheimdall/jasp/releases">Jasp releases</a>
