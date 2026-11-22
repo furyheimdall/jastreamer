@@ -48,13 +48,14 @@ The current Server release is 0.2.7. A Server on Linux or Windows indexes the lo
 | Server | Linux `amd64`/`arm64`, incl. Synology | Container image | Web interface, Python 3.12, audio-only FFmpeg 8.1.2, pyatv 0.18.0 AirPlay sender |
 | Server | Windows x64 | Portable ZIP | Web interface, UPnP/DLNA, optional Cast; no AirPlay and no FFmpeg; not a Windows service |
 | Desktop client | Windows 10/11 x64 | Portable ZIP | Browser audio plus opt-in WASAPI Shared/Exclusive output and Windows media controls ([Windows audio](INSTRUCTION.md#windows-audio)) |
-| Desktop client | Linux `amd64` | DEB | Browser audio only; no Linux ARM64 desktop package |
+| Desktop client | Linux `amd64` | DEB | Browser audio only; for Raspberry Pi ARM64, use Jasp below |
 | Desktop client | Apple Silicon macOS 13+ (`arm64`) | Official `jastreamer-desktop_0.2.4_macos-arm64-adhoc.dmg` containing `jastreamer.app` | Ad-hoc signed, not notarized; browser audio plus opt-in CoreAudio Shared/Exclusive USB DAC output and macOS Now Playing/system media controls. No Intel, Rosetta or Universal build ([macOS](INSTALL.md#desktop-macos)) |
+| [Jasp](https://github.com/furyheimdall/jasp) | 64-bit Raspberry Pi OS (Trixie) | [Separate ARM64 DEB](https://github.com/furyheimdall/jasp/releases) | Native Rust touchscreen client for an existing Server; original FLAC to a USB DAC via ALSA, optional moOde frontend |
 | Mobile client | Android 10+ | Signed `jastreamer-android_0.2.4_release.apk` from [release 0.2.4](https://github.com/furyheimdall/jastreamer/releases/tag/v0.2.4) | Media3 local playback with system media controls, opt-in bit-perfect direct USB output to a connected USB Audio Class DAC, and an offline **Saved music** library ([Android](INSTALL.md#android)) |
 | Mobile client | iOS/iPadOS 18.4+ | [iOS CI](https://github.com/furyheimdall/jastreamer/actions/workflows/ios.yml) and source only | Controller-only client; no installable package, TestFlight or App Store release ([iOS](INSTALL.md#ios)) |
 | Browser or PWA | Any current LAN browser | Served by the Server | Phone layout for iPhone and Android phone browsers; PWA installation needs trusted HTTPS ([PWA](INSTALL.md#pwa)) |
 
-Desktop and mobile clients all display the same Server-hosted Web interface. Install the Android APK attached to a release; CI APKs remain development artifacts, and jastreamer is not distributed through the Play Store.
+The jastreamer Desktop and mobile clients display the Server-hosted Web interface. Jasp is a separate native UI, with desktop and fullscreen kiosk modes. Install the Android APK attached to a release; CI APKs remain development artifacts, and jastreamer is not distributed through the Play Store.
 
 ## Quick start
 

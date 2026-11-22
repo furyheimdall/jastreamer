@@ -247,7 +247,7 @@
         <div class="section-head">
           <p class="section-kicker">내 보관함</p>
           <h2 id="features-title">남의 클라우드가 아니라 내 네트워크에 있는 음악 보관함.</h2>
-          <p>jastreamer는 사용자가 보유한 로컬 파일만 재생합니다. 상태는 Server가 보관하고, 모든 브라우저·데스크톱 앱·휴대전화가 Server가 제공하는 같은 화면을 표시합니다.</p>
+          <p>jastreamer는 사용자가 보유한 로컬 파일만 재생합니다. 상태는 Server가 관리하고 웹과 앱은 보관함과 대기열을 공유합니다. Raspberry Pi에는 네이티브 프런트엔드 <a href="#jasp">Jasp</a>를 사용할 수 있습니다.</p>
         </div>
 
         <ul class="feature-list">
@@ -303,7 +303,8 @@
           <span class="notice-icon" aria-hidden="true">i</span>
           <div>
             <p id="server-note-title"><strong>모든 클라이언트에는 실행 중인 jastreamer Server가 필요합니다.</strong></p>
-            <p>데스크톱 앱, 휴대전화 브라우저, PWA는 모두 Server가 제공하는 Web 화면을 표시합니다. 유일한 예외는 Android 앱의 <strong>저장된 음악</strong>으로, 휴대전화에 이미 가져온 음악을 Server 없이 재생합니다.</p>
+            <p>데스크톱 앱, 휴대전화 브라우저, PWA는 Server가 제공하는 Web 화면을 표시합니다. Android의 <strong>저장된 음악</strong>에서는 휴대전화에 이미 가져온 음악을 Server 없이도 재생할 수 있습니다.</p>
+            <p><a href="#jasp">Jasp</a>는 자체 네이티브 화면으로 같은 Server에 연결합니다.</p>
           </div>
         </div>
 
@@ -364,11 +365,28 @@
               <div>
                 <h4>Linux amd64</h4>
                 <p class="dl-meta">Debian 패키지 · <code>jastreamer-desktop_0.2.4_linux-amd64.deb</code></p>
-                <p class="limits">브라우저 오디오만 지원합니다. 검증 대상은 Ubuntu 24.04 amd64이며 ARM64 패키지는 없습니다. 의존성이 해결되도록 APT로 설치하세요.</p>
+                <p class="limits">브라우저 오디오만 지원하며 검증 대상은 Ubuntu 24.04 amd64입니다. Raspberry Pi ARM64에는 <a href="#jasp">Jasp</a>를 사용하세요. 의존성이 해결되도록 APT로 설치하세요.</p>
               </div>
               <div class="dl-actions">
                 <a class="button button-primary" href="https://github.com/furyheimdall/jastreamer/releases/download/v0.2.4/jastreamer-desktop_0.2.4_linux-amd64.deb">DEB 내려받기</a>
                 <a class="text-link" href="https://github.com/furyheimdall/jastreamer/blob/main/INSTALL.ko.md#desktop-linux">Linux 데스크톱 안내</a>
+              </div>
+            </li>
+          </ul>
+        </div>
+
+        <div class="dl-group" id="jasp">
+          <h3 id="dl-jasp">Raspberry Pi <small>별도의 네이티브 터치 프런트엔드.</small></h3>
+          <ul class="dl-rows" aria-labelledby="dl-jasp">
+            <li class="dl-row">
+              <div>
+                <h4>Jasp <span class="tag tag-ok">ARM64</span></h4>
+                <p class="dl-meta">Debian 패키지 · 64비트 Raspberry Pi OS (Trixie)</p>
+                <p class="limits">Server의 라이브러리를 탐색하고 대기열을 관리하며, Pi에 연결된 USB DAC으로 원본 FLAC을 재생합니다. 데스크톱 앱이나 전체 화면 키오스크로 실행할 수 있고, moOde는 선택 사항입니다.</p>
+              </div>
+              <div class="dl-actions">
+                <a class="button button-primary" href="https://github.com/furyheimdall/jasp/releases">Jasp 릴리스</a>
+                <a class="text-link" href="https://github.com/furyheimdall/jasp/blob/main/README.ko.md#스크린샷">스크린샷과 설치 안내</a>
               </div>
             </li>
           </ul>
