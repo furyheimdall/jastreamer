@@ -12,6 +12,7 @@ jastreamer는 Server 하나와 선택 사항인 클라이언트들로 이루어�
 | Windows에서 Server 실행 | [Windows Server](#windows-server) |
 | 기존 Server에 접속할 데스크톱 앱 추가 | [Windows ZIP](#desktop-windows) 또는 [Linux DEB](#desktop-linux) |
 | Apple Silicon 데스크톱 Controller 설치 | [공식 macOS arm64 ad-hoc DMG](#desktop-macos) |
+| Raspberry Pi를 네이티브 터치 프런트엔드로 사용 | [Jasp 설치·ARM64 패키지](https://github.com/furyheimdall/jasp/blob/main/README.ko.md#설치와-실행), 기존 Server에 연결하는 별도 앱 |
 | 네이티브 Android 클라이언트 추가 | [Android APK](#android) |
 | 네이티브 iOS 클라이언트 개발·검증 | 기기 설치가 아닌 [iOS 소스와 CI](#ios) |
 | 휴대전화 사용 또는 홈 화면 앱 설치 | [휴대전화 PWA](#pwa) |

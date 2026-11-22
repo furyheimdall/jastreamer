@@ -247,7 +247,7 @@
         <div class="section-head">
           <p class="section-kicker">Your library</p>
           <h2 id="features-title">A music library that lives on your network, not in someone else’s cloud.</h2>
-          <p>jastreamer plays only local files you own. The Server keeps the state; every browser, desktop app and phone shows the same Server-hosted interface.</p>
+          <p>jastreamer plays only local files you own. The Server keeps the state; Web and app clients share its library and queue. <a href="#jasp">Jasp</a> adds a native Raspberry Pi frontend.</p>
         </div>
 
         <ul class="feature-list">
@@ -303,7 +303,8 @@
           <span class="notice-icon" aria-hidden="true">i</span>
           <div>
             <p id="server-note-title"><strong>Every client needs a running jastreamer Server.</strong></p>
-            <p>Desktop apps, phone browsers and the PWA all display the Server-hosted Web interface. The only exception is the Android app’s <strong>Saved music</strong>, which plays music already imported to the phone without a Server.</p>
+            <p>Desktop apps, phone browsers and the PWA display the Server-hosted Web interface. On Android, <strong>Saved music</strong> also plays music already imported to the phone without a Server.</p>
+            <p><a href="#jasp">Jasp</a> connects to the same Server using its own native UI.</p>
           </div>
         </div>
 
@@ -364,11 +365,28 @@
               <div>
                 <h4>Linux amd64</h4>
                 <p class="dl-meta">Debian package · <code>jastreamer-desktop_0.2.4_linux-amd64.deb</code></p>
-                <p class="limits">Browser audio only. Ubuntu 24.04 amd64 is the qualification target; no ARM64 package. Install through APT so dependencies resolve.</p>
+                <p class="limits">Browser audio only. Ubuntu 24.04 amd64 is the qualification target. For Raspberry Pi ARM64, use <a href="#jasp">Jasp</a>. Install through APT so dependencies resolve.</p>
               </div>
               <div class="dl-actions">
                 <a class="button button-primary" href="https://github.com/furyheimdall/jastreamer/releases/download/v0.2.4/jastreamer-desktop_0.2.4_linux-amd64.deb">Download DEB</a>
                 <a class="text-link" href="https://github.com/furyheimdall/jastreamer/blob/main/INSTALL.md#desktop-linux">Linux desktop guide</a>
+              </div>
+            </li>
+          </ul>
+        </div>
+
+        <div class="dl-group" id="jasp">
+          <h3 id="dl-jasp">Raspberry Pi <small>Separate native touchscreen frontend.</small></h3>
+          <ul class="dl-rows" aria-labelledby="dl-jasp">
+            <li class="dl-row">
+              <div>
+                <h4>Jasp <span class="tag tag-ok">ARM64</span></h4>
+                <p class="dl-meta">Debian package · 64-bit Raspberry Pi OS (Trixie)</p>
+                <p class="limits">Browse the Server library, manage its queue, and play original FLAC through a USB DAC attached to the Pi. Run Jasp as a desktop app or a fullscreen kiosk. Jasp also offers an optional native frontend for the local moOde UI.</p>
+              </div>
+              <div class="dl-actions">
+                <a class="button button-primary" href="https://github.com/furyheimdall/jasp/releases">Jasp releases</a>
+                <a class="text-link" href="https://github.com/furyheimdall/jasp#install-and-run">Installation guide</a>
               </div>
             </li>
           </ul>

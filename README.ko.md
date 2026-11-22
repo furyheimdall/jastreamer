@@ -48,13 +48,14 @@
 | Server | Linux `amd64`·`arm64`, Synology 포함 | 컨테이너 이미지 | Web 화면, Python 3.12, 오디오 전용 FFmpeg 8.1.2, pyatv 0.18.0 AirPlay 송신 프로그램 |
 | Server | Windows x64 | 무설치 ZIP | Web 화면, UPnP/DLNA, 선택적 Cast. AirPlay와 FFmpeg은 없고 Windows 서비스도 아님 |
 | 데스크톱 앱 | Windows 10/11 x64 | 무설치 ZIP | 브라우저 오디오와 선택적 WASAPI 공유·독점 출력, Windows 미디어 제어([Windows 오디오](INSTRUCTION.ko.md#windows-audio)) |
-| 데스크톱 앱 | Linux `amd64` | DEB | 브라우저 오디오만 지원. Linux ARM64 데스크톱 패키지는 없음 |
+| 데스크톱 앱 | Linux `amd64` | DEB | 브라우저 오디오만 지원. Raspberry Pi ARM64는 아래 Jasp 사용 |
 | 데스크톱 앱 | Apple Silicon macOS 13 이상 (`arm64`) | `jastreamer.app`이 포함된 공식 `jastreamer-desktop_0.2.4_macos-arm64-adhoc.dmg` | ad-hoc 서명·미공증. 브라우저 오디오와 선택적 CoreAudio 공유·독점 USB DAC 출력, macOS 지금 재생 중·시스템 미디어 제어. Intel·Rosetta·Universal 빌드 없음([macOS](INSTALL.ko.md#desktop-macos)) |
+| [Jasp](https://github.com/furyheimdall/jasp/blob/main/README.ko.md) | 64비트 Raspberry Pi OS (Trixie) | [별도 ARM64 DEB](https://github.com/furyheimdall/jasp/releases) | 기존 Server에 연결하는 Rust 네이티브 터치 앱. ALSA로 원본 FLAC을 USB DAC에 직접 출력하며 moOde는 선택 사항 |
 | 모바일 앱 | Android 10 이상 | [0.2.4 릴리즈](https://github.com/furyheimdall/jastreamer/releases/tag/v0.2.4)에 첨부된 서명 APK `jastreamer-android_0.2.4_release.apk` | 시스템 미디어 제어가 있는 Media3 로컬 재생, 연결된 USB 오디오 클래스 DAC으로 직접 출력하는 선택적 USB 비트 퍼펙트, 오프라인 **저장된 음악**([Android 설치](INSTALL.ko.md#android)) |
 | 모바일 앱 | iOS/iPadOS 18.4 이상 | [iOS CI](https://github.com/furyheimdall/jastreamer/actions/workflows/ios.yml)와 소스만 제공 | 제어 전용 앱. 설치 가능한 패키지, TestFlight, App Store 배포 없음([iOS 개발 범위](INSTALL.ko.md#ios)) |
 | 브라우저·PWA | LAN의 최신 브라우저 | Server가 직접 제공 | iPhone·Android 휴대전화 브라우저는 휴대전화 화면 사용, PWA 설치에는 신뢰할 수 있는 HTTPS 필요([PWA](INSTALL.ko.md#pwa)) |
 
-데스크톱과 모바일 앱은 모두 Server가 제공하는 같은 Web 화면을 표시합니다. Android는 릴리즈에 첨부된 APK를 설치하세요. CI가 만드는 APK는 여전히 개발용 산출물이며, jastreamer는 Play Store로 배포하지 않습니다.
+jastreamer 데스크톱·모바일 앱은 Server가 제공하는 Web 화면을 표시합니다. Jasp는 데스크톱 모드와 전체 화면 키오스크를 지원하는 별도 네이티브 UI입니다. Android는 릴리즈에 첨부된 APK를 설치하세요. CI가 만드는 APK는 개발용 산출물이며, jastreamer는 Play Store로 배포하지 않습니다.
 
 ## 빠른 시작
 

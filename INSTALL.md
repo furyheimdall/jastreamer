@@ -12,6 +12,7 @@ Releases are published on [GitHub Releases](https://github.com/furyheimdall/jast
 | Run a Server on Windows | [Windows Server](#windows-server) |
 | Add a desktop client to an existing Server | [Windows ZIP](#desktop-windows) or [Linux DEB](#desktop-linux) |
 | Install the Apple Silicon desktop Controller | [Official macOS arm64 ad-hoc DMG](#desktop-macos) |
+| Use a Raspberry Pi as a native touchscreen frontend | [Jasp installation and ARM64 package](https://github.com/furyheimdall/jasp#install-and-run), a separate client for an existing Server |
 | Add the native Android client | [Android APK](#android) |
 | Develop or verify the native iOS client | [iOS source and CI](#ios), not device installation |
 | Use a phone or install its home-screen app | [Phone PWA](#pwa) |
